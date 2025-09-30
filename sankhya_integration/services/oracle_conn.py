@@ -73,6 +73,7 @@ DEFAULT_PARAMS = {
     'PROD_DESCARTE': 910,
     # Flags de controle para automação
     'AUTO_DUPLICATE_CLASSIFICATION': True,
+    'AUTO_DUPLICATE_ON_SAVE': True,    # Duplicar ao salvar item classificável
     'AUTO_CREATE_VALE_COMPRA': False,  # Será implementado na tela Comercial
     'FALLBACK_MANUAL_ENABLED': True,
 }
@@ -3683,16 +3684,22 @@ def duplicate_to_classification(nunota_11: int, dry_run: bool = True) -> dict:
                 res['errors'].append('Nenhum controle encontrado nos itens da nota')
                 return res
             
-            # 3. Verificar se já existe TOP 26 para algum controle
-            for controle in controles:
-                cur.execute("""
-                    SELECT COUNT(*) FROM TGFITE i
+            # 3. Verificar se já existe TOP 26 para algum controle (buscar mais recente)
+            nunota_26_existente = None
+            if controles:
+                controles_str = ','.join([f"'{c}'" for c in controles])
+                cur.execute(f"""
+                    SELECT i.NUNOTA FROM TGFITE i
                     JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-                    WHERE i.CODAGREGACAO = :ctrl AND c.CODTIPOPER = :top
-                """, ctrl=controle, top=TOP_CLASS)
+                    WHERE i.CODAGREGACAO IN ({controles_str}) 
+                    AND c.CODTIPOPER = :top
+                    ORDER BY c.DTMOV DESC, i.NUNOTA DESC
+                """, top=TOP_CLASS)
                 
-                if cur.fetchone()[0] > 0:
-                    res['warnings'].append(f'TOP 26 já existe para controle {controle}')
+                row = cur.fetchone()
+                if row:
+                    nunota_26_existente = int(row[0])
+                    res['warnings'].append(f'TOP 26 já existe: NUNOTA {nunota_26_existente}')
             
             # 4. Contar itens classificáveis
             cur.execute("""
@@ -3716,32 +3723,63 @@ def duplicate_to_classification(nunota_11: int, dry_run: bool = True) -> dict:
                 res['ok'] = True
                 return res
             
-            # 5. Duplicar TGFCAB (TOP 11 → TOP 26)
+            # 5. Usar TOP 26 existente ou criar nova
+            if nunota_26_existente:
+                # Usar TOP 26 existente
+                nunota_26 = nunota_26_existente
+                res['nunota_26'] = nunota_26
+                res['warnings'].append(f'Usando TOP 26 existente: {nunota_26}')
+            else:
+                # Criar nova TOP 26
+                # Primeiro, obter dados da nota original
+                cur.execute("""
+                    SELECT CODEMP, CODPARC, CODNAT, CODCENCUS, DTNEG, DTMOV, DTENTSAI,
+                           CODVEND, CODPARCTRANSP, CODPROJ, NUMNOTA, OBSERVACAO
+                    FROM TGFCAB WHERE NUNOTA = :n
+                """, n=nunota_11)
+                orig_data = cur.fetchone()
+                
+                if not orig_data:
+                    res['errors'].append('Cabeçalho da nota original não encontrado')
+                    return res
+                
+                # Criar dados para TOP 26
+                cab_data = {
+                    'CODEMP': orig_data[0],
+                    'CODPARC': orig_data[1], 
+                    'CODTIPOPER': TOP_CLASS,  # 26
+                    'CODNAT': orig_data[2],
+                    'CODCENCUS': orig_data[3],
+                    'DTNEG': orig_data[4].strftime('%d/%m/%Y') if orig_data[4] else None,
+                    'DTMOV': orig_data[5].strftime('%d/%m/%Y') if orig_data[5] else None,
+                    'DTENTSAI': orig_data[6].strftime('%d/%m/%Y') if orig_data[6] else None,
+                    'CODVEND': orig_data[7] if orig_data[7] else 0,
+                    'CODPARCTRANSP': orig_data[8] if orig_data[8] else 0,
+                    'CODPROJ': orig_data[9] if orig_data[9] else 0,
+                    'NUMNOTA': orig_data[10] if orig_data[10] else None,
+                    'OBSERVACAO': f'Auto-duplicado de TOP 11 NUNOTA {nunota_11}'
+                }
+                
+                # Usar insert_cabecalho para criar TOP 26
+                cab_result = insert_cabecalho(cab_data, dry_run=False)
+                if not cab_result.get('executed'):
+                    res['errors'].append('Falha ao criar cabeçalho TOP 26')
+                    res['errors'].extend(cab_result.get('errors', []))
+                    return res
+                    
+                nunota_26 = cab_result.get('nunota')
+                res['nunota_26'] = int(nunota_26)
+                res['warnings'].append(f'Nova TOP 26 criada: {nunota_26}')
+
+            
+            # 6. Duplicar apenas itens que ainda não existem na TOP 26
+            # Verificar próxima sequência disponível
             cur.execute("""
-                INSERT INTO TGFCAB (
-                    NUNOTA, CODEMP, CODPARC, CODTIPOPER, CODNAT, CODCENCUS,
-                    DTNEG, DTMOV, DTENTSAI, DHTIPOPER, TIPMOV, STATUSNOTA,
-                    OBSERVACAO, CODVEND, CODPARCTRANSP
-                )
-                SELECT 
-                    (SELECT NVL(MAX(NUNOTA), 0) + 1 FROM TGFCAB),
-                    CODEMP, CODPARC, :top_class, CODNAT, CODCENCUS,
-                    DTNEG, DTMOV, DTENTSAI, SYSDATE, 'P', 'A',
-                    'Auto-duplicado de TOP 11 NUNOTA ' || :nunota_orig,
-                    CODVEND, CODPARCTRANSP
-                FROM TGFCAB 
-                WHERE NUNOTA = :nunota_orig
-            """, {
-                'top_class': TOP_CLASS,
-                'nunota_orig': nunota_11
-            })
+                SELECT NVL(MAX(SEQUENCIA), 0) + 1 FROM TGFITE WHERE NUNOTA = :n
+            """, n=nunota_26)
+            next_seq = cur.fetchone()[0]
             
-            # Obter NUNOTA gerado
-            cur.execute("SELECT MAX(NUNOTA) FROM TGFCAB WHERE CODTIPOPER = :top", top=TOP_CLASS)
-            nunota_26 = cur.fetchone()[0]
-            res['nunota_26'] = int(nunota_26)
-            
-            # 6. Duplicar itens classificáveis (TOP 11 → TOP 26)
+            # Inserir apenas itens que não estão duplicados ainda
             cur.execute("""
                 INSERT INTO TGFITE (
                     NUNOTA, SEQUENCIA, CODEMP, CODPROD, QTDNEG, VLRUNIT, VLRTOT,
@@ -3750,16 +3788,23 @@ def duplicate_to_classification(nunota_11: int, dry_run: bool = True) -> dict:
                 )
                 SELECT 
                     :nunota_26, 
-                    ROW_NUMBER() OVER (ORDER BY SEQUENCIA),
-                    CODEMP, CODPROD, QTDNEG, VLRUNIT, VLRTOT,
-                    CODVOL, CODLOCALORIG, CODAGREGACAO, GERAPRODUCAO, 'A',
+                    :next_seq + ROW_NUMBER() OVER (ORDER BY i11.SEQUENCIA) - 1,
+                    i11.CODEMP, i11.CODPROD, i11.QTDNEG, i11.VLRUNIT, i11.VLRTOT,
+                    i11.CODVOL, i11.CODLOCALORIG, i11.CODAGREGACAO, i11.GERAPRODUCAO, 'A',
                     'Auto-duplicado de TOP 11'
-                FROM TGFITE
-                WHERE NUNOTA = :nunota_11 
-                AND NVL(GERAPRODUCAO, 'N') = 'S'
+                FROM TGFITE i11
+                WHERE i11.NUNOTA = :nunota_11 
+                AND NVL(i11.GERAPRODUCAO, 'N') = 'S'
+                AND NOT EXISTS (
+                    SELECT 1 FROM TGFITE i26
+                    WHERE i26.NUNOTA = :nunota_26
+                    AND i26.CODPROD = i11.CODPROD
+                    AND i26.CODAGREGACAO = i11.CODAGREGACAO
+                )
             """, {
                 'nunota_26': nunota_26, 
-                'nunota_11': nunota_11
+                'nunota_11': nunota_11,
+                'next_seq': next_seq
             })
             
             items_inserted = cur.rowcount
@@ -3768,7 +3813,11 @@ def duplicate_to_classification(nunota_11: int, dry_run: bool = True) -> dict:
             conn.commit()
             res['executed'] = True
             res['ok'] = True
-            res['warnings'].append(f'TOP 26 criada: NUNOTA {nunota_26} com {items_inserted} itens')
+            
+            if nunota_26_existente:
+                res['warnings'].append(f'Adicionados {items_inserted} itens à TOP 26 existente: NUNOTA {nunota_26}')
+            else:
+                res['warnings'].append(f'TOP 26 criada: NUNOTA {nunota_26} com {items_inserted} itens')
             
     except Exception as e:
         res['errors'].append(f'Erro ao duplicar: {str(e)}')
@@ -3783,6 +3832,84 @@ def is_auto_duplicate_enabled() -> bool:
         return bool(params.get('AUTO_DUPLICATE_CLASSIFICATION', True))
     except Exception:
         return False
+
+
+def is_auto_duplicate_on_save_enabled() -> bool:
+    """Verifica se deve duplicar automaticamente ao salvar item."""
+    try:
+        # Verificar configurações Django
+        from django.conf import settings
+        config = getattr(settings, 'SANKHYA_CONFIG', {})
+        auto_flows = config.get('AUTO_FLOWS', {})
+        
+        # Se não tem configuração, assume True (habilitado por padrão)
+        duplicate_on_save = auto_flows.get('DUPLICATE_ON_SAVE', True)
+        duplicate_method = auto_flows.get('DUPLICATE_METHOD', 'python')
+        
+        # Verificar parâmetros também
+        params = get_params()
+        auto_duplicate_on_save = params.get('AUTO_DUPLICATE_ON_SAVE', True)
+        
+        result = (
+            duplicate_on_save and 
+            duplicate_method == 'python' and
+            auto_duplicate_on_save
+        )
+        
+        return result
+    except Exception:
+        # Em caso de erro, retorna True para não bloquear
+        return True
+
+
+def should_auto_duplicate_item(nunota: int, codprod: int) -> dict:
+    """Verifica se um item deve ser duplicado automaticamente.
+    
+    Returns:
+        dict: {should_duplicate: bool, reason: str, codtipoper: int|None}
+    """
+    result = {'should_duplicate': False, 'reason': '', 'codtipoper': None}
+    
+    if not is_auto_duplicate_on_save_enabled():
+        result['reason'] = 'Duplicação automática desabilitada'
+        return result
+    
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            
+            # Verificar se é TOP 11
+            cur.execute("SELECT CODTIPOPER FROM TGFCAB WHERE NUNOTA = :n", n=nunota)
+            row = cur.fetchone()
+            if not row:
+                result['reason'] = 'Nota não encontrada'
+                return result
+                
+            codtipoper = row[0]
+            result['codtipoper'] = codtipoper
+            
+            params = get_params()
+            if codtipoper != params['TOP_ENTRADA']:  # 11
+                result['reason'] = f'Nota não é TOP {params["TOP_ENTRADA"]} (é TOP {codtipoper})'
+                return result
+            
+            # Verificar se item é classificável (GERAPRODUCAO na TGFITE)
+            cur.execute("""
+                SELECT NVL(GERAPRODUCAO, 'N') FROM TGFITE 
+                WHERE NUNOTA = :n AND CODPROD = :p
+            """, n=nunota, p=codprod)
+            row = cur.fetchone()
+            if not row or row[0] != 'S':
+                result['reason'] = 'Item não é classificável (GERAPRODUCAO != S na TGFITE)'
+                return result
+            
+            result['should_duplicate'] = True
+            result['reason'] = 'Item classificável em nota TOP 11'
+            return result
+            
+    except Exception as e:
+        result['reason'] = f'Erro ao verificar: {str(e)}'
+        return result
 
 
 def get_duplicate_status(nunota_11: int) -> dict:
@@ -3831,14 +3958,17 @@ def get_duplicate_status(nunota_11: int) -> dict:
             """, n=nunota_11)
             result['classificable_items'] = cur.fetchone()[0]
             
-            # Verificar se existe TOP 26
+            # Verificar se existe TOP 26 para qualquer controle (buscar mais recente)
             if result['controls']:
-                cur.execute("""
+                # Buscar TOP 26 mais recente para qualquer controle da nota
+                controles_str = ','.join([f"'{c}'" for c in result['controls']])
+                cur.execute(f"""
                     SELECT i.NUNOTA FROM TGFITE i
                     JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-                    WHERE i.CODAGREGACAO = :ctrl AND c.CODTIPOPER = :top
-                    AND ROWNUM = 1
-                """, ctrl=result['controls'][0], top=TOP_CLASS)
+                    WHERE i.CODAGREGACAO IN ({controles_str}) 
+                    AND c.CODTIPOPER = :top
+                    ORDER BY c.DTMOV DESC, i.NUNOTA DESC
+                """, top=TOP_CLASS)
                 
                 row = cur.fetchone()
                 if row:

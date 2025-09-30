@@ -95,6 +95,8 @@ SANKHYA_CONFIG = {
     # Configurações de automação de fluxo
     'AUTO_FLOWS': {
         'DUPLICATE_CLASSIFICATION': True,  # AUTO duplicar TOP 11→26
+        'DUPLICATE_ON_SAVE': True,        # Duplicar automaticamente ao salvar item
+        'DUPLICATE_METHOD': 'python',     # Via Python, não trigger
         'CREATE_VALE_COMPRA': False,      # Será implementado na tela Comercial
         'SEPARATE_INTERFACES': True,       # Portal=TOP11, Classificação=TOP26
     }

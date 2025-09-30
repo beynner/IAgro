@@ -37,6 +37,8 @@ try:
         duplicate_to_classification,
         get_duplicate_status,
         is_auto_duplicate_enabled,
+        is_auto_duplicate_on_save_enabled,
+        should_auto_duplicate_item,
         consultar_lote,
         fetch_tgfite_details,
         
@@ -84,6 +86,8 @@ except Exception as exc:  # pragma: no cover - make views importable when Oracle
     duplicate_to_classification = _missing('duplicate_to_classification')
     get_duplicate_status = _missing('get_duplicate_status')
     is_auto_duplicate_enabled = _missing('is_auto_duplicate_enabled')
+    is_auto_duplicate_on_save_enabled = _missing('is_auto_duplicate_on_save_enabled')
+    should_auto_duplicate_item = _missing('should_auto_duplicate_item')
     consultar_lote = _missing('consultar_lote')
 logger = logging.getLogger(__name__)
 
@@ -1523,6 +1527,55 @@ def item_save(request: HttpRequest) -> JsonResponse:
             'GERAPRODUCAO': _map_gp(payload.get('geraproducao')),
         }, dry_run=False)
         if plan.get('executed'):
+            # Duplicação automática após atualizar item (se habilitada)
+            try:
+                nunota = _to_int_or(payload.get('nunota'))
+                codprod = _to_int_or(payload.get('codprod'))
+                plan['debug_auto_duplicate'] = {
+                    'nunota': nunota,
+                    'codprod': codprod,
+                    'step': 'update_start'
+                }
+                
+                if nunota and codprod:
+                    from sankhya_integration.services.oracle_conn import (
+                        should_auto_duplicate_item, duplicate_to_classification, get_duplicate_status,
+                        is_auto_duplicate_on_save_enabled
+                    )
+                    
+                    # Debug: verificar se está habilitado
+                    enabled = is_auto_duplicate_on_save_enabled()
+                    plan['debug_auto_duplicate']['enabled'] = enabled
+                    
+                    if enabled:
+                        check = should_auto_duplicate_item(nunota, codprod)
+                        plan['debug_auto_duplicate']['check'] = check
+                        
+                        if check.get('should_duplicate'):
+                            # Sempre tentar duplicar (função já verifica se TOP 26 existe)
+                            dup_result = duplicate_to_classification(nunota, dry_run=False)
+                            plan['debug_auto_duplicate']['dup_result'] = dup_result
+                            
+                            if dup_result.get('ok'):
+                                plan['auto_duplicated'] = True
+                                plan['nunota_26'] = dup_result.get('nunota_26')
+                                items_duplicated = dup_result.get('items_duplicated', 0)
+                                if items_duplicated > 0:
+                                    plan['duplicate_message'] = f'Item adicionado à classificação (TOP 26: {dup_result.get("nunota_26")})'
+                                else:
+                                    plan['duplicate_message'] = 'Item já existe na classificação'
+                            else:
+                                plan['auto_duplicate_error'] = dup_result.get('errors', [])
+                        else:
+                            plan['debug_auto_duplicate']['reason'] = check.get('reason', 'Não deve duplicar')
+                    else:
+                        plan['debug_auto_duplicate']['reason'] = 'Auto duplicate desabilitado'
+                else:
+                    plan['debug_auto_duplicate']['reason'] = 'NUNOTA ou CODPROD inválidos'
+                    
+            except Exception as e:
+                plan['debug_auto_duplicate']['exception'] = str(e)
+                logger.error('Auto duplicate update failed: %s', e, exc_info=True)
             return JsonResponse(plan, status=200)
         # Log and return clearer error for clients
         err_msg = plan.get('db_error', {}).get('message') if isinstance(plan.get('db_error'), dict) else None
@@ -1546,6 +1599,60 @@ def item_save(request: HttpRequest) -> JsonResponse:
         'GERAPRODUCAO': _map_gp(payload.get('geraproducao')),
     }, dry_run=False)
     if plan.get('executed'):
+        # Duplicação automática após inserir item (se habilitada)
+        try:
+            nunota = _to_int_or(payload.get('nunota'))
+            codprod = _to_int_or(payload.get('codprod'))
+            plan['debug_auto_duplicate'] = {
+                'nunota': nunota,
+                'codprod': codprod,
+                'step': 'start'
+            }
+            
+            if nunota and codprod:
+                from sankhya_integration.services.oracle_conn import (
+                    should_auto_duplicate_item, duplicate_to_classification, get_duplicate_status,
+                    is_auto_duplicate_on_save_enabled
+                )
+                
+                # Debug: verificar se está habilitado
+                enabled = is_auto_duplicate_on_save_enabled()
+                plan['debug_auto_duplicate']['enabled'] = enabled
+                
+                if not enabled:
+                    plan['debug_auto_duplicate']['reason'] = 'Auto duplicate desabilitado'
+                else:
+                    check = should_auto_duplicate_item(nunota, codprod)
+                    plan['debug_auto_duplicate']['check'] = check
+                    
+                    if check.get('should_duplicate'):
+                        # Sempre tentar duplicar (função já verifica se TOP 26 existe)
+                        plan['debug_auto_duplicate']['step'] = 'duplicating'
+                        dup_result = duplicate_to_classification(nunota, dry_run=False)
+                        plan['debug_auto_duplicate']['dup_result'] = dup_result
+                        
+                        if dup_result.get('ok'):
+                            plan['auto_duplicated'] = True
+                            plan['nunota_26'] = dup_result.get('nunota_26')
+                            items_duplicated = dup_result.get('items_duplicated', 0)
+                            plan['items_duplicated'] = items_duplicated
+                            
+                            if items_duplicated > 0:
+                                plan['duplicate_message'] = f'Item adicionado à classificação (TOP 26: {dup_result.get("nunota_26")})'
+                            else:
+                                plan['duplicate_message'] = 'Item já existe na classificação'
+                            plan['debug_auto_duplicate']['step'] = 'success'
+                        else:
+                            plan['auto_duplicate_error'] = dup_result.get('errors', [])
+                            plan['debug_auto_duplicate']['step'] = 'failed'
+                    else:
+                        plan['debug_auto_duplicate']['reason'] = check.get('reason', 'Não deve duplicar')
+            else:
+                plan['debug_auto_duplicate']['reason'] = 'NUNOTA ou CODPROD inválidos'
+                
+        except Exception as e:
+            plan['debug_auto_duplicate']['exception'] = str(e)
+            logger.error('Auto duplicate failed: %s', e, exc_info=True)
         return JsonResponse(plan, status=200)
     err_msg = plan.get('db_error', {}).get('message') if isinstance(plan.get('db_error'), dict) else None
     if not err_msg:
@@ -1872,7 +1979,38 @@ def duplicate_status_endpoint(request: HttpRequest) -> JsonResponse:
     
     result['ok'] = True
     result['auto_enabled'] = is_auto_duplicate_enabled()
+    result['auto_on_save'] = is_auto_duplicate_on_save_enabled()
     return JsonResponse(result)
+
+
+def auto_duplicate_config(request: HttpRequest) -> JsonResponse:
+    """GET /sankhya/auto/config/ - Configurações de duplicação automática"""
+    if request.method != 'GET':
+        return JsonResponse({'ok': False, 'error': 'Use GET'}, status=405)
+    
+    try:
+        from django.conf import settings
+        config = getattr(settings, 'SANKHYA_CONFIG', {})
+        auto_flows = config.get('AUTO_FLOWS', {})
+        
+        result = {
+            'ok': True,
+            'auto_duplicate_enabled': is_auto_duplicate_enabled(),
+            'auto_duplicate_on_save': is_auto_duplicate_on_save_enabled(),
+            'duplicate_method': auto_flows.get('DUPLICATE_METHOD', 'python'),
+            'separate_interfaces': auto_flows.get('SEPARATE_INTERFACES', True),
+            'write_enabled': is_write_enabled(),
+            'config': {
+                'duplicate_on_save': auto_flows.get('DUPLICATE_ON_SAVE', True),
+                'duplicate_classification': auto_flows.get('DUPLICATE_CLASSIFICATION', True),
+                'create_vale_compra': auto_flows.get('CREATE_VALE_COMPRA', False),
+            }
+        }
+        
+        return JsonResponse(result)
+        
+    except Exception as e:
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
 
 @ensure_csrf_cookie

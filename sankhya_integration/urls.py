@@ -48,4 +48,5 @@ urlpatterns = [
     path("comercial/sim/list/", views.comercial_sim_list, name="comercial_sim_list"),
     path("duplicate/classification/", views.duplicate_classification_endpoint, name="duplicate_classification"),
     path("duplicate/status/", views.duplicate_status_endpoint, name="duplicate_status"),
+    path("auto/config/", views.auto_duplicate_config, name="auto_duplicate_config"),
 ]
