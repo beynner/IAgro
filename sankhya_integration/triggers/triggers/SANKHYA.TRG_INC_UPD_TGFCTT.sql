@@ -1,0 +1,55 @@
+-- SANKHYA.TRG_INC_UPD_TGFCTT
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_INC_UPD_TGFCTT
+"SANKHYA".TRG_INC_UPD_TGFCTT 
+  AFTER INSERT OR UPDATE ON TGFCTT 
+  FOR EACH ROW 
+
+DECLARE 
+    P_COUNT          INT; 
+    P_ENVIANOTIFCOTA VARCHAR2(1); 
+    P_ATIVO          VARCHAR2(1); 
+    P_CODCTTATUAL    INT; 
+    P_USAMODCABCOT   VARCHAR2(1); 
+    PRAGMA AUTONOMOUS_TRANSACTION; 
+BEGIN 
+    P_CODCTTATUAL := :NEW.CODCONTATO; 
+
+    SELECT COUNT(1) 
+    INTO   P_COUNT 
+    FROM   TGFCTT 
+    WHERE  CODPARC = :NEW.CODPARC 
+           AND ENVIANOTIFCOTA = 'S' 
+           AND ATIVO = 'S' 
+           AND CODCONTATO <> P_CODCTTATUAL; 
+
+    BEGIN
+      SELECT LOGICO 
+      INTO   P_USAMODCABCOT 
+      FROM   TSIPAR 
+      WHERE  CHAVE = 'USAMODCABCOT'; 
+      EXCEPTION
+        WHEN OTHERS THEN
+        P_USAMODCABCOT := 'N';
+    END;
+    
+    P_ENVIANOTIFCOTA := :NEW.ENVIANOTIFCOTA; 
+
+    P_ATIVO := :NEW.ATIVO; 
+
+    IF P_ENVIANOTIFCOTA = 'S' 
+       AND P_ATIVO = 'S' 
+       AND NVL(P_USAMODCABCOT, 'N') = 'N' THEN 
+      IF P_COUNT > 0 THEN 
+        BEGIN 
+            RAISE_APPLICATION_ERROR(-20101, 
+        'Não é possível ter mais de um contato que recebe notificação de cotação para o parceiro código ' 
+        || TO_CHAR(:NEW.CODPARC) 
+        ||'.'); 
+        END; 
+      END IF; 
+    END IF; 
+
+COMMIT; 
+END; 
+
+/

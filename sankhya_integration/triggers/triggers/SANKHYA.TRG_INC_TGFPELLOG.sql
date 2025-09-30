@@ -1,0 +1,39 @@
+-- SANKHYA.TRG_INC_TGFPELLOG
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_INC_TGFPELLOG
+"SANKHYA".TRG_INC_TGFPELLOG
+BEFORE INSERT ON TGFPELLOG
+FOR EACH ROW
+
+DECLARE
+  P_VALIDAR                  BOOLEAN;
+  ERRMSG                     VARCHAR2(255);
+  ERROR                      EXCEPTION;
+BEGIN
+
+  IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+  
+  /* 
+  sincronização de dados
+  */
+  P_VALIDAR := Fpodevalidar('TGFPEL');
+
+  SELECT SEQ_TGFPELLOG_CODLOG.NEXTVAL INTO :NEW.CODLOG
+  FROM DUAL;
+
+  RETURN;
+   
+EXCEPTION
+
+  WHEN ERROR THEN
+    /* 
+    Sincronização de dados não faz validações
+    */
+    IF (P_VALIDAR) THEN 
+      RAISE_APPLICATION_ERROR(-20101, ERRMSG);
+    END IF; 
+
+END;
+
+/

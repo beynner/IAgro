@@ -1,0 +1,16 @@
+-- SANKHYA.TRG_DLT_TFPDIV
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_DLT_TFPDIV
+"SANKHYA".TRG_DLT_TFPDIV BEFORE DELETE ON TFPDIV FOR EACH ROW
+
+BEGIN
+
+  IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+
+  IF (:OLD.CODDIV = 0) THEN
+     raise_application_error(-20101, 'Registro padrão do sistema. Não pode ser excluído.');
+  END IF;
+END;
+
+/

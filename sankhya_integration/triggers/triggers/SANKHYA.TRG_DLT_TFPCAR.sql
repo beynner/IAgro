@@ -1,0 +1,16 @@
+-- SANKHYA.TRG_DLT_TFPCAR
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_DLT_TFPCAR
+"SANKHYA".TRG_DLT_TFPCAR BEFORE DELETE ON TFPCAR FOR EACH ROW
+
+BEGIN
+
+  IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+  
+  IF (:OLD.CODCARGO = 0) THEN
+     raise_application_error(-20101, 'Registro padrao do sistema. Nao pode ser excluido.');
+  END IF;
+END;
+
+/

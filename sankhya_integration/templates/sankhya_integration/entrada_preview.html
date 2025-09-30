@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Entrada de Mercadoria (Preview)</title>
+  <style>
+    :root {
+      --bg: #f7f9fb;
+      --panel: #ffffff;
+      --accent: #0b6efd;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --success: #16a34a;
+      --danger: #dc2626;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Inter, system-ui, Segoe UI, Roboto, Arial, sans-serif; background: var(--bg); color: #111827; }
+    header.topbar { background: var(--panel); border-bottom: 1px solid var(--border); padding: 12px 16px; position: sticky; top: 0; z-index: 5; }
+    header.topbar h1 { margin: 0; font-size: 18px; }
+
+    main.layout { display: grid; grid-template-columns: 380px 1fr; grid-template-rows: auto; gap: 12px; padding: 12px; }
+    .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+    .panel header { padding: 10px 14px; font-weight: 600; border-bottom: 1px solid var(--border); }
+    .panel .content { padding: 12px; }
+
+    label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+    input, select { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    .mt8 { margin-top: 8px; } .mt12 { margin-top: 12px; } .mt16 { margin-top: 16px; }
+    .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .btn { border: 1px solid var(--border); background: var(--panel); padding: 10px 14px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+    .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .btn.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+    .btn.success { background: var(--success); color: #fff; border-color: var(--success); }
+
+    /* Items grid */
+    .toolbar { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+    .toolbar .spacer { flex: 1; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid var(--border); padding: 8px 10px; text-align: left; font-size: 14px; }
+    th { background: #f3f4f6; position: sticky; top: 0; z-index: 2; }
+    .right { text-align: right; }
+    .pill { display: inline-block; padding: 2px 8px; background: #eef2ff; border-radius: 999px; font-size: 12px; color: #3730a3; }
+    .status { font-size: 12px; color: var(--muted); }
+
+    /* Combo (search + suggestions + select) */
+    .combo { position: relative; }
+    .combo .suggestions { position: absolute; inset-inline: 0; top: 72px; z-index: 10; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 24px rgba(0,0,0,0.06); max-height: 240px; overflow: auto; }
+    .combo .suggestions.hidden { display: none; }
+    .combo .item { padding: 8px 10px; cursor: pointer; }
+    .combo .item:hover { background: #f3f4f6; }
+    .combo small { color: var(--muted); }
+
+    /* Footer */
+    .footer { grid-column: 1 / span 2; }
+    .tabs { display: flex; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+    .tab { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: #f8fafc; font-weight: 600; }
+    .totals { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 12px; }
+    .field { display: grid; gap: 6px; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <h1>Entrada de Mercadoria — Preview</h1>
+  </header>
+
+  <main class="layout">
+    <!-- Header (left) -->
+    <aside class="panel">
+      <header>Cabeçalho</header>
+      <div class="content">
+        <div class="row">
+          <div>
+            <label>Nº Único</label>
+            <input type="text" id="nunico" placeholder="(auto)" disabled />
+          </div>
+          <div>
+            <label>Nº Nota</label>
+            <input type="text" id="nronota" placeholder="opcional" />
+          </div>
+        </div>
+        <div class="row mt12">
+          <div>
+            <label>Dt. Neg.</label>
+            <input type="date" id="dtcompra" />
+          </div>
+          <div>
+            <label>Tipo Operação (TOP)</label>
+            <select id="top">
+              <option value="11">11 — Pedido Compra (in natura)</option>
+              <option value="26" selected>26 — Classificação</option>
+              <option value="34">34 — Pedido Venda</option>
+            </select>
+          </div>
+        </div>
+        <div class="row mt12">
+          <div>
+            <label>Empresa</label>
+            <input type="text" id="empresa" value="HORTIFRUT SEMEAR" />
+          </div>
+          <div>
+            <label>Natureza</label>
+            <input type="text" id="natureza" value="PRODUTOS PARA VENDA" />
+          </div>
+        </div>
+        <div class="row mt12">
+          <div>
+            <label>Centro Resultado</label>
+            <input type="text" id="centro_resultado" value="COMERCIALIZAÇÃO" />
+          </div>
+          <div>
+            <label>Status</label>
+            <input type="text" id="statusnota" value="Atendimento" />
+          </div>
+        </div>
+        <div class="row mt12">
+          <div>
+            <label>Dt. Entrada/Saída</label>
+            <input type="date" id="dtentrada" />
+          </div>
+          <div>
+            <label>Dt. Movimento</label>
+            <input type="date" id="dtmov" />
+          </div>
+        </div>
+
+        <div class="mt12 combo" id="combo_fornecedor">
+          <label>Fornecedor (Parceiro)</label>
+          <input type="text" id="fornecedor_search" placeholder="Digite para buscar parceiro..." autocomplete="off" />
+          <div id="fornecedor_suggestions" class="suggestions hidden"></div>
+          <select id="fornecedor" class="mt8">
+            <option value="">Selecione...</option>
+            {% for cod, nome in parceiros %}
+              <option value="{{ cod }}">{{ cod }} — {{ nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="mt12 combo" id="combo_produto">
+          <label>Produto</label>
+          <input type="text" id="produto_search" placeholder="Digite para buscar produto..." autocomplete="off" />
+          <div id="produto_suggestions" class="suggestions hidden"></div>
+          <select id="produto" class="mt8">
+            <option value="">Selecione...</option>
+            {% for cod, nome in produtos %}
+              <option value="{{ cod }}">{{ cod }} — {{ nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="row mt12">
+          <div>
+            <label>Unidade</label>
+            <select id="codvol">
+              <option value="KG">KG</option>
+              <option value="CX">CX</option>
+              <option value="BD">BD</option>
+              <option value="SC">SC</option>
+              <option value="UN">UN</option>
+            </select>
+          </div>
+          <div>
+            <label>Tipo de Volume</label>
+            <select id="tipo_vol">
+              <option value="CX">CX</option>
+              <option value="BD">BD</option>
+              <option value="SC">SC</option>
+              <option value="UN">UN</option>
+            </select>
+          </div>
+        </div>
+        <div class="row mt12">
+          <div>
+            <label>Quantidade</label>
+            <input type="number" id="quantidade" min="1" step="1" />
+          </div>
+          <div>
+            <label>Valor Unitário</label>
+            <input type="number" id="vlr_unit" min="0" step="0.01" />
+          </div>
+        </div>
+        <div class="row mt12">
+          <div>
+            <label>Peso da Caixa</label>
+            <input type="number" id="peso_cx" min="0" step="0.01" placeholder="kg" />
+          </div>
+          <div>
+            <label>Observação</label>
+            <input type="text" id="obs" placeholder="Opcional" />
+          </div>
+        </div>
+        <div class="mt12">
+          <label>Classificação</label>
+          <div class="row">
+            <div>
+              <input type="radio" id="classifica_sim" name="classifica" value="S" checked />
+              <label for="classifica_sim">Classifica</label>
+            </div>
+            <div>
+              <input type="radio" id="classifica_nao" name="classifica" value="N" />
+              <label for="classifica_nao">Não Classifica</label>
+            </div>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn" id="btn_add">Adicionar</button>
+          <button class="btn primary" id="btn_salvar">Salvar</button>
+          <button class="btn danger" id="btn_excluir">Excluir Compra</button>
+          <button class="btn" id="btn_limpar">Limpar</button>
+        </div>
+        <div class="status mt8" id="status"></div>
+      </div>
+    </aside>
+
+    <!-- Items (right) -->
+    <section class="panel">
+      <header>Itens</header>
+      <div class="toolbar">
+        <input type="text" placeholder="Buscar itens" style="flex: 1; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;" />
+        <span class="spacer"></span>
+        <button class="btn">Recalcular Custos</button>
+        <button class="btn">Rratear</button>
+      </div>
+      <div class="content" style="padding:0; max-height: 60vh; overflow:auto;">
+        <table id="grid">
+          <thead>
+            <tr>
+              <th>Produto</th>
+              <th>Descrição</th>
+              <th>Unidade</th>
+              <th class="right">Quantidade</th>
+              <th class="right">Vlr. unitário</th>
+              <th class="right">Total líq.</th>
+              <th>Observação</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- linhas via JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Footer (bottom) -->
+    <section class="panel footer">
+      <div class="tabs">
+        <div class="tab">Totais</div>
+        <div class="tab">Transporte</div>
+        <div class="tab">Coleta/Entrega</div>
+        <div class="tab">Financeiro</div>
+      </div>
+      <div class="totals">
+        <div class="field">
+          <label>Vlr. Nota</label>
+          <input type="text" id="tot_vlr_nota" readonly />
+        </div>
+        <div class="field">
+          <label>Desconto total por item</label>
+          <input type="text" value="0,00" readonly />
+        </div>
+        <div class="field">
+          <label>Desconto Redução de Base</label>
+          <input type="text" value="0,00" readonly />
+        </div>
+        <div class="field">
+          <label>Total serviços</label>
+          <input type="text" value="0,00" readonly />
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const gridBody = document.querySelector('#grid tbody');
+    const status = document.querySelector('#status');
+    const $ = (id) => document.getElementById(id);
+
+    function linha(d) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${d.produto || '-'}</td>
+        <td>${d.produto_nome || '-'}</td>
+        <td>${d.codvol || '-'}</td>
+        <td class="right">${d.quantidade?.toLocaleString('pt-BR')}</td>
+        <td class="right">${(d.vlr_unit ?? 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</td>
+        <td class="right">${(d.total_liq ?? 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</td>
+        <td>${d.obs || ''}</td>`;
+      return tr;
+    }
+
+    function calcTotalKg(qtd, pesoCx) { const q = Number(qtd || 0); const p = Number(pesoCx || 0); return q * p; }
+
+    const itens = [];
+
+    function render() {
+      gridBody.innerHTML = '';
+      let soma = 0;
+      for (const it of itens) {
+        soma += Number(it.total_liq || 0);
+        gridBody.appendChild(linha(it));
+      }
+      $('tot_vlr_nota').value = soma.toLocaleString('pt-BR', {minimumFractionDigits:2});
+    }
+
+    function limparForm() {
+      $('nronota').value = '';
+      $('dtcompra').value = '';
+      $('fornecedor').value = '';
+      $('fornecedor_search').value = '';
+      $('produto').value = '';
+      $('produto_search').value = '';
+      $('codvol').value = 'KG';
+      $('tipo_vol').value = 'CX';
+      $('peso_cx').value = '';
+      $('quantidade').value = '';
+      $('vlr_unit').value = '';
+      $('obs').value = '';
+      $('classifica_sim').checked = true;
+    }
+
+    function montarItem() {
+      const fornecedorSel = $('fornecedor');
+      const produtoSel = $('produto');
+      const classifica = document.querySelector('input[name="classifica"]:checked')?.value || 'S';
+      const it = {
+        dt: $('dtcompra').value,
+        fornecedor: fornecedorSel.value,
+        fornecedor_nome: fornecedorSel.options[fornecedorSel.selectedIndex]?.text || '',
+        produto: produtoSel.value,
+        produto_nome: produtoSel.options[produtoSel.selectedIndex]?.text || '',
+        classifica,
+        tipo_vol: $('tipo_vol').value,
+        codvol: $('codvol').value,
+        peso_cx: Number($('peso_cx').value || 0),
+        quantidade: Number($('quantidade').value || 0),
+        vlr_unit: Number($('vlr_unit').value || 0),
+        obs: $('obs').value || '',
+      };
+      it.total_kg = calcTotalKg(it.quantidade, it.peso_cx);
+      it.total_liq = it.quantidade * it.vlr_unit;
+      return it;
+    }
+
+    // Typeahead
+    function readOptions(selectId) {
+      const sel = $(selectId), arr = [];
+      for (let i = 0; i < sel.options.length; i++) {
+        const op = sel.options[i];
+        if (!op.value) continue;
+        arr.push({ cod: op.value, text: op.text });
+      }
+      return arr;
+    }
+    function setupTypeahead(searchId, selectId, suggId) {
+      const input = $(searchId), select = $(selectId), sug = $(suggId), data = readOptions(selectId);
+      function pick(cod, text) { select.value = cod; input.value = text; sug.classList.add('hidden'); }
+      input.addEventListener('input', () => {
+        const q = input.value.trim().toUpperCase();
+        if (!q) { sug.classList.add('hidden'); return; }
+        const res = []; const max = 12;
+        for (const it of data) { if (it.text.toUpperCase().includes(q)) { res.push(it); if (res.length>=max) break; } }
+        if (!res.length) { sug.classList.add('hidden'); return; }
+        sug.innerHTML = res.map(it => `<div class="item" data-cod="${it.cod}" data-text="${it.text}"><strong>${it.text}</strong></div>`).join('');
+        sug.classList.remove('hidden');
+      });
+      sug.addEventListener('click', (e) => { const el = e.target.closest('.item'); if (!el) return; pick(el.dataset.cod, el.dataset.text); });
+      document.addEventListener('click', (e) => { if (!sug.contains(e.target) && e.target !== input) { sug.classList.add('hidden'); } });
+    }
+    setupTypeahead('fornecedor_search', 'fornecedor', 'fornecedor_suggestions');
+    setupTypeahead('produto_search', 'produto', 'produto_suggestions');
+
+    // Buttons
+    $('btn_add').addEventListener('click', (e) => {
+      e.preventDefault();
+      const it = montarItem();
+      if (!it.dt || !it.fornecedor || !it.produto || !it.quantidade) { status.textContent = 'Preencha Data, Fornecedor, Produto e Quantidade.'; return; }
+      itens.push(it); render(); status.textContent = 'Item adicionado. Ainda não salvo.';
+    });
+    $('btn_limpar').addEventListener('click', (e) => { e.preventDefault(); itens.length = 0; render(); limparForm(); status.textContent = 'Formulário limpo.'; });
+    $('btn_excluir').addEventListener('click', (e) => { e.preventDefault(); itens.length = 0; render(); status.textContent = 'Compra excluída (simulação).'; });
+    $('btn_salvar').addEventListener('click', (e) => {
+      e.preventDefault();
+      if (itens.length === 0) {
+        const it = montarItem();
+        if (!it.dt || !it.fornecedor || !it.produto || !it.quantidade) { status.textContent = 'Preencha Data, Fornecedor, Produto e Quantidade.'; return; }
+        itens.push(it);
+      }
+      const ultimo = itens[itens.length - 1];
+      itens.length = 0; itens.push(ultimo); render();
+      status.textContent = 'Salvo com sucesso (simulação). A listagem foi limpa e mantém apenas o lançamento salvo.';
+    });
+  </script>
+</body>
+</html>

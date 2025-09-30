@@ -1,0 +1,23 @@
+-- SANKHYA.TRG_DLT_TCBHIS
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_DLT_TCBHIS
+"SANKHYA".TRG_DLT_TCBHIS BEFORE DELETE ON TCBHIS 
+FOR EACH ROW
+
+DECLARE
+     ERROR                    EXCEPTION;
+     ERRMSG                   VARCHAR2(255);
+BEGIN
+  IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+  
+   IF (:OLD.CODHISTCTB = 0) THEN
+      ERRMSG := 'Registro padrao do sistema. Nao pode ser excluido.';
+      RAISE ERROR;
+   END IF;
+   EXCEPTION
+     WHEN ERROR THEN
+       raise_application_error(-20101, ERRMSG);
+END;
+
+/

@@ -1,0 +1,178 @@
+-- SANKHYA.TRG_INC_UPD_TGFCAB_ORD
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_INC_UPD_TGFCAB_ORD
+TRG_INC_UPD_TGFCAB_ORD
+BEFORE INSERT OR UPDATE 
+ON TGFCAB 
+FOR EACH ROW
+
+DECLARE
+  P_COUNT           INT;
+  P_COUNTVAL        INT;
+  ERRMSG            VARCHAR2(255);
+  ERROR             EXCEPTION;
+  P_VALIDAR         BOOLEAN;
+  P_VLRDESDOBFRETE  FLOAT;
+  P_NUVIAG          NUMBER(10);
+  P_SEQMDFE         NUMBER(5);
+  P_SITUACAO        TGFORD.SITUACAO%TYPE;
+  P_DTINIC          TGFORD.DTINIC%TYPE;
+  P_EXISTEMDFE      BOOLEAN;
+BEGIN
+
+  IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+
+  /* 
+  Sincronizac?o de dados
+  */
+  P_VALIDAR := Fpodevalidar('TGFCAB');
+  
+  IF (NVL(:NEW.ORDEMCARGA,0) <> 0) THEN
+    SELECT COUNT(1), MAX(SITUACAO), MAX(NVL(DTINIC, TO_DATE('01/01/1998', 'DD/MM/YYYY')))
+    INTO P_COUNT, P_SITUACAO, P_DTINIC
+    FROM TGFORD ORD
+    WHERE ORD.ORDEMCARGA = :NEW.ORDEMCARGA
+      AND ORD.CODEMP = (SELECT CASE WHEN EMP.CODEMPOC IS NULL THEN EMP.CODEMP ELSE CODEMPOC END 
+                        FROM TGFEMP EMP
+                        WHERE EMP.CODEMP = :NEW.CODEMP);
+    
+    IF P_VALIDAR AND (P_COUNT = 0) THEN
+      RAISE_APPLICATION_ERROR(-20101, 'N¿o existe refer¿ncia para ordem de Carga: '||TO_CHAR(:NEW.ORDEMCARGA)||' informada na nota de Nro ¿nico: '||TO_CHAR(:NEW.NUNOTA));
+    END IF;  
+  END IF;
+  
+  IF P_VALIDAR AND (NVL(:OLD.ORDEMCARGA,0) <> NVL(:NEW.ORDEMCARGA,0)) THEN
+    IF (NVL(:NEW.ORDEMCARGA,0) <> 0) THEN           
+      IF (P_SITUACAO <> 'A') AND SNK_getTSIPARLogico('ALTOCFECFORMOC') <> 'S' THEN
+        SELECT COUNT(1) INTO P_COUNT
+        FROM TGFVAR VAR
+        WHERE VAR.NUNOTA = :NEW.NUNOTA
+        AND VAR.NUNOTAORIG <> :NEW.NUNOTA
+        AND PDES('COUNT(1)', 'TGFCAB', 'NUNOTA = ' || VAR.NUNOTAORIG ||
+                 'AND ORDEMCARGA = ' || :NEW.ORDEMCARGA) <> '0';
+          
+        IF P_COUNT = 0 THEN 
+          ERRMSG := 'Ordem de carga '||:NEW.ORDEMCARGA||' usada na nota de Nro ¿nico: '||:NEW.NUNOTA||' est¿ fechada e n¿o pode ser alterada.';
+          RAISE ERROR;
+        END IF;
+      END IF;
+      
+      IF (:NEW.DTNEG < P_DTINIC) THEN
+        SELECT COUNT(1) INTO P_COUNT
+        FROM TSIPAR 
+        WHERE CHAVE = 'DTNEGDTINICOC' 
+          AND LOGICO = 'S';
+        --E O PARAMETRO 'DTNEGDTINICOC' ESTA IGUAL A 'N' OU N?O EXISTE
+        IF  (P_COUNT = 0) THEN
+          ERRMSG := 'A data de negocia¿¿o da nota de Nro Unico '||:NEW.NUNOTA||' ¿ anterior a data in¿cio da Ordem de Carga '||:NEW.ORDEMCARGA||'.';
+          RAISE ERROR;
+        END IF;
+      END IF;
+                        
+    END IF;
+  END IF;
+      
+  IF UPDATING THEN  
+    IF (NVL(:OLD.ORDEMCARGA,0) <> NVL(:NEW.ORDEMCARGA,0)) THEN
+      IF :OLD.ORDEMCARGA IS NOT NULL AND :NEW.STATUSNOTA = 'L' THEN 
+        BEGIN
+          SELECT M.NUVIAG, M.SEQMDFE INTO P_NUVIAG, P_SEQMDFE
+          FROM TGFORD O
+              INNER JOIN TGFVIAG V ON V.NUVIAG = O.NUVIAG
+              INNER JOIN TGFMDFE M ON M.NUVIAG = V.NUVIAG
+              INNER JOIN TGFNMDFE N ON N.NUVIAG = V.NUVIAG
+          WHERE N.NUNOTA = :OLD.NUNOTA
+              AND O.CODEMP = :OLD.CODEMP
+              AND O.ORDEMCARGA = :OLD.ORDEMCARGA
+              AND M.STATUSMDFE NOT IN ('5','6','7'); --5 - Cancelado  6 - Encerrado  7 - Denegado
+    
+          P_EXISTEMDFE := TRUE;
+        EXCEPTION WHEN NO_DATA_FOUND THEN
+          P_EXISTEMDFE := FALSE;
+        END;
+    
+        IF P_EXISTEMDFE = TRUE THEN
+          ERRMSG := 'Nota de Nro.¿nico '||:OLD.NUNOTA||' n¿o pode ter sua Ordem de Carga '||:OLD.ORDEMCARGA||' alterada, pois est¿ vinculada a um MDF-e com status diferente de Encerrado, Cancelado ou Denegado. Nro. Viagem '||P_NUVIAG||', Sequ¿ncia do manifesto '||P_SEQMDFE||'.';
+          RAISE ERROR;        
+        END IF;
+      END IF;
+ 
+      P_COUNTVAL := 0;
+      SELECT COUNT(1) INTO P_COUNTVAL
+      FROM TGFFIN
+      WHERE NUNOTA = :NEW.NUNOTA
+        AND ORDEMCARGA <> :NEW.ORDEMCARGA 
+        AND (NURENEG IS NULL OR NURENEG = 0);
+      IF P_COUNTVAL > 0 THEN             
+        UPDATE TGFFIN SET ORDEMCARGA = NVL(:NEW.ORDEMCARGA,0)
+        WHERE NUNOTA = :NEW.NUNOTA  
+          AND ORDEMCARGA <> :NEW.ORDEMCARGA 
+          AND (NURENEG IS NULL OR NURENEG = 0);   /* alterac?o feita pelo Manoel  acrescentando a validac?o da ORDEM CARGA */ 
+      END IF;  
+    END IF;
+          
+    IF :OLD.NUMCONTRATO <> :NEW.NUMCONTRATO THEN
+      P_COUNTVAL := 0;
+      SELECT  COUNT(1) INTO P_COUNTVAL
+      FROM TGFFIN
+      WHERE NUNOTA = :NEW.NUNOTA
+      AND NUMCONTRATO <> :NEW.NUMCONTRATO;
+      IF P_COUNTVAL > 0 THEN            
+        UPDATE TGFFIN SET NUMCONTRATO = :NEW.NUMCONTRATO
+        WHERE NUNOTA = :NEW.NUNOTA
+        AND NUMCONTRATO <> :NEW.NUMCONTRATO;
+      END IF;  
+    END IF;
+      
+    IF GET_TSIPAR_LOGICO('RATEXTNOTAFRINC') = 'N' AND ((:NEW.CODPARCTRANSP = 0) OR (:NEW.VLRFRETE = 0) OR (:NEW.TIPFRETE <> 'N')) THEN
+      P_COUNTVAL := 0;
+      
+      SELECT COUNT(1) INTO P_COUNTVAL
+      FROM TGFFIN
+      WHERE NUNOTA = :NEW.NUNOTA AND DESDOBDUPL = 'F';
+      
+      IF P_COUNTVAL > 0 THEN 
+        DELETE FROM TGFFIN WHERE NUNOTA = :NEW.NUNOTA AND DESDOBDUPL = 'F';
+      END IF;  
+    END IF;
+      
+    IF (:NEW.CODPARCTRANSP <> 0) AND (:NEW.VLRFRETE <> :OLD.VLRFRETE) AND (:NEW.TIPFRETE = 'N') THEN
+      P_COUNTVAL := 0;
+      
+      SELECT SUM(VLRDESDOB) INTO P_VLRDESDOBFRETE
+      FROM TGFFIN 
+      WHERE NUNOTA = :NEW.NUNOTA
+        AND DESDOBDUPL = 'F';
+        
+      P_VLRDESDOBFRETE := :NEW.VLRFRETE - P_VLRDESDOBFRETE;
+          
+      UPDATE TGFFIN SET VLRDESDOB = VLRDESDOB + (P_VLRDESDOBFRETE)
+      WHERE NUNOTA = :NEW.NUNOTA
+        AND DESDOBDUPL = 'F'
+        AND DHBAIXA IS NULL;
+    END IF;
+    
+    IF (:NEW.CODPARCTRANSP <> 0) AND (:NEW.CODPARCTRANSP <> :OLD.CODPARCTRANSP) AND (:NEW.TIPFRETE = 'N') THEN 
+      P_COUNTVAL := 0; 
+
+      UPDATE TGFFIN SET CODPARC = :NEW.CODPARCTRANSP 
+      WHERE NUNOTA = :NEW.NUNOTA 
+      AND DESDOBDUPL = 'F' 
+      AND DHBAIXA IS NULL; 
+    END IF;
+    
+  END IF;
+  
+  RETURN;  
+EXCEPTION
+  WHEN ERROR THEN
+  /* 
+  Sincronizac?o de dados n?o faz validac?es
+  */
+  IF (P_VALIDAR) THEN 
+    RAISE_APPLICATION_ERROR(-20101, ERRMSG);
+  END IF; 
+END;
+
+/

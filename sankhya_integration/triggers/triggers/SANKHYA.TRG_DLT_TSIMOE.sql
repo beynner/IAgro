@@ -1,0 +1,17 @@
+-- SANKHYA.TRG_DLT_TSIMOE
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_DLT_TSIMOE
+"SANKHYA".TRG_DLT_TSIMOE 
+BEFORE DELETE ON TSIMOE 
+FOR EACH ROW
+
+BEGIN
+  IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+  
+  IF (:OLD.CODMOEDA = 0) THEN
+    raise_application_error(-20101, 'Registro padrão do sistema. Não pode ser excluido.');
+  END IF;
+END;
+
+/

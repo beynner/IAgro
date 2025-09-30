@@ -1,0 +1,69 @@
+-- SANKHYA.TRG_DLT_TGFRAT
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_DLT_TGFRAT
+"SANKHYA".TRG_DLT_TGFRAT 
+BEFORE DELETE ON TGFRAT FOR EACH ROW
+
+DECLARE  
+    P_COUNT                  INT:= 0;  
+    ERROR                    EXCEPTION;  
+    ERRMSG                   VARCHAR2(255); 
+	BLOQALTRAFINCTB			CHAR(1);
+    PRAGMA AUTONOMOUS_TRANSACTION;
+  BEGIN
+
+  IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+  
+    IF :OLD.ORIGEM = 'E' THEN  
+      SELECT COUNT(1) INTO P_COUNT  
+      FROM TCBINT C  
+      WHERE C.NUNICO = :OLD.NUFIN   
+	  AND C.ORIGEM = 'E';  
+      IF P_COUNT > 0 THEN  
+         ERRMSG := 'NUNOTA: ' || :OLD.NUFIN || ' j? contabilizada, n?o pode ser alterada.';  
+         RAISE ERROR;  
+      END IF;  
+      SELECT COUNT(1)  
+      INTO P_COUNT  
+      FROM TCBINT C  
+      , TGFFIN F  
+      WHERE F.NUNOTA = :OLD.NUFIN   
+      AND C.NUNICO = F.NUFIN  
+      AND C.ORIGEM IN ('F', 'B');  
+      IF P_COUNT > 0 THEN  
+        ERRMSG := 'NUNOTA: ' || :OLD.NUFIN || ' com Financeiro j? contabilizado, n?o pode ser alterada.';  
+        RAISE ERROR;  
+      END IF;  
+	 ELSIF ((:OLD.ORIGEM = 'F') OR (:OLD.ORIGEM = 'R'))  THEN 
+
+		 BEGIN
+			SELECT LOGICO INTO BLOQALTRAFINCTB
+			FROM TSIPAR WHERE CHAVE = 'BLOQALTRAFINCTB';
+			EXCEPTION WHEN NO_DATA_FOUND
+			  THEN BLOQALTRAFINCTB := 'S'; --O DEFAULT EH LIGADO
+		 END;
+
+		IF (:OLD.NUFIN <> TGFFIN_PKG.V_NUFINRECOMPANT) OR (NVL(BLOQALTRAFINCTB, 'S') = 'S') THEN --O DEFAULT DE BLOQALTRAFINCTB EH‰ LIGADO
+			  SELECT COUNT(1) INTO P_COUNT  
+			  FROM TCBINT C  
+			  WHERE C.NUNICO = :OLD.NUFIN   
+			  AND C.ORIGEM IN ('F','B');
+
+			  IF P_COUNT > 0 THEN 
+				 IF NVL(BLOQALTRAFINCTB, 'N') = 'S' THEN 
+					ERRMSG := 'Rateio-Financeiro ';
+				 END IF;
+
+				 ERRMSG := ERRMSG || 'NUFIN: ' || :OLD.NUFIN || ' j? contabilizado, n?o pode ser alterado.';
+				 RAISE ERROR;  
+			  END IF; 
+		END IF;
+    END IF;  
+	RETURN;
+EXCEPTION  
+    WHEN ERROR THEN  
+    RAISE_APPLICATION_ERROR(-20101, ERRMSG);  
+END;
+
+/

@@ -1,0 +1,36 @@
+-- SANKHYA.TRG_DLT_TGFTEF_EXCLUSAO
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_DLT_TGFTEF_EXCLUSAO
+"SANKHYA".TRG_DLT_TGFTEF_EXCLUSAO AFTER DELETE ON TGFTEF
+FOR EACH ROW
+
+DECLARE
+  P_SOLICITANTE           VARCHAR2(64);
+  P_NTUSERNAME            VARCHAR2(30);
+  P_PROGRAMNAME           VARCHAR2(80);
+BEGIN
+    IF Stp_Get_Atualizando THEN
+        RETURN;
+    END IF;
+
+    SELECT  SUBSTR(OSUSER,1,30), SUBSTR(MACHINE,1,64), PROGRAM 
+    INTO P_NTUSERNAME, P_SOLICITANTE, P_PROGRAMNAME 
+    FROM V$SESSION
+    WHERE AUDSID = USERENV('SESSIONID');
+
+    INSERT INTO TGFTEF_EXC (
+      REDE,          TIPODOC,         NUMCV,          NUMDOC,        
+      NUMNSU,        NUMPV,           AUTORIZACAO,    DESDOBRAMENTO,  
+      DTTRANSACAO,   VLRTRANSACAO,    VLRTAXA,        NUFIN,           
+      BANDEIRA,      CONFIRMADO,      PROCESSO,       DTINCLUSAO,     
+      TIPCANCELATEF, CODUSU,          NT_USERNAME,    HOSTNAME,       
+      PROGRAMA)
+    VALUES (
+     :OLD.REDE,                                 :OLD.TIPODOC,               :OLD.NUMCV,         :OLD.NUMDOC,
+     :OLD.NUMNSU,                               :OLD.NUMPV,                 :OLD.AUTORIZACAO,   :OLD.DESDOBRAMENTO,
+     :OLD.DTTRANSACAO,                          :OLD.VLRTRANSACAO,          :OLD.VLRTAXA,       :OLD.NUFIN,
+     :OLD.BANDEIRA,                             :OLD.CONFIRMADO,            :OLD.PROCESSO,      SYSDATE,            
+     Variaveis_Pkg.V_TIPCANCELATEF,             Tsiusu_Log_Pkg.V_CODUSULOG, P_NTUSERNAME,       P_SOLICITANTE,      
+     P_PROGRAMNAME);
+END;
+
+/

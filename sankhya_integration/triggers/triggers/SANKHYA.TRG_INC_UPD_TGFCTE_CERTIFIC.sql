@@ -1,0 +1,121 @@
+-- SANKHYA.TRG_INC_UPD_TGFCTE_CERTIFIC
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_INC_UPD_TGFCTE_CERTIFIC
+"SANKHYA".TRG_INC_UPD_TGFCTE_CERTIFIC 
+BEFORE INSERT OR UPDATE ON TGFCTE 
+FOR EACH ROW
+
+DECLARE
+  P_OQUE           VARCHAR2(60);
+  P_QUEM           VARCHAR2(60);
+  P_COM            VARCHAR2(60);
+  P_ERRO           VARCHAR2(4);
+  P_TIPO           TGFCER.TIPO%TYPE;
+  P_SEQUENCIA      TGFCER.SEQUENCIA%TYPE;
+  P_CHAVE          TGFCER.CHAVE%TYPE;
+  P_CODREGRA       TGFREG.CODREGRA%TYPE;
+  P_INSTPRINC      TGFREG.INSTPRINC%TYPE;
+  P_INSTSEC        TGFREG.INSTSEC%TYPE;
+  P_DESCRREGRA     TGFREG.DESCRREGRA%TYPE;
+  P_TIPOREGRA      TGFREG.TIPO%TYPE;
+  P_CODINSTPRINC   NUMBER(10,0);
+  P_CODINSTSEC     NUMBER(10,0);
+  P_COUNT          NUMBER(10,0);
+  ERRMSG           VARCHAR2(255);
+  ERROR            EXCEPTION;
+
+  CURSOR  curRegras IS
+    SELECT CER.TIPO, CER.CHAVE, CER.CODREGRA, CER.SEQUENCIA, REG.INSTPRINC, REG.INSTSEC, REG.TIPO, REG.DESCRREGRA
+    FROM TGFCER CER
+    , TGFREG REG
+    WHERE ((CER.TIPO = 'U' AND CER.CHAVE = STP_GET_CODUSULOGADO))
+    AND CER.ATIVO = 'S'
+    AND CER.CODREGRA = REG.CODREGRA
+    AND REG.INSTPRINC IN ('Empresa')
+    AND ((REG.INSTSEC IS NULL) OR (REG.INSTSEC IN ('Empresa')))    
+    ORDER BY CER.SEQUENCIA;
+BEGIN
+
+  IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+
+  IF ((INSERTING) OR
+     (:OLD.QTDEST <> :NEW.QTDEST)) THEN
+            
+    OPEN curRegras;
+    LOOP
+      FETCH curRegras INTO
+         P_TIPO, P_CHAVE, P_CODREGRA, P_SEQUENCIA, P_INSTPRINC, P_INSTSEC, P_TIPOREGRA, P_DESCRREGRA;
+      EXIT WHEN curRegras%NOTFOUND;
+
+        
+      IF P_INSTPRINC = 'Empresa' THEN
+        P_CODINSTPRINC := :NEW.CODEMP;
+      ELSE
+        CLOSE curRegras;
+        ERRMSG := 'Instrução principal "'|| P_INSTPRINC ||'" da regra "' || P_DESCRREGRA || '" não definida.';
+        RAISE ERROR;
+      END IF;
+
+      IF P_INSTSEC = 'Empresa' THEN
+        P_CODINSTSEC := :NEW.CODEMP;
+      ELSIF P_INSTSEC IS NOT NULL AND P_INSTSEC <> '' THEN
+        CLOSE curRegras;
+        ERRMSG := 'Instrução secundária "'|| P_INSTSEC ||'" da regra "' || P_DESCRREGRA || '" não definida.';
+        RAISE ERROR;
+      ELSE
+        P_CODINSTSEC := 0;
+      END IF;
+
+      IF TRIM(P_INSTSEC) IS NULL THEN -- Apenas uma dimensão
+        SELECT COUNT(*)
+        INTO P_COUNT
+        FROM TGFITR ITR
+        WHERE ITR.CODREGRA = P_CODREGRA
+        AND ITR.CODINSTPRINC <= P_CODINSTPRINC
+        AND NVL(ITR.CODINSTPRINCFIN, ITR.CODINSTPRINC) >= P_CODINSTPRINC
+        AND ITR.ATIVO = 'S';
+      ELSE
+        SELECT COUNT(*)
+        INTO P_COUNT
+        FROM TGFITR ITR
+        WHERE ITR.CODREGRA = P_CODREGRA
+        AND ITR.CODINSTPRINC <= P_CODINSTPRINC
+        AND NVL(ITR.CODINSTPRINCFIN, ITR.CODINSTPRINC) >= P_CODINSTPRINC
+        AND ITR.CODINSTSECINI <= P_CODINSTSEC  
+        AND ITR.CODINSTSECFIN >= P_CODINSTSEC  
+        AND ITR.ATIVO = 'S';
+      END IF;
+      P_ERRO := '';
+      IF P_TIPOREGRA = 'R' THEN
+        IF P_COUNT > 0 THEN
+          P_ERRO := 'ERRO';
+        END IF;
+      ELSE
+        IF P_COUNT = 0 THEN
+          P_ERRO := 'ERRO';
+        END IF;
+      END IF;
+      IF P_ERRO = 'ERRO' THEN
+        CLOSE curRegras;
+        Stp_Msg_Certific_Tipo(P_TIPO, P_CHAVE, P_QUEM);
+        Stp_Msg_Certific_Codinst(P_INSTPRINC, P_CODINSTPRINC, P_OQUE);
+        IF TRIM(P_INSTSEC) IS NULL THEN
+       ERRMSG := P_QUEM ||' não pode usar "'|| P_OQUE ||'" da regra "'||P_DESCRREGRA||'"\'||P_SEQUENCIA||'.';
+       RAISE ERROR;
+        ELSE
+          Stp_Msg_Certific_Codinst(P_INSTSEC, P_CODINSTSEC, P_COM);
+       ERRMSG := P_QUEM ||' não pode usar "'|| P_OQUE ||'" com "'|| P_COM ||'" da regra "'||P_DESCRREGRA||'"\'||P_SEQUENCIA||'.';
+       RAISE ERROR;
+        END IF;   
+      END IF;
+    END LOOP;
+    CLOSE curRegras;
+  END IF;
+  RETURN;  
+EXCEPTION
+  WHEN ERROR THEN
+     RAISE_APPLICATION_ERROR(-20101, ERRMSG);
+END;
+
+/

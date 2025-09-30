@@ -1,0 +1,135 @@
+-- SANKHYA.TRG_INC_UPD_TGFMBC_CERTIFIC
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_INC_UPD_TGFMBC_CERTIFIC
+TRG_INC_UPD_TGFMBC_CERTIFIC BEFORE INSERT OR UPDATE ON TGFMBC FOR EACH ROW
+
+DECLARE
+  P_OQUE           VARCHAR2(60);
+  P_QUEM           VARCHAR2(60);
+  P_COM            VARCHAR2(60);
+  P_ERRO           VARCHAR2(4);
+  P_TIPO           TGFCER.TIPO%TYPE;
+  P_SEQUENCIA      TGFCER.SEQUENCIA%TYPE; 
+  P_CHAVE          TGFCER.CHAVE%TYPE; 
+  P_CODREGRA       TGFREG.CODREGRA%TYPE; 
+  P_INSTPRINC      TGFREG.INSTPRINC%TYPE; 
+  P_INSTSEC        TGFREG.INSTSEC%TYPE;
+  P_DESCRREGRA     TGFREG.DESCRREGRA%TYPE;
+  P_TIPOREGRA      TGFREG.TIPO%TYPE; 
+  P_CODINSTPRINC   NUMBER(10,0);
+  P_CODINSTSEC     NUMBER(10,0);
+  P_COUNT          NUMBER(10,0);
+  ERRMSG            VARCHAR2(255);
+  ERROR             EXCEPTION;
+  P_VALIDAR BOOLEAN;
+
+  CURSOR  curRegras IS 
+    SELECT CER.TIPO, CER.CHAVE, CER.CODREGRA, CER.SEQUENCIA, REG.INSTPRINC, REG.INSTSEC, REG.TIPO, REG.DESCRREGRA
+    FROM TGFCER CER
+    , TGFREG REG
+    WHERE ((CER.TIPO = 'U' AND CER.CHAVE = :NEW.CODUSU) OR
+        (CER.TIPO = 'G'))
+    AND CER.ATIVO = 'S'
+    AND CER.CODREGRA = REG.CODREGRA
+    AND REG.INSTPRINC IN ('TOP', 'Conta Bancária')
+    AND (REG.INSTSEC IS NULL OR REG.INSTSEC IN ('TOP', 'Conta Bancária'))
+    ORDER BY CER.SEQUENCIA;
+BEGIN
+
+  IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+  /* 
+  sincroniza¿¿o de dados
+  */
+  P_VALIDAR := Fpodevalidar('TGFMBC');
+  IF INSERTING OR UPDATING('CODUSU') OR
+    UPDATING('CODTIPOPER') OR UPDATING('CODCTABCOINT') THEN
+    OPEN curRegras;
+    LOOP
+      FETCH curRegras INTO 
+         P_TIPO, P_CHAVE, P_CODREGRA, P_SEQUENCIA, P_INSTPRINC, P_INSTSEC, P_TIPOREGRA, P_DESCRREGRA;
+      EXIT WHEN curRegras%NOTFOUND;
+
+      IF P_INSTPRINC = 'TOP' THEN
+        P_CODINSTPRINC := :NEW.CODTIPOPER;
+      ELSIF P_INSTPRINC = 'Conta Bancária' THEN
+        P_CODINSTPRINC := :NEW.CODCTABCOINT; 
+      ELSE
+        CLOSE curRegras;
+  ERRMSG := 'Instrução principal "'|| P_INSTPRINC ||'" da regra "' || P_DESCRREGRA || '" imprevista.';
+  RAISE ERROR;
+      END IF;
+      
+      IF P_INSTSEC = 'TOP' THEN
+        P_CODINSTSEC := :NEW.CODTIPOPER;
+      ELSIF P_INSTSEC = 'Conta Bancária' THEN
+        P_CODINSTSEC := :NEW.CODCTABCOINT; 
+      ELSIF P_INSTSEC IS NOT NULL AND P_INSTSEC <> '' THEN
+        CLOSE curRegras;
+  ERRMSG := 'Instrução secundária "'|| P_INSTSEC ||'" da regra "' || P_DESCRREGRA || '" imprevista.';
+  RAISE ERROR;
+      ELSE
+        P_CODINSTSEC := 0;  
+      END IF;
+      
+      IF TRIM(P_INSTSEC) IS NULL THEN -- Apenas uma dimens¿o
+        SELECT COUNT(*)
+        INTO P_COUNT
+        FROM TGFITR ITR
+        WHERE ITR.CODREGRA = P_CODREGRA
+        AND ITR.CODINSTPRINC <= P_CODINSTPRINC
+        AND NVL(ITR.CODINSTPRINCFIN, ITR.CODINSTPRINC) >= P_CODINSTPRINC
+        AND ITR.ATIVO = 'S';
+      ELSE
+        SELECT COUNT(*)
+        INTO P_COUNT
+        FROM TGFITR ITR
+        WHERE ITR.CODREGRA = P_CODREGRA
+        AND ITR.CODINSTPRINC <= P_CODINSTPRINC
+        AND NVL(ITR.CODINSTPRINCFIN, ITR.CODINSTPRINC) >= P_CODINSTPRINC
+        AND ITR.CODINSTSECINI <= P_CODINSTSEC  
+        AND ITR.CODINSTSECFIN >= P_CODINSTSEC  
+        AND ITR.ATIVO = 'S';
+      END IF;
+      P_ERRO := '';
+      IF P_TIPOREGRA = 'R' THEN
+        IF P_COUNT > 0 THEN
+          P_ERRO := 'ERRO';
+        END IF;
+      ELSE
+        IF P_COUNT = 0 THEN
+          P_ERRO := 'ERRO';
+        END IF;
+      END IF;
+      IF P_ERRO = 'ERRO' THEN
+        CLOSE curRegras;
+        Stp_Msg_Certific_Tipo(P_TIPO, P_CHAVE, P_QUEM);
+        Stp_Msg_Certific_Codinst(P_INSTPRINC, P_CODINSTPRINC, P_OQUE);
+        IF TRIM(P_INSTSEC) IS NULL THEN
+    ERRMSG := P_QUEM ||' não pode usar "'|| P_OQUE ||'" da regra "'||P_DESCRREGRA||'"\'||P_SEQUENCIA||'.';
+    RAISE ERROR;
+        ELSE
+          Stp_Msg_Certific_Codinst(P_INSTSEC, P_CODINSTSEC, P_COM);
+    ERRMSG := P_QUEM ||' não pode usar "'|| P_OQUE ||'" com "'|| P_COM ||'" da regra "'||P_DESCRREGRA||'"\'||P_SEQUENCIA||'.';
+    RAISE ERROR;
+        END IF;   
+      END IF;
+    END LOOP;
+    CLOSE curRegras;
+  END IF;
+  
+  
+  RETURN;
+   
+EXCEPTION
+  WHEN ERROR THEN
+    /* 
+    Sincroniza¿¿o de dados não faz valida¿¿es
+    */
+    IF (P_VALIDAR) THEN 
+      RAISE_APPLICATION_ERROR(-20101, ERRMSG);
+    END IF; 
+
+END;
+
+/

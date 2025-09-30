@@ -1,0 +1,247 @@
+-- SANKHYA.TRG_INC_TCIIBE
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_INC_TCIIBE
+"SANKHYA".TRG_INC_TCIIBE
+   BEFORE INSERT
+   ON TCIIBE
+   FOR EACH ROW
+
+DECLARE
+   ERROR                 EXCEPTION;
+   ERRMSG                VARCHAR2 (255);
+   P_NUMCONTRATO_NF      INT;
+   P_NUMCONTRATO_BEM     INT;
+   P_NUNOTA              INT;
+   P_NUMNOTA             INT;
+   P_NUNOTASAIDA         INT;
+   P_NUNOTADEV           INT;
+   P_NUNOTABAIXA         INT;
+   P_NUNOTADEVVENDA      INT;
+   P_ULT_NUNOTA          INT;
+   P_ATUALBEM            CHAR (1);
+   P_NOTANAOCONFIRMADA   INT;
+   P_COUNT               INT;
+   P_CODEMP              INT;
+   P_CODEMPDEST          INT;
+   P_CODEMPBEM           INT;
+   P_LOCACAOBEM          CHAR(1);
+   P_FATCONTLOCBEM       CHAR(1);
+   P_VLRUNIT             FLOAT;
+   P_DTNEG               DATE;
+   P_DTINICIO            DATE;
+   P_DTENTSAI            DATE;
+   P_TIPMOV              CHAR(1);
+BEGIN
+  IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+
+   IF Variaveis_Pkg.V_INSERCAOAUTOMATICA = 'S' THEN
+     RETURN;
+   END IF;
+   
+   /* QDO SUBSTITUINDO PRODUTO, NÃO VALIDAR ESTOQUE */
+   IF (VARIAVEIS_PKG.V_SBPRODUTO) THEN
+     RETURN;
+   END IF;
+    
+   SELECT COUNT (1)
+     INTO P_COUNT
+     FROM TSIPAR
+    WHERE CHAVE = 'SBPRODUTO';
+
+   IF (P_COUNT > 0) THEN
+      RETURN;
+   END IF;
+
+   SELECT MIN (IBE.NUNOTA)
+     INTO P_NOTANAOCONFIRMADA
+     FROM TCIIBE IBE
+      , TGFCAB CAB
+    , TGFTOP TP
+    WHERE IBE.CODPROD = :NEW.CODPROD 
+    AND IBE.CODBEM = :NEW.CODBEM 
+    AND IBE.NUNOTA = CAB.NUNOTA 
+    AND CAB.STATUSNOTA <> 'L'
+    AND TP.CODTIPOPER = CAB.CODTIPOPER 
+    AND TP.DHALTER    = CAB.DHTIPOPER
+    AND TP.ATUALBEM NOT IN ('N', 'F');
+
+   IF (P_NOTANAOCONFIRMADA IS NOT NULL) AND (P_NOTANAOCONFIRMADA <> 0) THEN
+      ERRMSG :=
+            'O Bem '
+         || :NEW.CODBEM
+         || ' não pode ser incluído nesta nota porque já está informado em uma nota não confirmada com número único '
+         || TO_CHAR (P_NOTANAOCONFIRMADA, '999999999');
+      RAISE ERROR;
+   END IF;
+
+   SELECT C.NUMCONTRATO, T.ATUALBEM, C.CODEMP, C.CODEMPNEGOC, NVL(CON.LOCACAOBEM, 'N'), 
+          (CASE WHEN NVL(I.VLRUNITLOC, 0) <> 0 THEN I.VLRUNITLOC ELSE I.VLRUNIT END), 
+          (CASE WHEN C.DTREMRET  IS NOT NULL THEN C.DTREMRET  ELSE C.DTNEG END), 
+          (CASE WHEN C.DTREMRET  IS NOT NULL THEN C.DTREMRET  ELSE C.DTENTSAI END),
+          C.TIPMOV 
+     INTO P_NUMCONTRATO_NF, P_ATUALBEM, P_CODEMP, P_CODEMPDEST, P_LOCACAOBEM, P_VLRUNIT, P_DTNEG, P_DTENTSAI, P_TIPMOV
+     FROM TGFCAB C
+        LEFT JOIN TCSCON CON ON CON.NUMCONTRATO = C.NUMCONTRATO
+      , TGFTOP T
+    , TGFITE I
+    WHERE C.NUNOTA = :NEW.NUNOTA 
+    AND C.CODTIPOPER = T.CODTIPOPER 
+    AND C.DHTIPOPER = T.DHALTER
+    AND I.NUNOTA = C.NUNOTA
+    AND I.SEQUENCIA = :NEW.SEQUENCIA;
+    
+
+   IF (P_ATUALBEM = 'N') /*NADA*/ THEN
+      ERRMSG := 'Atualização de Bens marcada na TOP é inválida.';
+      RAISE ERROR;
+   END IF;
+   
+   IF (:NEW.ATUALBEM IS NULL) THEN
+     :NEW.ATUALBEM := P_ATUALBEM;
+   END IF;
+   
+   IF :NEW.ATUALBEM = 'F' THEN
+     RETURN;
+   END IF;
+   
+   IF (P_LOCACAOBEM = 'S') THEN
+     BEGIN   
+       SELECT LOGICO INTO P_FATCONTLOCBEM
+     FROM TSIPAR WHERE CHAVE = 'FATCONTLOCBEM';
+   EXCEPTION
+      WHEN NO_DATA_FOUND THEN
+       P_FATCONTLOCBEM := 'N';
+   END;
+   IF (P_FATCONTLOCBEM = 'S') THEN
+      IF (:NEW.ATUALBEM = 'T') THEN
+        INSERT INTO TCSBLO (CODPROD, CODBEM, NUMCONTRATO, DTINICIO, PRECOMENSAL, FATURADO, DTENVIO)
+                   VALUES(:NEW.CODPROD, :NEW.CODBEM, P_NUMCONTRATO_NF, P_DTNEG ,P_VLRUNIT, 'N', P_DTNEG);
+    ELSIF (:NEW.ATUALBEM = 'D') THEN
+      BEGIN
+         SELECT MAX(DTINICIO) INTO P_DTINICIO 
+                 FROM TCSBLO 
+         WHERE CODPROD = :NEW.CODPROD
+           AND CODBEM  = :NEW.CODBEM
+             AND NUMCONTRATO = P_NUMCONTRATO_NF
+           AND DTFIM IS NULL;
+      EXCEPTION
+          WHEN NO_DATA_FOUND THEN
+           ERRMSG := 'Produto: '||TO_CHAR(:NEW.CODPROD)||' Bem: '||:NEW.CODBEM||' Contrato: '||TO_CHAR(P_NUMCONTRATO_NF)||'. Não existe movimentação de locação em aberto para registrar a data da devolução.';
+         RAISE ERROR;
+      END;  
+        UPDATE TCSBLO SET DTFIM = P_DTENTSAI
+                        , TIPOFECHA = 'F'
+      WHERE CODPROD = :NEW.CODPROD
+        AND CODBEM  = :NEW.CODBEM
+        AND NUMCONTRATO = P_NUMCONTRATO_NF
+        AND DTINICIO = P_DTINICIO;
+    END IF;    
+   END IF;     
+   END IF;
+   
+   BEGIN
+      SELECT NVL (NUNOTA, 0), NVL (NUMNOTA, 0), NVL (NUNOTASAIDA, 0), NVL (NUNOTADEV, 0), NVL (NUNOTABAIXA, 0), NVL (NUNOTADEVVENDA, 0),
+             NUMCONTRATO, CODEMP
+        INTO P_NUNOTA, P_NUMNOTA, P_NUNOTASAIDA, P_NUNOTADEV, P_NUNOTABAIXA, P_NUNOTADEVVENDA,
+             P_NUMCONTRATO_BEM, P_CODEMPBEM
+        FROM TCIBEM
+       WHERE CODBEM = :NEW.CODBEM AND CODPROD = :NEW.CODPROD;
+   EXCEPTION
+      WHEN NO_DATA_FOUND THEN
+         ERRMSG := 'Bem não encontrado. Bem:' || :NEW.CODBEM;
+         RAISE ERROR;
+   END;
+
+   IF (P_ATUALBEM = 'C')   /*COMPRA*/
+      AND (P_NUNOTA <> :NEW.NUNOTA) THEN
+      ERRMSG := 'Já existe compra registrada para este Bem. NuNota Compra:' || TO_CHAR (P_ULT_NUNOTA, '999999999');
+      RAISE ERROR;
+   END IF;
+
+   P_ULT_NUNOTA := 0;
+
+   IF (P_NUNOTA > P_NUNOTASAIDA) AND (P_NUNOTA > P_NUNOTADEV) AND (P_NUNOTA > P_NUNOTABAIXA) AND (P_NUNOTA > P_NUNOTADEVVENDA) THEN
+      P_ULT_NUNOTA := P_NUNOTA;   /* COMPRA */
+   ELSIF (P_NUNOTASAIDA > P_NUNOTADEV) AND (P_NUNOTASAIDA > P_NUNOTABAIXA) AND (P_NUNOTASAIDA > P_NUNOTADEVVENDA) THEN
+      P_ULT_NUNOTA := P_NUNOTASAIDA;   /* TRANSF. */
+   ELSIF (P_NUNOTADEV > P_NUNOTABAIXA) AND (P_NUNOTADEV > P_NUNOTADEVVENDA) THEN
+      P_ULT_NUNOTA := P_NUNOTADEV;   /* RETORNO */
+   ELSIF (P_NUNOTABAIXA > P_NUNOTADEVVENDA) THEN
+      P_ULT_NUNOTA := P_NUNOTABAIXA;   /* BAIXA */
+
+      IF (P_ULT_NUNOTA <> :NEW.NUNOTA) AND (P_ATUALBEM <> 'E') THEN
+         ERRMSG :=
+                'Bem já baixado, pode ser movimentado somente por Devolução de Venda. NuNota Baixa:' || TO_CHAR (P_ULT_NUNOTA, '999999999');
+         RAISE ERROR;
+      END IF;
+   ELSE   /* DEVOLUÇÃO DE VENDA */
+      P_ULT_NUNOTA := P_NUNOTADEVVENDA;
+   END IF;
+   
+   
+   IF (:NEW.NUNOTA = P_ULT_NUNOTA)
+      AND (P_TIPMOV <> 'T') THEN --OS 615689 - 36
+		IF P_ATUALBEM <> 'C' /*COMPRA*/ THEN
+			IF P_CODEMP <> P_CODEMPBEM THEN
+				ERRMSG := 'Empresa do bem diferente da empresa do pedido/nota.';
+				RAISE ERROR;
+			END IF;
+		ELSE
+			RETURN;
+		END IF;
+   END IF;
+
+   IF (:NEW.NUNOTA < P_ULT_NUNOTA AND NOT PKG_IMOBILIZADO.V_DESMEMBRANDO_BEM ) THEN
+      ERRMSG :=
+            'O nro único desta operação é inferior ao último registrado no cad.Bens. último NuNota:' || TO_CHAR (P_ULT_NUNOTA, '999999999');
+      RAISE ERROR;
+   END IF;
+
+   IF (P_ATUALBEM = 'C') THEN
+      P_NUNOTA := :NEW.NUNOTA;
+   ELSIF (P_ATUALBEM = 'T') /*TRANSF.*/ THEN
+      P_NUNOTASAIDA := :NEW.NUNOTA;
+   ELSIF (P_ATUALBEM = 'D') /*RETORNO*/ THEN
+      /*IF P_NUMCONTRATO_BEM = 0 THEN
+         ERRMSG := 'O Bem não está em um contrato para ser devolvido.';
+         RAISE ERROR;
+      END IF;*/
+      
+      IF (P_ULT_NUNOTA <> P_NUNOTADEV) AND
+         (P_NUNOTASAIDA <> P_ULT_NUNOTA) THEN
+         /* essa mensagem deve ser analisada o caso de uso caso venha a acontecer */
+         ERRMSG := 'A últ.nota não permite devolução. Último NuNota:' || TO_CHAR (P_ULT_NUNOTA, '999999999');
+         RAISE ERROR;
+      END IF;
+
+      P_NUNOTADEV := :NEW.NUNOTA;
+      P_NUMCONTRATO_NF := 0;
+   ELSIF (P_ATUALBEM = 'B') /*BAIXA */ THEN
+      P_NUNOTABAIXA := :NEW.NUNOTA;
+   ELSE   /* DEVOLUÇÃO DE VENDA */
+      P_NUNOTADEVVENDA := :NEW.NUNOTA;
+   END IF;
+
+   IF P_ATUALBEM <> 'C' /*COMPRA*/ THEN
+      IF P_CODEMP <> P_CODEMPBEM THEN
+         ERRMSG := 'Empresa do bem diferente da empresa do pedido/nota.';
+         RAISE ERROR;
+      END IF;
+   END IF;    
+
+   UPDATE TCIBEM
+      SET NUMCONTRATO = P_NUMCONTRATO_NF,
+          NUNOTA = P_NUNOTA,
+          NUNOTASAIDA = P_NUNOTASAIDA,
+          NUNOTADEV = P_NUNOTADEV,
+          NUNOTABAIXA = P_NUNOTABAIXA,
+          NUNOTADEVVENDA = P_NUNOTADEVVENDA,
+          CODEMP = P_CODEMPDEST
+    WHERE CODBEM = :NEW.CODBEM AND CODPROD = :NEW.CODPROD;
+EXCEPTION
+   WHEN ERROR THEN
+      RAISE_APPLICATION_ERROR (-20101, ERRMSG);
+END;
+
+/

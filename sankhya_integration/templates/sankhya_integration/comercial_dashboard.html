@@ -1,0 +1,1489 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Painel Comercial — Layout Reiniciado</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Courgette&display=swap" rel="stylesheet">
+  <style>
+  :root{--bg:#fff;--muted:#6b7280;--accent:#0ea5e9;--card:#f8fafb;--gap:16px;--card-padding:12px;--wrap-pad:20px;--appbar-h:48px;--mini-label-w:24px}
+    *,*::before,*::after{box-sizing:border-box}
+  body{font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:var(--bg);color:#111;overflow-y:hidden}
+  /* full viewport container so inner panels can stretch to bottom */
+  html,body{height:100%}
+  .wrap{padding:var(--wrap-pad);min-height:100%;height:100%}
+  .appbar{height:var(--appbar-h);display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--gap)}
+  .appbar h1{margin:0;font-size:1.5rem;line-height:1.2}
+  .appbar .sup-name{font-family:"Courgette", cursive;font-size:1.15rem;font-weight:400;color:#0a3392;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0;max-width:45%}
+
+    /* two-column main layout: left narrow sidebar, right main area */
+  /* left column approx 20% to match design */
+  .layout{display:grid;grid-template-columns:20% 1fr;gap:var(--gap);align-items:stretch;height:calc(100vh - var(--appbar-h) - (2 * var(--wrap-pad)) - var(--gap))}
+  .sidebar{min-width:200px;display:flex;flex-direction:column;min-height:0;height:100%}
+
+    /* main z area (flex column so a top bar can sit above the grid) */
+    /* right area should fill remaining viewport height so bottom cards can stretch */
+    .zarea{display:flex;flex-direction:column;height:100%;min-height:0}
+  /* Bottom row: widen Classificação (left) and shrink Entrada (right) */
+  .zgrid{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr);grid-template-rows:minmax(240px,0.6fr) minmax(0,0.4fr);gap:var(--gap);flex:1 1 auto;min-height:0}
+  .zcell{min-height:180px; min-width:0;min-height:0}
+
+  /* make panels inside grid cells stretch vertically */
+  .zcell.panel{display:flex;flex-direction:column;height:100%}
+  .zcell.panel > h3{flex:0 0 auto}
+  .zcell.panel > :not(h3){flex:1;min-height:0}
+
+    .panel{background:#fff;border-radius:8px;padding:var(--card-padding);box-shadow:0 1px 0 rgba(15,23,42,0.04);border:1px solid #eef2f7}
+    h3{margin:0 0 12px 0}
+
+  /* specific regions - tuned to match screenshot */
+  /* Filtros: altura automática para comportar o formulário */
+  #filtersCard{height:auto}
+  #filtersCard .filtros-form{display:grid;grid-template-columns:1fr;gap:10px}
+  #filtersCard fieldset{border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;background:var(--card);margin:0}
+  #filtersCard legend{font-size:.8rem;font-weight:700;color:#334155;padding:0 4px}
+  #filtersCard .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  #filtersCard label{display:flex;align-items:center;gap:8px;font-size:.85rem;color:#334155}
+  #filtersCard .stack{display:flex;flex-direction:column;gap:6px}
+  #filtersCard input[type="text"],#filtersCard input[type="date"],#filtersCard select{width:100%;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:.85rem}
+  #filtersCard .actions{display:flex;justify-content:flex-end}
+  #filtersCard .btn{appearance:none;-webkit-appearance:none;border-radius:6px;padding:6px 12px;font-size:.8rem;font-weight:600;cursor:pointer;line-height:1;border:1px solid transparent;background:#fff}
+  #filtersCard .btn-clear{border-color:#f59e0b;color:#b45309;background:#fff}
+  #filtersCard .btn-clear:hover{background:#fff7ed}
+  /* make tableCard grow to fill remaining height in the sidebar */
+  #tableCard{flex:1;min-height:0;margin-top:8px}
+
+   /* Distribuição area will contain simPanel aligned to the right */
+   /* distWrapper: flex container; distMain grows, distSim is a fixed-width panel */
+  #distWrapper{display:flex; gap:16px; align-items:stretch;height:100%}
+  #distMain{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+  /* grid de mini-cards dentro do distMain */
+  #distGrid{flex:1 1 auto;min-height:0;height:100%;display:grid;grid-template-columns:120px 1fr 1fr 1fr;grid-template-rows:110px 1fr;gap:12px}
+  .dist-mini{background:var(--card);border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px 8px calc(var(--mini-label-w) + 6px);display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden}
+  /* rótulo suave rotacionado a 90º e centralizado na faixa esquerda */
+  /* rótulo em faixa fixa à esquerda, centralizado e rotacionado +90º */
+  .dist-label{position:absolute;left:calc(var(--mini-label-w) / 2);top:50%;transform:translate(-50%, -50%) rotate(-90deg);transform-origin:center;text-align:center;font-size:.75rem;font-weight:500;color:var(--muted);letter-spacing:.03em;white-space:nowrap}
+  /* número destacado */
+  .dist-value{margin-top:4px;font-size:clamp(32px,2.6vw,30px);font-weight:800;line-height:1.1;color:#0a3392;text-align:center;align-self:stretch;width:100%}
+  /* aumentar o espaço entre os dois números do card Custo (somente o segundo valor) */
+  #distMini2 .dist-value + .dist-value{margin-top:12px}
+  /* sufixo de unidade para valores (mesma fonte do rótulo, sem rotação) */
+  .dist-suffix{font-size:.75rem;font-weight:500;color:var(--muted);margin-left:6px}
+  /* espaço entre os dois valores do card Qtde Total */
+  #distMini3 .dist-value + .dist-value{margin-top:12px}
+  
+  /* ----- QTDE TOTAL: layout diagonal invertido (cima -> baixo) ----- */
+  #distMini3.qty-split{position:relative}
+  #distMini3.qty-split::before{content:"";position:absolute;left:8px;right:8px;top:50%;height:3px;background:#cbd5e1;border-radius:3px;transform:rotate(28deg);transform-origin:center;opacity:.35}
+  #distMini3.qty-split .qty-top,#distMini3.qty-split .qty-bottom{position:absolute;display:flex;flex-direction:column;align-items:center}
+  #distMini3.qty-split .qty-top{top:10px;right:58px;left:auto}
+  #distMini3.qty-split .qty-bottom{left:58px;bottom:10px;right:auto}
+  #distMini3.qty-split .dist-value{margin:0;text-align:center}
+  #distMini3.qty-split .dist-suffix{display:block;margin:4px 0 0 0}
+  /* maior espaço entre sufixo e número apenas nos blocos inferiores */
+  #distMini2.cost-split .cost-bottom .dist-value{margin-top:10px}
+  #distMini3.qty-split .qty-bottom .dist-value{margin-top:10px}
+
+  /* alinhamento dos sufixos: cx à esquerda, kg à direita, relativo à largura do número */
+  /* dar largura ao grupo baseada no conteúdo (número) */
+  #distMini2.cost-split .cost-top,#distMini2.cost-split .cost-bottom,
+  #distMini3.qty-split .qty-top,#distMini3.qty-split .qty-bottom{width:max-content}
+  /* CUSTO: /cx à esquerda, /kg à direita */
+  #distMini2.cost-split .cost-top .dist-suffix{align-self:stretch;text-align:left;margin-left:0}
+  #distMini2.cost-split .cost-bottom .dist-suffix{align-self:stretch;text-align:right;margin-left:0}
+  /* QTDE TOTAL: topo (kg) à direita, base (cx) à esquerda */
+  #distMini3.qty-split .qty-top .dist-suffix{align-self:stretch;text-align:right;margin-left:0}
+  #distMini3.qty-split .qty-bottom .dist-suffix{align-self:stretch;text-align:left;margin-left:0}
+
+  /* ----- CUSTO: layout diagonal exclusivo ----- */
+  #distMini2.cost-split{position:relative}
+  /* diagonal divider */
+  #distMini2.cost-split::before{content:"";position:absolute;left:8px;right:8px;top:50%;height:3px;background:#cbd5e1;border-radius:3px;transform:rotate(-28deg);transform-origin:center;opacity:.35}
+  /* value groups */
+  #distMini2.cost-split .cost-top,#distMini2.cost-split .cost-bottom{position:absolute;display:flex;flex-direction:column;align-items:center}
+  #distMini2.cost-split .cost-top{top:10px;left:58px}
+  #distMini2.cost-split .cost-bottom{right:58px;bottom:10px}
+  /* values and unit under value */
+  #distMini2.cost-split .dist-value{margin:0;text-align:center}
+  #distMini2.cost-split .dist-suffix{display:block;margin:4px 0 0 0}
+  
+  /* ----- CUSTO (#distMini2): edição inline para CX e KG ----- */
+  #distMini2 .editable{cursor:text}
+  #distMini2 .value-input{display:none;font-weight:800;color:#0a3392;text-align:center;background:transparent;border:1px solid #cbd5e1;border-radius:6px;padding:4px 8px;width:auto;max-width:calc(100% - 24px);margin:0 auto;outline:none;font-size:clamp(28px,2.4vw,28px);line-height:1.1;box-sizing:border-box}
+  /* alternância por campo */
+  #distMini2.editing-cx .cost-top .dist-value{display:none}
+  #distMini2.editing-cx .cost-top .value-input{display:block}
+  #distMini2.editing-kg .cost-bottom .dist-value{display:none}
+  #distMini2.editing-kg .cost-bottom .value-input{display:block}
+  
+  /* ----- VALOR TOTAL (#distMini4): edição inline com campo compacto ----- */
+  #distMini4 .editable{cursor:text}
+  #distMini4 .value-input{display:none;font-weight:800;color:#0a3392;text-align:center;background:transparent;border:1px solid #cbd5e1;border-radius:6px;padding:4px 8px;width:auto;max-width:calc(100% - 24px);margin:0 auto;outline:none;font-size:clamp(32px,2.6vw,30px);line-height:1.1;box-sizing:border-box}
+  #distMini4.editing .dist-value{display:none}
+  #distMini4.editing .value-input{display:block}
+  
+  /* ----- BLOCO 5: Layout A (dois cards lado a lado) ----- */
+  #distMini5 .kpiA-wrap{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  #distMini5 .kpiA-card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;display:flex;flex-direction:column}
+  #distMini5 .kpiA-head{padding:10px 12px;background:var(--card);border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center}
+  #distMini5 .kpiA-title{font-size:.85rem;font-weight:700;color:#334155}
+  #distMini5 .kpiA-body{display:flex;flex-direction:column}
+  #distMini5 .kpiA-row{display:flex;justify-content:space-between;align-items:baseline;padding:10px 12px;border-bottom:1px solid #e5e7eb}
+  #distMini5 .kpiA-label{font-size:.85rem;font-weight:500;color:var(--muted)}
+  #distMini5 .kpiA-value{display:flex;gap:6px;align-items:baseline;color:#0a3392;font-weight:800}
+  #distMini5 .kpiA-value .unit{font-size:.8rem;font-weight:500;color:var(--muted)}
+  #distMini5 .kpiA-row.total{background:#f1f5f9}
+  #distMini5 .kpiA-row.total .kpiA-value{font-size:clamp(18px,2.2vw,22px)}
+  #distMini5 .currency{font-size:.9rem;font-weight:600;color:var(--muted)}
+  @media (max-width:900px){#distMini5 .kpiA-wrap{grid-template-columns:1fr}}
+    
+  /* posições: 1 ocupa duas linhas à esquerda; 2/3/4 na 1ª linha; 5 preenche a 2ª linha sob 2-4 */
+  #distMini1{grid-column:1;grid-row:1 / span 2}
+  #distMini2{grid-column:2;grid-row:1}
+  #distMini3{grid-column:3;grid-row:1}
+  #distMini4{grid-column:4;grid-row:1}
+  #distMini5{grid-column:2 / 5;grid-row:2}
+   /* distSim: same visual height as distCard but inset with margins (top/bottom/right)
+     - visual width: 320px
+     - margins: 8px top/bottom, 12px right
+     - use box-sizing:border-box so padding is included
+   */
+  /* simulation inset panel on the right of Distribuição */
+  #distSim{width:280px; margin:4px 4px 4px 0; box-sizing:border-box; padding:var(--card-padding)}
+
+   /* Make Distribuição fill the available horizontal space (stretch to grid cell) */
+  /* Distribuição: no fixed height; it takes the height of the first grid row */
+  #distCard{overflow:hidden; justify-self:stretch; width:100%;display:flex}
+  #distCard > #distWrapper{flex:1}
+
+   /* Make the inner simulation panel visually match the distCard height
+     distWrapper has align-items:stretch so children stretch to parent's height;
+     subtract vertical margins from #distSim (8px top + 8px bottom = 16px)
+   */
+  /* subtract vertical margins of #distSim (4px top + 4px bottom = 8px) */
+  /* distSim should stretch to match distCard height minus margins */
+  #distCard > #distWrapper > #distSim{height:calc(100% - 8px);align-self:stretch}
+
+  /* ----- SIMULAÇÃO (T1 - tabelas compactas) ----- */
+  #distSim .sim-wrap{display:flex;flex-direction:column;gap:6px}
+  #distSim .sim-sec{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px}
+  #distSim .sim-title{font-size:.75rem;font-weight:700;color:#334155;margin:0 0 4px 0}
+  #distSim .sim-table{display:flex;flex-direction:column;gap:4px}
+  #distSim .sim-row{display:flex;align-items:center;justify-content:space-between;gap:6px}
+  #distSim .sim-label{flex:0 0 44%;font-size:.75rem;color:#475569;line-height:1.2}
+  #distSim .sim-control{flex:1;display:flex;align-items:center;gap:6px}
+  #distSim .sim-control input{width:100%;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:.85rem;line-height:1.2;text-align:right}
+  #distSim .sim-control input::placeholder{color:#94a3b8}
+  #distSim .sim-footer{margin-top:2px}
+  #distSim .sim-summary{display:flex;flex-direction:column;background:#f8fafb;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px}
+  #distSim .sim-total-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-weight:700;color:#0a3392;border-top:1px solid #e5e7eb;font-size:.9rem}
+  #distSim .sim-total-row:first-child{border-top:none;padding-top:0}
+  #distSim .sim-total-row span:first-child{font-weight:400;color:#334155}
+  #distSim .sim-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px;margin-bottom:10px}
+  #distSim .btn{appearance:none;-webkit-appearance:none;border-radius:6px;padding:6px 12px;font-size:.8rem;font-weight:600;cursor:pointer;line-height:1;border:1px solid transparent;background:#fff}
+  /* Limpar: borda laranja, fundo branco */
+  #distSim .btn-secondary{border-color:#f59e0b;color:#b45309;background:#fff}
+  #distSim .btn-secondary:hover{background:#fff7ed}
+  /* Aplicar: fundo branco, borda azul */
+  #distSim .btn-primary{border-color:#0ea5e9;color:#0ea5e9;background:#fff}
+  #distSim .btn-primary:hover{background:#eff6ff}
+
+    /* keep a comfortable layout on narrow desktops/mobile via media queries */
+    @media (max-width:900px){
+      .layout{grid-template-columns:1fr}
+      .zgrid{grid-template-columns:1fr;grid-template-rows:repeat(4,auto)}
+      #distSim{width:100%}
+      #distCard{max-width:100%;justify-self:stretch}
+    }
+
+    /* (media rules above handle the small-screen case) */
+
+    /* ----- CLASSIFICAÇÃO: tabela compacta + KPIs ----- */
+    #classCard{display:flex;flex-direction:column}
+  #classCard .class-wrap{display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr;gap:12px;min-height:0;height:100%}
+  #classCard .class-table{border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;min-height:0;height:100%;grid-column:1;grid-row:1}
+  #classCard .class-head,#classCard .class-row{display:grid;grid-template-columns:64px 1fr 96px 88px;align-items:center;gap:6px;padding:6px 8px}
+  #classCard .class-head{background:var(--card);color:#334155;font-weight:600;position:sticky;top:0;z-index:1;font-size:.8rem}
+  #classCard .class-body{overflow:hidden auto;min-height:0}
+  #classCard .cell-num{text-align:right;font-variant-numeric:tabular-nums;font-size:.85rem}
+  #classCard .cell-prod{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.85rem}
+  #classCard .cell-pct{display:flex;align-items:center;gap:6px;justify-content:flex-end}
+  #classCard .cell-pct .pct-val{min-width:38px;text-align:right;font-weight:700;color:#0a3392;font-size:.85rem}
+  #classCard .percent-bar{flex:1;height:5px;background:#e2e8f0;border-radius:999px;overflow:hidden;max-width:72px}
+    #classCard .percent-bar>span{display:block;height:100%;background:linear-gradient(90deg,#0ea5e9,#3b82f6);width:0%}
+  #classCard .summary{grid-column:2;grid-row:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr auto;gap:12px;align-content:start;min-height:0;height:100%;overflow:hidden}
+  /* Extra card (direita) */
+  #classCard .extra{grid-column:3;grid-row:1;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-height:0;height:100%}
+  #classCard .extra .extra-title{font-size:.85rem;font-weight:700;color:#334155}
+  #classCard .extra .extra-body{flex:1;min-height:0;color:#475569;font-size:.85rem}
+  @media (max-width:900px){
+    #classCard .class-wrap{grid-template-columns:1fr;grid-template-rows:auto auto auto}
+    #classCard .class-table,#classCard .summary,#classCard .extra{grid-column:1;grid-row:auto}
+  }
+  #classCard .summary .kpi:first-child{grid-column:1 / -1;grid-row:1}
+  #classCard .kpi{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+    #classCard .kpi-label{font-size:.8rem;color:#475569}
+    #classCard .kpi-value{font-size:1.2rem;font-weight:800;color:#0a3392}
+    #classCard .kpi-sub{font-size:.75rem;color:#64748b}
+  /* Gauge (semicírculo) para progresso de classificação */
+  #classCard .gauge{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:0}
+  #classCard .gauge svg{width:260px;height:140px;max-width:100%;display:block}
+  /* reduzir espaço abaixo do título apenas neste card */
+  #classCard > h3{margin-bottom:0}
+  #classCard .gauge #gArc,#classCard .gauge #gTrack{stroke-width:16px}
+  #classCard .gauge #gArc{transition:stroke-dasharray 900ms ease-in-out, stroke 900ms linear}
+  #classCard .summary .kpi:first-child{padding:0;background:transparent;border:0;box-shadow:none;gap:0}
+  #classCard .gauge .gauge-label{font-size:.7rem;font-weight:400;color:#94a3b8;fill:currentColor}
+  #classCard .gauge .gauge-val{font-weight:800;color:#0a3392;font-size:26px}
+  /* Mostrar somente o gráfico (com legenda) no card Aproveitamento */
+  #classCard .summary .kpi:nth-child(1) .kpi-label,
+  #classCard .summary .kpi:nth-child(1) .kpi-value,
+  #classCard .summary .kpi:nth-child(1) .kpi-sub{display:none}
+    
+  /* (supplier name now sits in .appbar at the right) */
+
+
+    /* ----- ENTRADA: cabeçalho compacto + métricas ----- */
+    #entradaCard{display:flex;flex-direction:column}
+  #entradaCard .entrada-title{display:flex;align-items:center;justify-content:space-between}
+  #entradaCard .entrada-title .title-right{display:flex;gap:8px;margin-left:auto}
+    #entradaCard .entrada-wrap{display:flex;flex-direction:column;gap:12px;height:100%}
+    #entradaCard .entrada-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+  #entradaCard .entrada-head .doc{margin-left:auto;text-align:right}
+    #entradaCard .entrada-head .supplier{font-weight:800;color:#0a3392;font-size:1.1rem}
+    #entradaCard .entrada-head .product{font-weight:700;color:#334155}
+    #entradaCard .entrada-head .doc-meta{font-size:.8rem;color:#64748b}
+  #entradaCard .badges{display:flex;gap:8px;flex-wrap:wrap}
+  #entradaCard .badge{background:#eef2ff;color:#1d4ed8;border:1px solid #dbeafe;border-radius:999px;padding:4px 10px;font-size:.75rem;font-weight:700}
+  /* Entrada: usar layout de uma coluna (sem divisão) para o card unificado ocupar toda a largura */
+  #entradaCard .grid{display:grid;grid-template-columns:1fr;gap:12px;align-items:stretch;min-height:0}
+  /* garantir que o card unificado ocupe a coluna única */
+  #quantidadeInnCard{grid-column:1;grid-row:auto}
+  #entradaCard .card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:4px}
+  #entradaCard .divider{border-top:1px solid #e5e7eb;margin:6px 0}
+  /* Divider within the unified quantidade/preço card: 50% width and centered */
+  #quantidadeInnCard .divider{width:50%;margin:6px auto}
+  #entradaCard .headline{display:flex;align-items:baseline;justify-content:center;flex-direction:row}
+  #entradaCard .headline .metric-label{display:none}
+  #entradaCard .headline .big{font-size:clamp(32px,4.5vw,42px);font-weight:800;color:#0a3392;line-height:1}
+    #entradaCard .metric-label{font-size:.8rem;color:#475569}
+    #entradaCard .value{font-size:1.1rem;color:#0a3392;font-weight:800}
+    #entradaCard .unit{font-size:.75rem;color:#94a3b8;margin-left:6px}
+  #entradaCard .twocol{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  #entradaCard .peso-row{display:flex;justify-content:space-between;align-items:baseline}
+  #entradaCard .peso-row .value{display:flex;align-items:baseline;gap:4px;position:relative}
+  #quantidadeInnCard .editable{cursor:text;display:inline-block}
+  #quantidadeInnCard .peso-input{display:none;position:absolute;left:0;top:50%;transform:translateY(-50%);font-weight:800;color:#0a3392;text-align:right;background:transparent;border:1px solid #cbd5e1;border-radius:6px;padding:4px 8px;width:auto;min-width:60px;max-width:100%}
+  #quantidadeInnCard.editing .value .editable{visibility:hidden}
+  #quantidadeInnCard.editing .peso-input{display:inline-block}
+  #entradaCard .kpi-row{display:flex;justify-content:space-between;align-items:baseline;padding:2px 0}
+  #entradaCard .kpi-row.total{border-top:1px solid #e5e7eb;padding-top:6px;margin-top:auto}
+    #entradaCard .kpi-row .currency{font-size:.9rem;font-weight:600;color:#64748b;margin-right:4px}
+    @media (max-width:1000px){
+      #entradaCard .grid{grid-template-columns:1fr;}
+      /* em telas estreitas, voltar para uma única coluna */
+      #quantidadeInnCard{grid-column:1;grid-row:auto}
+    }
+
+  /* Preço inline edit within unified card without layout shift */
+  #quantidadeInnCard .kpi-row .value{position:relative;display:flex;align-items:baseline;gap:4px}
+  #quantidadeInnCard .editable{cursor:text;display:inline-block}
+  #quantidadeInnCard .preco-input{display:none;position:absolute;left:0;top:50%;transform:translateY(-50%);font-weight:800;color:#0a3392;text-align:right;background:transparent;border:1px solid #cbd5e1;border-radius:6px;padding:4px 8px;width:auto;min-width:80px;max-width:100%;z-index:1}
+  /* ao editar preço, esconda somente o display dentro das linhas de preço */
+  #quantidadeInnCard.editing-cx .kpi-row .editable{visibility:hidden}
+  #quantidadeInnCard.editing-cx .preco-input{display:inline-block}
+
+  /* Entrada: reduzir fonte e tirar negrito dos mini-cards unificados */
+  #quantidadeInnCard .value{font-size:1rem;font-weight:400}
+  #quantidadeInnCard .editable{font-weight:400}
+  #quantidadeInnCard .peso-input, #quantidadeInnCard .preco-input{font-weight:400}
+
+  </style>
+</head>
+<body>
+  <div class="wrap">
+  <header class="appbar"><h1>Painel Comercial — (Layout reiniciado)</h1><span class="sup-name" id="supplierName">—</span></header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <div id="filtersCard" class="panel">
+          <h3>Filtros</h3>
+          <form id="filtrosForm" class="filtros-form">
+            <div class="row">
+              <fieldset class="stack">
+                <legend>Status</legend>
+                <label><input type="checkbox" id="fltPagar" /> Falta liberar pagamento</label>
+                <label><input type="checkbox" id="fltPrecoInicial" /> Falta preço inicial</label>
+                <label><input type="checkbox" id="fltFinalizarClass" /> Falta finalizar classificação</label>
+              </fieldset>
+              <fieldset class="stack">
+                <legend>Histórico</legend>
+                <label><input type="radio" name="hist" value="15" /> 15 Dias</label>
+                <label><input type="radio" name="hist" value="60" checked /> 60 Dias</label>
+                <label><input type="radio" name="hist" value="all" /> Tudo</label>
+              </fieldset>
+            </div>
+            <div class="row">
+              <fieldset class="stack">
+                <legend>Classificação</legend>
+                <label><input type="radio" name="classif" value="com" /> Com classificação</label>
+                <label><input type="radio" name="classif" value="sem" /> Sem classificação</label>
+              </fieldset>
+              <fieldset class="stack">
+                <legend>Faturado</legend>
+                <label><input type="radio" name="fat" value="sim" /> Sim</label>
+                <label><input type="radio" name="fat" value="nao" /> Não</label>
+              </fieldset>
+            </div>
+            <div class="row">
+              <div class="stack">
+                <label for="fltCracha">Crachá</label>
+                <input type="text" id="fltCracha" placeholder="Digite o crachá" />
+              </div>
+              <div class="stack">
+                <label for="fltDataCompra">Data da compra</label>
+                <input type="date" id="fltDataCompra" />
+              </div>
+            </div>
+            <div class="row">
+              <div class="stack">
+                <label for="fltFornecedor">Fornecedor</label>
+                <select id="fltFornecedor">
+                  <option value="">Todos</option>
+                </select>
+              </div>
+              <fieldset class="stack">
+                <legend>Produtos</legend>
+                <label><input type="checkbox" name="produtoTipo" value="tomate" /> Tomate</label>
+                <label><input type="checkbox" name="produtoTipo" value="cenoura" /> Cenoura</label>
+              </fieldset>
+            </div>
+            <div class="row">
+              <div class="stack" style="grid-column:1 / -1">
+                <label for="fltProduto">Produto</label>
+                <select id="fltProduto">
+                  <option value="">Todos</option>
+                </select>
+              </div>
+            </div>
+            <div class="actions">
+              <button type="button" id="btnLimparFiltros" class="btn btn-clear">Limpar filtros</button>
+            </div>
+          </form>
+        </div>
+
+        <div id="tableCard" class="panel" style="margin-top:12px">
+          <h3>Tabela</h3>
+          <!-- vazio, preencher depois -->
+        </div>
+      </aside>
+
+      <section class="zarea">
+        
+        <div class="zgrid">
+          <!-- TL: Distribuição (com Simulação alinhada a direita) -->
+          <div class="zcell z-tl panel" id="distCard" style="grid-column:1 / -1">
+            <div id="distWrapper">
+              <div id="distMain">
+                <h3>Distribuição</h3>
+                <!-- grade interna de 5 mini-cards; o 6º já é o painel à direita (#distSim) -->
+                <div id="distGrid">
+                  <div id="distMini1" class="dist-mini" aria-label="mini 1"></div>
+                    <div id="distMini2" class="dist-mini cost-split" aria-label="mini 2">
+                      <span class="dist-label">Custo</span>
+                      <div class="cost-top">
+                        <span id="costCxDisplay" class="dist-value editable" role="button" tabindex="0" aria-label="Editar custo por caixa">35,64</span>
+                        <input id="costCxInput" class="value-input" type="text" inputmode="decimal" aria-label="Custo por caixa" />
+                        <span class="dist-suffix">/cx</span>
+                      </div>
+                      <div class="cost-bottom">
+                        <span class="dist-suffix">/kg</span>
+                        <span id="costKgDisplay" class="dist-value editable" role="button" tabindex="0" aria-label="Editar custo por quilo">1,62</span>
+                        <input id="costKgInput" class="value-input" type="text" inputmode="decimal" aria-label="Custo por quilo" />
+                      </div>
+                    </div>
+                    <div id="distMini3" class="dist-mini qty-split" aria-label="mini 3">
+                      <span class="dist-label">Qtde Total</span>
+                      <div class="qty-top">
+                        <span class="dist-value">305</span>
+                        <span class="dist-suffix">cx</span>
+                      </div>
+                      <div class="qty-bottom">
+                        <span class="dist-suffix">kg</span>
+                        <span class="dist-value">6.724</span>
+                      </div>
+                    </div>
+                    <div id="distMini4" class="dist-mini" aria-label="mini 4">
+                      <span class="dist-label">Valor Total</span>
+                      <span id="totalValueDisplay" class="dist-value editable" role="button" tabindex="0" aria-label="Editar valor total" aria-live="polite">R$ 10.892,88</span>
+                      <input id="totalValueInput" class="value-input" type="text" inputmode="decimal" aria-label="Valor total" />
+                    </div>
+                  <div id="distMini5" class="dist-mini" aria-label="mini 5">
+                    <div class="kpiA-wrap">
+                      <div class="kpiA-card">
+                        <div class="kpiA-head">
+                          <div class="kpiA-title">EXTRA</div>
+                        </div>
+                        <div class="kpiA-body">
+                          <div class="kpiA-row"><div class="kpiA-label">Total KG</div><div class="kpiA-value"><span class="num">1.234</span><span class="unit">kg</span></div></div>
+                          <div class="kpiA-row"><div class="kpiA-label">Total CX</div><div class="kpiA-value"><span class="num">305</span><span class="unit">cx</span></div></div>
+                          <div class="kpiA-row"><div class="kpiA-label">Custo KG</div><div class="kpiA-value"><span class="num">1,62</span><span class="unit">/kg</span></div></div>
+                          <div id="extraCustoCxRow" class="kpiA-row"><div class="kpiA-label">Custo CX</div><div class="kpiA-value"><span id="extraCustoCxDisplay" class="num editable" role="button" tabindex="0" aria-label="Editar custo CX (EXTRA)">35,64</span><input id="extraCustoCxInput" class="value-input" type="text" inputmode="decimal" aria-label="Custo CX (EXTRA)" style="display:none;font:inherit;color:#0a3392;background:transparent;border:1px solid #cbd5e1;border-radius:6px;padding:2px 6px;min-width:4ch;max-width:10ch;text-align:right" /><span class="unit">/cx</span></div></div>
+                          <div class="kpiA-row total"><div class="kpiA-label">Valor Total</div><div class="kpiA-value"><span class="currency">R$</span><span class="num">10.892,88</span></div></div>
+                        </div>
+                      </div>
+                      <div class="kpiA-card">
+                        <div class="kpiA-head">
+                          <div class="kpiA-title">MÉDIO</div>
+                        </div>
+                        <div class="kpiA-body">
+                          <div class="kpiA-row"><div class="kpiA-label">Total KG</div><div class="kpiA-value"><span class="num">1.198</span><span class="unit">kg</span></div></div>
+                          <div class="kpiA-row"><div class="kpiA-label">Total CX</div><div class="kpiA-value"><span class="num">290</span><span class="unit">cx</span></div></div>
+                          <div class="kpiA-row"><div class="kpiA-label">Custo KG</div><div class="kpiA-value"><span class="num">1,58</span><span class="unit">/kg</span></div></div>
+                          <div class="kpiA-row"><div class="kpiA-label">Custo CX</div><div class="kpiA-value"><span class="num">34,90</span><span class="unit">/cx</span></div></div>
+                          <div class="kpiA-row total"><div class="kpiA-label">Valor Total</div><div class="kpiA-value"><span class="currency">R$</span><span class="num">9.874,50</span></div></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div id="distSim" class="panel">
+                <h3>Simulação</h3>
+                <div id="simWrap" class="sim-wrap">
+                  <div class="sim-sec" data-sec="extra">
+                    <div class="sim-title">EXTRA</div>
+                    <div class="sim-table">
+                      <div class="sim-row" data-field="qty">
+                        <div class="sim-label">Qtde CX</div>
+                        <div class="sim-control">
+                          <input id="sim-extra-qty" type="text" inputmode="decimal" placeholder="0" />
+                        </div>
+                      </div>
+                      <div class="sim-row" data-field="unit">
+                        <div class="sim-label">Valor/CX</div>
+                        <div class="sim-control">
+                          <input id="sim-extra-unit" type="text" inputmode="decimal" placeholder="R$" />
+                        </div>
+                      </div>
+                      <div class="sim-row" data-field="total">
+                        <div class="sim-label">Valor Total</div>
+                        <div class="sim-control">
+                          <input id="sim-extra-total" type="text" inputmode="decimal" placeholder="R$" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="sim-sec" data-sec="medio">
+                    <div class="sim-title">MÉDIO</div>
+                    <div class="sim-table">
+                      <div class="sim-row" data-field="qty">
+                        <div class="sim-label">Qtde CX</div>
+                        <div class="sim-control">
+                          <input id="sim-medio-qty" type="text" inputmode="decimal" placeholder="0" />
+                        </div>
+                      </div>
+                      <div class="sim-row" data-field="unit">
+                        <div class="sim-label">Valor/CX</div>
+                        <div class="sim-control">
+                          <input id="sim-medio-unit" type="text" inputmode="decimal" placeholder="R$" />
+                        </div>
+                      </div>
+                      <div class="sim-row" data-field="total">
+                        <div class="sim-label">Valor Total</div>
+                        <div class="sim-control">
+                          <input id="sim-medio-total" type="text" inputmode="decimal" placeholder="R$" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="sim-footer">
+                    <div class="sim-summary">
+                      <div class="sim-total-row"><span>Total CX</span><span id="sim-sum-cx">0</span></div>
+                      <div class="sim-total-row"><span>Valor/CX</span><span id="sim-sum-unit">R$ 0,00</span></div>
+                      <div class="sim-total-row"><span>Total Geral</span><span id="sim-total-geral">R$ 0,00</span></div>
+                    </div>
+                  </div>
+                  <div class="sim-actions">
+                    <button id="sim-btn-clear" class="btn btn-secondary" type="button">Limpar</button>
+                    <button id="sim-btn-apply" class="btn btn-primary" type="button">Aplicar</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- removed TR placeholder so Distribuição spans full top row -->
+
+          <!-- BL: Classificação -->
+          <div class="zcell z-bl panel" id="classCard" data-classified="100" data-target="100">
+            <h3>Classificação</h3>
+            <div class="class-wrap">
+              <div class="class-table">
+                <div class="class-head" role="row">
+                  <div class="cell-num" role="columnheader" aria-label="Caixas">CX</div>
+                  <div class="cell-prod" role="columnheader">Produto</div>
+                  <div class="cell-num" role="columnheader" aria-label="Quilos">KG</div>
+                  <div class="cell-pct" role="columnheader" aria-label="Percentual">%</div>
+                </div>
+                <div class="class-body" id="classBody" role="rowgroup">
+                  <div class="class-row" role="row" data-cx="120" data-kg="2640" data-prod="Produto A">
+                    <div class="cell-num cx" role="cell">120</div>
+                    <div class="cell-prod" role="cell">Produto A</div>
+                    <div class="cell-num kg" role="cell">2.640</div>
+                    <div class="cell-pct" role="cell">
+                      <div class="percent-bar" aria-hidden="true"><span></span></div>
+                      <div class="pct-val">0%</div>
+                    </div>
+                  </div>
+                  <div class="class-row" role="row" data-cx="90" data-kg="1980" data-prod="Produto B">
+                    <div class="cell-num cx" role="cell">90</div>
+                    <div class="cell-prod" role="cell">Produto B</div>
+                    <div class="cell-num kg" role="cell">1.980</div>
+                    <div class="cell-pct" role="cell">
+                      <div class="percent-bar" aria-hidden="true"><span></span></div>
+                      <div class="pct-val">0%</div>
+                    </div>
+                  </div>
+                  <div class="class-row" role="row" data-cx="70" data-kg="1590" data-prod="Produto C">
+                    <div class="cell-num cx" role="cell">70</div>
+                    <div class="cell-prod" role="cell">Produto C</div>
+                    <div class="cell-num kg" role="cell">1.590</div>
+                    <div class="cell-pct" role="cell">
+                      <div class="percent-bar" aria-hidden="true"><span></span></div>
+                      <div class="pct-val">0%</div>
+                    </div>
+                  </div>
+                  <div class="class-row" role="row" data-cx="25" data-kg="570" data-prod="Produto D">
+                    <div class="cell-num cx" role="cell">25</div>
+                    <div class="cell-prod" role="cell">Produto D</div>
+                    <div class="cell-num kg" role="cell">570</div>
+                    <div class="cell-pct" role="cell">
+                      <div class="percent-bar" aria-hidden="true"><span></span></div>
+                      <div class="pct-val">0%</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="summary">
+                <div class="kpi" aria-live="polite">
+                  <div class="kpi-label">Aproveitamento</div>
+                  <div class="kpi-value" id="kpiAproveitamento">0%</div>
+                  <div class="kpi-sub">% útil após padronização</div>
+                  <div class="gauge" id="gaugeProgress" aria-hidden="true">
+                    <svg viewBox="0 0 200 110" preserveAspectRatio="xMidYMid meet">
+                      <defs>
+                        <linearGradient id="gGrad" x1="10" y1="100" x2="190" y2="100" gradientUnits="userSpaceOnUse">
+                          <stop offset="0%" stop-color="#ff1a1a"/>
+                          <stop offset="50%" stop-color="#f59e0b"/>
+                          <stop offset="100%" stop-color="#10b981"/>
+                        </linearGradient>
+                      </defs>
+                      <path id="gTrack" d="M 10 100 A 90 90 0 0 1 190 100" fill="none" stroke="#e5e7eb" stroke-width="14" stroke-linecap="round"/>
+                      <path id="gArc" d="M 10 100 A 90 90 0 0 1 190 100" fill="none" stroke="#ff1a1a" stroke-width="14" stroke-linecap="round" stroke-dasharray="0 1" />
+                      <text id="gPct" x="100" y="92" text-anchor="middle" class="gauge-val">0%</text>
+                      <text id="gaugeLabel" x="100" y="106" text-anchor="middle" class="gauge-label">Classificado</text>
+                    </svg>
+                  </div>
+                </div>
+                <div class="kpi" aria-live="polite">
+                  <div class="kpi-label">Estoque InNatura</div>
+                  <div class="kpi-value" id="kpiEstoque">0 cx</div>
+                  <div class="kpi-sub">Caixas excedentes da seleção</div>
+                </div>
+                <div class="kpi" aria-live="polite">
+                  <div class="kpi-label">Rendimento</div>
+                  <div class="kpi-value" id="kpiRendimento">0%</div>
+                  <div class="kpi-sub">Base 22 kg/caixa</div>
+                </div>
+              </div>
+              <div class="extra">
+                <div class="extra-title">Resumo</div>
+                <div class="extra-body">
+                  <!-- Conteúdo futuro: KPIs adicionais, observações, etc. -->
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- BR: Entrada -->
+          <div class="zcell z-br panel" id="entradaCard" data-supplier="Fornecedor Exemplo" data-product="Tomate Salada" data-doc="NF 27348" data-serie="958-08/09/2025" data-date="08/09/2025" data-tipo="26/09/2025" data-lote="Andre Patrocinio" data-cx="571" data-kg-in="13704" data-kg-class="13704" data-preco-kg="0" data-preco-cx="0">
+            <h3 class="entrada-title">Entrada
+              <span class="title-right">
+                <span class="badge" id="entBadgeLote">Andre Patrocinio</span>
+                <span class="badge" id="entBadgeTipo">26/09/2025</span>
+              </span>
+            </h3>
+            <div class="entrada-wrap">
+              <div class="entrada-head">
+                <div class="doc">
+                  <div class="product" id="entProduct">Produto</div>
+                  <div class="doc-meta"><span id="entDocId">NF —</span> • <span id="entSerie">—</span> • <span id="entDate">--/--/----</span></div>
+                </div>
+              </div>
+              <div class="grid">
+                <div class="card" aria-live="polite" id="quantidadeInnCard">
+                  <div class="headline">
+                    <div class="metric-label">Caixas</div>
+                    <div class="big" id="quantidadeInn">0</div>
+                    <div class="unit">CX</div>
+                  </div>
+                  <div class="peso-row">
+                    <div class="metric-label">Peso In Natura</div>
+                    <div class="value">
+                      <span id="pesoInnDisplay" class="editable" role="button" tabindex="0" aria-label="Editar peso in natura por caixa">0,0</span>
+                      <input id="pesoInn" class="peso-input" type="text" inputmode="decimal" aria-label="Peso in natura por caixa" />
+                      <span class="unit">kg</span>
+                    </div>
+                  </div>
+                  <div class="peso-row">
+                    <div class="metric-label">Peso Total Aproximado</div>
+                    <div class="value"><span id="totalInn">0</span> <span class="unit">kg</span></div>
+                  </div>
+                  <!-- Divisor para separar seção de preço -->
+                  <div class="divider" role="separator" aria-hidden="true"></div>
+                  <div class="kpi-row">
+                    <div class="metric-label">Preço Inicial</div>
+                    <div class="value">
+                      <span id="entPrecoCxDisplay" class="editable" role="button" tabindex="0" aria-label="Editar preço por caixa">R$ 0,00</span>
+                      <input id="entPrecoCxInput" class="preco-input" type="text" inputmode="decimal" aria-label="Preço por caixa" />
+                      <span class="unit">/cx</span>
+                    </div>
+                  </div>
+                  <div class="kpi-row">
+                    <div class="metric-label"></div>
+                    <div class="value"><span id="entPrecoKg">R$ 0,00</span> <span class="unit">/kg</span></div>
+                  </div>
+                  <div class="kpi-row total">
+                    <div class="metric-label">Valor Total</div>
+                    <div class="value"><span class="currency">R$</span><span id="entTotalIn">0,00</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    // Filtros: emitir eventos e limpar
+    (function(){
+      const form = document.getElementById('filtrosForm');
+      if(!form) return;
+      const toPayload = () => {
+        const data = new FormData(form);
+        const payload = {
+          pagar: form.querySelector('#fltPagar')?.checked || false,
+          precoInicial: form.querySelector('#fltPrecoInicial')?.checked || false,
+          finalizarClass: form.querySelector('#fltFinalizarClass')?.checked || false,
+          historico: data.get('hist') || '60',
+          classif: data.get('classif') || '',
+          faturado: data.get('fat') || '',
+          cracha: (form.querySelector('#fltCracha')?.value || '').trim(),
+          dataCompra: form.querySelector('#fltDataCompra')?.value || '',
+          fornecedor: form.querySelector('#fltFornecedor')?.value || '',
+          produtos: Array.from(form.querySelectorAll('input[name="produtoTipo"]:checked')).map(i=>i.value),
+          produto: form.querySelector('#fltProduto')?.value || ''
+        };
+        return payload;
+      };
+      const emit = () => {
+        const payload = toPayload();
+        window.dispatchEvent(new CustomEvent('filtros:change', { detail: payload }));
+      };
+      form.addEventListener('change', emit);
+      document.getElementById('btnLimparFiltros')?.addEventListener('click', ()=>{
+        form.reset();
+        emit();
+      });
+    })();
+
+    // Inline edit for Valor Total (card #distMini4)
+    (function(){
+      const card = document.getElementById('distMini4');
+      const display = document.getElementById('totalValueDisplay');
+      const input = document.getElementById('totalValueInput');
+      if(!card || !display || !input) return;
+
+      let previousText = display.textContent || '';
+
+      const formatBRL = (valueNumber) => {
+        try{
+          return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valueNumber);
+        }catch{ // fallback simples
+          const fixed = (Math.round((valueNumber || 0) * 100)/100).toFixed(2).replace('.', ',');
+          return 'R$ ' + fixed;
+        }
+      };
+
+      // helpers para números pt-BR (quantidades e custos)
+      const parsePT = (text) => {
+        if(!text) return NaN;
+        const cleaned = text.toString().trim()
+          .replace(/[^0-9,\.]/g, '')
+          .replace(/\.(?=\d{3}(\D|$))/g, '')
+          .replace(',', '.');
+        const n = Number(cleaned);
+        return isFinite(n) ? n : NaN;
+      };
+      const formatDecimal = (n) => isNaN(n) ? '' : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+      const recalcCostsFromTotal = (totalNumber) => {
+        // pegar quantidades do card Qtde Total (#distMini3)
+        const top = document.querySelector('#distMini3 .qty-top');
+        const bottom = document.querySelector('#distMini3 .qty-bottom');
+        if(!top || !bottom) return;
+        const topSuffix = top.querySelector('.dist-suffix')?.textContent?.trim()?.toLowerCase();
+        const bottomSuffix = bottom.querySelector('.dist-suffix')?.textContent?.trim()?.toLowerCase();
+        const topVal = parsePT(top.querySelector('.dist-value')?.textContent || '');
+        const bottomVal = parsePT(bottom.querySelector('.dist-value')?.textContent || '');
+
+        let cxQty = NaN, kgQty = NaN;
+        if(topSuffix === 'cx') cxQty = topVal;
+        if(topSuffix === 'kg') kgQty = topVal;
+        if(bottomSuffix === 'cx') cxQty = bottomVal;
+        if(bottomSuffix === 'kg') kgQty = bottomVal;
+
+        const costCxEl = document.getElementById('costCxDisplay');
+        const costKgEl = document.getElementById('costKgDisplay');
+
+        if(costCxEl && isFinite(totalNumber) && isFinite(cxQty) && cxQty > 0){
+          const v = totalNumber / cxQty;
+          costCxEl.textContent = formatDecimal(v);
+        }
+        if(costKgEl && isFinite(totalNumber) && isFinite(kgQty) && kgQty > 0){
+          const v = totalNumber / kgQty;
+          costKgEl.textContent = formatDecimal(v);
+        }
+      };
+
+      const parseBRL = (text) => {
+        if(!text) return NaN;
+        // remove tudo que não for dígito, vírgula ou ponto
+        const cleaned = text.replace(/[^0-9,\.]/g, '')
+                            .replace(/\.(?=\d{3}(\D|$))/g, '') // remove separadores de milhar com ponto
+                            .replace(',', '.'); // vírgula para decimal
+        const n = Number(cleaned);
+        return isFinite(n) ? n : NaN;
+      };
+
+      const enterEdit = () => {
+        previousText = display.textContent || previousText;
+        // Preenche input com número sem símbolo
+        const currentNumber = parseBRL(previousText);
+        input.value = isNaN(currentNumber) ? '' : (currentNumber.toString().replace('.', ','));
+        card.classList.add('editing');
+        // foco após pequeno atraso para garantir visibilidade
+        setTimeout(()=>{
+          input.focus();
+          input.select();
+          autosizeInput();
+        }, 0);
+      };
+
+      const exitEdit = (commit) => {
+        if(commit){
+          const num = parseBRL(input.value);
+          if(!isNaN(num)){
+            display.textContent = formatBRL(num);
+            // Recalcular custos /cx e /kg
+            recalcCostsFromTotal(num);
+          } // se NaN, mantém o valor anterior
+        }
+        card.classList.remove('editing');
+      };
+
+      display.addEventListener('click', enterEdit);
+      display.addEventListener('keydown', (e)=>{
+        if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); enterEdit(); }
+      });
+
+      input.addEventListener('keydown', (e)=>{
+        if(e.key === 'Enter'){ e.preventDefault(); input.blur(); }
+        else if(e.key === 'Escape'){ e.preventDefault(); input.value = previousText; exitEdit(false); }
+      });
+      input.addEventListener('blur', ()=> exitEdit(true));
+      // Auto-size the input width by content, keeping it compact
+      const autosizeInput = () => {
+        const val = input.value || '';
+        // Create a hidden mirror span to measure content width with same font
+        const mirror = document.createElement('span');
+        mirror.style.visibility = 'hidden';
+        mirror.style.position = 'fixed';
+        mirror.style.whiteSpace = 'pre';
+        mirror.style.font = getComputedStyle(input).font;
+        mirror.textContent = val || '0';
+        document.body.appendChild(mirror);
+        const w = mirror.getBoundingClientRect().width;
+        document.body.removeChild(mirror);
+        const pad = 24; // a little breathing room
+        input.style.width = Math.min(card.clientWidth - 24, Math.max(80, Math.ceil(w + pad))) + 'px';
+      };
+      input.addEventListener('input', autosizeInput);
+    })();
+
+    // Inline edit for Custo card (#distMini2): CX and KG
+    (function(){
+      const card = document.getElementById('distMini2');
+      if(!card) return;
+      const cxDisplay = document.getElementById('costCxDisplay');
+      const cxInput = document.getElementById('costCxInput');
+      const kgDisplay = document.getElementById('costKgDisplay');
+      const kgInput = document.getElementById('costKgInput');
+
+      const formatDecimal = (n) => {
+        if(isNaN(n)) return '';
+        return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      };
+      const parsePT = (text) => {
+        if(!text) return NaN;
+        const cleaned = text.replace(/[^0-9,\.]/g, '')
+                            .replace(/\.(?=\d{3}(\D|$))/g, '')
+                            .replace(',', '.');
+        const n = Number(cleaned);
+        return isFinite(n) ? n : NaN;
+      };
+
+      let prevCx = cxDisplay?.textContent || '';
+      let prevKg = kgDisplay?.textContent || '';
+
+      const enterEditCx = () => {
+        if(!cxDisplay || !cxInput) return;
+        prevCx = cxDisplay.textContent || prevCx;
+        const n = parsePT(prevCx);
+        cxInput.value = isNaN(n) ? '' : formatDecimal(n).replace('.', ',');
+        card.classList.add('editing-cx');
+        setTimeout(()=>{ cxInput.focus(); cxInput.select(); autosizeCx(); },0);
+      };
+      const exitEditCx = (commit) => {
+        if(commit && cxDisplay && cxInput){
+          const n = parsePT(cxInput.value);
+          if(!isNaN(n)) cxDisplay.textContent = formatDecimal(n);
+        }
+        card.classList.remove('editing-cx');
+      };
+
+      const enterEditKg = () => {
+        if(!kgDisplay || !kgInput) return;
+        prevKg = kgDisplay.textContent || prevKg;
+        const n = parsePT(prevKg);
+        kgInput.value = isNaN(n) ? '' : formatDecimal(n).replace('.', ',');
+        card.classList.add('editing-kg');
+        setTimeout(()=>{ kgInput.focus(); kgInput.select(); autosizeKg(); },0);
+      };
+      const exitEditKg = (commit) => {
+        if(commit && kgDisplay && kgInput){
+          const n = parsePT(kgInput.value);
+          if(!isNaN(n)) kgDisplay.textContent = formatDecimal(n);
+        }
+        card.classList.remove('editing-kg');
+      };
+
+      cxDisplay?.addEventListener('click', enterEditCx);
+      cxDisplay?.addEventListener('keydown', (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); enterEditCx(); }});
+      cxInput?.addEventListener('keydown', (e)=>{
+        if(e.key==='Enter'){ e.preventDefault(); cxInput.blur(); }
+        else if(e.key==='Escape'){ e.preventDefault(); cxInput.value = prevCx; exitEditCx(false); }
+      });
+      cxInput?.addEventListener('blur', ()=> exitEditCx(true));
+
+      kgDisplay?.addEventListener('click', enterEditKg);
+      kgDisplay?.addEventListener('keydown', (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); enterEditKg(); }});
+      kgInput?.addEventListener('keydown', (e)=>{
+        if(e.key==='Enter'){ e.preventDefault(); kgInput.blur(); }
+        else if(e.key==='Escape'){ e.preventDefault(); kgInput.value = prevKg; exitEditKg(false); }
+      });
+      kgInput?.addEventListener('blur', ()=> exitEditKg(true));
+
+      // Autosize helpers for custo inputs
+      const makeAutosizer = (inputEl) => () => {
+        if(!inputEl) return;
+        const val = inputEl.value || '';
+        const mirror = document.createElement('span');
+        mirror.style.visibility = 'hidden';
+        mirror.style.position = 'fixed';
+        mirror.style.whiteSpace = 'pre';
+        mirror.style.font = getComputedStyle(inputEl).font;
+        mirror.textContent = val || '0';
+        document.body.appendChild(mirror);
+        const w = mirror.getBoundingClientRect().width;
+        document.body.removeChild(mirror);
+        const pad = 24;
+        inputEl.style.width = Math.min(card.clientWidth - 24, Math.max(80, Math.ceil(w + pad))) + 'px';
+      };
+      const autosizeCx = makeAutosizer(cxInput);
+      const autosizeKg = makeAutosizer(kgInput);
+      cxInput?.addEventListener('input', autosizeCx);
+      kgInput?.addEventListener('input', autosizeKg);
+    })();
+
+    // Inline edit for EXTRA Custo CX in Block 5 (Layout A)
+    (function(){
+      const display = document.getElementById('extraCustoCxDisplay');
+      const input = document.getElementById('extraCustoCxInput');
+      if(!display || !input) return;
+
+      const formatDecimal = (n) => isNaN(n) ? '' : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const parsePT = (text) => {
+        if(!text) return NaN;
+        const cleaned = text.replace(/[^0-9,\.]/g, '')
+                            .replace(/\.(?=\d{3}(\D|$))/g, '')
+                            .replace(',', '.');
+        const n = Number(cleaned);
+        return isFinite(n) ? n : NaN;
+      };
+
+      let prev = display.textContent || '';
+
+      const enterEdit = () => {
+        prev = display.textContent || prev;
+        const n = parsePT(prev);
+        input.value = isNaN(n) ? '' : formatDecimal(n).replace('.', ',');
+        input.style.display = 'inline-block';
+        display.style.display = 'none';
+        setTimeout(()=>{ input.focus(); input.select(); },0);
+      };
+      const exitEdit = (commit) => {
+        if(commit){
+          const n = parsePT(input.value);
+          if(!isNaN(n)) display.textContent = formatDecimal(n);
+        }
+        input.style.display = 'none';
+        display.style.display = '';
+      };
+
+      display.addEventListener('click', enterEdit);
+      display.addEventListener('keydown', (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); enterEdit(); }});
+      input.addEventListener('keydown', (e)=>{
+        if(e.key==='Enter'){ e.preventDefault(); input.blur(); }
+        else if(e.key==='Escape'){ e.preventDefault(); input.value = prev; exitEdit(false); }
+      });
+      input.addEventListener('blur', ()=> exitEdit(true));
+    })();
+
+    // Simulação T1 - lógica 2-de-3 (Qtde, Valor/CX, Valor Total) para EXTRA e MÉDIO
+    (function(){
+      const $ = (s) => document.querySelector(s);
+      const els = {
+        extra: { qty: $('#sim-extra-qty'), unit: $('#sim-extra-unit'), total: $('#sim-extra-total') },
+        medio: { qty: $('#sim-medio-qty'), unit: $('#sim-medio-unit'), total: $('#sim-medio-total') },
+        geral: $('#sim-total-geral'),
+        sumCx: $('#sim-sum-cx'),
+        sumUnit: $('#sim-sum-unit'),
+        clearBtn: $('#sim-btn-clear'),
+        applyBtn: $('#sim-btn-apply')
+      };
+      if(!els.extra.qty || !els.medio.qty) return;
+
+      const parsePT = (text) => {
+        if(!text) return NaN;
+        const cleaned = text.toString().trim()
+          .replace(/[^0-9,\.]/g, '')
+          .replace(/\.(?=\d{3}(\D|$))/g, '')
+          .replace(',', '.');
+        const n = Number(cleaned);
+        return isFinite(n) ? n : NaN;
+      };
+      const fmtMoney = (n) => isNaN(n) ? '' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
+      const fmtQty = (n) => isNaN(n) ? '' : n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+
+      // No visual marking for auto-calculated fields anymore
+      const markAuto = () => {};
+
+      const lastEdited = { extra: null, medio: null }; // 'qty' | 'unit' | 'total'
+
+      const solveSection = (sec) => {
+        const { qty, unit, total } = els[sec];
+        const q = parsePT(qty.value);
+        const u = parsePT(unit.value);
+        const t = parsePT(total.value);
+        const hasQ = !isNaN(q) && q !== 0;
+        const hasU = !isNaN(u) && u !== 0;
+        const hasT = !isNaN(t) && t !== 0;
+
+        // clear flags
+        markAuto(qty,false); markAuto(unit,false); markAuto(total,false);
+
+        const count = (hasQ?1:0) + (hasU?1:0) + (hasT?1:0);
+        if(count < 2){ return; }
+
+        // exactly two -> compute missing
+        if(count === 2){
+          if(!hasT && hasQ && hasU){ total.value = fmtMoney(q*u); markAuto(total,true); return; }
+          if(!hasU && hasQ && hasT && q){ unit.value = fmtMoney(t/q); markAuto(unit,true); return; }
+          if(!hasQ && hasU && hasT && u){ qty.value = fmtQty(t/u); markAuto(qty,true); return; }
+          return;
+        }
+
+        // all three present: prefer lastEdited
+        const le = lastEdited[sec];
+        if(le === 'qty' || le === 'unit'){
+          // recompute total = qty * unit
+          total.value = fmtMoney((hasQ?q:0) * (hasU?u:0));
+          markAuto(total,true);
+        }else if(le === 'total'){
+          if(hasQ && q){ unit.value = fmtMoney(t/q); markAuto(unit,true); }
+          else if(hasU && u){ qty.value = fmtQty(t/u); markAuto(qty,true); }
+          else { total.value = fmtMoney((hasQ?q:0) * (hasU?u:0)); markAuto(total,true); }
+        }else{
+          // no lastEdited known: default to compute total
+          total.value = fmtMoney((hasQ?q:0) * (hasU?u:0));
+          markAuto(total,true);
+        }
+      };
+
+      const updateSummary = () => {
+        const q1 = parsePT(els.extra.qty.value), q2 = parsePT(els.medio.qty.value);
+        const u1 = parsePT(els.extra.unit.value), u2 = parsePT(els.medio.unit.value);
+        const t1 = parsePT(els.extra.total.value), t2 = parsePT(els.medio.total.value);
+        const sumCx = (isNaN(q1)?0:q1) + (isNaN(q2)?0:q2);
+        const sumTotal = (isNaN(t1)?0:t1) + (isNaN(t2)?0:t2);
+        // Valor/CX agregado: média ponderada se possível, senão média simples dos informados
+        let aggUnit = 0;
+        if(sumCx > 0){ aggUnit = sumTotal / sumCx; }
+        else{
+          const vals = [u1,u2].filter(v=>!isNaN(v) && v>0);
+          aggUnit = vals.length ? (vals.reduce((a,b)=>a+b,0)/vals.length) : 0;
+        }
+        els.sumCx.textContent = isNaN(sumCx)?'0':fmtQty(sumCx);
+        els.sumUnit.textContent = fmtMoney(aggUnit);
+        els.geral.textContent = fmtMoney(sumTotal);
+      };
+
+      const onInput = (sec, field) => () => {
+        lastEdited[sec] = field;
+        solveSection(sec);
+        updateSummary();
+      };
+
+      ['extra','medio'].forEach(sec => {
+        const { qty, unit, total } = els[sec];
+  qty.addEventListener('input', onInput(sec,'qty'));
+  unit.addEventListener('input', onInput(sec,'unit'));
+  total.addEventListener('input', onInput(sec,'total'));
+        // blur: normalize formatting
+        qty.addEventListener('blur', ()=>{ const v = parsePT(qty.value); qty.value = isNaN(v)?'':fmtQty(v); solveSection(sec); updateSummary(); });
+        unit.addEventListener('blur', ()=>{ const v = parsePT(unit.value); unit.value = isNaN(v)?'':fmtMoney(v); solveSection(sec); updateSummary(); });
+        total.addEventListener('blur', ()=>{ const v = parsePT(total.value); total.value = isNaN(v)?'':fmtMoney(v); solveSection(sec); updateSummary(); });
+      });
+
+      // Hint inicial: usar Custo CX (EXTRA) se disponível
+      const extraCxHint = document.getElementById('extraCustoCxDisplay');
+      if(extraCxHint && els.extra.unit && !els.extra.unit.value){
+        const n = parsePT(extraCxHint.textContent||'');
+        if(!isNaN(n) && n>0) els.extra.unit.value = fmtMoney(n);
+      }
+
+      // start
+  solveSection('extra');
+  solveSection('medio');
+  updateSummary();
+
+      // Limpar: zera todos os campos e total
+      els.clearBtn?.addEventListener('click', ()=>{
+        ['extra','medio'].forEach(sec=>{
+          const { qty, unit, total } = els[sec];
+          qty.value = '';
+          unit.value = '';
+          total.value = '';
+          markAuto(qty,false); markAuto(unit,false); markAuto(total,false);
+        });
+        updateSummary();
+      });
+
+      // Aplicar: dispara evento com os valores atuais (para integração futura)
+      els.applyBtn?.addEventListener('click', ()=>{
+        const payload = {
+          extra: {
+            qty: parsePT(els.extra.qty.value),
+            unit: parsePT(els.extra.unit.value),
+            total: parsePT(els.extra.total.value)
+          },
+          medio: {
+            qty: parsePT(els.medio.qty.value),
+            unit: parsePT(els.medio.unit.value),
+            total: parsePT(els.medio.total.value)
+          },
+          totalGeral: parsePT(els.geral.textContent)
+        };
+        window.dispatchEvent(new CustomEvent('simulacao:aplicar', { detail: payload }));
+      });
+    })();
+
+    // Select-all on click/focus for inputs (Simulação + editores inline)
+    (function(){
+      const attachSelectAll = (input) => {
+        if(!input) return;
+        const onFocus = (e) => { const t = e.target; try{ t.select(); }catch{} t.dataset.selAll = '1'; };
+        const onMouseUp = (e) => {
+          const t = e.target;
+          if(t.dataset.selAll === '1'){
+            // Prevent default to keep the full selection on first click
+            e.preventDefault();
+            delete t.dataset.selAll;
+          }
+        };
+        const onClick = (e) => { try{ e.currentTarget.select(); }catch{} };
+        input.addEventListener('focus', onFocus);
+        input.addEventListener('click', onClick);
+        input.addEventListener('mouseup', onMouseUp);
+      };
+      // All simulation inputs
+      document.querySelectorAll('#distSim input').forEach(attachSelectAll);
+      // Inline edit fields
+      ['totalValueInput','costCxInput','costKgInput','extraCustoCxInput','pesoInn','entPrecoCxInput']
+        .map(id => document.getElementById(id))
+        .forEach(attachSelectAll);
+    })();
+    
+    // Classificação: cálculo de % por item, Rendimento e Estoque InNatura (escopo apenas do card)
+    (function(){
+      const card = document.getElementById('classCard');
+      if(!card) return;
+      const rows = card.querySelectorAll('.class-row');
+  const kpiRend = document.getElementById('kpiRendimento');
+  const kpiEst = document.getElementById('kpiEstoque');
+  const kpiApr = document.getElementById('kpiAproveitamento');
+      const gauge = document.getElementById('gaugeProgress');
+      const gArc = document.getElementById('gArc');
+      const gPct = document.getElementById('gPct');
+      const gLabel = document.getElementById('gaugeLabel');
+
+      const parsePT = (text) => {
+        if(text == null) return NaN;
+        const cleaned = text.toString().trim()
+          .replace(/[^0-9,\.]/g,'')
+          .replace(/\.(?=\d{3}(\D|$))/g,'')
+          .replace(',', '.');
+        const n = Number(cleaned);
+        return isFinite(n) ? n : NaN;
+      };
+      const fmtQty = (n) => isNaN(n) ? '0' : n.toLocaleString('pt-BR');
+      const fmtPct = (n) => (isNaN(n)?0:n).toLocaleString('pt-BR',{maximumFractionDigits:1}) + '%';
+
+      // Totais
+      let totalKg = 0;
+      let totalCx = 0;
+      rows.forEach(r => {
+        const kg = parsePT(r.dataset.kg || r.querySelector('.kg')?.textContent || '0');
+        const cx = parsePT(r.dataset.cx || r.querySelector('.cx')?.textContent || '0');
+        if(!isNaN(kg)) totalKg += kg;
+        if(!isNaN(cx)) totalCx += cx;
+      });
+
+      // Percentual por linha baseado em participação no KG total
+      rows.forEach(r => {
+        const kg = parsePT(r.dataset.kg || r.querySelector('.kg')?.textContent || '0');
+        const pct = totalKg > 0 ? (kg / totalKg * 100) : 0;
+        const pctEl = r.querySelector('.pct-val');
+        const bar = r.querySelector('.percent-bar > span');
+        if(pctEl) pctEl.textContent = fmtPct(pct);
+        if(bar) bar.style.width = Math.max(0, Math.min(100, pct)).toFixed(1) + '%';
+      });
+
+      // Rendimento: diferença percentual entre peso real e padrão 22kg/caixa
+      // padrão total esperado: totalCx * 22; se totalKg > esperado, houve ganho
+      const esperadoKg = totalCx * 22;
+      const rendimentoPct = esperadoKg > 0 ? ((totalKg - esperadoKg) / esperadoKg) * 100 : 0;
+      if(kpiRend) kpiRend.textContent = fmtPct(rendimentoPct);
+
+      // Estoque InNatura: caixas excedentes produzidas pela padronização (totalKg / 22) - totalCx
+      const cxEquivalentes = esperadoKg > 0 ? (totalKg / 22) : 0;
+      const estoqueCx = Math.max(0, Math.floor(cxEquivalentes - totalCx));
+  if(kpiEst) kpiEst.textContent = fmtQty(estoqueCx) + ' cx';
+
+  // Aproveitamento: fração útil aproveitada após padronização (limitada ao peso padrão)
+  const kgUtil = Math.min(totalKg, esperadoKg);
+  const aprPct = totalKg > 0 ? (kgUtil / totalKg) * 100 : 0;
+  if(kpiApr) kpiApr.textContent = fmtPct(aprPct);
+
+      // Gauge de progresso: usa data-classified e data-target em #classCard se presentes
+      if(gauge && gArc && gPct){
+        const classified = Number(card.getAttribute('data-classified') || '0'); // kg já classificados (ou cx)
+        const target = Number(card.getAttribute('data-target') || String(totalKg)); // objetivo (default: totalKg)
+        const p = target > 0 ? Math.max(0, Math.min(1, classified / target)) : 0;
+        const pct = p * 100;
+        // semicírculo: comprimento do arco ~ PI * r ; aqui r=90 no viewBox, arco 180º -> length ~ PI*90
+        const arcLen = Math.PI * 90;
+        // animação: começa do zero e vai até o alvo
+        requestAnimationFrame(()=>{
+          gArc.setAttribute('stroke-dasharray', `0 ${arcLen.toFixed(1)}`);
+          // Força reflow para garantir a transição
+          void gArc.getBBox();
+          gArc.setAttribute('stroke-dasharray', `${(arcLen*p).toFixed(1)} ${arcLen.toFixed(1)}`);
+        });
+        // cor sólida interpolada p: 0 -> vermelho; 0.5 -> amarelo; 1 -> verde
+        const lerp = (a,b,t)=> a + (b-a)*t;
+        const toHex = (v)=> ('0' + Math.round(v).toString(16)).slice(-2);
+        const rgb = (r,g,b)=> `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+        let r, g, b;
+        if(p <= 0.5){
+          // vermelho (255,26,26) -> amarelo (245,158,11)
+          const t = p/0.5;
+          r = lerp(255, 245, t);
+          g = lerp(26, 158, t);
+          b = lerp(26, 11, t);
+        }else{
+          // 50% até 99%: amarelo (245,158,11) -> #A2AB2C; 100%: verde puro (#10b981)
+          if(p >= 1){
+            r = 16; g = 185; b = 129; // verde puro somente em 100%
+          }else if(p >= 0.99){
+            r = 162; g = 171; b = 44; // cor alvo em 99%
+          }else{
+            const t = (p - 0.5) / 0.49; // mapeia 0.5->0 e 0.99->1
+            // de amarelo (245,158,11) para #A2AB2C (162,171,44)
+            r = lerp(245, 162, t);
+            g = lerp(158, 171, t);
+            b = lerp(11, 44, t);
+          }
+        }
+        gArc.setAttribute('stroke', rgb(r,g,b));
+        // mantém também o número em texto (mesmo oculto) atualizado
+        gPct.textContent = fmtPct(pct);
+        if(gLabel) gLabel.textContent = 'Classificado';
+      }
+
+      // (ABC removido por enquanto)
+
+      // Layout agora usa grid-rows (1fr auto) na summary; sem JS para altura
+    })();
+
+    // Supplier bar: montar "Fornecedor - Produto"
+    (function(){
+      const supEl = document.getElementById('supplierName');
+      const entrada = document.getElementById('entradaCard');
+      if(!supEl || !entrada) return;
+      const name = entrada.getAttribute('data-supplier') || '';
+      const prod = entrada.getAttribute('data-product') || '';
+      const composed = [name, prod].filter(Boolean).join(' - ');
+      const finalText = composed || '—';
+      supEl.textContent = finalText;
+      supEl.setAttribute('title', finalText);
+    })();
+
+      // Entrada: popular cabeçalho e métricas a partir de data-attributes
+      (function(){
+        const card = document.getElementById('entradaCard');
+        if(!card) return;
+        const $ = (s)=> card.querySelector(s);
+
+        const fmtMoney = (n)=> isNaN(n) ? 'R$\u00A00,00' : new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n);
+        const fmtInt = (n)=> isNaN(n) ? '0' : Math.round(n).toLocaleString('pt-BR');
+        const fmtNum = (n)=> isNaN(n) ? '0' : n.toLocaleString('pt-BR');
+
+        const supplier = card.dataset.supplier || '';
+        const product = card.dataset.product || '';
+        const doc = card.dataset.doc || '';
+        const serie = card.dataset.serie || '';
+        const date = card.dataset.date || '';
+        const tipo = card.dataset.tipo || '';
+        const lote = card.dataset.lote || '';
+        const cx = Number(card.dataset.cx || '0');
+        const kgIn = Number(card.dataset.kgIn || card.getAttribute('data-kg-in') || '0');
+        const kgClass = Number(card.dataset.kgClass || card.getAttribute('data-kg-class') || '0');
+        const precoKg = Number(card.dataset.precoKg || card.getAttribute('data-preco-kg') || '0');
+        const precoCx = Number(card.dataset.precoCx || card.getAttribute('data-preco-cx') || '0');
+
+        const supplierEl = $('#entSupplier');
+        const productEl = $('#entProduct');
+        const docEl = $('#entDocId');
+        const serieEl = $('#entSerie');
+        const dateEl = $('#entDate');
+  const tipoEl = document.getElementById('entBadgeTipo');
+  const loteEl = document.getElementById('entBadgeLote');
+  const cxEl = document.getElementById('quantidadeInn');
+  // Peso card elements
+  const pesoCard = document.getElementById('quantidadeInnCard');
+  const pesoInDisp = document.getElementById('pesoInnDisplay');
+  const pesoInInput = document.getElementById('pesoInn');
+  const pesoTotalApproxEl = document.getElementById('totalInn');
+  const precoKgEl = $('#entPrecoKg');
+  const precoCxDisplay = document.getElementById('entPrecoCxDisplay');
+  const precoCxInput = document.getElementById('entPrecoCxInput');
+        const totalInEl = $('#entTotalIn');
+
+        if(supplierEl) supplierEl.textContent = supplier;
+        if(productEl) productEl.textContent = product;
+        if(docEl) docEl.textContent = doc;
+        if(serieEl) serieEl.textContent = serie;
+        if(dateEl) dateEl.textContent = date;
+  if(tipoEl) tipoEl.textContent = tipo || '—';
+  if(loteEl) loteEl.textContent = lote || '—';
+
+  if(cxEl) cxEl.textContent = fmtInt(cx);
+        // Peso In Natura por caixa (inicial): se fornecido por atributo data-preco-kg? não; calcular como kgIn / cx
+        const perBox = (cx>0 && kgIn>0) ? (kgIn / cx) : 0;
+        const fmtOneDecimal = (n)=> isNaN(n) ? '0,0' : n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+        if(pesoInDisp) pesoInDisp.textContent = fmtOneDecimal(perBox);
+        const recomputeTotalApprox = (perBoxVal)=>{
+          const total = (cx||0) * (perBoxVal||0);
+          const totalInt = Math.floor(total);
+          if(pesoTotalApproxEl) pesoTotalApproxEl.textContent = totalInt.toLocaleString('pt-BR');
+          // Atualiza R$ / KG com base no Valor Total atual e novo peso total aproximado
+          try{
+            const totalTxt = totalInEl?.textContent || '0';
+            const totalNum = ((t)=> Number(t.replace(/\./g,'').replace(',','.')))(totalTxt);
+            const precoKgNum = totalInt > 0 ? (totalNum / totalInt) : 0;
+            if(precoKgEl) precoKgEl.textContent = fmtMoney(precoKgNum);
+          }catch{}
+        };
+        recomputeTotalApprox(perBox);
+
+        if(precoCxDisplay) precoCxDisplay.textContent = fmtMoney(precoCx);
+        // Total inicial: se preço por cx informado, calcula por cx; senão, por kg
+        const calcTotalFromCx = (cxVal, precoCxVal)=> (cxVal||0) * (precoCxVal||0);
+        const calcPrecoKgFromTotal = (totalVal, pesoTotal)=> (pesoTotal>0 ? totalVal / pesoTotal : 0);
+        const pesoTotalApproxNum = (()=>{
+          const txt = pesoTotalApproxEl?.textContent || '0';
+          try{ return Number(txt.replace(/\./g,'').replace(',','.')); }catch{ return 0; }
+        })();
+        let totalInicial = !isNaN(precoCx) && precoCx>0 ? calcTotalFromCx(cx, precoCx) : ((kgIn||0) * (precoKg||0));
+        if(totalInEl) totalInEl.textContent = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}).format(totalInicial);
+        const precoKgInicial = calcPrecoKgFromTotal(totalInicial, pesoTotalApproxNum);
+        if(precoKgEl) precoKgEl.textContent = fmtMoney(precoKgInicial);
+
+        // Inline edit Peso In Natura (por caixa)
+        const parsePT = (text) => {
+          if(!text) return NaN;
+          const cleaned = text.toString().trim()
+            .replace(/[^0-9,\.]/g, '')
+            .replace(/\.(?=\d{3}(\D|$))/g, '')
+            .replace(',', '.');
+          const n = Number(cleaned);
+          return isFinite(n) ? n : NaN;
+        };
+        let prevPeso = pesoInDisp?.textContent || '';
+        const enterPesoEdit = () => {
+          if(!pesoCard || !pesoInDisp || !pesoInInput) return;
+          prevPeso = pesoInDisp.textContent || prevPeso;
+          const n = parsePT(prevPeso);
+          pesoCard.classList.add('editing');
+          pesoInInput.value = isNaN(n) ? '' : n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 3 }).replace('.', ',');
+          // autosize input to current display width
+          try{
+            const rect = pesoInDisp.getBoundingClientRect();
+            pesoInInput.style.width = Math.ceil(rect.width + 14) + 'px';
+          }catch{}
+          setTimeout(()=>{ pesoInInput.focus(); pesoInInput.select(); },0);
+        };
+        const exitPesoEdit = (commit) => {
+          if(!pesoCard) return;
+          if(commit && pesoInDisp && pesoInInput){
+            const n = parsePT(pesoInInput.value);
+            if(!isNaN(n)){
+              pesoInDisp.textContent = fmtOneDecimal(n);
+              recomputeTotalApprox(n);
+            }
+          }
+          pesoCard.classList.remove('editing');
+        };
+        pesoInDisp?.addEventListener('click', enterPesoEdit);
+        pesoInDisp?.addEventListener('keydown', (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); enterPesoEdit(); }});
+        pesoInInput?.addEventListener('keydown', (e)=>{
+          if(e.key==='Enter'){ e.preventDefault(); pesoInInput.blur(); }
+          else if(e.key==='Escape'){ e.preventDefault(); pesoInInput.value = prevPeso; exitPesoEdit(false); }
+        });
+        pesoInInput?.addEventListener('input', ()=>{
+          // dynamic autosize while typing
+          try{
+            const mirror = document.createElement('span');
+            const style = getComputedStyle(pesoInDisp);
+            mirror.style.visibility = 'hidden';
+            mirror.style.position = 'fixed';
+            mirror.style.whiteSpace = 'pre';
+            mirror.style.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+            mirror.textContent = pesoInInput.value || '0';
+            document.body.appendChild(mirror);
+            const w = mirror.getBoundingClientRect().width;
+            document.body.removeChild(mirror);
+            pesoInInput.style.width = Math.ceil(Math.min(220, Math.max(60, w + 14))) + 'px';
+          }catch{}
+        });
+        pesoInInput?.addEventListener('blur', ()=> exitPesoEdit(true));
+      })();
+
+    // Preço (no card unificado): editar R$ / CX, recalcular Valor Total e R$ / KG
+      (function(){
+  const card = document.getElementById('quantidadeInnCard');
+  const cxEl = document.getElementById('quantidadeInn');
+        const precoCxDisplay = document.getElementById('entPrecoCxDisplay');
+        const precoCxInput = document.getElementById('entPrecoCxInput');
+        const totalEl = document.getElementById('entTotalIn');
+        const precoKgEl = document.getElementById('entPrecoKg');
+  const pesoTotalApproxEl = document.getElementById('totalInn');
+        if(!card || !precoCxDisplay || !precoCxInput || !totalEl || !precoKgEl || !pesoTotalApproxEl || !cxEl) return;
+
+        const parsePT = (text) => {
+          if(!text) return NaN;
+          const cleaned = text.toString().trim()
+            .replace(/[^0-9,\.]/g, '')
+            .replace(/\.(?=\d{3}(\D|$))/g, '')
+            .replace(',', '.');
+          const n = Number(cleaned);
+          return isFinite(n) ? n : NaN;
+        };
+        const fmtMoney = (n) => isNaN(n) ? 'R$ 0,00' : new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n);
+        const getCx = () => parsePT(cxEl.textContent);
+        const getPesoTotal = () => {
+          const t = pesoTotalApproxEl.textContent || '0';
+          return Number(t.replace(/\./g,'').replace(',','.')) || 0;
+        };
+        const autosize = () => {
+          try{
+            const rect = precoCxDisplay.getBoundingClientRect();
+            precoCxInput.style.width = Math.ceil(rect.width + 14) + 'px';
+          }catch{}
+        };
+
+        let prev = precoCxDisplay.textContent || '';
+        const enter = () => {
+          prev = precoCxDisplay.textContent || prev;
+          const n = parsePT(prev);
+          card.classList.add('editing-cx');
+          precoCxInput.value = isNaN(n) ? '' : n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).replace('.', ',');
+          autosize();
+          setTimeout(()=>{ precoCxInput.focus(); precoCxInput.select(); },0);
+        };
+        const exit = (commit) => {
+          if(commit){
+            const n = parsePT(precoCxInput.value);
+            if(!isNaN(n)){
+              precoCxDisplay.textContent = n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+              const total = (getCx()||0) * n;
+              totalEl.textContent = (new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(total));
+              const precoKg = (getPesoTotal()>0) ? total / getPesoTotal() : 0;
+              precoKgEl.textContent = fmtMoney(precoKg);
+            }
+          }
+          card.classList.remove('editing-cx');
+        };
+
+        precoCxDisplay.addEventListener('click', enter);
+        precoCxDisplay.addEventListener('keydown', (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); enter(); }});
+        precoCxInput.addEventListener('keydown', (e)=>{
+          if(e.key==='Enter'){ e.preventDefault(); precoCxInput.blur(); }
+          else if(e.key==='Escape'){ e.preventDefault(); precoCxInput.value = prev; exit(false); }
+        });
+        precoCxInput.addEventListener('blur', ()=> exit(true));
+        precoCxInput.addEventListener('input', ()=>{
+          try{
+            const mirror = document.createElement('span');
+            const style = getComputedStyle(precoCxDisplay);
+            mirror.style.visibility = 'hidden';
+            mirror.style.position = 'fixed';
+            mirror.style.whiteSpace = 'pre';
+            mirror.style.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+            mirror.textContent = precoCxInput.value || '0';
+            document.body.appendChild(mirror);
+            const w = mirror.getBoundingClientRect().width;
+            document.body.removeChild(mirror);
+            precoCxInput.style.width = Math.ceil(Math.min(260, Math.max(80, w + 14))) + 'px';
+          }catch{}
+        });
+      })();
+  </script>
+</body>
+</html>

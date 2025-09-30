@@ -1,0 +1,100 @@
+-- SANKHYA.TRG_DLT_TCBLAN
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_DLT_TCBLAN
+TRG_DLT_TCBLAN
+  BEFORE DELETE ON TCBLAN
+  FOR EACH ROW
+
+DECLARE
+  P_ATUALIZOU CHAR(1);
+  P_COUNT     NUMBER(10);
+BEGIN
+  IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+
+  IF (Tcblan_Pkg.V_PROCRET <> 1) THEN
+    IF (:OLD.LIBERADO = 'S') THEN
+      Stp_Atualiza_Saldo_Dlt(:OLD.CODEMP,
+                             :OLD.REFERENCIA,
+                             :OLD.TIPLANC,
+                             :OLD.CODCTACTB,
+                             :OLD.CODCENCUS,
+                             :OLD.CODPROJ,
+                             :OLD.VLRLANC,
+                             :OLD.VLRLANC,
+                             P_ATUALIZOU);
+
+       IF P_ATUALIZOU = 'N' THEN
+        RAISE_APPLICATION_ERROR(-20101,
+                                'Não existe saldo, na tabela de saldos para esta conta.');
+            END IF;
+        END IF;
+
+    IF (:OLD.LIBERADO = 'S') AND (:OLD.CODEMPORIG <> 0) AND (GET_TSIPAR_LOGICO('CTBUTISALEMPORG') = 'S') THEN 
+      STP_ATUALIZA_SALDO_POR_EMP_DLT(:OLD.CODEMPORIG,
+                                     :OLD.REFERENCIA,
+                                     :OLD.TIPLANC,
+                                     :OLD.CODCTACTB,
+                                     :OLD.CODCENCUS,
+                                     :OLD.CODPROJ,
+                                     :OLD.VLRLANC,
+                                     :OLD.VLRLANC,
+                                     P_ATUALIZOU);
+
+      IF P_ATUALIZOU = 'N' THEN
+        RAISE_APPLICATION_ERROR(-20101,
+                                'Não existe saldo, na tabela de saldos para esta conta.');
+      END IF;
+    END IF;
+  END IF;
+
+  SELECT COUNT(1)
+    INTO P_COUNT
+    FROM TCIMOV
+   WHERE NUMLOTE = :OLD.NUMLOTE
+     AND NUMLANC = :OLD.NUMLANC
+     AND CODEMP = :OLD.CODEMP
+     AND REFERENCIA = :OLD.REFERENCIA;
+
+  IF P_COUNT > 0 THEN
+    UPDATE TCIMOV
+       SET NUMLOTE = NULL, NUMLANC = NULL, CODEMP = NULL
+     WHERE NUMLOTE = :OLD.NUMLOTE
+       AND NUMLANC = :OLD.NUMLANC
+       AND CODEMP = :OLD.CODEMP
+       AND REFERENCIA = :OLD.REFERENCIA;
+  END IF;
+
+  SELECT COUNT(1)
+    INTO P_COUNT
+    FROM TCIMOVAJ
+   WHERE NUMLOTE = :OLD.NUMLOTE
+     AND NUMLANC = :OLD.NUMLANC
+     AND CODEMP = :OLD.CODEMP
+     AND REFERENCIA = :OLD.REFERENCIA;
+
+  IF P_COUNT > 0 THEN
+    UPDATE TCIMOVAJ
+       SET NUMLOTE = NULL, NUMLANC = NULL, CODEMP = NULL
+     WHERE NUMLOTE = :OLD.NUMLOTE
+       AND NUMLANC = :OLD.NUMLANC
+       AND CODEMP = :OLD.CODEMP
+       AND REFERENCIA = :OLD.REFERENCIA;
+  END IF;
+
+  IF :OLD.INDESTORNADO IN ('S', 'A') THEN
+    INSERT INTO TCBLAN_UPD (CODEMP_DEST, REFERENCIA_DEST, NUMLOTE_DEST, NUMLANC_DEST, SEQUENCIA_DEST, TIPLANC_DEST,
+                             CODEMP_ORIG, REFERENCIA_ORIG, NUMLOTE_ORIG, NUMLANC_ORIG, SEQUENCIA_ORIG, TIPLANC_ORIG)
+    SELECT :OLD.CODEMP, :OLD.REFERENCIA, :OLD.NUMLOTE, :OLD.NUMLANC, :OLD.SEQUENCIA, :OLD.TIPLANC,
+           CODEMPORIGEM, REFORIGEM, NUMLOTEORIGEM, NUMLANCORIGEM, SEQORIGEM, TIPLANCORIGEM
+    FROM TCBRAS
+    WHERE CODEMPDEST = :OLD.CODEMP
+      AND REFDEST = :OLD.REFERENCIA
+      AND NUMLOTEDEST = :OLD.NUMLOTE
+      AND NUMLANCDEST = :OLD.NUMLANC
+      AND SEQDEST = :OLD.SEQUENCIA
+      AND TIPLANCDEST = :OLD.TIPLANC;
+  END IF;
+END;
+
+/

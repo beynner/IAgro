@@ -1,0 +1,25 @@
+asgiref==3.9.1
+cffi==2.0.0
+charset-normalizer==3.4.3
+cryptography==45.0.7
+Django==4.2.24
+oracledb==2.5.1
+pillow==11.3.0
+pycparser==2.23
+python-dotenv==1.1.1
+reportlab==4.4.3
+sqlparse==0.5.3
+tzdata==2025.2
+# Note: cx_Oracle is intentionally not installed on Windows/Python 3.13.
+# The project uses python-oracledb (oracledb) as a fallback in
+# sankhya_integration/services/oracle_conn.py, which is the modern,
+# supported driver. If you must use the legacy cx_Oracle, install
+# Microsoft C++ Build Tools and a version compatible with your Python,
+# or pin Python to a version with prebuilt wheels.
+
+ORACLE_CLIENT_LIB_DIR=C:\oracle\instantclient_19_23
+SANKHYA_DB_HOST=hfsemear.ddns.net
+SANKHYA_DB_PORT=1521
+SANKHYA_DB_SERVICE=XE
+SANKHYA_DB_USER=Sankhya
+SANKHYA_DB_PASSWORD=tecsis

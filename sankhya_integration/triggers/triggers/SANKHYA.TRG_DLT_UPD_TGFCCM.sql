@@ -1,0 +1,46 @@
+-- SANKHYA.TRG_DLT_UPD_TGFCCM
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_DLT_UPD_TGFCCM
+"SANKHYA".TRG_DLT_UPD_TGFCCM
+BEFORE DELETE ON TGFCCM  FOR EACH ROW
+
+DECLARE 
+    P_COUNT                  INT:= 0; 
+BEGIN 
+  IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+
+  IF DELETING THEN
+     SELECT COUNT(1) INTO P_COUNT 
+       FROM TGFCOM 
+      WHERE TIPO = 'E' 
+        AND CODVEND = :OLD.CODVEND  
+	    AND NUNOTAORIG = :OLD.NUNOTA 
+	    AND NUFIN IS NOT NULL;
+
+     IF P_COUNT <> 0 THEN 	 
+        RAISE_APPLICATION_ERROR(-20101,'Comissão já foi paga. Exclusão cancelada. Nro único da nota: ' || :OLD.NUNOTA); 
+     ELSE
+        DELETE FROM TGFCOM 
+         WHERE TIPO = 'E' 
+           AND CODVEND = :OLD.CODVEND 
+           AND NUNOTAORIG = :OLD.NUNOTA;
+     END IF;	   
+  END IF;
+  
+  IF UPDATING('PERCCOM') THEN
+     SELECT COUNT(1) INTO P_COUNT 
+       FROM TGFCOM 
+      WHERE TIPO = 'E' 
+        AND CODVEND = :OLD.CODVEND  
+	    AND NUNOTAORIG = :OLD.NUNOTA 
+	    AND NUFIN IS NOT NULL;
+
+     IF P_COUNT <> 0 THEN 	 
+        RAISE_APPLICATION_ERROR(-20101,'Percentual de comissão não pode ser alterado porque já foi pago. Nro único da nota: ' || :OLD.NUNOTA); 
+     END IF;
+  END IF;	 
+  
+END;
+
+/

@@ -1,0 +1,248 @@
+-- SANKHYA.TRG_INC_UPD_TGFITE_CERTIFIC
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_INC_UPD_TGFITE_CERTIFIC
+TRG_INC_UPD_TGFITE_CERTIFIC BEFORE INSERT OR UPDATE ON TGFITE FOR EACH ROW
+
+DECLARE
+  P_OQUE           VARCHAR2(500);
+  P_QUEM           VARCHAR2(500);
+  P_COM            VARCHAR2(500);
+  P_ERRO           VARCHAR2(4);
+  P_TIPO           TGFCER.TIPO%TYPE;
+  P_SEQUENCIA      TGFCER.SEQUENCIA%TYPE; 
+  P_CHAVE          TGFCER.CHAVE%TYPE; 
+  P_CODREGRA       TGFREG.CODREGRA%TYPE; 
+  P_INSTPRINC      TGFREG.INSTPRINC%TYPE; 
+  P_INSTSEC        TGFREG.INSTSEC%TYPE;
+  P_DESCRREGRA     TGFREG.DESCRREGRA%TYPE;
+  P_TIPOREGRA      TGFREG.TIPO%TYPE; 
+  P_CODINSTPRINC   NUMBER(10,0);
+  P_CODINSTSEC     NUMBER(10,0);
+  P_COUNT          NUMBER(10,0);
+  P_CODVEND        TGFCAB.CODVEND%TYPE;
+  P_CODPARC        TGFCAB.CODPARC%TYPE;
+  P_CODTIPVENDA    TGFCAB.CODTIPVENDA%TYPE;
+  P_CODTIPOPER     TGFCAB.CODTIPOPER%TYPE;
+  P_CODCENCUS      TGFCAB.CODCENCUS%TYPE;
+  P_CODNAT         TGFCAB.CODNAT%TYPE;
+  P_CODPROJ        TGFCAB.CODPROJ%TYPE;
+  P_RATEIO         NUMBER(10,0) null;
+  ERROR            EXCEPTION;
+  ERRMSG           VARCHAR2(4000);
+  P_VALIDAR        BOOLEAN;
+  P_USALOCAL       TGFPRO.USALOCAL%TYPE;
+
+  CURSOR  curRegras IS 
+    SELECT CER.TIPO, CER.CHAVE, CER.CODREGRA, CER.SEQUENCIA, REG.INSTPRINC, REG.INSTSEC, REG.TIPO, REG.DESCRREGRA
+    FROM TGFCER CER
+    , TGFREG REG
+    WHERE ((CER.TIPO = 'U' AND CER.CHAVE = :NEW.CODUSU) OR
+        (CER.TIPO = 'V' AND CER.CHAVE = P_CODVEND) OR
+        (CER.TIPO = 'V' AND CER.CHAVE = NVL(:NEW.CODEXEC,0)) OR
+        (CER.TIPO = 'E' AND CER.CHAVE = :NEW.CODEMP) OR
+        (CER.TIPO = 'G'))
+    AND CER.ATIVO = 'S'
+    AND CER.CODREGRA = REG.CODREGRA
+    AND (REG.INSTPRINC IN ('Local', 'Produto', 'Grupo de Produto') OR REG.INSTSEC IN ('Local', 'Produto', 'Grupo de Produto')) 
+    AND REG.INSTPRINC NOT IN ('Conta Bancária', 'Departamento')
+    AND (REG.INSTSEC IS NULL OR REG.INSTSEC NOT IN ('Conta Bancária', 'Departamento'))
+    ORDER BY CER.SEQUENCIA;
+BEGIN
+
+  -- VERIFICANDO SE O CLIENTE UTILIZA ESTA FUNCIONALIDADE
+  SELECT COUNT(*) INTO P_COUNT
+  FROM TSIVARBD
+  WHERE UTILIZA_CERTIFIC = 'N';
+  IF P_COUNT > 0 THEN 
+    RETURN;
+  END IF;
+
+  IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+
+  /* 
+  sincronização de dados
+  */
+  P_VALIDAR := FPODEVALIDAR('TGFITE');
+  IF NOT (P_VALIDAR) THEN
+    RETURN;
+  END IF;  
+  
+  /* QDO SUBSTITUINDO PRODUTO, NÃO VALIDAR ESTOQUE */
+  IF (VARIAVEIS_PKG.V_SBPRODUTO) THEN
+    RETURN;
+  END IF;
+  
+  SELECT COUNT(1) INTO P_COUNT
+  FROM TSIPAR
+  WHERE CHAVE = 'SBPRODUTO';
+  
+  IF (P_COUNT <> 0) THEN
+    RETURN;
+  END IF; 
+
+  IF INSERTING OR UPDATING('CODPROD') OR UPDATING('CODLOCALORIG') OR UPDATING('CODUSU') OR UPDATING('CODEMP') THEN
+
+    SELECT CODPARC, CODVEND, CODTIPOPER, CODTIPVENDA, CODCENCUS, CODNAT, CODPROJ
+    INTO P_CODPARC, P_CODVEND, P_CODTIPOPER, P_CODTIPVENDA, P_CODCENCUS, P_CODNAT, P_CODPROJ 
+    FROM TGFCAB
+    WHERE NUNOTA = :NEW.NUNOTA;
+  
+    IF :NEW.CODVEND IS NOT NULL AND :NEW.CODVEND <> 0 THEN
+      P_CODVEND := :NEW.CODVEND;
+    END IF;
+    OPEN curRegras;
+    LOOP
+      FETCH curRegras INTO 
+         P_TIPO, P_CHAVE, P_CODREGRA, P_SEQUENCIA, P_INSTPRINC, P_INSTSEC, P_TIPOREGRA, P_DESCRREGRA;
+      EXIT WHEN curRegras%NOTFOUND;
+    
+      IF P_INSTPRINC IN ('Centro de Resultado', 'Natureza', 'Projeto') THEN
+        IF P_RATEIO is null THEN
+            SELECT COUNT(*)
+            INTO P_RATEIO
+            FROM TGFRAT 
+            WHERE ORIGEM = 'E'
+            AND NUFIN = :NEW.NUNOTA;
+        END IF;
+        IF P_RATEIO > 0 THEN
+          close curRegras;
+      ERRMSG := 'Nota rateada, regra "' || P_DESCRREGRA || '" não pode ser validada.';
+      RAISE ERROR;
+        END IF;
+      END IF;
+
+      IF P_INSTPRINC = 'Centro de Resultado' THEN
+        P_CODINSTPRINC := P_CODCENCUS; 
+      ELSIF P_INSTPRINC = 'Natureza' THEN
+        P_CODINSTPRINC := P_CODNAT; 
+      ELSIF P_INSTPRINC = 'Projeto' THEN
+        P_CODINSTPRINC := P_CODPROJ; 
+      ELSIF P_INSTPRINC = 'TOP' THEN
+        P_CODINSTPRINC := P_CODTIPOPER;
+      ELSIF P_INSTPRINC = 'Local' THEN
+        P_CODINSTPRINC := :NEW.CODLOCALORIG;
+      ELSIF P_INSTPRINC = 'Produto' THEN
+        P_CODINSTPRINC := :NEW.CODPROD;
+      ELSIF P_INSTPRINC = 'Grupo de Produto' THEN
+     SELECT CODGRUPOPROD INTO P_CODINSTPRINC FROM TGFPRO WHERE CODPROD = :NEW.CODPROD;
+      ELSIF P_INSTPRINC = 'Tipo de Negociação' THEN
+        P_CODINSTPRINC := P_CODTIPVENDA;
+      ELSIF P_INSTPRINC = 'Parceiro' THEN
+        P_CODINSTPRINC := P_CODPARC;
+      ELSIF P_INSTPRINC = 'Empresa' THEN
+        P_CODINSTPRINC := :NEW.CODEMP;
+      ELSE
+        close curRegras;
+        ERRMSG := 'Instrução principal "'|| P_INSTPRINC ||'" da regra "' || P_DESCRREGRA || '" não definida.';
+    RAISE ERROR;
+      END IF;
+      
+      IF P_INSTSEC = 'Centro de Resultado' THEN
+        P_CODINSTSEC := P_CODCENCUS; 
+      ELSIF P_INSTSEC = 'Natureza' THEN
+        P_CODINSTSEC := P_CODNAT; 
+      ELSIF P_INSTSEC = 'Projeto' THEN
+        P_CODINSTSEC := P_CODPROJ; 
+      ELSIF P_INSTSEC = 'TOP' THEN
+        P_CODINSTSEC := P_CODTIPOPER;
+      ELSIF P_INSTSEC = 'Local' THEN
+        P_CODINSTSEC := :NEW.CODLOCALORIG;
+      ELSIF P_INSTSEC = 'Produto' THEN
+        P_CODINSTSEC := :NEW.CODPROD;
+      ELSIF P_INSTSEC = 'Grupo de Produto' THEN
+     SELECT CODGRUPOPROD INTO P_CODINSTSEC FROM TGFPRO WHERE CODPROD = :NEW.CODPROD;
+      ELSIF P_INSTSEC = 'Tipo de Negociação' THEN
+        P_CODINSTSEC := P_CODTIPVENDA;
+      ELSIF P_INSTSEC = 'Parceiro' THEN
+        P_CODINSTSEC := P_CODPARC;
+      ELSIF P_INSTSEC = 'Empresa' THEN
+        P_CODINSTSEC := :NEW.CODEMP;
+      ELSIF P_INSTSEC IS NOT NULL AND P_INSTSEC <> '' THEN
+        close curRegras;
+        ERRMSG := 'Instrução secundária "'|| P_INSTSEC ||'" da regra "' || P_DESCRREGRA || '" não definida.';
+    	RAISE ERROR;
+      ELSE
+        P_CODINSTSEC := 0;
+      END IF;
+      
+      P_ERRO := '';
+      SELECT USALOCAL INTO P_USALOCAL FROM TGFPRO WHERE CODPROD = :NEW.CODPROD;
+      
+      IF P_INSTPRINC <> 'Local' OR (P_CODINSTPRINC > 0 OR P_USALOCAL = 'S') THEN
+
+	      IF TRIM(P_INSTSEC) IS NULL THEN -- Apenas uma dimensão
+	        SELECT count(*)
+	        INTO P_COUNT
+	        FROM TGFITR ITR
+	        WHERE ITR.CODREGRA = P_CODREGRA
+	        AND ITR.CODINSTPRINC <= P_CODINSTPRINC
+	        AND nvl(ITR.CODINSTPRINCFIN, ITR.CODINSTPRINC) >= P_CODINSTPRINC
+	        AND ITR.ATIVO = 'S';
+	      ELSE
+	        SELECT count(*)
+	        INTO P_COUNT
+	        FROM TGFITR ITR
+	        WHERE ITR.CODREGRA = P_CODREGRA
+	        AND ITR.CODINSTPRINC <= P_CODINSTPRINC
+	        AND nvl(ITR.CODINSTPRINCFIN, ITR.CODINSTPRINC) >= P_CODINSTPRINC
+	        AND ITR.CODINSTSECINI <= P_CODINSTSEC  
+	        AND ITR.CODINSTSECFIN >= P_CODINSTSEC  
+	        AND ITR.ATIVO = 'S';
+	      END IF;
+	
+	      IF P_TIPOREGRA = 'R' then
+	        IF P_COUNT > 0 THEN
+	          P_ERRO := 'ERRO';
+	        END IF;
+	      ELSE
+	        IF P_COUNT = 0 THEN
+	          P_ERRO := 'ERRO';
+	        END IF;
+	      END IF;
+	     
+      END IF;
+
+      IF P_ERRO = 'ERRO' THEN
+
+        IF NOT (INSERTING AND :NEW.SEQUENCIA < 0 AND 
+          ((P_INSTPRINC = 'Empresa' AND P_INSTSEC = 'Local') OR 
+           (P_INSTSEC = 'Empresa' AND P_INSTPRINC = 'Local'))) THEN
+		   
+		    close curRegras;
+
+            STP_MSG_CERTIFIC_TIPO(P_TIPO, P_CHAVE, P_QUEM);
+            STP_MSG_CERTIFIC_CODINST(P_INSTPRINC, P_CODINSTPRINC, P_OQUE);
+
+            IF TRIM(P_INSTSEC) IS NULL THEN
+                ERRMSG := P_QUEM ||' não pode usar "'|| P_OQUE ||'" da regra "'||P_DESCRREGRA||'"\'||P_SEQUENCIA||'.';
+                RAISE ERROR;
+            ELSE
+                STP_MSG_CERTIFIC_CODINST(P_INSTSEC, P_CODINSTSEC, P_COM);
+                ERRMSG := P_QUEM ||' não pode usar "'|| P_OQUE ||'" com "'|| P_COM ||'" da regra "'||P_DESCRREGRA||'"\'||P_SEQUENCIA||'.';
+                RAISE ERROR;
+            END IF;   
+
+        END IF;
+
+      END IF;
+    END LOOP;
+    close curRegras;
+  END IF;
+  
+  RETURN;
+  
+EXCEPTION
+  WHEN OTHERS THEN
+    /* 
+    Sincronização de dados não faz validações
+    */
+     IF (P_VALIDAR) THEN
+       IF SQLCODE <> 1 THEN
+         ERRMSG := ERRMSG || '  ' || SQLERRM;
+       END IF;
+       RAISE_APPLICATION_ERROR(-20101, ERRMSG);       
+     END IF;
+END;
+
+/

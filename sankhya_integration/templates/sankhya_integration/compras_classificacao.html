@@ -1,0 +1,1326 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Classificação - Packing House</title>
+  <style>
+    :root { --border:#e5e7eb; --panel:#fff; --muted:#6b7280; --bg:#f7f9fb; }
+  body { margin:0; font-family: Inter, system-ui, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:#111827; font-size:12px; }
+    header { padding: 12px 16px; background:#fff; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5; }
+    main { display:grid; grid-template-columns: 320px 1fr; gap:12px; padding:12px; }
+    .panel { background:#fff; border:1px solid var(--border); border-radius:8px; }
+    .panel header { padding:10px 14px; font-weight:600; border-bottom:1px solid var(--border); }
+    .panel .content { padding:12px; }
+    label { font-size:12px; color:var(--muted); display:block; margin-bottom:4px; }
+    input, select { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; }
+    input[type="date"] { max-width: 100%; }
+    @media (max-width: 1280px) {
+      .filters-row2 input[type="date"] { width: 100%; }
+    }
+  .filters-grid { display:grid; grid-template-columns: 1fr; gap:10px; }
+  .filters-row2 { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:10px; }
+  .filters-row2 > div { min-width: 0; }
+  .filters-row-inline { display:grid; grid-template-columns: 64px 1fr; gap:8px; align-items:end; }
+  .filters-range { display:grid; grid-template-columns: 1fr auto 1fr; gap:8px; align-items:end; }
+  .filters-range .sep { color: var(--muted); padding: 0 4px; }
+  input, select { box-sizing: border-box; min-width: 0; }
+
+    /* Right column structured into two fixed-height panels */
+  .rightcol { display:grid; grid-template-rows: auto 48vh 30vh; gap:12px; }
+    .panel--results { height: 48vh; display:grid; grid-template-rows: auto 1fr; }
+    .panel--items { height: 30vh; display:grid; grid-template-rows: auto 1fr; }
+
+    table { width:100%; border-collapse: collapse; }
+  th, td { border-bottom:1px solid var(--border); padding:8px 10px; text-align:left; font-size:12px; }
+    th { background:#f3f4f6; position:sticky; top:0; }
+    .list, .items { height:100%; overflow:auto; }
+    .row--click { cursor: pointer; }
+    .row--active { background:#eef2ff; }
+
+    /* Top toolbar above results panel */
+  .toolbar-top { display:flex; justify-content:flex-start; gap:8px; align-items:center; margin: 0 0 6px 0; flex-wrap: nowrap; }
+    .icon-btn { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; border:1px solid var(--border); background:#fff; border-radius:6px; cursor:pointer; }
+    .icon-btn:hover { background:#f9fafb; }
+    .icon { width:18px; height:18px; color:#374151; }
+    .dd-item { padding:6px 8px; cursor:pointer; }
+    .dd-item.active { background:#eef2ff; }
+    .icon-btn[disabled] { opacity: 0.5; cursor: not-allowed; background:#f3f4f6; }
+    /* Lixeira habilitada fica vermelha */
+    .icon-btn.danger:not([disabled]) .icon { color:#b91c1c; }
+    /* Plain/inline icon style */
+    .icon-btn--plain { border: none !important; background: transparent !important; padding: 0; width:34px; height:34px; display:inline-flex; align-items:center; justify-content:center; }
+    .icon-btn--plain .icon { width:18px; height:18px; }
+  /* Enlarge the '+' Add button inside Items modal for better visibility */
+  #cabItemsCard #itemAddBtn { width: 44px; height: 44px; }
+  #cabItemsCard #itemAddBtn .icon { width: 28px; height: 28px; }
+    /* Toggle switch for Classifica */
+    .switch { position: relative; display: inline-block; width: 46px; height: 24px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .switch .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #e5e7eb; transition: .2s; border-radius: 9999px; }
+    .switch .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; top: 3px; background-color: #fff; transition: .2s; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+    .switch input:checked + .slider { background-color: #10B981; }
+    .switch input:checked + .slider:before { transform: translateX(22px); }
+  </style>
+</head>
+<body>
+  <header><h1>Classificação</h1></header>
+
+  <main>
+    <!-- Sidebar filtros (esquerda) -->
+    <aside class="panel">
+      <header>Filtros rápidos</header>
+      <div class="content">
+        <div class="filters-actions" style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:8px;">
+          <button type="button" id="btnClear">Limpar</button>
+          <button type="submit" form="filtersForm">Aplicar</button>
+        </div>
+        <form id="filtersForm" class="filters-grid">
+          <div>
+            <label>Últimos dias (fallback)</label>
+            <input type="number" name="days" value="{{ params.days }}" />
+          </div>
+          <div>
+            <label>Data da negociação</label>
+            <div class="filters-range">
+              <input type="date" name="start" value="{{ params.date_start|default:'' }}" />
+              <div class="sep">a</div>
+              <input type="date" name="end" value="{{ params.date_end|default:'' }}" />
+            </div>
+          </div>
+          <div>
+            <label>Nota</label>
+            <div class="filters-range">
+              <input type="text" name="nronota_ini" value="{{ params.nronota_ini|default:'' }}" />
+              <div class="sep">a</div>
+              <input type="text" name="nronota_fim" value="{{ params.nronota_fim|default:'' }}" />
+            </div>
+          </div>
+          <div>
+            <label>Nº Único</label>
+            <input type="number" name="nunota_ini" value="{{ params.nunota_ini|default:'' }}" />
+          </div>
+          <div>
+            <label>Produto</label>
+            <input type="number" name="codprod" value="{{ params.codprod|default:'' }}" />
+          </div>
+          <div>
+            <label>Lote / CODAGREGACAO</label>
+            <input type="text" name="controle" value="{{ params.controle|default:'' }}" />
+          </div>
+          <div>
+            <label>Parceiro</label>
+            <div style="position:relative;">
+              <input type="hidden" name="codparc" id="codparc" value="{{ params.codparc|default:'' }}" />
+              <input type="text" id="parcSearch" placeholder="Código ou nome do parceiro" autocomplete="off" style="width:100%;" value="{% if params.codparc %}{{ params.codparc }}{% endif %}" />
+              <div id="parcDropdown" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:6px; max-height:200px; overflow:auto; display:none; z-index:10;"></div>
+            </div>
+          </div>
+          
+        </form>
+        <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
+          <button type="button" id="btnPrev" class="icon-btn" title="Anterior" data-page="{{ prev_page }}" {% if not has_prev %}disabled{% endif %}>&lt;</button>
+          <div style="font-size:12px; color:var(--muted);">Página {{ page }}</div>
+          <button type="button" id="btnNext" class="icon-btn" title="Próxima" data-page="{{ next_page }}" {% if not has_next %}disabled{% endif %}>&gt;</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Conteúdo (direita) com duas áreas de altura fixa -->
+    <section class="rightcol">
+      <!-- Toolbar acima do card de resultados -->
+      <div class="toolbar-top">
+        <a class="icon-btn" title="Novo lançamento" href="/sankhya/packing/central/?codtipoper=11" id="btnNew">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </a>
+        <button class="icon-btn danger" id="btnDeleteNota" type="button" title="Excluir lote selecionado" disabled>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+            <path d="M10 11v6"></path>
+            <path d="M14 11v6"></path>
+            <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </button>
+  <button class="icon-btn" type="button" title="Imprimir" id="btnPrint">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="6 9 6 2 18 2 18 9"></polyline>
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+            <rect x="6" y="14" width="12" height="8"></rect>
+          </svg>
+        </button>
+        <button class="icon-btn" id="btnClassify" type="button" title="Classificar" disabled>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 7h18"></path>
+            <path d="M6 7v10"></path>
+            <path d="M18 7v10"></path>
+            <path d="M9 12h6"></path>
+          </svg>
+        </button>
+      </div>
+      <div class="panel panel--results">
+        <header>LOTES</header>
+        <div class="list" id="notasList" tabindex="0">
+          <table id="notasTable">
+            <thead>
+              <tr>
+                <th>Lote / CODAGREGACAO</th>
+                <th>Parceiro</th>
+                <th>Produtos (TOP 11 - Entradas)</th>
+                <th>Qtde Pedido</th>
+                <th>Qtde Classificado</th>
+                <th>Qtde Estoque</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for controle, parceiro, produto_descr, qtd_pedido, qtd_class, qtd_estoque, exemplo_nunota, exemplo_seq, produtos_entrada, codparc in lotes %}
+              {% with is_sel=sel|default:0 %}
+        <tr class="row--click{% if controle == is_sel %} row--active{% endif %}"
+          data-nunota="{{ controle }}"
+          data-seq="{{ exemplo_seq }}"
+          data-codparc="{{ codparc|default:'' }}"
+          data-central-url="/sankhya/packing/central/?nunota={{ exemplo_nunota }}">
+                <td>{{ controle }}</td>
+                <td>{{ parceiro }}</td>
+                <td>
+                  {% if produtos_entrada %}
+                    <div style="font-size:13px;">
+                      {% for p in produtos_entrada %}
+                        <div>{{ p.cod }} - {{ p.descr }}</div>
+                      {% endfor %}
+                    </div>
+                  {% else %}
+                    {{ produto_descr }}
+                  {% endif %}
+                </td>
+                <td>{{ qtd_pedido }}</td>
+                <td>{{ qtd_class }}</td>
+                <td>{{ qtd_estoque }}</td>
+              </tr>
+              {% endwith %}
+              {% empty %}
+              <tr><td colspan="6">Nenhum lote encontrado.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel panel--items">
+    <header style="display:flex; justify-content:space-between; align-items:center;">
+      <div>Produtos Classificados (TOP 26)
+        {% if nunota_class_sel %}
+          <span id="nunotaClassBadge" style="margin-left:8px; font-weight:600; color:#1f2937; background:#e5e7eb; padding:2px 6px; border-radius:9999px; font-size:12px;">NUNOTA {{ nunota_class_sel }}</span>
+        {% else %}
+          <span id="nunotaClassBadge" style="display:none; margin-left:8px; font-weight:600; color:#1f2937; background:#e5e7eb; padding:2px 6px; border-radius:9999px; font-size:12px;"></span>
+        {% endif %}
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button id="prodAddBtn" class="icon-btn" type="button" title="Adicionar" disabled>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+        <button id="prodEditBtn" class="icon-btn" type="button" title="Editar" disabled>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+        </button>
+        <button id="prodDeleteBtn" class="icon-btn danger" type="button" title="Excluir" disabled>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg>
+        </button>
+      </div>
+    </header>
+        <div class="items">
+          <table>
+            <thead>
+              <tr>
+                <th>Controle</th>
+                <th>Seq</th>
+                <th>Produto</th>
+                <th>Descrição</th>
+                <th>Qtd</th>
+                <th>Vlr Unit</th>
+                <th>Total</th>
+                <th>Obs</th>
+              </tr>
+            </thead>
+            <tbody id="prodClassBody">
+              {% if produtos_classificados %}
+                {% for it in produtos_classificados %}
+                  <tr>
+                    <td>{{ it.0 }}</td>
+                    <td>{{ it.1 }}</td>
+                    <td>{{ it.2 }}</td>
+                    <td>{{ it.3 }}</td>
+                    <td>{{ it.4 }}</td>
+                    <td>{{ it.5 }}</td>
+                    <td>{{ it.6 }}</td>
+                    <td></td>
+                    <td></td>
+                  </tr>
+                {% endfor %}
+              {% else %}
+                <tr><td colspan="9">Carregando...</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+  <!-- Item edit/add modal (for Produtos Classificados) -->
+  <div id="modalItemEdit" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); align-items:center; justify-content:center; z-index:70;">
+    <div style="background:#fff; border-radius:8px; width:640px; max-width:95%; padding:14px;">
+      <h3 id="itemModalTitle">Editar Item</h3>
+      <div style="display:grid; grid-template-columns: 1fr 120px; gap:8px;">
+        <div style="position:relative;">
+          <label>Produto (código)</label>
+          <input type="hidden" id="itemProdHidden" />
+          <input type="text" id="itemProdCod" placeholder="cod ou descrição" autocomplete="off" />
+          <div id="itemProdSuggest" style="position:absolute; left:0; right:0; background:#fff; border:1px solid #e5e7eb; display:none; max-height:160px; overflow:auto; z-index:90; font-size:13px;"></div>
+        </div>
+        <div style="position:relative;">
+          <label>Vol</label>
+          <input type="hidden" id="itemVolHidden" />
+          <input type="text" id="itemVol" placeholder="CODVOL" autocomplete="off" />
+          <div id="itemVolSuggest" style="position:absolute; left:0; right:0; background:#fff; border:1px solid #e5e7eb; display:none; max-height:160px; overflow:auto; z-index:90; font-size:13px;"></div>
+        </div>
+        <div>
+          <label>Qtd</label>
+          <input type="number" id="itemQtd" step="0.001" />
+        </div>
+        <div>
+          <label>Vlr Unit</label>
+          <input type="number" id="itemVlr" step="0.01" />
+        </div>
+        <div style="grid-column:1 / -1;">
+          <label>Obs</label>
+          <input type="text" id="itemObs" />
+        </div>
+      </div>
+      <div style="display:flex; justify-content:space-between; gap:8px; margin-top:12px;">
+        <div>
+          <button id="itemDeleteBtn" class="icon-btn danger">Excluir</button>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button id="itemModalCancel">Cancelar</button>
+          <button id="itemModalSave">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Modal simples de Classificação -->
+  <div id="modalClassify" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); align-items:center; justify-content:center; z-index:40;">
+    <div style="background:#fff; border-radius:8px; width:760px; max-width:95%; padding:14px;">
+      <h3>Classificar Lote <span id="modalControle"></span></h3>
+      <div style="display:flex; gap:12px; margin-bottom:8px;">
+        <div style="flex:1;">
+          <label>Parceiro</label>
+          <input type="text" id="modalParceiro" readonly />
+        </div>
+        <div style="width:160px;">
+          <label>Qtd InNatura Pedido</label>
+          <input type="text" id="modalInnTotal" readonly />
+        </div>
+        <div style="width:220px;">
+          <label>Origem (NUNOTA / SEQ)</label>
+          <select id="modalOrigem" style="width:100%;"></select>
+        </div>
+      </div>
+      <div>
+        <label>Quantidade InNatura Classificada (total pretendido)</label>
+        <input type="number" id="modalInnClassTotal" step="0.001" />
+      </div>
+      <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+        <div id="modalMessages" style="min-height:28px; color:#b91c1c; font-size:13px;"></div>
+        <div id="modalWriteStatus" style="font-size:12px; color:#6b7280;">Gravação: —</div>
+      </div>
+  <div id="modalSaldo" style="margin-top:6px; font-size:13px; color:#374151;"></div>
+        <div style="margin-top:8px;">
+        <label>Saídas (Produto, Vol, Qtde)</label>
+        <table style="width:100%; margin-top:6px;">
+          <thead><tr><th>Produto</th><th>Vol</th><th>Qtd</th><th>Obs</th><th></th></tr></thead>
+          <tbody id="modalSaidasBody">
+            <tr>
+              <td style="position:relative;">
+                <input type="hidden" class="ma-prod-hidden" />
+                <input class="ma-prod-vis" placeholder="cod ou desc" autocomplete="off" style="width:220px;" />
+                <div class="ma-prod-suggest" style="position:absolute; left:0; right:0; background:#fff; border:1px solid #e5e7eb; display:none; max-height:160px; overflow:auto; z-index:60; font-size:13px;"></div>
+              </td>
+              <td style="position:relative; width:110px;">
+                <input type="hidden" class="ma-vol-hidden" />
+                <input class="ma-vol-vis" value="KG" style="width:90px;" placeholder="CODVOL" autocomplete="off" />
+                <div class="ma-vol-suggest" style="position:absolute; left:0; width:110px; background:#fff; border:1px solid #e5e7eb; display:none; max-height:160px; overflow:auto; z-index:60; font-size:13px;"></div>
+              </td>
+              <td><input class="ma-qtd" type="number" step="0.001" /></td>
+              <td><input class="ma-obs" /></td>
+              <td>
+                <button type="button" class="ma-add">+</button>
+                <button type="button" class="ma-remove" style="display:none; margin-left:6px;">-</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+        <button id="modalCancel">Cancelar</button>
+  <button id="modalPlan" title="Verifica e monta um plano de classificação (sem gravar).">Planificar</button>
+  <div style="font-size:12px; color:#6b7280; align-self:center; margin-left:8px;">Planificar: gera um plano de distribuição das saídas a partir da origem (não grava). Use 'Salvar' para aplicar.</div>
+        <button id="modalExecute">Salvar</button>
+      </div>
+          <!-- SQL preview modal (hidden) -->
+          <div id="sqlPreviewModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index:80;">
+            <div style="background:#fff; width:80%; max-width:1100px; max-height:80%; overflow:auto; padding:16px; border-radius:8px;">
+              <h4>SQL a ser executado</h4>
+              <div id="sqlPreviewContent" style="font-family:monospace; font-size:13px; color:#111827; white-space:pre-wrap; background:#f8fafc; padding:10px; border:1px solid #e5e7eb; border-radius:6px; max-height:60vh; overflow:auto;"></div>
+              <div style="display:flex; justify-content:space-between; gap:8px; margin-top:10px; align-items:center;">
+                <div style="font-size:13px; color:#374151;"><label><input type="checkbox" id="sqlForceCheck" /> Forçar gravação (se permitido no servidor)</label></div>
+                <div style="display:flex; justify-content:flex-end; gap:8px;">
+                  <button id="sqlPreviewCancel">Cancelar</button>
+                  <button id="sqlPreviewConfirm">Confirmar e Salvar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+    </div>
+  </div>
+  <!-- Global SQL preview modal used by Cabeçalho save flow -->
+  <div id="sqlPreviewModalGlobal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index:120;">
+    <div style="background:#fff; width:80%; max-width:1100px; max-height:80%; overflow:auto; padding:16px; border-radius:8px;">
+      <h4>SQL a ser executado</h4>
+      <div id="sqlPreviewContentGlobal" style="font-family:monospace; font-size:13px; color:#111827; white-space:pre-wrap; background:#f8fafc; padding:10px; border:1px solid #e5e7eb; border-radius:6px; max-height:60vh; overflow:auto;"></div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px; align-items:center;">
+        <button id="sqlPreviewCancelGlobal">Cancelar</button>
+        <button id="sqlPreviewConfirmGlobal">Confirmar e Salvar</button>
+      </div>
+    </div>
+  </div>
+      <!-- Portal-style modals: Cabeçalho, Itens, Rodapé (copied/adapted) -->
+      <div id="cabModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:70;">
+  <div id="cabCard" style="position:fixed; left:-1200px; top:64px; background:#fff; border:1px solid var(--border); border-radius:8px; width:270px; max-width:95vw; max-height:90vh; overflow:auto; transition:left .28s ease, opacity .18s ease; z-index:71;">
+          <div style="padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
+            <strong>Classificação — Cabeçalho</strong>
+            <button class="icon-btn" type="button" id="cabClose" title="Fechar">×</button>
+          </div>
+          <div style="padding:14px; display:grid; gap:12px;">
+            <!-- Hidden helpers still available for flows that might need references -->
+            <input type="hidden" id="cab_codemp" value="1" />
+            <input type="hidden" id="cab_prod_cod" />
+            <input type="hidden" id="cab_codparc" />
+            <input type="hidden" id="cab_top_cod" value="26" />
+            <input type="hidden" id="cab_nat_cod" value="20010100" />
+            <input type="hidden" id="cab_cencus_cod" value="10100" />
+
+            <!-- Title + subtitle -->
+            <div>
+              <div style="font-size:14px; color:#6b7280;">Lote</div>
+              <div id="cab_lote_text" style="font-weight:700; color:#111827; font-size:20px; line-height:1.2;">—</div>
+              <div id="cab_parc_text" style="margin-top:4px; color:#374151; background:#FEF9C3; border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-weight:600;">—</div>
+              <div id="cab_prod_text" style="margin-top:6px; color:#374151; background:#FEF9C3; border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-weight:600;">—</div>
+            </div>
+
+            <!-- Metrics (moved just below product) -->
+            <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:10px;">
+              <div style="border:1px solid var(--border); border-radius:8px; padding:4px 8px 8px; background:#f9fafb; text-align:center;">
+                <div style="font-size:11px; color:#6b7280; margin-top:-4px;">Qtde InNatura</div>
+                <div id="cab_qtd_pedido_text" style="font-weight:700; font-size:18px; line-height:1.1; text-align:center; margin-top:8px;">—</div>
+              </div>
+              <div style="border:1px solid var(--border); border-radius:8px; padding:4px 8px 8px; background:#f9fafb; text-align:center;">
+                <div style="font-size:11px; color:#6b7280; margin-top:-4px;">Qtde Classificado</div>
+                <div style="margin-top:8px;"><span id="cab_class_count_text" style="font-weight:700; font-size:18px; line-height:1.1; text-align:center; display:inline-block;">—</span></div>
+              </div>
+            </div>
+
+            <!-- Badges row -->
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <span id="cab_top_text" style="display:inline-block; background:#eef2ff; color:#1f2937; padding:4px 10px; border-radius:9999px; font-size:12px;">26 — Classificação</span>
+              <span id="cab_dtneg_text" style="display:inline-block; background:#f3f4f6; color:#374151; padding:4px 10px; border-radius:9999px; font-size:12px;">—</span>
+              <span id="cab_nunota_class_badge" style="display:none; background:#e5e7eb; color:#111827; padding:4px 10px; border-radius:9999px; font-size:12px;">NUNOTA —</span>
+            </div>
+
+            <!-- Natureza / Centro stacked -->
+            <div>
+              <div style="font-size:11px; color:#6b7280;">Natureza</div>
+              <div id="cab_nat_text" style="color:#4b5563; font-size:12px;">—</div>
+              <div style="font-size:11px; color:#6b7280; margin-top:6px;">Centro de Resultado</div>
+              <div id="cab_cencus_text" style="color:#4b5563; font-size:12px;">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Modal Itens (in-place) -->
+      <div id="cabItemsModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:75;">
+      <div id="cabItemsCard" style="position:fixed; left:100%; top:64px; background:#fff; border:1px solid var(--border); border-radius:8px; width:820px; max-width:95vw; max-height:90vh; overflow:auto; transition:left .28s ease; z-index:76;">
+          <div style="padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
+            <strong>Itens — Nota</strong>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <button id="cabItemsClose" class="icon-btn" title="Fechar" style="color:#b91c1c;">×</button>
+            </div>
+          </div>
+          <div style="padding:12px; display:grid; gap:8px;">
+            <input type="hidden" id="items_nunota" />
+            <input type="hidden" id="item_seq_edit" />
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <div style="display:flex; gap:8px; align-items:flex-end;">
+                <div style="flex:3.2; min-width:320px; position:relative;">
+                  <label>Produto (cod ou descrição)</label>
+                  <input type="text" id="item_prod_vis" placeholder="cod ou descrição" autocomplete="off" style="width:100%;" />
+                  <input type="hidden" id="item_prod_hidden" />
+                  <div id="item_prod_sugg" style="position:absolute; left:0; right:0; background:#fff; border:1px solid var(--border); display:none; max-height:160px; overflow:auto; z-index:120; font-size:13px;"></div>
+                </div>
+                
+                <div style="width:88px;">
+                  <label>Vol</label>
+                  <input type="text" id="item_vol" placeholder="CODVOL" autocomplete="off" value="CX" />
+                  <input type="hidden" id="item_vol_hidden" value="CX" />
+                </div>
+                <div style="width:88px;">
+                  <label>Qtd</label>
+                  <input type="number" id="item_qtd" step="0.001" />
+                </div>
+                <div style="width:96px;">
+                  <label>Peso</label>
+                  <input type="number" id="item_peso" step="0.001" />
+                </div>
+                <div style="width:120px;">
+                  <label>Total</label>
+                  <input type="text" id="item_total" disabled style="background:#f3f4f6; text-align:right;" />
+                </div>
+              </div>
+              <div style="display:flex; gap:8px; align-items:flex-end;">
+                <div style="flex:1;">
+                  <label>Observação</label>
+                  <input type="text" id="item_obs" />
+                </div>
+                <div style="width:70px; display:flex; justify-content:flex-end;">
+                  <button id="itemAddBtn" class="icon-btn success icon-btn--plain" title="Adicionar" aria-label="Adicionar">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9"></circle>
+                      <line x1="12" y1="8" x2="12" y2="16"></line>
+                      <line x1="8" y1="12" x2="16" y2="12"></line>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <label>Produtos inseridos</label>
+                <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#374151;">
+                  <input type="checkbox" id="filterOnlyClassifica" checked /> Somente classifica
+                </label>
+              </div>
+              <div style="max-height:42vh; overflow:auto; border:1px solid var(--border); border-radius:6px;">
+                <table style="width:100%; border-collapse:collapse;">
+                  <thead><tr><th style="padding:8px">Lote</th><th>Produto</th><th>Vol</th><th>Qtd</th><th>Peso</th><th>Classifica</th><th>Total</th><th></th></tr></thead>
+                    <tbody id="itemsListBody"><tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:6px;">
+              <button id="itemsCancel" type="button" title="Fechar">Fechar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <script>
+    // Reuse the basic interaction from portal: row selection, pagination and delete confirmation.
+    (function(){
+      const tbl = document.getElementById('notasTable');
+      if (!tbl) return;
+      const listEl = document.getElementById('notasList');
+      let clickTimer = null;
+      const CLICK_DELAY = 250;
+      function updateDeleteBtn(){ const btnDel = document.getElementById('btnDeleteNota'); if(!btnDel) return; const hasActive = !!tbl.querySelector('tbody tr.row--click.row--active'); if(hasActive) btnDel.removeAttribute('disabled'); else btnDel.setAttribute('disabled','disabled'); }
+  const btnClassify = document.getElementById('btnClassify');
+  function updateClassifyBtn(){ if(!btnClassify) return; const rows = Array.from(tbl.querySelectorAll('tbody tr.row--click')); const selected = rows.filter(r=>r.classList.contains('row--active')); if(selected.length===1){ btnClassify.removeAttribute('disabled'); } else { btnClassify.setAttribute('disabled','disabled'); } }
+      tbl.addEventListener('click', (e) => {
+        const tr = e.target.closest('tr.row--click'); if(!tr) return; Array.from(tbl.querySelectorAll('tbody tr.row--click')).forEach(r=>r.classList.remove('row--active')); tr.classList.add('row--active'); updateDeleteBtn(); if (clickTimer) clearTimeout(clickTimer); clickTimer = setTimeout(()=>{ try{ const url = new URL(window.location.href); url.searchParams.set('sel', tr.dataset.nunota); window.location.href = url.pathname + '?' + url.searchParams.toString(); }catch(_){ const qs = window.location.search ? window.location.search + '&' : '?'; window.location.href = window.location.pathname + qs + 'sel=' + encodeURIComponent(tr.dataset.nunota); } clickTimer=null; }, CLICK_DELAY);
+      });
+      tbl.addEventListener('dblclick', async (e)=>{
+        const tr = e.target.closest('tr[data-central-url]');
+        if(!tr) return;
+        if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+        // Prefer in-place flow: open header; then immediately open Items (reusing or creating TOP 26 header)
+        try{
+          if (typeof window.showCabModal === 'function') {
+            window.showCabModal();
+            // Open Items immediately for instant UX (nunota may be set after consult/save)
+            try{ if(typeof window.showItemsModal === 'function') window.showItemsModal(null); }catch(_){ }
+            const controle = tr.dataset.nunota;
+            try{
+              const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' });
+              const j = await r.json();
+              try {
+                if (j && j.ok) {
+                  const entradas = Array.isArray(j.entradas) ? j.entradas : [];
+                  const pin = j.prod_in_natura || null;
+                  let innCod = null;
+                  if (entradas.length) {
+                    const match = pin ? entradas.find(e => String(e.codprod||'') === String(pin)) : null;
+                    innCod = (match && match.codprod) ? match.codprod : (entradas[0]?.codprod || null);
+                  }
+                  window.PH_INNATURA_CODPROD = innCod || null;
+                } else {
+                  window.PH_INNATURA_CODPROD = null;
+                }
+              } catch(_) {}
+              if (j && j.ok && j.nunota_class) {
+                if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(j.nunota_class);
+                // Populate already-open Items with nunota and load
+                try{ const itemsNunota = document.getElementById('items_nunota'); if(itemsNunota) itemsNunota.value = j.nunota_class; }catch(_){ }
+                try{ const addBtn = document.getElementById('itemAddBtn'); addBtn && addBtn.removeAttribute('disabled'); }catch(_){ }
+                try{ if(typeof loadItems === 'function') loadItems(j.nunota_class); }catch(_){ }
+                return;
+              }
+              // No existing TOP 26 header: edit-only flow. Keep header/items open and wait for manual save.
+              try{ if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(null); }catch(_){ }
+              return;
+            }catch(_){ /* keep header open; user can save manually */ return; }
+          }
+        }catch(_){ }
+        // Fallback: navigate to central
+        window.location.href = tr.dataset.centralUrl;
+      });
+      function getRows(){ return Array.from(tbl.querySelectorAll('tbody tr.row--click')); }
+      function currentIndex(){ const rows = getRows(); if (!rows.length) return -1; const idx = rows.findIndex(r => r.classList.contains('row--active')); return idx >= 0 ? idx : 0; }
+      function setActive(newIdx, triggerApply){ const rows = getRows(); if(!rows.length) return; newIdx = Math.max(0, Math.min(rows.length-1, newIdx)); const current = tbl.querySelector('tbody tr.row--active'); const row = rows[newIdx]; if (current === row) return; rows.forEach(r=>r.classList.remove('row--active')); row.classList.add('row--active'); row.scrollIntoView({ block: 'nearest' }); if (triggerApply) { applySelection(); } }
+      function applySelection(){ const row = tbl.querySelector('tbody tr.row--active'); if(!row) return; try{ const url = new URL(window.location.href); url.searchParams.set('sel', row.dataset.nunota); window.location.href = url.pathname + '?' + url.searchParams.toString(); }catch(_){ const qs = window.location.search ? window.location.search + '&' : '?'; window.location.href = window.location.pathname + qs + 'sel=' + encodeURIComponent(row.dataset.nunota); } }
+      function isTypingTarget(el){ const t = (el && el.tagName) ? el.tagName.toLowerCase() : ''; return t === 'input' || t === 'textarea' || el.isContentEditable; }
+      (listEl || document).addEventListener('keydown', (e) => { if (isTypingTarget(e.target)) return; if (e.key === 'ArrowDown'){ e.preventDefault(); setActive(currentIndex()+1, true); } else if (e.key === 'ArrowUp'){ e.preventDefault(); setActive(currentIndex()-1, true); } else if (e.key === 'Enter'){ e.preventDefault(); applySelection(); } });
+      try{ listEl && listEl.focus(); }catch(_){}
+    updateDeleteBtn();
+  updateClassifyBtn();
+  const btnDeleteNota = document.getElementById('btnDeleteNota');
+  function getCookie(name){ const m=document.cookie.match(new RegExp('(^| )'+name+'=([^;]+)')); return m? decodeURIComponent(m[2]) : null; }
+  async function postJSON(url, body){ const csrftoken = getCookie('csrftoken'); const headers = {'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'}; if (csrftoken) headers['X-CSRFToken'] = csrftoken; const r = await fetch(url, {method:'POST', headers, body: JSON.stringify(body), credentials:'same-origin'}); let j={}; try{ j=await r.json(); }catch(_){ j={}; } return {ok:r.ok, body:j, status:r.status}; }
+  // Expose helpers globally so other modules/IIFEs in this page can reuse them
+  try { window.getCookie = getCookie; window.postJSON = postJSON; } catch(_) {}
+      (function(){
+        const b = document.getElementById('btnDeleteNota');
+        if(!b) return;
+        b.addEventListener('click', async function (){
+          const active = tbl.querySelector('tbody tr.row--click.row--active');
+          if(!active) return;
+          const nun = active.getAttribute('data-nunota');
+          const ok = confirm(`Confirma excluir o lote ${nun} e todos os itens?`);
+          if(!ok) return;
+          const res = await postJSON('/sankhya/nota/delete/', { nunota: parseInt(nun,10) });
+          if (res.ok && (res.body?.deleted_cab || 0) > 0){
+            alert(`Lote ${nun} excluído com sucesso.`);
+            try{ const url = new URL(window.location.href); url.searchParams.delete('sel'); window.location.href = url.pathname + '?' + url.searchParams.toString(); }catch(_){ window.location.reload(); }
+          } else {
+            const errs = (res.body?.errors||[]).join('\n') || 'Falha ao excluir lote.';
+            const warns = (res.body?.warnings||[]).join('\n');
+            alert([errs, warns].filter(Boolean).join('\n'));
+          }
+        });
+      })();
+      // Load classified products for selected lote via AJAX
+      async function loadClassifiedFor(controle){ const bodyEl = document.getElementById('prodClassBody'); if(!bodyEl) return; bodyEl.innerHTML = '<tr><td colspan="9">Carregando...</td></tr>'; try{ const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' }); const j = await r.json(); if(!j.ok){ bodyEl.innerHTML = `<tr><td colspan="9">Erro: ${j.error||'falha'}</td></tr>`; return; } const rows = j.classificacoes || []; // update nunota TOP 26 badge
+        try{
+          const entradas = Array.isArray(j.entradas) ? j.entradas : [];
+          const pin = j.prod_in_natura || null;
+          let innCod = null;
+          if (entradas.length) {
+            const match = pin ? entradas.find(e => String(e.codprod||'') === String(pin)) : null;
+            innCod = (match && match.codprod) ? match.codprod : (entradas[0]?.codprod || null);
+          }
+          window.PH_INNATURA_CODPROD = innCod || null;
+        }catch(_){ }
+        try{ const badge = document.getElementById('nunotaClassBadge'); if(badge){ if(j.nunota_class){ badge.textContent = 'NUNOTA ' + j.nunota_class; badge.style.display = 'inline-block'; } else { badge.style.display = 'none'; } } }catch(_){ }
+        // Update the 'Qtde Pedido' cell in the active LOTES row based on entradas (sum of all entradas)
+        try{
+          const entradas = Array.isArray(j.entradas) ? j.entradas : [];
+          const qPedido = entradas.reduce((s,e)=> s + (parseFloat(e.qtd||0) || 0), 0);
+          const activeRow = document.querySelector('#notasTable tbody tr.row--active');
+          if(activeRow && activeRow.cells && activeRow.cells.length >= 6){ activeRow.cells[3].textContent = (qPedido || 0).toFixed(3); }
+        }catch(_){ }
+        if(rows.length===0){ bodyEl.innerHTML = '<tr><td colspan="9">Nenhum produto classificado para a seleção.</td></tr>'; return; } bodyEl.innerHTML = ''; for(const it of rows){ const tr = document.createElement('tr'); tr.innerHTML = `<td>${it.nunota||''}</td><td>${it.sequencia||''}</td><td>${it.cod||''}</td><td>${it.descr||''}</td><td>${it.qtd!=null?it.qtd:''}</td><td>${it.vlu||''}</td><td>${it.vlt||''}</td><td>${it.codvol||''}</td><td></td>`; bodyEl.appendChild(tr); } }catch(err){ bodyEl.innerHTML = '<tr><td colspan="9">Erro ao carregar.</td></tr>'; } }
+
+      // Enable/disable header action buttons depending on selection
+      const prodAddBtn = document.getElementById('prodAddBtn'); const prodEditBtn = document.getElementById('prodEditBtn'); const prodDeleteBtn = document.getElementById('prodDeleteBtn');
+      function updateHeaderActionButtons(){ const selected = document.querySelector('#prodClassBody tr.selected'); const activeRow = tbl.querySelector('tbody tr.row--active');
+        // Edit/Delete enabled only when a classified item (row) is selected
+        if(selected){ prodEditBtn.removeAttribute('disabled'); prodDeleteBtn.removeAttribute('disabled'); } else { prodEditBtn.setAttribute('disabled','disabled'); prodDeleteBtn.setAttribute('disabled','disabled'); }
+        // Add enabled only when a lote (active row in notasTable) is selected AND an origem (innatura) is selected in the modalOrigem select
+        const innSelected = document.getElementById('modalOrigem')?.value; if(activeRow && innSelected){ prodAddBtn.removeAttribute('disabled'); } else { prodAddBtn.setAttribute('disabled','disabled'); }
+      }
+
+      // When a classified row is clicked, mark it as selected (single select) and update header buttons
+      document.getElementById('prodClassBody')?.addEventListener('click', function(e){ const tr = e.target.closest('tr'); if(!tr) return; // clear previous
+        Array.from(document.querySelectorAll('#prodClassBody tr')).forEach(r=> r.classList.remove('selected')); tr.classList.add('selected'); updateHeaderActionButtons(); });
+
+      // Also update when notasTable selection changes
+      const notasObserver = new MutationObserver(()=>{ updateHeaderActionButtons(); }); notasObserver.observe(tbl.querySelector('tbody') || tbl, { attributes: true, childList: true, subtree: true });
+
+      // Wire header button handlers
+      prodEditBtn.addEventListener('click', function(){ const sel = document.querySelector('#prodClassBody tr.selected'); if(!sel){ alert('Selecione um item para editar.'); return; } const nunota = sel.children[0]?.textContent?.trim(); const seq = sel.children[1]?.textContent?.trim(); const cod = sel.children[2]?.textContent?.trim(); openItemModal({ nunota, sequencia: seq, codprod: cod }); });
+
+      prodDeleteBtn.addEventListener('click', function(){ const sel = document.querySelector('#prodClassBody tr.selected'); if(!sel){ alert('Selecione um item para excluir.'); return; } const nunota = sel.children[0]?.textContent?.trim(); const seq = sel.children[1]?.textContent?.trim(); confirmDeleteItem(nunota, seq); });
+
+      prodAddBtn.addEventListener('click', function(){ const activeRow = tbl.querySelector('tbody tr.row--active'); if(!activeRow){ alert('Selecione um lote (na lista de lotes) para adicionar classificação.'); return; } // open modal for new item; require origem selected
+        const controle = activeRow.dataset.nunota; // prefill product from selected innatura? we'll open modal blank but include nunota
+        openItemModal({ nunota: controle, sequencia: null, codprod: null }); });
+
+      // Call updateHeaderActionButtons initially
+      updateHeaderActionButtons();
+
+      // Item modal behavior
+      const itemModal = document.getElementById('modalItemEdit'); const itemTitle = document.getElementById('itemModalTitle'); const itemProdCod = document.getElementById('itemProdCod'); const itemVol = document.getElementById('itemVol'); const itemQtd = document.getElementById('itemQtd'); const itemVlr = document.getElementById('itemVlr'); const itemObs = document.getElementById('itemObs'); const itemDeleteBtn = document.getElementById('itemDeleteBtn'); const itemModalCancel = document.getElementById('itemModalCancel'); const itemModalSave = document.getElementById('itemModalSave');
+      let currentEditing = null; // { nunota, sequencia }
+
+      async function openItemModal(data){ // data: { nunota, sequencia, codprod }
+        currentEditing = { nunota: data.nunota, sequencia: data.sequencia };
+        itemTitle.textContent = data.sequencia ? 'Editar Item' : 'Novo Item';
+        // reset fields
+        itemProdCod.value = data.codprod || '';
+        itemProdHidden.value = '';
+        itemVolHidden.value = '';
+        itemVol.value = '';
+        itemQtd.value = '';
+        itemVlr.value = '';
+        itemObs.value = '';
+        // If editing (has sequence), try to fetch item deta. não mexa na página central apenas inclua esse modal para inserir os dados. quero as mesmas regras de validação que tem no KARD centralils from lote consult using the active lote control
+        if (data.nunota && data.sequencia){
+          try{
+            const activeRow = tbl.querySelector('tbody tr.row--active');
+            const controle = activeRow ? activeRow.dataset.nunota : null;
+            if(controle){
+              const resp = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' });
+              const j = await resp.json();
+              if(j && j.ok){
+
+                const rows = j.classificacoes || [];
+                for(const it of rows){
+                  if(String(it.nunota) === String(data.nunota) && String(it.sequencia) === String(data.sequencia)){
+                    // fill modal fields
+                    itemProdHidden.value = it.cod || '';
+                    itemProdCod.value = (it.cod ? it.cod + ' - ' : '') + (it.descr || '');
+                    itemQtd.value = (typeof it.qtd !== 'undefined' && it.qtd !== null) ? String(it.qtd) : '';
+                    itemVlr.value = (typeof it.vlu !== 'undefined' && it.vlu !== null) ? String(it.vlu) : '';
+                    itemObs.value = '';
+                    break;
+                  }
+                }
+              }
+            }
+          }catch(_){ /* ignore fetch errors and fall back to blank */ }
+        }
+        // If opening for ADD (no sequence) and there is a origem select, preselect first option
+        try{ const selOrig = document.getElementById('modalOrigem'); if(!data.sequencia && selOrig && selOrig.options && selOrig.options.length>0){ selOrig.selectedIndex = 0; } }catch(_){ }
+        itemModal.style.display = 'flex';
+      }
+
+      itemModalCancel.addEventListener('click', ()=>{ itemModal.style.display='none'; currentEditing = null; });
+
+  // Typeahead for item modal: product
+  (function(){ const prodInput = document.getElementById('itemProdCod'); const prodHidden = document.getElementById('itemProdHidden'); const prodSuggest = document.getElementById('itemProdSuggest'); let tprod = null; prodInput.addEventListener('input', function(){ const q = prodInput.value.trim(); if(tprod) clearTimeout(tprod); if(!q){ prodSuggest.style.display='none'; prodHidden.value=''; return; } tprod = setTimeout(()=>{ const inn = (window.PH_INNATURA_CODPROD||''); const url = '/sankhya/produtos/search/?q=' + encodeURIComponent(q) + '&limit=8' + (inn?('&cod_innatura='+encodeURIComponent(inn)):''); fetch(url,{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ const items = j.results||[]; prodSuggest.innerHTML = items.map(it=>`<div class="sugg-item" data-cod="${it.cod}" data-descr="${(it.descr||'').replace(/"/g,'&quot;')}">${it.cod} - ${it.descr}</div>`).join(''); prodSuggest.style.display = items.length ? 'block' : 'none'; Array.from(prodSuggest.querySelectorAll('.sugg-item')).forEach(el=> el.addEventListener('click', ()=>{ prodHidden.value = el.dataset.cod; prodInput.value = el.textContent || el.dataset.cod; prodSuggest.style.display='none'; try{ document.getElementById('itemVol').focus(); }catch(_){ } })); }).catch(()=>{ prodSuggest.style.display='none'; }); }, 200); });
+  })();
+
+  // Typeahead for item modal: vol
+  (function(){ const volInput = document.getElementById('itemVol'); const volHidden = document.getElementById('itemVolHidden'); const volSuggest = document.getElementById('itemVolSuggest'); let tvol = null; volInput.addEventListener('input', function(){ const q = volInput.value.trim(); if(tvol) clearTimeout(tvol); if(!q){ volSuggest.style.display='none'; volHidden.value=''; return; } tvol = setTimeout(()=>{ fetch('/sankhya/vol/search/?q=' + encodeURIComponent(q) + '&limit=8',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ const items = j.results||[]; volSuggest.innerHTML = items.map(it=>`<div class="sugg-vol" data-cod="${it.cod}" data-descr="${(it.descr||'').replace(/"/g,'&quot;')}">${it.cod} - ${it.descr}</div>`).join(''); volSuggest.style.display = items.length ? 'block' : 'none'; Array.from(volSuggest.querySelectorAll('.sugg-vol')).forEach(el=> el.addEventListener('click', ()=>{ volHidden.value = el.dataset.cod; volInput.value = el.textContent || el.dataset.cod; volSuggest.style.display='none'; try{ document.getElementById('itemQtd').focus(); }catch(_){ } })); }).catch(()=>{ volSuggest.style.display='none'; }); }, 150); });
+  })();
+
+  // Ensure Add button enabled only when selected lote has origem entries loaded
+  function refreshAddButtonState(){ const activeRow = tbl.querySelector('tbody tr.row--active'); const addBtn = document.getElementById('prodAddBtn'); const selOrig = document.getElementById('modalOrigem'); if(!addBtn) return; if(activeRow && selOrig && selOrig.options && selOrig.options.length>0 && selOrig.options[0].value !== ''){ addBtn.removeAttribute('disabled'); } else { addBtn.setAttribute('disabled','disabled'); } }
+  // call when origem select changes or when notas selection changes
+  document.getElementById('modalOrigem')?.addEventListener('change', refreshAddButtonState);
+  tbl.addEventListener('click', ()=> setTimeout(()=>{ refreshAddButtonState(); updateHeaderActionButtons(); }, 100));
+
+      async function confirmDeleteItem(nunota, sequencia){ if(!confirm(`Confirma excluir item ${sequencia} da nota ${nunota}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nunota,10), sequencias: [ parseInt(sequencia,10) ] }); if(res.ok){ alert('Item excluído'); const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha: ' + (res.body?.error || (res.body?.errors||[]).join('\n') || 'Erro')); } }
+
+      itemDeleteBtn.addEventListener('click', async function(){ if(!currentEditing || !currentEditing.nunota || !currentEditing.sequencia) return; if(!confirm('Confirmar exclusão do item?')) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(currentEditing.nunota,10), sequencias: [ parseInt(currentEditing.sequencia,10) ] }); if(res.ok){ alert('Item excluído'); itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Erro: ' + (res.body?.error || (res.body?.errors||[]).join('\n') || 'Falha')); } });
+
+      itemModalSave.addEventListener('click', async function(){ const nun = currentEditing?.nunota; const seq = currentEditing?.sequencia; if(!nun){ alert('Nota desconhecida'); return; }
+        // normalize numeric inputs (comma -> dot)
+        const rawQtd = String(itemQtd.value||'0').replace(',','.'); const rawVlr = String(itemVlr.value||'0').replace(',','.');
+        // codprod: prefer hidden value, else try to parse leading number from visible field
+        let codprod = null; const ph = (document.getElementById('itemProdHidden').value||'').trim(); if(ph) codprod = parseInt(ph,10); else { const txt = (document.getElementById('itemProdCod').value||'').trim(); const m = txt.match(/^(\d+)/); if(m) codprod = parseInt(m[1],10); }
+        const payload = { nunota: parseInt(nun,10), codprod: codprod || null, qtdneg: parseFloat(rawQtd || '0'), vlrunit: parseFloat(rawVlr || '0'), codvol: (document.getElementById('itemVolHidden').value || document.getElementById('itemVol').value || null), obs: itemObs.value || null };
+        if(seq) payload.sequencia = parseInt(seq,10);
+        // Run plan endpoint to validate and obtain SQL preview
+        const planResp = await postJSON('/sankhya/item/plan/', payload);
+        if(!planResp.ok){ const err = (planResp.body?.errors||[]).join('\n') || 'Erro no plano'; alert('Erro no plano: ' + err); return; }
+        const planData = planResp.body || planResp;
+        if(planData.errors && planData.errors.length){ alert('Erros no plano: ' + planData.errors.join('\n')); return; }
+        // Build SQL preview
+        let preview = '';
+        if(planData.sql){ preview += '-- SQL a ser executado\n' + (planData.sql || '') + '\n\n'; }
+        if(planData.binds){ preview += '-- Binds: ' + JSON.stringify(planData.binds || {}, null, 2) + '\n\n'; }
+        if(!preview) preview = '-- Nenhum SQL disponível para exibição.';
+        // Reuse global SQL preview modal
+        const sqlModal = document.getElementById('sqlPreviewModal'); const sqlContent = document.getElementById('sqlPreviewContent'); const sqlCancel = document.getElementById('sqlPreviewCancel'); const sqlConfirm = document.getElementById('sqlPreviewConfirm');
+        if(!sqlModal || !sqlContent){ // fallback to direct save
+          const ok = confirm('Aplicar alteração (sem preview)?'); if(!ok) return; const saveRes = await postJSON('/sankhya/item/save/', payload); if(saveRes.ok){ alert('Item salvo'); itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha ao salvar: ' + (saveRes.body?.errors||[]).join('\n') || 'Erro'); } return; }
+        sqlContent.textContent = preview; sqlModal.style.display = 'flex';
+        sqlCancel.onclick = function(){ sqlModal.style.display='none'; };
+        sqlConfirm.onclick = async function(){ sqlModal.style.display='none'; // perform actual save
+          const saveRes = await postJSON('/sankhya/item/save/', payload);
+          if(saveRes.ok){ alert('Item salvo'); itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha ao salvar: ' + (saveRes.body?.errors||[]).join('\n') || 'Erro'); }
+        };
+      });
+
+      // When selection changes, load classified products and enable classify button appropriately
+      function onSelectionChanged(){ const row = tbl.querySelector('tbody tr.row--active'); if(!row) return; updateClassifyBtn(); const controle = row.dataset.nunota; loadClassifiedFor(controle); }
+  // Bind selection change observer
+  tbl.addEventListener('click', onSelectionChanged);
+  tbl.addEventListener('keydown', ()=> setTimeout(onSelectionChanged, 50));
+  // If a row is already active on page load, load its classified products
+  try{ onSelectionChanged(); }catch(_){ }
+
+      // Classify modal logic
+      const modal = document.getElementById('modalClassify');
+      const modalControle = document.getElementById('modalControle');
+      const modalParceiro = document.getElementById('modalParceiro');
+      const modalInnTotal = document.getElementById('modalInnTotal');
+      const modalInnClassTotal = document.getElementById('modalInnClassTotal');
+      const modalSaidasBody = document.getElementById('modalSaidasBody');
+      (function(){
+        const btn = document.getElementById('btnClassify');
+        if (!btn) return;
+        btn.addEventListener('click', async function () {
+          const row = tbl.querySelector('tbody tr.row--active');
+          if (!row) return;
+          const controle = row.dataset.nunota;
+          modalControle.textContent = controle;
+          // populate partner and inn total by reading row
+          modalParceiro.value = row.cells[1]?.textContent || '';
+          modalInnTotal.value = row.cells[3]?.textContent || '';
+          modalInnClassTotal.value = '';
+          // clear messages
+          const msg = document.getElementById('modalMessages'); if (msg) msg.textContent = '';
+          // populate origin select by fetching entradas for controle
+          const selOrig = document.getElementById('modalOrigem');
+          if (selOrig) {
+            selOrig.innerHTML = '';
+            try {
+              const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' });
+              const j = await r.json();
+              if (j.ok) {
+                // Prefer already filtered 'classificaveis'; fallback to 'entradas'
+                let entries = [];
+                if (Array.isArray(j.classificaveis) && j.classificaveis.length) {
+                  entries = j.classificaveis.map(e => ({ nunota: e.nunota, sequencia: e.sequencia, cod: e.cod, descr: e.descr, qtd: e.qtd }));
+                } else if (Array.isArray(j.entradas) && j.entradas.length) {
+                  entries = j.entradas.map(e => ({ nunota: e.nunota, sequencia: e.sequencia, cod: e.codprod, descr: e.descr, qtd: e.qtd }));
+                }
+                if (entries.length) {
+                  let defaultIndex = 0;
+                  const prodInNatura = j.prod_in_natura || null;
+                  entries.forEach(function (e, idx) {
+                    const opt = document.createElement('option');
+                    opt.value = JSON.stringify({ nunota: e.nunota, sequencia: e.sequencia });
+                    opt.text = `${e.nunota} / ${e.sequencia} - ${e.cod || ''} ${e.descr || ''} (${e.qtd || 0})`;
+                    opt.dataset.qtd = (e.qtd || 0);
+                    opt.dataset.cod = (e.cod != null ? String(e.cod) : '');
+                    selOrig.appendChild(opt);
+                    if (prodInNatura && e.cod != null && String(e.cod) === String(prodInNatura)) { defaultIndex = idx; }
+                  });
+                  // default to the In Natura entry if present; else first
+                  selOrig.selectedIndex = defaultIndex;
+                  const chosen = entries[defaultIndex];
+                  modalInnTotal.value = String((chosen && chosen.qtd) || 0);
+                  try { window.PH_INNATURA_CODPROD = chosen && chosen.cod ? chosen.cod : (window.PH_INNATURA_CODPROD||null); } catch(_){ }
+                  // update modalInnTotal when user selects a different origem
+                  selOrig.addEventListener('change', function () {
+                    const opt = selOrig.selectedOptions && selOrig.selectedOptions[0];
+                    modalInnTotal.value = (opt && opt.dataset && opt.dataset.qtd) ? opt.dataset.qtd : '';
+                    try { const cod = opt && opt.dataset ? (opt.dataset.cod || '') : ''; window.PH_INNATURA_CODPROD = cod ? parseInt(cod,10) : (window.PH_INNATURA_CODPROD||null); } catch(_){ }
+                    updateSaldo();
+                  });
+                } else {
+                  const opt = document.createElement('option'); opt.value = ''; opt.text = 'Origem não disponível'; selOrig.appendChild(opt);
+                }
+              } else {
+                const opt = document.createElement('option'); opt.value = ''; opt.text = 'Origem não disponível'; selOrig.appendChild(opt);
+              }
+            } catch (err) {
+              selOrig.innerHTML = '';
+              const opt = document.createElement('option'); opt.value = ''; opt.text = 'Erro ao carregar origem'; selOrig.appendChild(opt);
+            }
+          }
+          modal.style.display = 'flex';
+        });
+      })();
+      document.getElementById('modalCancel')?.addEventListener('click', ()=>{ modal.style.display='none'; });
+      // Modal helpers: add/remove rows, typeahead and collect
+      function makeRow(){ const tr = document.createElement('tr'); tr.innerHTML = `
+        <td style="position:relative;">
+          <input type="hidden" class="ma-prod-hidden" />
+          <input class="ma-prod-vis" placeholder="cod ou desc" autocomplete="off" style="width:220px;" />
+          <div class="ma-prod-suggest" style="position:absolute; left:0; right:0; background:#fff; border:1px solid #e5e7eb; display:none; max-height:160px; overflow:auto; z-index:60; font-size:13px;"></div>
+        </td>
+        <td>
+          <input type="hidden" class="ma-vol-hidden" />
+          <input class="ma-vol-vis" value="KG" style="width:90px;" placeholder="CODVOL" autocomplete="off" />
+          <div class="ma-vol-suggest" style="position:absolute; left:0; right:0; background:#fff; border:1px solid #e5e7eb; display:none; max-height:160px; overflow:auto; z-index:60; font-size:13px;"></div>
+        </td>
+        <td><input class="ma-qtd" type="number" step="0.001" /></td>
+        <td><input class="ma-obs" /></td>
+        <td>
+          <button type="button" class="ma-add">+</button>
+          <button type="button" class="ma-remove" style="margin-left:6px;">-</button>
+        </td>`;
+        attachRowHandlers(tr);
+        return tr;
+      }
+      function attachRowHandlers(tr){
+        const add = tr.querySelector('.ma-add');
+        const rem = tr.querySelector('.ma-remove');
+        const prodVis = tr.querySelector('.ma-prod-vis');
+        const prodHidden = tr.querySelector('.ma-prod-hidden');
+        const prodSuggest = tr.querySelector('.ma-prod-suggest');
+        const volVis = tr.querySelector('.ma-vol-vis');
+        const volHidden = tr.querySelector('.ma-vol-hidden');
+        const volSuggest = tr.querySelector('.ma-vol-suggest');
+        add?.addEventListener('click', ()=>{ const nr = makeRow(); modalSaidasBody.appendChild(nr); updateRemoveButtons(); });
+        rem?.addEventListener('click', ()=>{ tr.remove(); updateRemoveButtons(); });
+
+  // product typeahead shows code + name, stores code in hidden
+        let timerP = null;
+  function handleProdInput(){ const q = prodVis.value.trim(); if(timerP) clearTimeout(timerP); if(!q){ prodSuggest.style.display='none'; prodSuggest.innerHTML=''; prodHidden.value = ''; updateSaldo(); return; } timerP = setTimeout(()=>{ const inn = (window.PH_INNATURA_CODPROD||''); const url = '/sankhya/produtos/search/?q=' + encodeURIComponent(q) + '&limit=8' + (inn?('&cod_innatura='+encodeURIComponent(inn)):''); fetch(url,{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ const items = j.results||[]; prodSuggest.innerHTML = items.map(it=>`<div class="ma-sugg-item" data-cod="${it.cod}" data-descr="${(it.descr||'').replace(/"/g,'&quot;')}" style="padding:6px; cursor:pointer;">${it.cod} - ${it.descr}</div>`).join(''); prodSuggest.style.display = items.length ? 'block' : 'none'; // attach click handlers
+      Array.from(prodSuggest.querySelectorAll('.ma-sugg-item')).forEach(el=> el.addEventListener('click', ()=>{ prodHidden.value = el.dataset.cod; prodVis.value = el.textContent || el.dataset.cod; prodSuggest.style.display='none'; try{ volVis.focus(); }catch(_){ } updateSaldo(); }));
+      // keyboard navigation: highlight support
+      let sel = -1; const nodes = Array.from(prodSuggest.querySelectorAll('.ma-sugg-item'));
+      function highlight(){ nodes.forEach((n, i)=> n.style.background = (i===sel) ? '#eef2ff' : ''); }
+      prodVis.onkeydown = function(ev){ if(!nodes.length) return; if(ev.key === 'ArrowDown'){ ev.preventDefault(); sel = Math.min(sel+1, nodes.length-1); highlight(); } else if(ev.key === 'ArrowUp'){ ev.preventDefault(); sel = Math.max(sel-1, 0); highlight(); } else if(ev.key === 'Enter' || ev.key === 'Tab'){ if(sel >= 0){ ev.preventDefault(); const el = nodes[sel]; prodHidden.value = el.dataset.cod; prodVis.value = el.textContent || el.dataset.cod; prodSuggest.style.display='none'; try{ volVis.focus(); }catch(_){ } updateSaldo(); } }
+      };
+    }).catch(()=>{ prodSuggest.style.display='none'; }); }, 250); }
+        prodVis.addEventListener('input', handleProdInput);
+
+  // vol typeahead: search CODVOL (endpoint /sankhya/vol/search/ exists)
+        let timerV = null;
+  function handleVolInput(){ const q = volVis.value.trim(); if(timerV) clearTimeout(timerV); if(!q){ volSuggest.style.display='none'; volSuggest.innerHTML=''; volHidden.value = ''; return; } timerV = setTimeout(()=>{ fetch('/sankhya/vol/search/?q=' + encodeURIComponent(q) + '&limit=8',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ const items = j.results||[]; volSuggest.innerHTML = items.map(it=>`<div class="ma-vol-item" data-cod="${it.cod}" data-descr="${(it.descr||'').replace(/"/g,'&quot;')}" style="padding:6px; cursor:pointer;">${it.cod} - ${it.descr}</div>`).join(''); volSuggest.style.display = items.length ? 'block' : 'none'; Array.from(volSuggest.querySelectorAll('.ma-vol-item')).forEach(el=> el.addEventListener('click', ()=>{ volHidden.value = el.dataset.cod; volVis.value = el.textContent || el.dataset.cod; volSuggest.style.display='none'; try{ const next = tr.querySelector('.ma-qtd'); if(next) next.focus(); }catch(_){ } }));
+      // keyboard navigation for vol
+      let vsel = -1; const vnodes = Array.from(volSuggest.querySelectorAll('.ma-vol-item'));
+      function vhighlight(){ vnodes.forEach((n, i)=> n.style.background = (i===vsel) ? '#eef2ff' : ''); }
+      volVis.onkeydown = function(ev){ if(!vnodes.length) return; if(ev.key === 'ArrowDown'){ ev.preventDefault(); vsel = Math.min(vsel+1, vnodes.length-1); vhighlight(); } else if(ev.key === 'ArrowUp'){ ev.preventDefault(); vsel = Math.max(vsel-1, 0); vhighlight(); } else if(ev.key === 'Enter' || ev.key === 'Tab'){ if(vsel >= 0){ ev.preventDefault(); const el = vnodes[vsel]; volHidden.value = el.dataset.cod; volVis.value = el.textContent || el.dataset.cod; volSuggest.style.display='none'; try{ const next = tr.querySelector('.ma-qtd'); if(next) next.focus(); }catch(_){ } } }
+      };
+    }).catch(()=>{ volSuggest.style.display='none'; }); }, 150); }
+        volVis.addEventListener('input', handleVolInput);
+      }
+      function updateRemoveButtons(){ const rows = Array.from(modalSaidasBody.querySelectorAll('tr')); rows.forEach((r, idx)=>{ const rem = r.querySelector('.ma-remove'); if(!rem) return; rem.style.display = rows.length>1 ? '' : 'none'; }); }
+  // attach handlers to initial row(s)
+  Array.from(modalSaidasBody.querySelectorAll('tr')).forEach(r=> attachRowHandlers(r)); updateRemoveButtons();
+
+  function updateSaldo(){ try{ const inn = parseFloat((modalInnTotal.value||'0').toString().replace(',','.')) || 0; const out = sumaSaidas() || 0; const saldo = inn - out; const el = document.getElementById('modalSaldo'); if(!el) return; el.style.color = saldo < -1e-9 ? '#b91c1c' : '#059669'; el.textContent = `Saldo: ${saldo.toFixed(3)} (Origem ${inn.toFixed(3)} - Saídas ${out.toFixed(3)})`; }catch(_){ } }
+  // update saldo when quantities change or rows added/removed
+  modalSaidasBody.addEventListener('input', ()=> updateSaldo());
+  modalSaidasBody.addEventListener('click', ()=> setTimeout(()=>updateSaldo(),50));
+  // initial saldo update
+  updateSaldo();
+
+      function collectSaidas(){ const rows = Array.from(modalSaidasBody.querySelectorAll('tr')); const out = []; for(const r of rows){ const prodVis = r.querySelector('.ma-prod-vis'); const prodHidden = r.querySelector('.ma-prod-hidden'); const volVis = r.querySelector('.ma-vol-vis'); const volHidden = r.querySelector('.ma-vol-hidden'); const qtd = r.querySelector('.ma-qtd'); const obs = r.querySelector('.ma-obs'); if(!qtd) continue; // require qty
+        const codFromHidden = (prodHidden && prodHidden.value) ? prodHidden.value.trim() : null;
+        const codFromVis = prodVis ? (prodVis.value||'').trim() : '';
+        const cod = parseInt(codFromHidden || codFromVis) || null;
+        const codvol = (volHidden && volHidden.value) ? volHidden.value.trim() : (volVis ? (volVis.value||'').trim() : null);
+        if(!cod) continue; out.push({ codprod: cod, codvol: (codvol||null), qtd: parseFloat(qtd.value||0), obs: obs.value||'' }); } return out; }
+      function sumaSaidas(){ const saidas = collectSaidas(); return saidas.reduce((s,it)=> s + (isNaN(it.qtd) ? 0 : it.qtd), 0); }
+      async function doPlan(origenNunota, origemSeq, saidas, nunota_dest){ const res = await postJSON('/sankhya/class/plan/', { nunota_origem: origenNunota, sequencia_origem: origemSeq, saidas, nunota_dest }); return res; }
+        async function doExecute(origenNunota, origenSeq, saidas, nunota_dest, force){ const body = { nunota_origem: origenNunota, sequencia_origem: origenSeq, saidas, nunota_dest }; if(force) body.force = true; const res = await postJSON('/sankhya/class/execute/', body); return res; }
+      (function(){
+        const b = document.getElementById('modalPlan');
+        if(!b) return;
+        b.addEventListener('click', async function (){
+          const row = tbl.querySelector('tbody tr.row--active');
+          const messages = document.getElementById('modalMessages');
+          if(messages) messages.textContent='';
+          if(!row){ if(messages) messages.textContent='Selecione um lote.'; return; }
+          const controle = row.dataset.nunota;
+          // read origin from select
+          const selOrig = document.getElementById('modalOrigem');
+          const origemVal = selOrig && selOrig.value ? JSON.parse(selOrig.value) : null;
+          const nunota = origemVal ? origemVal.nunota : null;
+          const seq = origemVal ? origemVal.sequencia : null;
+          const saidas = collectSaidas();
+          if(!nunota || !seq){ if(messages) messages.textContent='Origem inválida. Escolha uma origem (NUNOTA/SEQUENCIA).'; return; }
+          const soma = sumaSaidas();
+          const innTotal = parseFloat((modalInnTotal.value||'0').replace(',','.')) || 0;
+          // client-side blocking removed; backend will return warnings if outputs exceed origin
+            const res = await doPlan(parseInt(nunota,10), parseInt(seq,10), saidas, null);
+            if(res && res.body){ if(typeof res.body.write_enabled !== 'undefined'){ const ws = document.getElementById('modalWriteStatus'); if(ws) ws.textContent = 'Gravação: ' + (res.body.write_enabled ? 'habilitada' : 'desabilitada'); } }
+            if(!res.ok){ const err = (res.body?.errors||[]).join('\n') || 'Erro no plano'; if(messages) messages.textContent = 'Erros: ' + err; }
+            else { const warns = (res.body?.warnings||[]).join('\n'); if(messages) messages.textContent = 'Plano válido.' + (warns ? (' Avisos: ' + warns) : ''); }
+        });
+      })();
+      (function(){
+        const b = document.getElementById('modalExecute');
+        const sqlModal = document.getElementById('sqlPreviewModal');
+        const sqlContent = document.getElementById('sqlPreviewContent');
+        const sqlCancel = document.getElementById('sqlPreviewCancel');
+        const sqlConfirm = document.getElementById('sqlPreviewConfirm');
+        if(!b || !sqlModal) return;
+        async function fetchPlan(nunota, seq, saidas){ const r = await postJSON('/sankhya/class/plan/', { nunota_origem: nunota, sequencia_origem: seq, saidas }); return r.body || {}; }
+        b.addEventListener('click', async function (){
+          const row = tbl.querySelector('tbody tr.row--active');
+          const messages = document.getElementById('modalMessages'); if(messages) { messages.textContent=''; messages.style.color = '#b91c1c'; }
+          if(!row){ if(messages) messages.textContent='Selecione um lote.'; return; }
+          const selOrig = document.getElementById('modalOrigem');
+          const origemVal = selOrig && selOrig.value ? JSON.parse(selOrig.value) : null;
+          const nunota = origemVal ? origemVal.nunota : null;
+          const seq = origemVal ? origemVal.sequencia : null;
+          if(!nunota || !seq){ if(messages) messages.textContent='Origem inválida. Escolha uma origem.'; return; }
+          const saidas = collectSaidas();
+          // Request plan (fresh) to obtain SQL preview
+          const planResp = await fetchPlan(parseInt(nunota,10), parseInt(seq,10), saidas);
+          if(planResp && typeof planResp.write_enabled !== 'undefined'){ const ws = document.getElementById('modalWriteStatus'); if(ws) ws.textContent = 'Gravação: ' + (planResp.write_enabled ? 'habilitada' : 'desabilitada'); }
+          if(!planResp){ if(messages) messages.textContent='Falha ao obter plano.'; return; }
+          if(planResp.errors && planResp.errors.length){ if(messages) messages.textContent = 'Erros no plano: ' + planResp.errors.join('\n'); return; }
+          // Build SQL preview text
+          let preview = '';
+          if(planResp.plano && planResp.plano.cabecalho_sql){
+            preview += '-- Inserção de cabeçalho (TGFCAB)\n';
+            preview += (planResp.plano.cabecalho_sql || '') + '\n';
+            preview += '-- Binds: ' + JSON.stringify(planResp.plano.cabecalho_binds || {}, null, 2) + '\n\n';
+          }
+          if(planResp.plano && Array.isArray(planResp.plano.itens) && planResp.plano.itens.length){
+            preview += '-- Itens (TGFITE)\n';
+            planResp.plano.itens.forEach((it, idx)=>{
+              preview += (it.sql || '') + '\n';
+              preview += '-- Binds: ' + JSON.stringify(it.binds || it.binds || {}, null, 2) + '\n\n';
+            });
+          }
+          if(!preview) preview = '-- Nenhum SQL disponível para exibição.';
+          sqlContent.textContent = preview;
+          sqlModal.style.display = 'flex';
+          // wire cancel/confirm handlers
+          sqlCancel.onclick = function(){ sqlModal.style.display='none'; };
+            sqlConfirm.onclick = async function(){
+            sqlModal.style.display='none';
+            // perform execute (respectando checkbox de força)
+            const forceChecked = !!document.getElementById('sqlForceCheck')?.checked;
+            const res = await doExecute(parseInt(nunota,10), parseInt(seq,10), saidas, null, forceChecked);
+            if(res && typeof res.write_enabled !== 'undefined'){ const ws = document.getElementById('modalWriteStatus'); if(ws) ws.textContent = 'Gravação: ' + (res.write_enabled ? 'habilitada' : 'desabilitada'); }
+            if(!res.ok){ const err = (res.errors||[]).join('\n') || (res.body?.errors||[]).join('\n') || 'Erro na execução'; if(messages) messages.textContent = 'Falha: ' + err; }
+            else { if(messages) messages.style.color='green'; if(messages) messages.textContent = 'Salvo com sucesso. NUNOTA destino: ' + (res.nunota_dest||res.body?.nunota_dest||'--'); setTimeout(()=>{ modal.style.display='none'; try{ window.location.reload(); }catch(_){ } }, 800); }
+          };
+        });
+      })();
+      const btnPrint = document.getElementById('btnPrint'); if(btnPrint){ btnPrint.addEventListener('click', ()=>window.print()); }
+      const clearBtn = document.getElementById('btnClear'); const form = document.getElementById('filtersForm'); if(clearBtn && form){ clearBtn.addEventListener('click', (e)=>{ e.preventDefault(); const inputs = form.querySelectorAll('input'); inputs.forEach((inp)=>{ if(inp.type === 'hidden' || inp.type === 'text' || inp.type === 'number' || inp.type === 'date'){ inp.value = ''; } }); const parcHidden = document.getElementById('codparc'); if(parcHidden) parcHidden.value = ''; const parcVisible = document.getElementById('parcSearch'); if(parcVisible) parcVisible.value = ''; }); }
+      if(form){ form.addEventListener('submit', ()=>{ let pg = form.querySelector('input[name="page"]'); if(!pg){ pg = document.createElement('input'); pg.type='hidden'; pg.name='page'; form.appendChild(pg); } pg.value='1'; }); }
+      function goToPage(targetPage){ try{ const url = new URL(window.location.href); url.searchParams.set('page', String(targetPage)); window.location.href = url.pathname + '?' + url.searchParams.toString(); }catch(err){ const qs = window.location.search ? window.location.search + '&' : '?'; window.location.href = window.location.pathname + qs + 'page=' + encodeURIComponent(targetPage); } }
+      const btnPrev = document.getElementById('btnPrev'); if(btnPrev && !btnPrev.disabled){ btnPrev.addEventListener('click', ()=>goToPage(btnPrev.dataset.page)); }
+      const btnNext = document.getElementById('btnNext'); if(btnNext && !btnNext.disabled){ btnNext.addEventListener('click', ()=>goToPage(btnNext.dataset.page)); }
+    })();
+    // --- Portal-like orchestration for Cabeçalho -> Itens -> Rodapé flow ---
+    (function(){
+      // re-use helper functions defined above: postJSON, getCookie exist in this scope
+      function getViewportTopOffset(){ return 64; }
+      function animateHeaderToLeft(){ const cab = document.getElementById('cabCard'); if(!cab) return; cab.style.left = '16px'; cab.style.opacity = '1'; }
+      function showCabModal(){
+        // Prefill summary fields from the currently selected lote row (if any)
+        try{
+          const active = document.querySelector('#notasTable tbody tr.row--active');
+          if(active){
+            const lote = active.cells[0]?.textContent?.trim() || active.dataset.nunota || '';
+            const parceiroNome = active.cells[1]?.textContent?.trim() || '';
+            const parceiroCod = active.dataset.codparc || '';
+            const prodCell = active.cells[2]?.textContent?.trim() || '';
+            const loteText = document.getElementById('cab_lote_text'); if(loteText) loteText.textContent = lote || '—';
+            // Show "cod — nome" if we have both; else fallback to name only
+            const parcVis = (parceiroCod ? (parceiroCod + ' — ' + parceiroNome) : parceiroNome);
+            const parcText = document.getElementById('cab_parc_text'); if(parcText) parcText.textContent = parcVis || '—';
+            const codParcH = document.getElementById('cab_codparc'); if(codParcH) codParcH.value = parceiroCod || '';
+            // Prefill Natureza and Cencus (disabled) with defaults and fetch descriptions
+            try {
+              const natCode = document.getElementById('cab_nat_cod').value || '20010100';
+              fetch('/sankhya/natureza/search/?q=' + encodeURIComponent(natCode) + '&limit=1', { credentials: 'same-origin' })
+                .then(r=>r.json()).then(j=>{
+                  const it = (j && j.results && j.results[0]) ? j.results[0] : null;
+                  const descr = it ? it.descr : '';
+                  const natText = document.getElementById('cab_nat_text'); if(natText) natText.textContent = natCode + (descr ? (' — ' + descr) : '');
+                }).catch(()=>{ const natText = document.getElementById('cab_nat_text'); if(natText) natText.textContent = natCode; });
+            } catch(_) {}
+            try {
+              const cencusCode = document.getElementById('cab_cencus_cod').value || '10100';
+              fetch('/sankhya/cencus/search/?q=' + encodeURIComponent(cencusCode) + '&limit=1', { credentials: 'same-origin' })
+                .then(r=>r.json()).then(j=>{
+                  const it = (j && j.results && j.results[0]) ? j.results[0] : null;
+                  const descr = it ? it.descr : '';
+                  const ccText = document.getElementById('cab_cencus_text'); if(ccText) ccText.textContent = cencusCode + (descr ? (' — ' + descr) : '');
+                }).catch(()=>{ const ccText = document.getElementById('cab_cencus_text'); if(ccText) ccText.textContent = cencusCode; });
+            } catch(_) {}
+            // try to extract a product code from the produtos column (first number found)
+            const m = prodCell.match(/(\d+)/);
+            const prodText = document.getElementById('cab_prod_text'); if(prodText) prodText.textContent = prodCell || '—';
+            if(m){ const prodCodH = document.getElementById('cab_prod_cod'); if(prodCodH) prodCodH.value = m[1]; }
+
+            // Data Classificação: hoje (visual)
+            try { const d = new Date(); const iso = d.toISOString().slice(0,10); const dtText = document.getElementById('cab_dtneg_text'); if(dtText) dtText.textContent = iso; } catch(_) {}
+
+            // TOP text (fixed)
+            try { const topText = document.getElementById('cab_top_text'); if(topText) topText.textContent = '26 — Classificação'; } catch(_) {}
+
+            // Populate details from lote consult (In Natura, Classificados, NUNOTA badge)
+            try {
+              const controle = active?.dataset?.nunota || lote;
+              fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' })
+                .then(r=>r.json())
+                .then(j=>{
+                  try { window.PH_INNATURA_CODPROD = j.prod_in_natura || null; } catch(_) {}
+                  // In Natura total
+                  let qInn = 0;
+                  if(j && j.ok && Array.isArray(j.entradas)){
+                    if(j.prod_in_natura){
+                      const match = j.entradas.find(e=> String(e.codprod||'') === String(j.prod_in_natura));
+                      qInn = match ? (parseFloat(match.qtd||0)||0) : 0;
+                    } else {
+                      qInn = j.entradas.reduce((s,e)=> s + (parseFloat(e.qtd||0)||0), 0);
+                    }
+                  }
+                  // Qtd InNatura (exibe na métrica principal, 1 casa decimal)
+                  const qpEl = document.getElementById('cab_qtd_pedido_text'); if(qpEl) qpEl.textContent = (qInn||0).toFixed(1);
+
+                  // Classificados count
+                  const classCount = Array.isArray(j.classificacoes) ? j.classificacoes.length : 0;
+                  const ccEl = document.getElementById('cab_class_count_text'); if(ccEl) ccEl.textContent = Number(classCount||0).toFixed(1);
+
+                  // Nunota TOP 26 badge
+                  const nunBadge = document.getElementById('cab_nunota_class_badge');
+                  if(nunBadge){
+                    if(j.nunota_class){ nunBadge.textContent = 'NUNOTA ' + j.nunota_class; nunBadge.style.display = 'inline-block'; }
+                    else { nunBadge.style.display = 'none'; }
+                  }
+                })
+                .catch(()=>{
+                  const qpEl = document.getElementById('cab_qtd_pedido_text'); if(qpEl) qpEl.textContent = '—';
+                  const ccEl = document.getElementById('cab_class_count_text'); if(ccEl) ccEl.textContent = '—';
+                  const nunBadge = document.getElementById('cab_nunota_class_badge'); if(nunBadge) nunBadge.style.display = 'none';
+                });
+            } catch(_) {}
+          } else {
+            const loteText = document.getElementById('cab_lote_text'); if(loteText) loteText.textContent = '—';
+            const parcText = document.getElementById('cab_parc_text'); if(parcText) parcText.textContent = '—';
+            const prodText = document.getElementById('cab_prod_text'); if(prodText) prodText.textContent = '—';
+            const prodCodH = document.getElementById('cab_prod_cod'); if(prodCodH) prodCodH.value = '';
+            const qpEl = document.getElementById('cab_qtd_pedido_text'); if(qpEl) qpEl.textContent = '—';
+            const dtText = document.getElementById('cab_dtneg_text'); if(dtText) dtText.textContent = '—';
+            const natText = document.getElementById('cab_nat_text'); if(natText) natText.textContent = '—';
+            const ccText = document.getElementById('cab_cencus_text'); if(ccText) ccText.textContent = '—';
+          }
+        }catch(_){ }
+  try{ const cabOv = document.getElementById('cabModal'); const itemsOv = document.getElementById('cabItemsModal'); if(cabOv) cabOv.style.display = 'block'; if(itemsOv) itemsOv.style.display = 'none'; }catch(_){ }
+        const cab = document.getElementById('cabCard'); if(cab){ cab.style.top = getViewportTopOffset() + 'px'; cab.style.left = '16px'; cab.style.opacity = '1'; }
+      }
+      const cabClose = document.getElementById('cabClose'); const cabCancel = document.getElementById('cabCancel'); const cabSave = document.getElementById('cabSave'); let cabEditingNunota = null;
+  // Enable/disable fields inside header card (keep Close/Cancel active). Preserve original disabled state.
+  function setHeaderDisabled(disabled){
+    try{
+      const card = document.getElementById('cabCard');
+      if(!card) return;
+      const ctrls = card.querySelectorAll('input, textarea, select, button');
+      ctrls.forEach(el=>{
+        const id = el.id || '';
+        const isClose = (id === 'cabClose' || id === 'cabCancel');
+        const was = el.hasAttribute('disabled');
+        if(disabled){
+          el.dataset.wasDisabled = was ? '1' : '';
+          if(!isClose){ el.setAttribute('disabled','disabled'); }
+        } else {
+          if(el.dataset.wasDisabled === '1'){
+            // keep disabled
+          } else if(!isClose){
+            el.removeAttribute('disabled');
+          }
+          delete el.dataset.wasDisabled;
+        }
+      });
+      // Keep full opacity; do not dim the header card when disabled
+      card.style.opacity = '1';
+    }catch(e){ console.warn('setHeaderDisabled', e); }
+  }
+      function hideCabModal(){ const cab = document.getElementById('cabCard'); if(cab){ cab.style.left = '-1200px'; } setTimeout(()=>{ try{ const itemsCard = document.getElementById('cabItemsCard'); const rod = document.getElementById('rodapeCard'); const anyOpen = (itemsCard && itemsCard.style.left && itemsCard.style.left !== '100%') || (rod && rod.style.left && rod.style.left !== '100%'); if(!anyOpen) document.getElementById('cabModal').style.display = 'none'; }catch(_){ try{ document.getElementById('cabModal').style.display='none'; }catch(_){ } } }, 320); }
+      document.getElementById('btnNew')?.addEventListener('click', (e)=>{ e.preventDefault(); cabEditingNunota = null; showCabModal(); });
+      cabClose?.addEventListener('click', hideCabModal); cabCancel?.addEventListener('click', hideCabModal);
+
+  function _setOverlayVisible(visible){ try{ const ov = document.getElementById('cabModal'); const itemsOv = document.getElementById('cabItemsModal'); if(ov) ov.style.display = visible ? 'block' : 'none'; if(itemsOv) itemsOv.style.display = visible ? 'block' : 'none'; }catch(e){ } }
+
+      // Items modal orchestration
+      function showItemsModal(nunota){
+        const itemsWrap = document.getElementById('cabItemsModal');
+        const itemsCard = document.getElementById('cabItemsCard');
+        const itemsNunota = document.getElementById('items_nunota');
+        const cab = document.getElementById('cabCard');
+        if(!itemsWrap||!itemsCard||!itemsNunota||!cab) return;
+        const resolved = (nunota!=null? (parseInt(nunota,10)||null) : null) || parseInt(itemsNunota.value||'',10) || null;
+  try{ const cabOv = document.getElementById('cabModal'); const itemsOv = document.getElementById('cabItemsModal'); if(cabOv) cabOv.style.display = 'block'; if(itemsOv) itemsOv.style.display = 'block'; }catch(_){ }
+        itemsWrap.style.display = 'block';
+        animateHeaderToLeft();
+        const cabRect = cab.getBoundingClientRect();
+        const leftForItems = Math.max(16 + cabRect.width + 8, cabRect.right + 8) + 'px';
+        requestAnimationFrame(()=>{ itemsCard.style.left = leftForItems; });
+        // Prepare UI instantly; load items if nunota is known, otherwise show placeholder and disable add
+        const listBody = document.getElementById('itemsListBody');
+        const addBtn = document.getElementById('itemAddBtn');
+        if(resolved){
+          itemsNunota.value = resolved;
+          if(addBtn){ addBtn.removeAttribute('disabled'); addBtn.setAttribute('title', 'Adicionar'); }
+          try{ if(typeof loadItems === 'function') loadItems(resolved); }catch(e){ }
+        } else {
+          itemsNunota.value = '';
+          if(listBody) listBody.innerHTML = '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Preparando...</td></tr>';
+          if(addBtn){ addBtn.setAttribute('disabled','disabled'); addBtn.setAttribute('title','Adicionar (salve o Cabeçalho para habilitar)'); }
+        }
+        // Disable header while items modal is open
+        setHeaderDisabled(true);
+      }
+      function hideItemsModal(){ try{ if(window.itemsListController){ try{ window.itemsListController.abort(); }catch(_){ } window.itemsListController = null; } }catch(_){ }
+  const itemsWrap = document.getElementById('cabItemsModal'); const itemsCard = document.getElementById('cabItemsCard'); if(!itemsWrap||!itemsCard) return; itemsCard.style.left = '100%'; setTimeout(()=>{ try{ if(window.itemsListController){ try{ window.itemsListController.abort(); }catch(_){ } window.itemsListController = null; } itemsWrap.style.display='none'; const cabCard = document.getElementById('cabCard'); const cabOv = document.getElementById('cabModal'); if(cabOv){ const anyOpen = (cabCard && cabCard.style.left && cabCard.style.left !== '-1200px'); if(!anyOpen) cabOv.style.display = 'none'; } }catch(_){ } }, 320);
+        // Re-enable header when items closes (unless rodapé remains open)
+  try{ setHeaderDisabled(false); }catch(_){ setHeaderDisabled(false); }
+      }
+  document.getElementById('cabItemsClose')?.addEventListener('click', ()=>{ try{ hideItemsModal(); }catch(_){ } try{ hideCabModal(); }catch(_){ } });
+  document.getElementById('itemsCancel')?.addEventListener('click', ()=>{ try{ hideItemsModal(); }catch(_){ } try{ hideCabModal(); }catch(_){ } });
+
+      // Rodape modal
+  // Rodapé removido nesta página; sem ações necessárias
+
+      // Items helpers: addItemRowToList and loadItems (mirrors portal functions)
+      const itemsListBody = document.getElementById('itemsListBody');
+  function clearItemsList(){ if(!itemsListBody) return; itemsListBody.innerHTML = '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr>'; }
+      function addItemRowToList(it){ if(!itemsListBody) return; if(itemsListBody.querySelector('td')){ const first = itemsListBody.querySelector('td').parentElement; if(first && first.childElementCount === 1 && first.children[0].getAttribute('colspan')) itemsListBody.innerHTML = ''; }
+        const tr = document.createElement('tr'); tr.innerHTML = `\n          <td style="padding:8px">${it.lote||''}</td>\n          <td>${it.cod||''} ${it.descr||''}</td>\n          <td>${it.codvol||''}</td>\n          <td style="text-align:right">${it.qtd!=null?String(it.qtd):''}</td>\n          <td style="text-align:right">${it.peso!=null?String(it.peso):''}</td>\n          <td style="text-align:right">${it.total!=null?String(it.total):''}</td>\n          <td><button class="icon-btn danger icon-btn--plain item-del" data-seq="${it.sequencia||''}" aria-label="Excluir">\n            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">\n              <polyline points="3 6 5 6 21 6"></polyline>\n              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>\n              <path d="M10 11v6"></path>\n              <path d="M14 11v6"></path>\n              <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>\n            </svg>\n          </button></td>\n        `; itemsListBody.appendChild(tr);
+        tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nun,10), sequencias: [ parseInt(seq,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(typeof loadItems === 'function') loadItems(nun); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
+      }
+      let itemsListController = null;
+      async function loadItems(nunota){ try{ if(itemsListController){ try{ itemsListController.abort(); }catch(_){ } itemsListController = null; } }catch(_){ }
+        const resolved = nunota!=null ? (parseInt(nunota,10)||null) : (parseInt(document.getElementById('items_nunota')?.value||'',10)||null); if(!resolved){ console.error('loadItems: nunota inválido', nunota); return; } document.getElementById('items_nunota').value = resolved; clearItemsList(); try{ itemsListController = new AbortController(); const opts = { credentials: 'same-origin', signal: itemsListController.signal }; const url = '/sankhya/item/list/?nunota=' + encodeURIComponent(resolved); const r = await fetch(url, opts); itemsListController = null; let j = {}; try{ j = await r.json(); }catch(_){ j = {}; } if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="7">Erro: ${j.error||'falha'}</td></tr>`; return; } const rows = j.items || j.results || []; if(!rows.length){ clearItemsList(); return; } itemsListBody.innerHTML = ''; for(const it of rows){ addItemRowToList(it); } }catch(err){ if(err && err.name === 'AbortError'){ console.info('loadItems aborted for nunota', nunota); return; } itemsListBody.innerHTML = '<tr><td colspan="7">Erro ao carregar.</td></tr>'; } }
+
+      // Add single-item plan/save behavior (reuse portal flow)
+      document.getElementById('itemAddBtn')?.addEventListener('click', async function(){ const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun){ alert('NUNOTA desconhecido.'); return; } let codprodRaw = (document.getElementById('item_prod_hidden')?.value||'').trim(); if(!codprodRaw){ const txt = (document.getElementById('item_prod_vis')?.value||'').trim(); const m = txt.match(/(\d+)/); codprodRaw = m ? m[1] : ''; } const codprodNum = codprodRaw ? parseInt(codprodRaw,10) : NaN; if(!codprodRaw || !Number.isFinite(codprodNum)){ alert('Selecione um produto válido.'); return; } const qtd = parseFloat(String(document.getElementById('item_qtd')?.value||'').replace(',','.')) || 0; if(!(qtd > 0)){ alert('Informe quantidade maior que zero.'); return; } const vlr = 0; const peso = parseFloat(String(document.getElementById('item_peso')?.value||'').replace(',','.')) || null; const codvol = (document.getElementById('item_vol_hidden')?.value||document.getElementById('item_vol')?.value||'CX') || null; const obs = (document.getElementById('item_obs')?.value||'') || null; const payload = { nunota: parseInt(nun,10), codprod: codprodNum, qtdneg: qtd, vlrunit: vlr, codvol: codvol || null, peso: peso, obs: obs || null };
+        const planResp = await postJSON('/sankhya/item/plan/', payload); if(!planResp.ok){ alert('Erro no plano'); return; } const saveResp = await postJSON('/sankhya/item/save/', payload); if(saveResp.ok && saveResp.body && (saveResp.body.executed || saveResp.body.item)){ alert('Item salvo'); const created = saveResp.body.item || saveResp.body.created_item || null; if(created){ try{ addItemRowToList(created); }catch(_){ try{ loadItems(nun); }catch(__){} } } else { try{ loadItems(nun); }catch(_){ } } try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ } } else { const body = saveResp.body || {}; const errs = Array.isArray(body.errors) && body.errors.length ? body.errors.join('\n') : (body.error || ''); alert('Falha ao salvar item: ' + (errs || ('status ' + saveResp.status))); try{ loadItems(nun); }catch(_){ } }
+      });
+
+      // Cab Save: create header and open items modal (reuses portal endpoints)
+      cabSave?.addEventListener('click', async ()=>{
+        const missing = []; const codemp = (document.getElementById('cab_codemp')?.value||'').trim(); const dtneg = (document.getElementById('cab_dtneg')?.value||'').trim(); const codparc = (document.getElementById('cab_codparc')?.value||'').trim(); const codtop = (document.getElementById('cab_top_cod')?.value||'').trim(); if(!codemp) missing.push('Empresa'); if(!dtneg) missing.push('Dt. Neg.'); if(!codparc) missing.push('Parceiro'); if(!codtop) missing.push('Tipo Operação'); if(missing.length){ alert('Preencha os campos obrigatórios: ' + missing.join(', ')); return; }
+        const prodCod = (document.getElementById('cab_prod_cod')?.value||'').trim() || null;
+        const payload = { codemp: codemp, dtneg: dtneg, dtmov: dtneg, dtentsai: dtneg, hrmov: null, codparc: codparc||null, codtipoper: codtop||null, codnat: (document.getElementById('cab_nat_cod')?.value||'')||null, codcencus: (document.getElementById('cab_cencus_cod')?.value||'')||null, obs: (document.getElementById('cab_obs')?.value||'')||null, prodcod_ref: prodCod };
+        // Request SQL preview/plan from server before saving
+        try{
+          const planResp = await postJSON('/sankhya/header/plan/', payload);
+          if(!planResp.ok){ const err = (planResp.body?.errors||[]).join('\n') || planResp.body?.error || 'Falha ao gerar plano'; alert('Erro no plano: ' + err); return; }
+          const planData = planResp.body || {};
+          // Build SQL preview
+          let preview = '';
+          if(planData.sql){ preview += '-- SQL a ser executado\n' + (planData.sql || '') + '\n\n'; }
+          if(planData.binds){ preview += '-- Binds: ' + JSON.stringify(planData.binds || {}, null, 2) + '\n\n'; }
+          if(!preview){ preview = '-- Nenhum SQL disponível para exibição.'; }
+          const sqlModal = document.getElementById('sqlPreviewModalGlobal') || document.getElementById('sqlPreviewModal');
+          const sqlContent = document.getElementById('sqlPreviewContentGlobal') || document.getElementById('sqlPreviewContent');
+          const sqlCancel = document.getElementById('sqlPreviewCancelGlobal') || document.getElementById('sqlPreviewCancel');
+          const sqlConfirm = document.getElementById('sqlPreviewConfirmGlobal') || document.getElementById('sqlPreviewConfirm');
+          if(!sqlModal || !sqlContent){ // fallback: confirm then save
+            const ok = confirm('Aplicar alteração (sem preview)?'); if(!ok) return; // proceed to save
+          } else {
+            sqlContent.textContent = preview; sqlModal.style.display = 'flex';
+            sqlCancel.onclick = function(){ sqlModal.style.display='none'; };
+            const doSave = async ()=>{
+              sqlModal.style.display='none';
+              cabSave.setAttribute('disabled','disabled');
+              try{
+                if(cabEditingNunota){ const updPayload = Object.assign({ nunota: parseInt(cabEditingNunota,10) }, payload); const updRes = await postJSON('/sankhya/header/update/', updPayload); if(updRes.ok && updRes.body && updRes.body.executed){ const nun = updRes.body.nunota || cabEditingNunota; cabEditingNunota = nun; animateHeaderToLeft(); showItemsModal(nun); return; } const errs = (updRes.body?.errors||[]).join('\n'); const dbmsg = updRes.body?.db_error?.message || ''; const warns = (updRes.body?.warnings||[]).join('\n'); alert([errs, dbmsg, warns].filter(Boolean).join('\n')); } else { const res = await postJSON('/sankhya/packing/central/salvar/', payload); if(res.ok && res.body && res.body.executed && res.body.nunota){ const nun = res.body.nunota; cabEditingNunota = nun; animateHeaderToLeft(); showItemsModal(nun); return; } const errs = (res.body?.errors||[]).join('\n'); const dbmsg = res.body?.db_error?.message || ''; const warns = (res.body?.warnings||[]).join('\n'); alert([errs, dbmsg, warns].filter(Boolean).join('\n')); }
+              } finally { cabSave.removeAttribute('disabled'); }
+            };
+            sqlConfirm.onclick = doSave;
+            return;
+          }
+        }catch(err){ alert('Erro durante geração do preview: ' + (err && err.message ? err.message : err)); return; }
+        // If we reached here (no modal available), fall back to immediate save
+        cabSave.setAttribute('disabled','disabled'); try{ if(cabEditingNunota){ const updPayload = Object.assign({ nunota: parseInt(cabEditingNunota,10) }, payload); const updRes = await postJSON('/sankhya/header/update/', updPayload); if(updRes.ok && updRes.body && updRes.body.executed){ const nun = updRes.body.nunota || cabEditingNunota; cabEditingNunota = nun; animateHeaderToLeft(); showItemsModal(nun); return; } const errs = (updRes.body?.errors||[]).join('\n'); const dbmsg = updRes.body?.db_error?.message || ''; const warns = (updRes.body?.warnings||[]).join('\n'); alert([errs, dbmsg, warns].filter(Boolean).join('\n')); } else { const res = await postJSON('/sankhya/packing/central/salvar/', payload); if(res.ok && res.body && res.body.executed && res.body.nunota){ const nun = res.body.nunota; cabEditingNunota = nun; animateHeaderToLeft(); showItemsModal(nun); return; } const errs = (res.body?.errors||[]).join('\n'); const dbmsg = (res.body?.db_error?.message || res.body?.db_error?.msg || ''); const warns = (res.body?.warnings||[]).join('\n'); alert([errs, dbmsg, warns].filter(Boolean).join('\n')); } } finally { cabSave.removeAttribute('disabled'); } });
+
+      // Expose modal helpers globally for dblclick reuse
+      try { window.showCabModal = showCabModal; window.showItemsModal = showItemsModal; window.setCabEditingNunota = function(n){ cabEditingNunota = n; }; } catch(_){ }
+
+      // Override items helpers to align with portal behavior (Classifica column, edit mode, totals)
+      function addItemRowToList(it){ if(!itemsListBody) return; if(itemsListBody.querySelector('td')){ const first = itemsListBody.querySelector('td').parentElement; if(first && first.childElementCount === 1 && first.children[0].getAttribute('colspan')) itemsListBody.innerHTML = ''; }
+        const tr = document.createElement('tr'); const classTxt = (it && (typeof it.classifica !== 'undefined' || typeof it.geraproducao !== 'undefined')) ? ((it.geraproducao ? String(it.geraproducao).toUpperCase() !== 'N' : !!it.classifica) ? 'Sim' : 'Não') : '';
+        tr.innerHTML = `
+          <td style="padding:8px">${it.lote||''}</td>
+          <td>${it.cod||''} ${it.descr||''}</td>
+          <td>${it.codvol||''}</td>
+          <td style="text-align:right">${it.qtd!=null?String(it.qtd):''}</td>
+          <td style="text-align:right">${it.peso!=null?String(it.peso):''}</td>
+          <td style="text-align:center">${classTxt}</td>
+          <td style="text-align:right">${it.total!=null?String(it.total):''}</td>
+          <td><button class="icon-btn danger icon-btn--plain item-del" data-seq="${it.sequencia||''}" aria-label="Excluir">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+              <path d="M10 11v6"></path>
+              <path d="M14 11v6"></path>
+              <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button></td>
+        `; itemsListBody.appendChild(tr);
+        // attach dataset for edit mode and dblclick to load into form
+        try{
+          tr.dataset.seq = it.sequencia != null ? String(it.sequencia) : '';
+          tr.dataset.cod = it.cod != null ? String(it.cod) : '';
+          tr.dataset.descr = it.descr != null ? String(it.descr) : '';
+          tr.dataset.codvol = it.codvol != null ? String(it.codvol) : '';
+          tr.dataset.qtd = it.qtd != null ? String(it.qtd) : '';
+          tr.dataset.peso = (it.peso != null && it.peso !== '') ? String(it.peso) : '';
+          tr.dataset.obs = it.obs != null ? String(it.obs) : '';
+          tr.dataset.lote = it.lote != null ? String(it.lote) : '';
+          tr.dataset.gp = it.geraproducao != null ? String(it.geraproducao) : (typeof it.classifica !== 'undefined' ? (it.classifica ? 'S' : 'N') : '');
+        }catch(_){ }
+        tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nun,10), sequencias: [ parseInt(seq,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(typeof loadItems === 'function') loadItems(nun); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
+        tr.addEventListener('dblclick', function(){ try{ const seq = tr.dataset.seq; if(!seq) return; const seqInp = document.getElementById('item_seq_edit'); if(seqInp) seqInp.value = seq; const prodH = document.getElementById('item_prod_hidden'); const prodV = document.getElementById('item_prod_vis'); if(prodH) prodH.value = tr.dataset.cod || ''; if(prodV) prodV.value = tr.dataset.cod ? `${tr.dataset.cod} — ${tr.dataset.descr||''}` : ''; const volH = document.getElementById('item_vol_hidden'); const volV = document.getElementById('item_vol'); if(volH) volH.value = tr.dataset.codvol || ''; if(volV) volV.value = tr.dataset.codvol || ''; const qtd = document.getElementById('item_qtd'); if(qtd) qtd.value = tr.dataset.qtd || ''; const peso = document.getElementById('item_peso'); if(peso) peso.value = tr.dataset.peso || ''; const obs = document.getElementById('item_obs'); if(obs) obs.value = tr.dataset.obs || ''; const chk = document.getElementById('item_classifica'); if(chk) chk.checked = (String(tr.dataset.gp||'S').toUpperCase() !== 'N'); const addBtn = document.getElementById('itemAddBtn'); if(addBtn){ addBtn.setAttribute('title','Atualizar'); addBtn.dataset.mode = 'edit'; } try{ recalcItemTotal(); }catch(_){ } try{ prodV && prodV.focus(); }catch(_){ } }catch(e){ console.error('editLoad failed', e); } });
+      }
+
+      async function loadItems(nunota){ try{ if(itemsListController){ try{ itemsListController.abort(); }catch(_){ } itemsListController = null; try{ window.itemsListController = null; }catch(_){ } } }catch(_){ }
+        const resolved = nunota!=null ? (parseInt(nunota,10)||null) : (parseInt(document.getElementById('items_nunota')?.value||'',10)||null); if(!resolved){ console.error('loadItems: nunota inválido', nunota); return; } document.getElementById('items_nunota').value = resolved; clearItemsList(); try{ itemsListController = new AbortController(); try{ window.itemsListController = itemsListController; }catch(_){ } const opts = { credentials: 'same-origin', signal: itemsListController.signal }; const url = '/sankhya/item/list/?nunota=' + encodeURIComponent(resolved); const r = await fetch(url, opts); itemsListController = null; try{ window.itemsListController = null; }catch(_){ } let j = {}; try{ j = await r.json(); }catch(_){ j = {}; } if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="8">Erro: ${j.error||'falha'}</td></tr>`; return; } const rows = j.items || j.results || []; if(!rows.length){ clearItemsList(); return; } itemsListBody.innerHTML = ''; for(const it of rows){ addItemRowToList(it); } try{ applyClassificaFilter(); }catch(_){ } }catch(err){ if(err && err.name === 'AbortError'){ console.info('loadItems aborted for nunota', nunota); return; } itemsListBody.innerHTML = '<tr><td colspan="8">Erro ao carregar.</td></tr>'; } }
+
+      // Default filter to show only items that classify (gp != 'N')
+      function applyClassificaFilter(){ try{ const cb = document.getElementById('filterOnlyClassifica'); const body = document.getElementById('itemsListBody'); if(!body || !cb) return; const only = cb.checked; const rows = Array.from(body.querySelectorAll('tr')); rows.forEach(tr=>{ const gp = (tr.dataset && tr.dataset.gp) ? String(tr.dataset.gp).toUpperCase() : null; if(only){ if(gp === 'N'){ tr.style.display = 'none'; } else { tr.style.display = ''; } } else { tr.style.display = ''; } }); }catch(e){ /* no-op */ } }
+      document.getElementById('filterOnlyClassifica')?.addEventListener('change', function(){ try{ applyClassificaFilter(); }catch(_){ } });
+
+      // Total calc for items modal
+      function recalcItemTotal(){ try{ const qtd = parseFloat(String(document.getElementById('item_qtd').value||'').replace(',','.')) || 0; const peso = parseFloat(String(document.getElementById('item_peso').value||'').replace(',','.')) || 0; const total = (qtd && peso) ? (qtd * peso) : 0; document.getElementById('item_total').value = total ? String(total) : ''; }catch(_){ } }
+      document.getElementById('item_qtd')?.addEventListener('input', recalcItemTotal);
+      document.getElementById('item_peso')?.addEventListener('input', recalcItemTotal);
+
+      // Minimal typeahead for product in items modal
+      function attachTA(inpId, hidId, ddId, url){
+        try{
+          const inp=document.getElementById(inpId); const hid=document.getElementById(hidId); const dd=document.getElementById(ddId);
+          if(!inp||!hid||!dd) return;
+          let t=null;
+          function hide(){ dd.style.display='none'; dd.innerHTML=''; }
+          function show(items){ if(!items||!items.length){ hide(); return; }
+            dd.innerHTML = items.map((it,idx)=>`<div class="dd-item${idx===0?' active':''}" data-cod="${it.cod||it.codparc}" data-descr="${it.descr||it.nomeparc}">${(it.cod||it.codparc)} — ${(it.descr||it.nomeparc)}</div>`).join('');
+            dd.style.display='block';
+          }
+          function fetchQ(q){ const inn = (window.PH_INNATURA_CODPROD||''); const qs = `${url}?q=${encodeURIComponent(q)}&limit=10` + (inn?`&cod_innatura=${encodeURIComponent(inn)}`:''); fetch(qs, {credentials:'same-origin'}).then(r=>r.json()).then(d=> show(d.results||[]) ).catch(()=> hide()); }
+          inp.addEventListener('input', (e)=>{ const raw=(e.target.value||'').trim(); const isNum=/^\d+$/.test(raw); const ok=isNum? raw.length>=1: raw.length>=2; if(t) clearTimeout(t); t=setTimeout(()=> ok? fetchQ(raw): hide(), 250); });
+          inp.addEventListener('keydown', (e)=>{
+            if (dd.style.display!=='none'){
+              if(e.key==='ArrowDown'){
+                e.preventDefault(); const items=Array.from(dd.querySelectorAll('.dd-item')); if(!items.length) return; const cur=items.findIndex(x=>x.classList.contains('active')); let nxt=(cur+1+items.length)%items.length; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'}); return;
+              }
+              if(e.key==='ArrowUp'){
+                e.preventDefault(); const items=Array.from(dd.querySelectorAll('.dd-item')); if(!items.length) return; const cur=items.findIndex(x=>x.classList.contains('active')); let nxt=(cur-1+items.length)%items.length; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'}); return;
+              }
+              if(e.key==='Enter' || e.key==='Tab'){
+                const el = dd.querySelector('.dd-item.active') || dd.querySelector('.dd-item'); if(el){ e.preventDefault(); hid.value = el.dataset.cod; inp.value = `${el.dataset.cod} — ${el.dataset.descr}`; hide(); }
+              }
+              if(e.key==='Escape'){ hide(); }
+            }
+          });
+          dd.addEventListener('click', (ev)=>{ const el = ev.target.closest('div[data-cod]'); if(!el) return; hid.value = el.dataset.cod; inp.value = `${el.dataset.cod} — ${el.dataset.descr}`; hide(); });
+          document.addEventListener('click', (ev)=>{ if(!dd.contains(ev.target) && ev.target !== inp) hide(); });
+        }catch(e){ console.error('attachTA', e); }
+      }
+      attachTA('item_prod_vis','item_prod_hidden','item_prod_sugg','/sankhya/produtos/search/');
+
+      // Replace Add button handler to support edit mode and Classifica toggle
+  (function(){ const oldBtn = document.getElementById('itemAddBtn'); if(!oldBtn) return; const newBtn = oldBtn.cloneNode(true); oldBtn.parentNode.replaceChild(newBtn, oldBtn); newBtn.addEventListener('click', async function(){ const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun){ alert('NUNOTA desconhecido.'); return; } const seqEditRaw = (document.getElementById('item_seq_edit')?.value||'').trim(); const isEdit = !!seqEditRaw && /^\d+$/.test(seqEditRaw); let codprodRaw = (document.getElementById('item_prod_hidden')?.value||'').trim(); if(!codprodRaw){ const txt = (document.getElementById('item_prod_vis')?.value||'').trim(); const m = txt.match(/(\d+)/); codprodRaw = m ? m[1] : ''; } const codprodNum = codprodRaw ? parseInt(codprodRaw,10) : NaN; if(!codprodRaw || !Number.isFinite(codprodNum)){ alert('Selecione um produto válido.'); return; } const qtd = parseFloat(String(document.getElementById('item_qtd')?.value||'').replace(',','.')) || 0; if(!(qtd > 0)){ alert('Informe quantidade maior que zero.'); return; } const vlr = 0; const peso = parseFloat(String(document.getElementById('item_peso')?.value||'').replace(',','.')) || null; const codvol = (document.getElementById('item_vol_hidden')?.value||document.getElementById('item_vol')?.value||'CX') || null; const obs = (document.getElementById('item_obs')?.value||'') || null; const classificaEl = document.getElementById('item_classifica'); const geraproducao = classificaEl ? (classificaEl.checked ? 'S' : 'N') : 'S'; const basePayload = { nunota: parseInt(nun,10), codprod: codprodNum, qtdneg: qtd, vlrunit: vlr, codvol: codvol || null, peso: peso, obs: obs || null, geraproducao: geraproducao }; if (isEdit){ const payload = Object.assign({}, basePayload, { sequencia: parseInt(seqEditRaw,10) }); const resp = await postJSON('/sankhya/item/save/', payload); if(resp.ok && resp.body && (resp.body.executed || resp.body.item)){ alert('Item atualizado'); try{ loadItems(nun); }catch(_){ } try{ document.getElementById('item_seq_edit').value=''; const addBtn=document.getElementById('itemAddBtn'); addBtn && (addBtn.dataset.mode='', addBtn.setAttribute('title','Adicionar')); }catch(_){} try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_peso').value=''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ } } else { const body = resp.body || {}; const errs = Array.isArray(body.errors)&&body.errors.length? body.errors.join('\n') : (body.error || ''); const dbmsg = (body.db_error && (body.db_error.message || body.db_error.msg)) ? (body.db_error.message || body.db_error.msg) : ''; alert('Falha ao atualizar item: ' + (errs || dbmsg || ('status ' + resp.status))); } return; } const planResp = await postJSON('/sankhya/item/plan/', basePayload); if(!planResp.ok){ alert('Erro no plano'); return; } const saveResp = await postJSON('/sankhya/item/save/', basePayload); if(saveResp.ok && saveResp.body && (saveResp.body.executed || saveResp.body.item)){ alert('Item salvo'); const created = saveResp.body.item || saveResp.body.created_item || null; if(created){ try{ addItemRowToList(created); }catch(_){ try{ loadItems(nun); }catch(__){} } } else { try{ loadItems(nun); }catch(_){ } } try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ } } else { const body = saveResp.body || {}; const errs = Array.isArray(body.errors) && body.errors.length ? body.errors.join('\n') : (body.error || ''); alert('Falha ao salvar item: ' + (errs || ('status ' + saveResp.status))); try{ loadItems(nun); }catch(_){ } } }); })();
+    })();
+  </script>
+</body>
+</html>

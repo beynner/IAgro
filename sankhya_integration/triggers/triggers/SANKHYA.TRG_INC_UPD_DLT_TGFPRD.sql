@@ -1,0 +1,14 @@
+-- SANKHYA.TRG_INC_UPD_DLT_TGFPRD
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_INC_UPD_DLT_TGFPRD
+"SANKHYA".TRG_INC_UPD_DLT_TGFPRD BEFORE INSERT OR UPDATE OR DELETE ON TGFPRD FOR EACH ROW
+
+BEGIN
+  IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+  IF (:OLD.DTIMPORT <= SYSDATE ) THEN
+     raise_application_error(-20101, 'A Data de Alteracao deste  Registro e inferior a Data do Sistema. Nao pode ser alterado ou excluido.');
+  END IF;
+END;
+
+/

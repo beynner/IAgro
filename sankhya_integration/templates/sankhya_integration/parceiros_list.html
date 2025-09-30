@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Parceiros</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 16px; }
+    header, form { margin-bottom: 12px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 6px 8px; }
+    th { background: #f5f5f5; text-align: left; }
+    .controls { display: flex; gap: 8px; align-items: center; }
+    input[type="text"], input[type="number"] { padding: 4px 6px; }
+    .pager { margin-top: 8px; display: flex; gap: 8px; }
+    a.btn { text-decoration: none; background: #0066cc; color: #fff; padding: 6px 10px; border-radius: 4px; }
+    a.btn:visited { color: #fff; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Cadastro de Parceiros (TGFPAR)</h1>
+  </header>
+
+  <form method="get" class="controls">
+    <label>
+      Buscar:
+      <input type="text" name="q" value="{{ q }}" placeholder="Nome do parceiro" />
+    </label>
+    <label>
+      Limite:
+      <input type="number" name="limit" value="{{ limit }}" min="1" max="200" />
+    </label>
+    <label>
+      Offset:
+      <input type="number" name="offset" value="{{ offset }}" min="0" />
+    </label>
+    <button type="submit">Aplicar</button>
+  </form>
+
+  <table>
+    <thead>
+      <tr>
+        <th>CODPARC</th>
+        <th>NOMEPARC</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for cod, nome in rows %}
+      <tr>
+        <td>{{ cod }}</td>
+        <td>{{ nome }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="2">Nenhum parceiro encontrado.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="pager">
+    {% if has_prev %}
+      <a class="btn" href="?q={{ q }}&limit={{ limit }}&offset={{ prev_offset }}">Anterior</a>
+    {% endif %} {% if has_next %}
+      <a class="btn" href="?q={{ q }}&limit={{ limit }}&offset={{ next_offset }}">Próximo</a>
+    {% endif %}
+  </div>
+</body>
+</html>

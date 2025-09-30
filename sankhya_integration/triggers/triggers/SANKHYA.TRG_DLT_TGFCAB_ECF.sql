@@ -1,0 +1,40 @@
+-- SANKHYA.TRG_DLT_TGFCAB_ECF
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_DLT_TGFCAB_ECF
+"SANKHYA".TRG_DLT_TGFCAB_ECF BEFORE DELETE ON TGFCAB FOR EACH ROW
+
+DECLARE
+  P_COUNT   INT;
+  ERRMSG    VARCHAR2(255);
+  ERROR     EXCEPTION;
+  P_VALIDAR BOOLEAN;
+BEGIN
+
+  IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+  /* 
+  Sincronização de dados
+  */
+  P_VALIDAR := FPODEVALIDAR('TGFCAB');
+  SELECT NVL(COUNT(1),0) INTO P_COUNT 
+    FROM TSIPAR  PAR
+   WHERE PAR.CHAVE = 'MODELOCUPOM'
+   AND PAR.INTEIRO = :OLD.NUNOTA;
+  
+  IF (P_COUNT<>0) THEN
+    ERRMSG := 'Modelo nao pode ser excluido, está configurado para uso do FAST, verifique o parametro [ MODELOCUPOM ]. Nota de Nro Único: '|| TO_CHAR(:NEW.NUNOTA) ||'.';
+    RAISE ERROR;
+  END IF;
+  
+  RETURN;
+EXCEPTION
+  WHEN ERROR THEN
+    /* 
+    Sincronização de dados não faz validações
+    */
+    IF (P_VALIDAR) THEN 
+      RAISE_APPLICATION_ERROR(-20101, ERRMSG);
+    END IF; 
+END;
+
+/

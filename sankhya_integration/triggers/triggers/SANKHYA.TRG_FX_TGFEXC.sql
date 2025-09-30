@@ -1,0 +1,63 @@
+-- SANKHYA.TRG_FX_TGFEXC
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_FX_TGFEXC
+"SANKHYA".TRG_FX_TGFEXC
+   BEFORE INSERT OR UPDATE OR DELETE
+   ON TGFEXC
+   FOR EACH ROW
+
+DECLARE
+   P_CONTADOR   NUMBER (19);
+   P_VALIDAR    BOOLEAN;
+   P_DATAVIGOR  DATE;
+   P_TEM_CHECKOUT BOOLEAN;
+   
+BEGIN
+    IF Stp_Get_Atualizando THEN
+        RETURN;
+    END IF;
+
+    /*
+    Sincronização de dados
+    */
+    P_VALIDAR := Fpodevalidar ('TGFEXC');
+
+    IF (NOT P_VALIDAR)
+    THEN
+        RETURN;
+    END IF;
+   
+    P_TEM_CHECKOUT := FCheckout_Utiliza;
+	
+    IF (NOT P_TEM_CHECKOUT) THEN
+        RETURN;
+    END IF;
+
+    IF (DELETING) THEN
+        DELETE FROM TFXPRC WHERE TFXPRC.CODPROD = :OLD.CODPROD AND TFXPRC.NUTAB = :OLD.NUTAB;
+        RETURN;
+    END IF;
+
+    IF (   (NVL (:NEW.NUTAB, 0) <> NVL (:OLD.NUTAB, 0))
+        OR (NVL(:NEW.CODPROD, 0) <> NVL(:OLD.CODPROD, 0))
+        OR (NVL(:NEW.VLRVENDA, 0) <> NVL(:OLD.VLRVENDA,0))
+        OR (NVL(:NEW.TIPO, ' ') <> NVL(:OLD.TIPO, ' '))
+        OR (NVL(:NEW.PERCDESC, 0) <> NVL(:OLD.PERCDESC, 0))) THEN
+            SELECT COUNT (1)
+                INTO P_CONTADOR
+            FROM TFXPRC TFX
+            WHERE TFX.CODPROD = :NEW.CODPROD AND TFX.NUTAB = :NEW.NUTAB;
+            IF (NVL(:NEW.VLRVENDA, 0) > 0) THEN
+		            SELECT DTVIGOR INTO P_DATAVIGOR FROM TGFTAB T WHERE T.NUTAB = :NEW.NUTAB;
+                IF (NVL (P_CONTADOR, 0) = 0) THEN
+                    INSERT INTO TFXPRC (CODPROD, NUTAB, VLRVENDA, DATAVIGOR)
+                    VALUES (:NEW.CODPROD, :NEW.NUTAB, :NEW.VLRVENDA, P_DATAVIGOR);
+                ELSE
+                    UPDATE TFXPRC
+                      SET VLRVENDA = :NEW.VLRVENDA, DATAVIGOR = P_DATAVIGOR
+                    WHERE CODPROD = :NEW.CODPROD AND NUTAB = :NEW.NUTAB;
+                END IF;
+            END IF;
+    END IF;
+END;
+
+/

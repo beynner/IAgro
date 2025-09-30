@@ -1,0 +1,35 @@
+-- SANKHYA.TRG_DLT_TGFPLA
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_DLT_TGFPLA
+"SANKHYA".TRG_DLT_TGFPLA 
+BEFORE DELETE ON TGFPLA 
+FOR EACH ROW
+
+DECLARE
+     P_COUNT               NUMBER;
+     ERROR                    EXCEPTION;
+     ERRMSG                   VARCHAR2(500);
+     PRAGMA AUTONOMOUS_TRANSACTION;
+ BEGIN
+ 
+   IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+  
+   SELECT COUNT(1) INTO P_COUNT
+     FROM TGFGAR GAR
+    WHERE EXISTS(SELECT 1
+                   FROM TGFITE ITE LEFT JOIN TGFPEM PEM ON (ITE.CODPROD = PEM.CODPROD AND ITE.CODEMP = PEM.CODEMP),
+                        TGFPRO P 
+                  WHERE GAR.CODGAR = P.CODGAR
+                    AND ITE.CONTROLE = TO_CHAR(GAR.CODPLANO)
+                    AND GAR.CODGAR = ITE.CODPROD
+                    AND (CASE WHEN PEM.TIPCONTEST IS NOT NULL THEN PEM.TIPCONTEST ELSE P.TIPCONTEST END) = 'N'
+                    AND ITE.USOPROD = 'S')
+      AND GAR.CODPLANO = :OLD.CODPLANO;
+   
+   IF P_COUNT <> 0 THEN
+      RAISE_APPLICATION_ERROR(-20102,'A Extens?o de garantia n?o pode ser excluida por esta sendo referenciada em algum(ns) pedido(s) ou nota(s).');
+   END IF;
+END;
+
+/

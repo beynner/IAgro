@@ -1,0 +1,41 @@
+-- SANKHYA.TRG_INC_UPD_TGFITE_ATIVO
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_INC_UPD_TGFITE_ATIVO
+"SANKHYA".TRG_INC_UPD_TGFITE_ATIVO 
+BEFORE INSERT OR UPDATE ON TGFITE 
+FOR EACH ROW
+
+DECLARE
+  P_DESCRPROD  TGFPRO.DESCRPROD%TYPE; 
+  P_ATIVO      TGFPRO.ATIVO%TYPE;
+  ERRMSG              VARCHAR2(4000);
+  ERROR               EXCEPTION;
+  P_VALIDAR           BOOLEAN;
+BEGIN
+  P_VALIDAR := Fpodevalidar('TGFITE');  -- Sincronização de dados
+
+  BEGIN
+      SELECT DESCRPROD, ATIVO INTO P_DESCRPROD, P_ATIVO
+      FROM TGFPRO
+      WHERE codprod = :NEW.CODPROD;
+  EXCEPTION 
+      WHEN OTHERS THEN
+        ERRMSG := 'Erro inesperado. Entre em contato com a TI.';
+        RAISE ERROR;
+  END; 
+
+  IF P_ATIVO = 'N' THEN
+        ERRMSG := 'Produto "' || TO_CHAR(:NEW.CODPROD) || ' - ' || p_descrprod || '" inativo.';
+        RAISE ERROR;
+  END if;  
+
+EXCEPTION
+  WHEN OTHERS THEN
+     IF (P_VALIDAR) THEN
+       IF SQLCODE <> 1 THEN
+         ERRMSG := ERRMSG || '  ' || SQLERRM;
+       END IF;
+       RAISE_APPLICATION_ERROR(-20101, ERRMSG);       
+     END IF;
+END;
+
+/

@@ -1,0 +1,61 @@
+-- SANKHYA.TRG_INC_UPD_TCSOCC
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_INC_UPD_TCSOCC
+"SANKHYA".TRG_INC_UPD_TCSOCC BEFORE INSERT OR UPDATE ON TCSOCC FOR EACH ROW
+
+DECLARE
+  P_COUNT                INT:= 0;
+  ERROR                  EXCEPTION;
+BEGIN
+    
+  IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+  
+  IF INSERTING THEN
+    SELECT COUNT(1) INTO P_COUNT FROM TCSOCC OCC WHERE OCC.NUMCONTRATO = :NEW.NUMCONTRATO AND OCC.DTOCOR = :NEW.DTOCOR AND OCC.CODPROD = :NEW.CODPROD;
+    IF P_COUNT = 1 THEN 
+       RAISE_APPLICATION_ERROR ( - 20101, 'Não foi possível incluir a ocorrência. Já existe um lançamento no dia ' || :NEW.DTOCOR || ' para o Produto: ' || :NEW.CODPROD || ' e contrato: ' || :NEW.NUMCONTRATO || '.');
+    END IF;
+  END IF;
+  
+  IF UPDATING('CODPARC') THEN
+    SELECT COUNT(1) 
+      INTO P_COUNT  
+    FROM TGFPAR P 
+    WHERE :NEW.CODPARC = P.CODPARC 
+      AND P.ATIVO = 'S';
+    
+    IF (P_COUNT = 0 ) THEN
+      RAISE_APPLICATION_ERROR (-20101,'Parceiro não esta ativo ou não esta cadastrado.');
+    END IF;  
+  END IF;
+  
+  IF (UPDATING('CODCONTATO') OR UPDATING('CODPARC')) THEN
+     SELECT COUNT(1) 
+       INTO P_COUNT 
+     FROM TGFCTT C 
+     WHERE :NEW.CODPARC = C.CODPARC 
+       AND :NEW.CODCONTATO = C.CODCONTATO 
+       AND C.ATIVO = 'S';
+       
+     IF (P_COUNT = 0 ) THEN
+       RAISE_APPLICATION_ERROR (-20101,'Contato '|| :NEW.CODCONTATO || ' não está ativo ou não está cadastrado. Contrato: ' || :NEW.NUMCONTRATO || '.');
+    END IF;
+  END IF;
+  
+  IF UPDATING('CODPROD') THEN
+    SELECT COUNT(1) 
+      INTO P_COUNT 
+    FROM TGFPRO P 
+    WHERE :NEW.CODPROD = P.CODPROD 
+      AND P.ATIVO = 'S';
+      
+    IF (P_COUNT = 0) THEN
+      RAISE_APPLICATION_ERROR (-20101,'Produto não esta ativo ou não esta cadastrado.');
+    END IF;
+  END IF;
+  
+  
+END;
+
+/

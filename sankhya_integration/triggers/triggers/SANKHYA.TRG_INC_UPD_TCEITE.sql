@@ -1,0 +1,41 @@
+-- SANKHYA.TRG_INC_UPD_TCEITE
+CREATE OR REPLACE TRIGGER SANKHYA.TRG_INC_UPD_TCEITE
+"SANKHYA".TRG_INC_UPD_TCEITE 
+BEFORE INSERT OR UPDATE ON TCEITE FOR EACH ROW
+
+DECLARE P_COUNT   NUMBER(10);
+        P_VALIDAR BOOLEAN;
+        P_CODEMP  NUMBER(5);
+BEGIN
+  P_VALIDAR := Fpodevalidar('TGFCAB');
+  
+  IF STP_GET_ATUALIZANDO THEN
+    RETURN;
+  END IF;
+  
+  SELECT CODEMP INTO P_CODEMP
+  FROM TCECAB 
+  WHERE NUIMP = :NEW.NUIMP;
+    
+  IF (NVL(:NEW.CODNCM, '0') <> '0' OR :NEW.CODEXNCM <> 0) AND (INSERTING OR NVL(:NEW.CODNCM, '0') <> NVL(:OLD.CODNCM, '0') OR :NEW.CODEXNCM <> :OLD.CODEXNCM) THEN
+    BEGIN
+     SELECT COUNT(1) INTO P_COUNT
+      FROM TCENCM NCM
+      WHERE NCM.CODNCM = :NEW.CODNCM 
+        AND NCM.CODEXNCM = :NEW.CODEXNCM 
+        AND (NCM.CODEMP = 0 OR NCM.CODEMP = P_CODEMP);
+    EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      P_COUNT := 0;
+    END;
+    
+    IF P_COUNT = 0 AND P_VALIDAR THEN
+      RAISE_APPLICATION_ERROR(-20101, 'Não foi encontrada configuração com o '||CHR(13)||CHR(10)||
+                                      'NCM: '||:NEW.CODNCM||' e CODEXNCM: '||TO_CHAR(:NEW.CODEXNCM)||CHR(13)||CHR(10)||
+                                      'para a Empresa: '||TO_CHAR(P_CODEMP)||CHR(13)||CHR(10)||
+                                      'no cadastro de Alíquotas de Importação.');
+    END IF;  
+  END IF;
+END;
+
+/
