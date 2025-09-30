@@ -32,6 +32,11 @@ try:
         plan_classificacao,
         execute_classificacao,
         listar_lotes_recentes,
+        listar_lotes_portal,
+        listar_lotes_classificacao,
+        duplicate_to_classification,
+        get_duplicate_status,
+        is_auto_duplicate_enabled,
         consultar_lote,
         fetch_tgfite_details,
         
@@ -74,6 +79,11 @@ except Exception as exc:  # pragma: no cover - make views importable when Oracle
     plan_classificacao = _missing('plan_classificacao')
     execute_classificacao = _missing('execute_classificacao')
     listar_lotes_recentes = _missing('listar_lotes_recentes')
+    listar_lotes_portal = _missing('listar_lotes_portal')
+    listar_lotes_classificacao = _missing('listar_lotes_classificacao')
+    duplicate_to_classification = _missing('duplicate_to_classification')
+    get_duplicate_status = _missing('get_duplicate_status')
+    is_auto_duplicate_enabled = _missing('is_auto_duplicate_enabled')
     consultar_lote = _missing('consultar_lote')
 logger = logging.getLogger(__name__)
 
@@ -225,8 +235,10 @@ def compras_portal(request: HttpRequest) -> HttpResponse:
                 tops_list = vals
         except Exception:
             tops_list = None
-    if tops_list:
-        svc_params["tops"] = tops_list
+    # Portal: Forçar apenas TOP 11 (Pedidos de Compra)
+    from sankhya_integration.services.oracle_conn import get_params as get_oracle_params
+    p = get_oracle_params()
+    svc_params["tops"] = [p['TOP_ENTRADA']]  # Sempre TOP 11 no Portal
     notas = listar_notas_compra(limit=page_size + 1, offset=(page - 1) * page_size, **svc_params)
     has_next = len(notas) > page_size
     if has_next:
@@ -343,9 +355,9 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
         page = 1
     page_size = 50
 
-    # Buscar controles/lotes recentes (paginado via offset)
+    # Classificação: Buscar apenas lotes TOP 26 (Classificação)
     offset = (page - 1) * page_size
-    controles = listar_lotes_recentes(
+    lotes_class = listar_lotes_classificacao(
         days=params['days'],
         limit=page_size,
         codparc=params['codparc'],
@@ -353,6 +365,8 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
         date_start=params['date_start'],
         date_end=params['date_end'],
     )
+    # Extrair controles para compatibilidade com código existente
+    controles = [lote[0] for lote in lotes_class]  # Primeiro campo é o controle
 
     # Construir lista de lotes com agregados resumidos em batch para performance
     lotes = []
@@ -1823,6 +1837,42 @@ def comercial_sim_list(request: HttpRequest) -> JsonResponse:
     except Exception as e:
         logger.exception('comercial_sim_list failed')
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+
+def duplicate_classification_endpoint(request: HttpRequest) -> JsonResponse:
+    """POST /sankhya/duplicate/classification/ - Duplica TOP 11 para TOP 26"""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'Use POST'}, status=405)
+    
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+        nunota_11 = int(payload.get('nunota_11'))
+        dry_run = payload.get('dry_run', True)
+    except Exception:
+        return JsonResponse({'ok': False, 'error': 'Parâmetros inválidos'}, status=400)
+    
+    result = duplicate_to_classification(nunota_11, dry_run=dry_run)
+    status_code = 200 if result.get('ok') else 400
+    return JsonResponse(result, status=status_code)
+
+
+def duplicate_status_endpoint(request: HttpRequest) -> JsonResponse:
+    """GET /sankhya/duplicate/status/?nunota_11=... - Status de duplicação"""
+    if request.method != 'GET':
+        return JsonResponse({'ok': False, 'error': 'Use GET'}, status=405)
+    
+    try:
+        nunota_11 = int(request.GET.get('nunota_11'))
+    except Exception:
+        return JsonResponse({'ok': False, 'error': 'Parâmetro nunota_11 inválido'}, status=400)
+    
+    result = get_duplicate_status(nunota_11)
+    if 'error' in result:
+        return JsonResponse({'ok': False, 'error': result['error']}, status=400)
+    
+    result['ok'] = True
+    result['auto_enabled'] = is_auto_duplicate_enabled()
+    return JsonResponse(result)
 
 
 @ensure_csrf_cookie

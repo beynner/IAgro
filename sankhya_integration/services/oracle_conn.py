@@ -64,12 +64,17 @@ def _get_dsn_cfg():
 DEFAULT_PARAMS = {
     'TOP_ENTRADA': 11,
     'TOP_CLASS': 26,
+    'TOP_VALE_COMPRA': 13,
     'TOP_PED_VENDA': 34,
     'TOP_VENDAS': [35, 37],
     'TOP_AVARIA': 30,
     'PROD_IN_NATURA': 863,
     'PROD_CLASS_LIST': [358, 359, 907],
     'PROD_DESCARTE': 910,
+    # Flags de controle para automação
+    'AUTO_DUPLICATE_CLASSIFICATION': True,
+    'AUTO_CREATE_VALE_COMPRA': False,  # Será implementado na tela Comercial
+    'FALLBACK_MANUAL_ENABLED': True,
 }
 
 
@@ -2170,6 +2175,146 @@ def gerar_controle_para_item(nunota: int, sequencia: int, data: str | None = Non
     return controle
 
 
+def listar_lotes_portal(
+    days: int = 7,
+    limit: int = 50,
+    codparc: int | None = None,
+    codprod: int | None = None,
+    date_start: str | None = None,
+    date_end: str | None = None,
+):
+    """Lista lotes/controles para Portal (apenas TOP 11 - Pedidos de Compra)."""
+    from datetime import datetime, date as _date, timedelta
+    
+    def _to_date(val: str | _date | None):
+        if val in (None, '', 'None', 'none', 'null'):
+            return None
+        if isinstance(val, _date):
+            return val
+        if isinstance(val, datetime):
+            return val.date()
+        try:
+            return datetime.strptime(str(val), "%Y-%m-%d").date()
+        except Exception:
+            return None
+
+    params = get_params()
+    TOP_ENTRADA = params['TOP_ENTRADA']  # 11
+
+    dtini = _to_date(date_start)
+    dtfim = _to_date(date_end)
+    
+    if dtini is None and dtfim is None:
+        dtini = (_date.today() - timedelta(days=days))
+        dtfim = _date.today()
+
+    where = ["c.CODTIPOPER = :top_entrada"]
+    binds = {"top_entrada": TOP_ENTRADA}
+    
+    if dtini:
+        where.append("c.DTNEG >= :dtini")
+        binds["dtini"] = dtini
+    if dtfim:
+        where.append("c.DTNEG <= :dtfim")
+        binds["dtfim"] = dtfim
+    if codparc:
+        where.append("c.CODPARC = :codparc")
+        binds["codparc"] = codparc
+    if codprod:
+        where.append("i.CODPROD = :codprod")
+        binds["codprod"] = codprod
+
+    sql = (
+        "SELECT DISTINCT i.CODAGREGACAO AS controle, "
+        "       c.CODPARC, p.RAZAOSOCIAL, c.DTNEG, "
+        "       COUNT(DISTINCT i.NUNOTA) AS notas, "
+        "       COUNT(*) AS itens, "
+        "       NVL(SUM(i.QTDNEG), 0) AS qtd_total "
+        "FROM TGFITE i "
+        "JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA "
+        "LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC "
+        f"WHERE {' AND '.join(where)} "
+        "  AND i.CODAGREGACAO IS NOT NULL "
+        "GROUP BY i.CODAGREGACAO, c.CODPARC, p.RAZAOSOCIAL, c.DTNEG "
+        "ORDER BY c.DTNEG DESC, i.CODAGREGACAO DESC"
+    )
+    
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, binds)
+        return cur.fetchmany(limit)
+
+
+def listar_lotes_classificacao(
+    days: int = 7,
+    limit: int = 50,
+    codparc: int | None = None,
+    codprod: int | None = None,
+    date_start: str | None = None,
+    date_end: str | None = None,
+):
+    """Lista lotes/controles para Classificação (apenas TOP 26 - Classificação)."""
+    from datetime import datetime, date as _date, timedelta
+    
+    def _to_date(val: str | _date | None):
+        if val in (None, '', 'None', 'none', 'null'):
+            return None
+        if isinstance(val, _date):
+            return val
+        if isinstance(val, datetime):
+            return val.date()
+        try:
+            return datetime.strptime(str(val), "%Y-%m-%d").date()
+        except Exception:
+            return None
+
+    params = get_params()
+    TOP_CLASS = params['TOP_CLASS']  # 26
+
+    dtini = _to_date(date_start)
+    dtfim = _to_date(date_end)
+    
+    if dtini is None and dtfim is None:
+        dtini = (_date.today() - timedelta(days=days))
+        dtfim = _date.today()
+
+    where = ["c.CODTIPOPER = :top_class"]
+    binds = {"top_class": TOP_CLASS}
+    
+    if dtini:
+        where.append("c.DTNEG >= :dtini")
+        binds["dtini"] = dtini
+    if dtfim:
+        where.append("c.DTNEG <= :dtfim")
+        binds["dtfim"] = dtfim
+    if codparc:
+        where.append("c.CODPARC = :codparc")
+        binds["codparc"] = codparc
+    if codprod:
+        where.append("i.CODPROD = :codprod")
+        binds["codprod"] = codprod
+
+    sql = (
+        "SELECT DISTINCT i.CODAGREGACAO AS controle, "
+        "       c.NUNOTA, c.CODPARC, p.RAZAOSOCIAL, c.DTNEG, c.STATUSNOTA, "
+        "       COUNT(*) AS itens, "
+        "       NVL(SUM(i.QTDNEG), 0) AS qtd_classificada, "
+        "       MAX(c.OBSERVACAO) AS obs "
+        "FROM TGFITE i "
+        "JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA "
+        "LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC "
+        f"WHERE {' AND '.join(where)} "
+        "  AND i.CODAGREGACAO IS NOT NULL "
+        "GROUP BY i.CODAGREGACAO, c.NUNOTA, c.CODPARC, p.RAZAOSOCIAL, c.DTNEG, c.STATUSNOTA "
+        "ORDER BY c.DTNEG DESC, i.CODAGREGACAO DESC"
+    )
+    
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, binds)
+        return cur.fetchmany(limit)
+
+
 def listar_produtos(limit: int = 50, offset: int = 0, nome: str | None = None):
     """Lista produtos (TGFPRO) de forma simples. Read-only."""
     where = ["1=1"]
@@ -3478,4 +3623,230 @@ if __name__ == '__main__':
     from datetime import date
     lote = gerar_lote(date.today(), 76, 358)
     print(f'Exemplo de lote gerado: {lote}')
+
+
+def duplicate_to_classification(nunota_11: int, dry_run: bool = True) -> dict:
+    """Duplica nota TOP 11 para TOP 26 com produtos classificáveis.
+    
+    Fallback manual para quando o trigger automático não funcionar.
+    
+    Args:
+        nunota_11: NUNOTA da nota TOP 11 (origem)
+        dry_run: Se True, apenas simula (não executa)
+    
+    Returns:
+        dict: {ok, nunota_26, errors, warnings, executed}
+    """
+    res = {
+        'ok': False, 
+        'nunota_26': None, 
+        'errors': [], 
+        'warnings': [],
+        'executed': False,
+        'items_duplicated': 0
+    }
+    
+    try:
+        nunota_11 = int(nunota_11)
+    except (ValueError, TypeError):
+        res['errors'].append('NUNOTA inválido')
+        return res
+
+    params = get_params()
+    TOP_ENTRADA = params['TOP_ENTRADA']  # 11
+    TOP_CLASS = params['TOP_CLASS']      # 26
+    
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            
+            # 1. Verificar se TOP 11 existe
+            cur.execute("""
+                SELECT COUNT(*) FROM TGFCAB 
+                WHERE NUNOTA = :n AND CODTIPOPER = :top
+            """, n=nunota_11, top=TOP_ENTRADA)
+            
+            if cur.fetchone()[0] == 0:
+                res['errors'].append(f'NUNOTA {nunota_11} TOP 11 não encontrada')
+                return res
+            
+            # 2. Obter controle(s) da nota origem
+            cur.execute("""
+                SELECT DISTINCT i.CODAGREGACAO 
+                FROM TGFITE i 
+                WHERE i.NUNOTA = :n
+                AND i.CODAGREGACAO IS NOT NULL
+            """, n=nunota_11)
+            
+            controles = [row[0] for row in cur.fetchall()]
+            if not controles:
+                res['errors'].append('Nenhum controle encontrado nos itens da nota')
+                return res
+            
+            # 3. Verificar se já existe TOP 26 para algum controle
+            for controle in controles:
+                cur.execute("""
+                    SELECT COUNT(*) FROM TGFITE i
+                    JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                    WHERE i.CODAGREGACAO = :ctrl AND c.CODTIPOPER = :top
+                """, ctrl=controle, top=TOP_CLASS)
+                
+                if cur.fetchone()[0] > 0:
+                    res['warnings'].append(f'TOP 26 já existe para controle {controle}')
+            
+            # 4. Contar itens classificáveis
+            cur.execute("""
+                SELECT COUNT(*) FROM TGFITE
+                WHERE NUNOTA = :n AND NVL(GERAPRODUCAO, 'N') = 'S'
+            """, n=nunota_11)
+            
+            items_classificaveis = cur.fetchone()[0]
+            if items_classificaveis == 0:
+                res['warnings'].append('Nenhum item classificável encontrado')
+                res['ok'] = True
+                return res
+            
+            if dry_run:
+                res['ok'] = True
+                res['warnings'].append(f'Modo simulação - {items_classificaveis} itens seriam duplicados')
+                return res
+            
+            if not is_write_enabled():
+                res['warnings'].append('Escrita desabilitada - execução simulada')
+                res['ok'] = True
+                return res
+            
+            # 5. Duplicar TGFCAB (TOP 11 → TOP 26)
+            cur.execute("""
+                INSERT INTO TGFCAB (
+                    NUNOTA, CODEMP, CODPARC, CODTIPOPER, CODNAT, CODCENCUS,
+                    DTNEG, DTMOV, DTENTSAI, DHTIPOPER, TIPMOV, STATUSNOTA,
+                    OBSERVACAO, CODVEND, CODPARCTRANSP
+                )
+                SELECT 
+                    (SELECT NVL(MAX(NUNOTA), 0) + 1 FROM TGFCAB),
+                    CODEMP, CODPARC, :top_class, CODNAT, CODCENCUS,
+                    DTNEG, DTMOV, DTENTSAI, SYSDATE, 'P', 'A',
+                    'Auto-duplicado de TOP 11 NUNOTA ' || :nunota_orig,
+                    CODVEND, CODPARCTRANSP
+                FROM TGFCAB 
+                WHERE NUNOTA = :nunota_orig
+            """, {
+                'top_class': TOP_CLASS,
+                'nunota_orig': nunota_11
+            })
+            
+            # Obter NUNOTA gerado
+            cur.execute("SELECT MAX(NUNOTA) FROM TGFCAB WHERE CODTIPOPER = :top", top=TOP_CLASS)
+            nunota_26 = cur.fetchone()[0]
+            res['nunota_26'] = int(nunota_26)
+            
+            # 6. Duplicar itens classificáveis (TOP 11 → TOP 26)
+            cur.execute("""
+                INSERT INTO TGFITE (
+                    NUNOTA, SEQUENCIA, CODEMP, CODPROD, QTDNEG, VLRUNIT, VLRTOT,
+                    CODVOL, CODLOCALORIG, CODAGREGACAO, GERAPRODUCAO, STATUSNOTA,
+                    OBSERVACAO
+                )
+                SELECT 
+                    :nunota_26, 
+                    ROW_NUMBER() OVER (ORDER BY SEQUENCIA),
+                    CODEMP, CODPROD, QTDNEG, VLRUNIT, VLRTOT,
+                    CODVOL, CODLOCALORIG, CODAGREGACAO, GERAPRODUCAO, 'A',
+                    'Auto-duplicado de TOP 11'
+                FROM TGFITE
+                WHERE NUNOTA = :nunota_11 
+                AND NVL(GERAPRODUCAO, 'N') = 'S'
+            """, {
+                'nunota_26': nunota_26, 
+                'nunota_11': nunota_11
+            })
+            
+            items_inserted = cur.rowcount
+            res['items_duplicated'] = items_inserted
+            
+            conn.commit()
+            res['executed'] = True
+            res['ok'] = True
+            res['warnings'].append(f'TOP 26 criada: NUNOTA {nunota_26} com {items_inserted} itens')
+            
+    except Exception as e:
+        res['errors'].append(f'Erro ao duplicar: {str(e)}')
+        
+    return res
+
+
+def is_auto_duplicate_enabled() -> bool:
+    """Verifica se a duplicação automática está habilitada."""
+    try:
+        params = get_params()
+        return bool(params.get('AUTO_DUPLICATE_CLASSIFICATION', True))
+    except Exception:
+        return False
+
+
+def get_duplicate_status(nunota_11: int) -> dict:
+    """Verifica status de duplicação para uma nota TOP 11.
+    
+    Returns:
+        dict: {
+            has_top26: bool,
+            nunota_26: int|None, 
+            controls: list[str],
+            classificable_items: int
+        }
+    """
+    try:
+        nunota_11 = int(nunota_11)
+    except (ValueError, TypeError):
+        return {'error': 'NUNOTA inválido'}
+
+    params = get_params()
+    TOP_CLASS = params['TOP_CLASS']
+    
+    result = {
+        'has_top26': False,
+        'nunota_26': None,
+        'controls': [],
+        'classificable_items': 0
+    }
+    
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            
+            # Controles da nota
+            cur.execute("""
+                SELECT DISTINCT i.CODAGREGACAO 
+                FROM TGFITE i 
+                WHERE i.NUNOTA = :n
+                AND i.CODAGREGACAO IS NOT NULL
+            """, n=nunota_11)
+            result['controls'] = [row[0] for row in cur.fetchall()]
+            
+            # Items classificáveis
+            cur.execute("""
+                SELECT COUNT(*) FROM TGFITE
+                WHERE NUNOTA = :n AND NVL(GERAPRODUCAO, 'N') = 'S'
+            """, n=nunota_11)
+            result['classificable_items'] = cur.fetchone()[0]
+            
+            # Verificar se existe TOP 26
+            if result['controls']:
+                cur.execute("""
+                    SELECT i.NUNOTA FROM TGFITE i
+                    JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                    WHERE i.CODAGREGACAO = :ctrl AND c.CODTIPOPER = :top
+                    AND ROWNUM = 1
+                """, ctrl=result['controls'][0], top=TOP_CLASS)
+                
+                row = cur.fetchone()
+                if row:
+                    result['has_top26'] = True
+                    result['nunota_26'] = int(row[0])
+                    
+    except Exception:
+        pass
+        
+    return result
 

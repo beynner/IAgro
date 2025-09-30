@@ -46,4 +46,6 @@ urlpatterns = [
     path("header/plan/", views.header_plan, name="header_plan"),
     path("comercial/sim/save/", views.comercial_sim_save, name="comercial_sim_save"),
     path("comercial/sim/list/", views.comercial_sim_list, name="comercial_sim_list"),
+    path("duplicate/classification/", views.duplicate_classification_endpoint, name="duplicate_classification"),
+    path("duplicate/status/", views.duplicate_status_endpoint, name="duplicate_status"),
 ]

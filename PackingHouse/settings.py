@@ -92,4 +92,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 SANKHYA_CONFIG = {
     # Habilita gravação no Oracle para lançamentos assistidos
     'WRITE_ENABLED': True,
+    # Configurações de automação de fluxo
+    'AUTO_FLOWS': {
+        'DUPLICATE_CLASSIFICATION': True,  # AUTO duplicar TOP 11→26
+        'CREATE_VALE_COMPRA': False,      # Será implementado na tela Comercial
+        'SEPARATE_INTERFACES': True,       # Portal=TOP11, Classificação=TOP26
+    }
 }
