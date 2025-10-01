@@ -4,8 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Classificação - Packing House</title>
+  {% load static %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/style.css' %}">
   <style>
-    :root { --border:#e5e7eb; --panel:#fff; --muted:#6b7280; --bg:#f7f9fb; }
+  :root { --border:#e5e7eb; --panel:#fff; --muted:#6b7280; --bg:#f7f9fb; --ph-selected-bg:#FEF9C3; --ph-selected-border:#F59E0B; }
   body { margin:0; font-family: Inter, system-ui, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:#111827; font-size:12px; }
     header { padding: 12px 16px; background:#fff; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5; }
     main { display:grid; grid-template-columns: 320px 1fr; gap:12px; padding:12px; }
@@ -36,7 +38,22 @@
     th { background:#f3f4f6; position:sticky; top:0; }
     .list, .items { height:100%; overflow:auto; }
     .row--click { cursor: pointer; }
-    .row--active { background:#eef2ff; }
+    /* Reusable selectable table styles */
+    .ph-selectable-table tbody tr { transition: background-color .12s ease, box-shadow .12s ease; }
+    .ph-selectable-table tbody tr:hover { background: #f6f7fb; }
+    .ph-selectable-table tbody tr.is-selected,
+    .ph-selectable-table tbody tr.selected,
+    .ph-selectable-table tbody tr.row--active,
+    tbody tr.ph-row-selected {
+      background: var(--ph-selected-bg, #e8edff);
+      box-shadow: inset 3px 0 0 var(--ph-selected-border, #6366f1);
+    }
+    /* Compact rows: reduce cell padding and line-height */
+    .ph-selectable-table th,
+    .ph-selectable-table td {
+      padding: 4px 8px;
+      line-height: 1.2;
+    }
 
     /* Top toolbar above results panel */
   .toolbar-top { display:flex; justify-content:flex-start; gap:8px; align-items:center; margin: 0 0 6px 0; flex-wrap: nowrap; }
@@ -61,10 +78,29 @@
     .switch .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; top: 3px; background-color: #fff; transition: .2s; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
     .switch input:checked + .slider { background-color: #10B981; }
     .switch input:checked + .slider:before { transform: translateX(22px); }
+    /* Page loading overlay */
+    #pageOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center; z-index: 9999; transition: opacity .2s ease; }
+    #pageOverlay.hidden { opacity: 0; pointer-events: none; }
+    .ph-spinner { width: 56px; height: 56px; border-radius: 50%; border: 4px solid #e5e7eb; border-top-color: #2563eb; animation: phspin 1s linear infinite; box-shadow: 0 0 0 1px rgba(0,0,0,0.02) inset; }
+    @keyframes phspin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
-  <header><h1>Classificação</h1></header>
+  <!-- Fullscreen loading overlay (visible until window load completes) -->
+  <div id="pageOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;z-index:9999;">
+    <div class="ph-spinner" aria-label="Carregando" role="status" style="width:56px;height:56px;border-radius:50%;border:4px solid #e5e7eb;border-top-color:#2563eb;"></div>
+  </div>
+
+  <header>
+    <h1 style="display:flex; align-items:center; gap:10px;">
+      Classificação
+      {% if timings %}
+        <span title="Tempo de servidor (ms)" style="font-size:12px; font-weight:500; color:#111827; background:#E5E7EB; border-radius:9999px; padding:2px 8px;">
+          {{ timings.total_ms }} ms (list {{ timings.list_ms }}, sum {{ timings.sum_ms }})
+        </span>
+      {% endif %}
+    </h1>
+  </header>
 
   <main>
     <!-- Sidebar filtros (esquerda) -->
@@ -164,19 +200,20 @@
       <div class="panel panel--results">
         <header>LOTES</header>
         <div class="list" id="notasList" tabindex="0">
-          <table id="notasTable">
+          <table id="notasTable" class="ph-selectable-table">
             <thead>
               <tr>
                 <th>Lote / CODAGREGACAO</th>
                 <th>Parceiro</th>
                 <th>Produtos (TOP 11 - Entradas)</th>
-                <th>Qtde Pedido</th>
+                <th>Qtde cx</th>
+                <th>Qtde kg</th>
                 <th>Qtde Classificado</th>
                 <th>Qtde Estoque</th>
               </tr>
             </thead>
             <tbody>
-              {% for controle, parceiro, produto_descr, qtd_pedido, qtd_class, qtd_estoque, exemplo_nunota, exemplo_seq, produtos_entrada, codparc in lotes %}
+              {% for controle, parceiro, produto_descr, qtd_cx, qtd_kg, qtd_class, qtd_estoque, exemplo_nunota, exemplo_seq, produtos_entrada, codparc in lotes %}
               {% with is_sel=sel|default:0 %}
         <tr class="row--click{% if controle == is_sel %} row--active{% endif %}"
           data-nunota="{{ controle }}"
@@ -196,7 +233,8 @@
                     {{ produto_descr }}
                   {% endif %}
                 </td>
-                <td>{{ qtd_pedido }}</td>
+                <td>{{ qtd_cx }}</td>
+                <td>{{ qtd_kg }}</td>
                 <td>{{ qtd_class }}</td>
                 <td>{{ qtd_estoque }}</td>
               </tr>
@@ -231,7 +269,7 @@
       </div>
     </header>
         <div class="items">
-          <table>
+          <table class="ph-selectable-table">
             <thead>
               <tr>
                 <th>Controle</th>
@@ -268,6 +306,52 @@
       </div>
     </section>
   </main>
+  <!-- Overlay control bootstrap: hide overlay after full page load; expose window.PHOverlay.show/hide -->
+  <script>
+    (function(){
+      try {
+        const tStr = '{{ timings_json|default:"" }}';
+        if (tStr) {
+          try { const t = JSON.parse(tStr); if (t) console.log('[classificacao] perf ms:', t); } catch (_e) {}
+        }
+      } catch (_){ }
+      const ov = document.getElementById('pageOverlay');
+      function hide(){ if(!ov) return; ov.classList.add('hidden'); setTimeout(()=>{ if(ov) ov.style.display='none'; }, 250); }
+      function show(){ if(!ov) return; ov.style.display='flex'; ov.classList.remove('hidden'); }
+      // Global initial-loading flag; page will hide overlay when first classified-items AJAX finishes.
+      try { window.__PH_INITIAL_LOADING = true; } catch(_) {}
+      // Hide as soon as DOM is interactive; don't wait for all assets
+      document.addEventListener('DOMContentLoaded', function(){
+        // If first AJAX will run, it will hide in its finally; otherwise hide now
+        if (window.__PH_INITIAL_LOADING) {
+          hide();
+        }
+      });
+      // Fallback: if DOMContentLoaded didn't fire (rare) or other edge, ensure hide shortly after load
+      window.addEventListener('load', function(){
+        setTimeout(function(){ if (window.__PH_INITIAL_LOADING) { hide(); } }, 600);
+      });
+  // Expose globally for navigation and ajax hooks
+  try { window.PHOverlay = { show, hide }; } catch(_) {}
+  // Show overlay immediately when user triggers a reload or navigates away
+  window.addEventListener('beforeunload', function(){ try{ show(); }catch(_){} });
+  // Some browsers fire pagehide instead
+  window.addEventListener('pagehide', function(){ try{ show(); }catch(_){} });
+    })();
+  </script>
+  <!-- Seed initial lote cache to avoid first AJAX fetch -->
+  <script>
+    (function(){
+      try {
+        window.__LOTES_CACHE = window.__LOTES_CACHE || {};
+        const ctrl = '{{ initial_lote_ctrl|default:"" }}';
+        const jstr = '{{ initial_lote_json|default:"" }}';
+        if (ctrl && jstr) {
+          try { const data = JSON.parse(jstr); if (data && typeof data === 'object') { window.__LOTES_CACHE[ctrl] = data; } } catch(_) {}
+        }
+      } catch(_) {}
+    })();
+  </script>
   <!-- Item edit/add modal (for Produtos Classificados) -->
   <div id="modalItemEdit" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); align-items:center; justify-content:center; z-index:70;">
     <div style="background:#fff; border-radius:8px; width:640px; max-width:95%; padding:14px;">
@@ -512,7 +596,7 @@
                 </label>
               </div>
               <div style="max-height:42vh; overflow:auto; border:1px solid var(--border); border-radius:6px;">
-                <table style="width:100%; border-collapse:collapse;">
+                <table class="ph-selectable-table" style="width:100%; border-collapse:collapse;">
                   <thead><tr><th style="padding:8px">Lote</th><th>Produto</th><th>Vol</th><th>Qtd</th><th>Peso</th><th>Classifica</th><th>Total</th><th></th></tr></thead>
                     <tbody id="itemsListBody"><tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr></tbody>
                 </table>
@@ -532,11 +616,45 @@
       const listEl = document.getElementById('notasList');
       let clickTimer = null;
       const CLICK_DELAY = 250;
+      // Prefetch controls for lotes cache
+      const LOTES_PREFETCH = { inflight: Object.create(null), scheduled: Object.create(null) };
+      function hasLoteInCache(ctrl){ try{ return !!(window.__LOTES_CACHE && window.__LOTES_CACHE[String(ctrl)] && window.__LOTES_CACHE[String(ctrl)].ok); }catch(_){ return false; } }
+      async function prefetchLote(ctrl){
+        const c = (ctrl||'').toString().trim(); if(!c) return;
+        if (hasLoteInCache(c)) return;
+        if (LOTES_PREFETCH.inflight[c]) return;
+        LOTES_PREFETCH.inflight[c] = true;
+        try{
+          const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(c), { credentials: 'same-origin' });
+          let j={}; try{ j = await r.json(); }catch(_){ j = {}; }
+          if(j && j.ok){ try{ window.__LOTES_CACHE = window.__LOTES_CACHE || {}; window.__LOTES_CACHE[String(c)] = j; }catch(_){ } }
+        }catch(_){ } finally { delete LOTES_PREFETCH.inflight[c]; }
+      }
+      function schedulePrefetch(ctrl, delay){
+        const c = (ctrl||'').toString().trim(); if(!c) return;
+        if (hasLoteInCache(c)) return;
+        if (LOTES_PREFETCH.scheduled[c]) return;
+        LOTES_PREFETCH.scheduled[c] = setTimeout(()=>{ try{ prefetchLote(c); }finally{ try{ clearTimeout(LOTES_PREFETCH.scheduled[c]); }catch(_){ } delete LOTES_PREFETCH.scheduled[c]; } }, typeof delay==='number'?delay:140);
+      }
       function updateDeleteBtn(){ const btnDel = document.getElementById('btnDeleteNota'); if(!btnDel) return; const hasActive = !!tbl.querySelector('tbody tr.row--click.row--active'); if(hasActive) btnDel.removeAttribute('disabled'); else btnDel.setAttribute('disabled','disabled'); }
   const btnClassify = document.getElementById('btnClassify');
   function updateClassifyBtn(){ if(!btnClassify) return; const rows = Array.from(tbl.querySelectorAll('tbody tr.row--click')); const selected = rows.filter(r=>r.classList.contains('row--active')); if(selected.length===1){ btnClassify.removeAttribute('disabled'); } else { btnClassify.setAttribute('disabled','disabled'); } }
       tbl.addEventListener('click', (e) => {
-        const tr = e.target.closest('tr.row--click'); if(!tr) return; Array.from(tbl.querySelectorAll('tbody tr.row--click')).forEach(r=>r.classList.remove('row--active')); tr.classList.add('row--active'); updateDeleteBtn(); if (clickTimer) clearTimeout(clickTimer); clickTimer = setTimeout(()=>{ try{ const url = new URL(window.location.href); url.searchParams.set('sel', tr.dataset.nunota); window.location.href = url.pathname + '?' + url.searchParams.toString(); }catch(_){ const qs = window.location.search ? window.location.search + '&' : '?'; window.location.href = window.location.pathname + qs + 'sel=' + encodeURIComponent(tr.dataset.nunota); } clickTimer=null; }, CLICK_DELAY);
+        const tr = e.target.closest('tr.row--click');
+        if(!tr) return;
+        Array.from(tbl.querySelectorAll('tbody tr.row--click')).forEach(r=>r.classList.remove('row--active'));
+        tr.classList.add('row--active');
+        updateDeleteBtn();
+        if (clickTimer) clearTimeout(clickTimer);
+        clickTimer = setTimeout(()=>{
+          const ctrl = tr.dataset.nunota;
+          // Atualiza URL sem recarregar (sel) e carrega painel de classificados
+          try{ const url = new URL(window.location.href); url.searchParams.set('sel', ctrl); window.history.replaceState({}, '', url.pathname + '?' + url.searchParams.toString()); }catch(_){ }
+          try{ loadClassifiedFor(ctrl); }catch(err){ console.error('Falha ao carregar classificados para', ctrl, err); }
+          // Prefetch reforçado
+          try{ schedulePrefetch(ctrl, 60); }catch(_){ }
+          clickTimer = null;
+        }, CLICK_DELAY);
       });
       tbl.addEventListener('dblclick', async (e)=>{
         const tr = e.target.closest('tr[data-central-url]');
@@ -585,8 +703,32 @@
       });
       function getRows(){ return Array.from(tbl.querySelectorAll('tbody tr.row--click')); }
       function currentIndex(){ const rows = getRows(); if (!rows.length) return -1; const idx = rows.findIndex(r => r.classList.contains('row--active')); return idx >= 0 ? idx : 0; }
-      function setActive(newIdx, triggerApply){ const rows = getRows(); if(!rows.length) return; newIdx = Math.max(0, Math.min(rows.length-1, newIdx)); const current = tbl.querySelector('tbody tr.row--active'); const row = rows[newIdx]; if (current === row) return; rows.forEach(r=>r.classList.remove('row--active')); row.classList.add('row--active'); row.scrollIntoView({ block: 'nearest' }); if (triggerApply) { applySelection(); } }
-      function applySelection(){ const row = tbl.querySelector('tbody tr.row--active'); if(!row) return; try{ const url = new URL(window.location.href); url.searchParams.set('sel', row.dataset.nunota); window.location.href = url.pathname + '?' + url.searchParams.toString(); }catch(_){ const qs = window.location.search ? window.location.search + '&' : '?'; window.location.href = window.location.pathname + qs + 'sel=' + encodeURIComponent(row.dataset.nunota); } }
+      function setActive(newIdx, triggerApply){
+        const rows = getRows(); if(!rows.length) return;
+        newIdx = Math.max(0, Math.min(rows.length-1, newIdx));
+        const current = tbl.querySelector('tbody tr.row--active');
+        const row = rows[newIdx]; if (current === row) return;
+        rows.forEach(r=>r.classList.remove('row--active'));
+        row.classList.add('row--active');
+        row.scrollIntoView({ block: 'nearest' });
+        // agendar prefetch para a linha ativa
+        try{ const ctrl = row && row.dataset && row.dataset.nunota; if(ctrl) schedulePrefetch(ctrl, 80); }catch(_){ }
+        if (triggerApply) { applySelection(); }
+      }
+      function applySelection(){
+        const row = tbl.querySelector('tbody tr.row--active'); if(!row) return;
+        const ctrl = row.dataset.nunota;
+        try{ const url = new URL(window.location.href); url.searchParams.set('sel', ctrl); window.history.replaceState({}, '', url.pathname + '?' + url.searchParams.toString()); }catch(_){ }
+        try{ loadClassifiedFor(ctrl); }catch(err){ console.error('applySelection load classified error', err); }
+      }
+      // Hover-based prefetch para antecipar escolha
+      tbl.addEventListener('mouseover', (e)=>{
+        const tr = e.target && e.target.closest ? e.target.closest('tr.row--click') : null; if(!tr) return;
+        const ctrl = tr.dataset && tr.dataset.nunota; if(!ctrl) return;
+        schedulePrefetch(ctrl, 120);
+      });
+      // Prefetch inicial para primeiras linhas
+      try{ const first = getRows().slice(0,4); first.forEach((r,i)=>{ const c = r && r.dataset && r.dataset.nunota; if(c) schedulePrefetch(c, 200 + i*140); }); }catch(_){ }
       function isTypingTarget(el){ const t = (el && el.tagName) ? el.tagName.toLowerCase() : ''; return t === 'input' || t === 'textarea' || el.isContentEditable; }
       (listEl || document).addEventListener('keydown', (e) => { if (isTypingTarget(e.target)) return; if (e.key === 'ArrowDown'){ e.preventDefault(); setActive(currentIndex()+1, true); } else if (e.key === 'ArrowUp'){ e.preventDefault(); setActive(currentIndex()-1, true); } else if (e.key === 'Enter'){ e.preventDefault(); applySelection(); } });
       try{ listEl && listEl.focus(); }catch(_){}
@@ -618,7 +760,7 @@
         });
       })();
       // Load classified products for selected lote via AJAX
-      async function loadClassifiedFor(controle){ const bodyEl = document.getElementById('prodClassBody'); if(!bodyEl) return; bodyEl.innerHTML = '<tr><td colspan="9">Carregando...</td></tr>'; try{ const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' }); const j = await r.json(); if(!j.ok){ bodyEl.innerHTML = `<tr><td colspan="9">Erro: ${j.error||'falha'}</td></tr>`; return; } const rows = j.classificacoes || []; // update nunota TOP 26 badge
+  async function loadClassifiedFor(controle){ const bodyEl = document.getElementById('prodClassBody'); if(!bodyEl) return; bodyEl.innerHTML = '<tr><td colspan="9">Carregando...</td></tr>'; try{ let j = null; try{ if(window.__LOTES_CACHE && window.__LOTES_CACHE[controle]){ j = window.__LOTES_CACHE[controle]; } }catch(_){ } if(!j){ const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' }); j = await r.json(); try{ window.__LOTES_CACHE = window.__LOTES_CACHE || {}; if(j && j.ok){ window.__LOTES_CACHE[controle] = j; } }catch(_){ } } if(!j || !j.ok){ bodyEl.innerHTML = `<tr><td colspan="9">Erro: ${(j&&j.error)||'falha'}</td></tr>`; return; } const rows = j.classificacoes || []; // update nunota TOP 26 badge
         try{
           const entradas = Array.isArray(j.entradas) ? j.entradas : [];
           const pin = j.prod_in_natura || null;
@@ -629,15 +771,28 @@
           }
           window.PH_INNATURA_CODPROD = innCod || null;
         }catch(_){ }
-        try{ const badge = document.getElementById('nunotaClassBadge'); if(badge){ if(j.nunota_class){ badge.textContent = 'NUNOTA ' + j.nunota_class; badge.style.display = 'inline-block'; } else { badge.style.display = 'none'; } } }catch(_){ }
-        // Update the 'Qtde Pedido' cell in the active LOTES row based on entradas (sum of all entradas)
+  try{ const badge = document.getElementById('nunotaClassBadge'); if(badge){ if(j.nunota_class){ badge.textContent = 'NUNOTA ' + j.nunota_class; badge.style.display = 'inline-block'; } else { badge.style.display = 'none'; } } }catch(_){ }
+        // Update 'Qtde cx' and 'Qtde kg' in the active LOTES row from entradas
         try{
           const entradas = Array.isArray(j.entradas) ? j.entradas : [];
-          const qPedido = entradas.reduce((s,e)=> s + (parseFloat(e.qtd||0) || 0), 0);
+          const qCx = entradas.reduce((s,e)=>{
+            const vol = (e.codvol || e.CODVOL || '').toString().trim().toUpperCase();
+            const qtd = parseFloat(e.qtd || e.QTDNEG || 0) || 0;
+            return s + (vol === 'CX' ? qtd : 0);
+          }, 0);
+          const qKg = entradas.reduce((s,e)=>{
+            const vol = (e.codvol || e.CODVOL || '').toString().trim().toUpperCase();
+            const qtd = parseFloat(e.qtd || e.QTDNEG || 0) || 0;
+            return s + (vol === 'KG' ? qtd : 0);
+          }, 0);
           const activeRow = document.querySelector('#notasTable tbody tr.row--active');
-          if(activeRow && activeRow.cells && activeRow.cells.length >= 6){ activeRow.cells[3].textContent = (qPedido || 0).toFixed(3); }
-        }catch(_){ }
-        if(rows.length===0){ bodyEl.innerHTML = '<tr><td colspan="9">Nenhum produto classificado para a seleção.</td></tr>'; return; } bodyEl.innerHTML = ''; for(const it of rows){ const tr = document.createElement('tr'); tr.innerHTML = `<td>${it.nunota||''}</td><td>${it.sequencia||''}</td><td>${it.cod||''}</td><td>${it.descr||''}</td><td>${it.qtd!=null?it.qtd:''}</td><td>${it.vlu||''}</td><td>${it.vlt||''}</td><td>${it.codvol||''}</td><td></td>`; bodyEl.appendChild(tr); } }catch(err){ bodyEl.innerHTML = '<tr><td colspan="9">Erro ao carregar.</td></tr>'; } }
+          // Columns: 0 ctrl, 1 parceiro, 2 produto, 3 qtde cx, 4 qtde kg, 5 classificado, 6 estoque
+          if(activeRow && activeRow.cells && activeRow.cells.length >= 7){
+            activeRow.cells[3].textContent = (qCx || 0).toFixed(3);
+            activeRow.cells[4].textContent = (qKg || 0).toFixed(3);
+          }
+    }catch(_){ }
+  if(rows.length===0){ bodyEl.innerHTML = '<tr><td colspan="9">Nenhum produto classificado para a seleção.</td></tr>'; return; } bodyEl.innerHTML = ''; for(const it of rows){ const tr = document.createElement('tr'); tr.innerHTML = `<td>${it.nunota||''}</td><td>${it.sequencia||''}</td><td>${it.cod||''}</td><td>${it.descr||''}</td><td>${it.qtd!=null?it.qtd:''}</td><td>${it.vlu||''}</td><td>${it.vlt||''}</td><td>${it.codvol||''}</td><td></td>`; bodyEl.appendChild(tr); } }catch(err){ bodyEl.innerHTML = '<tr><td colspan="9">Erro ao carregar.</td></tr>'; } finally { try { if (window.__PH_INITIAL_LOADING) { window.__PH_INITIAL_LOADING = false; window.PHOverlay && window.PHOverlay.hide && window.PHOverlay.hide(); } } catch(_) {} } }
 
       // Enable/disable header action buttons depending on selection
       const prodAddBtn = document.getElementById('prodAddBtn'); const prodEditBtn = document.getElementById('prodEditBtn'); const prodDeleteBtn = document.getElementById('prodDeleteBtn');
@@ -650,7 +805,7 @@
 
       // When a classified row is clicked, mark it as selected (single select) and update header buttons
       document.getElementById('prodClassBody')?.addEventListener('click', function(e){ const tr = e.target.closest('tr'); if(!tr) return; // clear previous
-        Array.from(document.querySelectorAll('#prodClassBody tr')).forEach(r=> r.classList.remove('selected')); tr.classList.add('selected'); updateHeaderActionButtons(); });
+        Array.from(document.querySelectorAll('#prodClassBody tr')).forEach(r=> r.classList.remove('selected','is-selected','row--active','ph-row-selected')); tr.classList.add('selected'); updateHeaderActionButtons(); });
 
       // Also update when notasTable selection changes
       const notasObserver = new MutationObserver(()=>{ updateHeaderActionButtons(); }); notasObserver.observe(tbl.querySelector('tbody') || tbl, { attributes: true, childList: true, subtree: true });
@@ -729,9 +884,9 @@
   document.getElementById('modalOrigem')?.addEventListener('change', refreshAddButtonState);
   tbl.addEventListener('click', ()=> setTimeout(()=>{ refreshAddButtonState(); updateHeaderActionButtons(); }, 100));
 
-      async function confirmDeleteItem(nunota, sequencia){ if(!confirm(`Confirma excluir item ${sequencia} da nota ${nunota}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nunota,10), sequencias: [ parseInt(sequencia,10) ] }); if(res.ok){ alert('Item excluído'); const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha: ' + (res.body?.error || (res.body?.errors||[]).join('\n') || 'Erro')); } }
+  async function confirmDeleteItem(nunota, sequencia){ if(!confirm(`Confirma excluir item ${sequencia} da nota ${nunota}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nunota,10), sequencias: [ parseInt(sequencia,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(window.__LOTES_CACHE) delete window.__LOTES_CACHE[String(nunota)]; }catch(_){ } const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha: ' + (res.body?.error || (res.body?.errors||[]).join('\n') || 'Erro')); } }
 
-      itemDeleteBtn.addEventListener('click', async function(){ if(!currentEditing || !currentEditing.nunota || !currentEditing.sequencia) return; if(!confirm('Confirmar exclusão do item?')) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(currentEditing.nunota,10), sequencias: [ parseInt(currentEditing.sequencia,10) ] }); if(res.ok){ alert('Item excluído'); itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Erro: ' + (res.body?.error || (res.body?.errors||[]).join('\n') || 'Falha')); } });
+  itemDeleteBtn.addEventListener('click', async function(){ if(!currentEditing || !currentEditing.nunota || !currentEditing.sequencia) return; if(!confirm('Confirmar exclusão do item?')) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(currentEditing.nunota,10), sequencias: [ parseInt(currentEditing.sequencia,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(window.__LOTES_CACHE) delete window.__LOTES_CACHE[String(currentEditing.nunota)]; }catch(_){ } itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Erro: ' + (res.body?.error || (res.body?.errors||[]).join('\n') || 'Falha')); } });
 
       itemModalSave.addEventListener('click', async function(){ const nun = currentEditing?.nunota; const seq = currentEditing?.sequencia; if(!nun){ alert('Nota desconhecida'); return; }
         // normalize numeric inputs (comma -> dot)
@@ -753,12 +908,12 @@
         // Reuse global SQL preview modal
         const sqlModal = document.getElementById('sqlPreviewModal'); const sqlContent = document.getElementById('sqlPreviewContent'); const sqlCancel = document.getElementById('sqlPreviewCancel'); const sqlConfirm = document.getElementById('sqlPreviewConfirm');
         if(!sqlModal || !sqlContent){ // fallback to direct save
-          const ok = confirm('Aplicar alteração (sem preview)?'); if(!ok) return; const saveRes = await postJSON('/sankhya/item/save/', payload); if(saveRes.ok){ alert('Item salvo'); itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha ao salvar: ' + (saveRes.body?.errors||[]).join('\n') || 'Erro'); } return; }
+          const ok = confirm('Aplicar alteração (sem preview)?'); if(!ok) return; const saveRes = await postJSON('/sankhya/item/save/', payload); if(saveRes.ok){ alert('Item salvo'); try{ if(window.__LOTES_CACHE) delete window.__LOTES_CACHE[String(nun)]; }catch(_){ } itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha ao salvar: ' + (saveRes.body?.errors||[]).join('\n') || 'Erro'); } return; }
         sqlContent.textContent = preview; sqlModal.style.display = 'flex';
         sqlCancel.onclick = function(){ sqlModal.style.display='none'; };
         sqlConfirm.onclick = async function(){ sqlModal.style.display='none'; // perform actual save
           const saveRes = await postJSON('/sankhya/item/save/', payload);
-          if(saveRes.ok){ alert('Item salvo'); itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha ao salvar: ' + (saveRes.body?.errors||[]).join('\n') || 'Erro'); }
+          if(saveRes.ok){ alert('Item salvo'); try{ if(window.__LOTES_CACHE) delete window.__LOTES_CACHE[String(nun)]; }catch(_){ } itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha ao salvar: ' + (saveRes.body?.errors||[]).join('\n') || 'Erro'); }
         };
       });
 
@@ -1003,8 +1158,8 @@
       const clearBtn = document.getElementById('btnClear'); const form = document.getElementById('filtersForm'); if(clearBtn && form){ clearBtn.addEventListener('click', (e)=>{ e.preventDefault(); const inputs = form.querySelectorAll('input'); inputs.forEach((inp)=>{ if(inp.type === 'hidden' || inp.type === 'text' || inp.type === 'number' || inp.type === 'date'){ inp.value = ''; } }); const parcHidden = document.getElementById('codparc'); if(parcHidden) parcHidden.value = ''; const parcVisible = document.getElementById('parcSearch'); if(parcVisible) parcVisible.value = ''; }); }
       if(form){ form.addEventListener('submit', ()=>{ let pg = form.querySelector('input[name="page"]'); if(!pg){ pg = document.createElement('input'); pg.type='hidden'; pg.name='page'; form.appendChild(pg); } pg.value='1'; }); }
       function goToPage(targetPage){ try{ const url = new URL(window.location.href); url.searchParams.set('page', String(targetPage)); window.location.href = url.pathname + '?' + url.searchParams.toString(); }catch(err){ const qs = window.location.search ? window.location.search + '&' : '?'; window.location.href = window.location.pathname + qs + 'page=' + encodeURIComponent(targetPage); } }
-      const btnPrev = document.getElementById('btnPrev'); if(btnPrev && !btnPrev.disabled){ btnPrev.addEventListener('click', ()=>goToPage(btnPrev.dataset.page)); }
-      const btnNext = document.getElementById('btnNext'); if(btnNext && !btnNext.disabled){ btnNext.addEventListener('click', ()=>goToPage(btnNext.dataset.page)); }
+  const btnPrev = document.getElementById('btnPrev'); if(btnPrev && !btnPrev.disabled){ btnPrev.addEventListener('click', ()=>{ try{ window.PHOverlay && window.PHOverlay.show && window.PHOverlay.show(); }catch(_){ } goToPage(btnPrev.dataset.page); }); }
+  const btnNext = document.getElementById('btnNext'); if(btnNext && !btnNext.disabled){ btnNext.addEventListener('click', ()=>{ try{ window.PHOverlay && window.PHOverlay.show && window.PHOverlay.show(); }catch(_){ } goToPage(btnNext.dataset.page); }); }
     })();
     // --- Portal-like orchestration for Cabeçalho -> Itens -> Rodapé flow ---
     (function(){

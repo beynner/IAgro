@@ -4,8 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Portal Packing House</title>
+  {% load static %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/style.css' %}">
   <style>
-    :root { --border:#e5e7eb; --panel:#fff; --muted:#6b7280; --bg:#f7f9fb; }
+  :root { --border:#e5e7eb; --panel:#fff; --muted:#6b7280; --bg:#f7f9fb; --ph-selected-bg:#FEF9C3; --ph-selected-border:#F59E0B; }
     body { margin:0; font-family: Inter, system-ui, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:#111827; }
     header { padding: 12px 16px; background:#fff; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5; }
     main { display:grid; grid-template-columns: 320px 1fr; gap:12px; padding:12px; }
@@ -41,7 +43,22 @@
     th { background:#f3f4f6; position:sticky; top:0; }
     .list, .items { height:100%; overflow:auto; }
     .row--click { cursor: pointer; }
-    .row--active { background:#eef2ff; }
+    /* Reusable selectable table styles */
+    .ph-selectable-table tbody tr { transition: background-color .12s ease, box-shadow .12s ease; }
+    .ph-selectable-table tbody tr:hover { background: #f6f7fb; }
+    .ph-selectable-table tbody tr.is-selected,
+    .ph-selectable-table tbody tr.selected,
+    .ph-selectable-table tbody tr.row--active,
+    tbody tr.ph-row-selected {
+      background: var(--ph-selected-bg, #e8edff);
+      box-shadow: inset 3px 0 0 var(--ph-selected-border, #6366f1);
+    }
+      /* Compact rows: reduce cell padding and line-height */
+      .ph-selectable-table th,
+      .ph-selectable-table td {
+        padding: 4px 8px;
+        line-height: 1.2;
+      }
 
     /* Top toolbar above results panel */
   .toolbar-top { display:flex; justify-content:flex-start; gap:8px; align-items:center; margin: 0 0 6px 0; flex-wrap: nowrap; }
@@ -73,8 +90,45 @@
   .switch .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; top: 3px; background-color: #fff; transition: .2s; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
   .switch input:checked + .slider { background-color: #10B981; }
   .switch input:checked + .slider:before { transform: translateX(22px); }
+
+  /* Fullscreen page overlay spinner */
+  #pageOverlay { position: fixed; inset: 0; background: rgba(17,24,39,.35); display: flex; align-items: center; justify-content: center; z-index: 99999; opacity: 1; visibility: visible; transition: opacity .25s ease, visibility .25s ease; }
+  #pageOverlay.hidden { opacity: 0; visibility: hidden; }
+  .ph-spinner { width: 52px; height: 52px; border: 3px solid rgba(255,255,255,.35); border-top-color: #ffffff; border-radius: 50%; animation: phspin .8s linear infinite; box-shadow: 0 0 0 1px rgba(0,0,0,.08) inset; }
+  @keyframes phspin { to { transform: rotate(360deg); } }
+
+  /* Force compact table rows specifically for Portal bottom card and Items modal */
+  .panel.panel--items table th,
+  .panel.panel--items table td,
+  #cabItemsCard table th,
+  #cabItemsCard table td {
+    font-size: 12px !important;
+    padding: 4px 8px !important;
+    line-height: 1.2 !important;
+  }
+
+  /* Compact the form controls within the Itens — Nota modal (insert/edit) */
+  #cabItemsCard label { font-size: 12px !important; }
+  #cabItemsCard input[type="text"],
+  #cabItemsCard input[type="number"],
+  #cabItemsCard input[type="date"],
+  #cabItemsCard select,
+  #cabItemsCard textarea {
+    font-size: 12px !important;
+    padding: 4px 8px !important;
+    line-height: 1.2 !important;
+    height: 28px;
+  }
+  #cabItemsCard textarea { height: auto; min-height: 56px; }
+  /* Keep header buttons size but reduce inner gaps subtly */
+  #cabItemsCard [style*="gap:8px"] { gap: 6px !important; }
   </style>
 </head>
+<body>
+  <!-- Page overlay: initially visible for immediate feedback on refresh -->
+  <div id="pageOverlay" style="display:flex;">
+    <div class="ph-spinner" aria-label="Carregando" role="status"></div>
+  </div>
   <header><h1>Portal Packing House</h1></header>
 
   <main>
@@ -173,7 +227,7 @@
       <div class="panel panel--results">
         <header>Notas</header>
         <div class="list" id="notasList" tabindex="0">
-          <table id="notasTable">
+            <table id="notasTable" class="ph-selectable-table" style="width:100%; border-collapse:collapse;">
             <thead>
               <tr>
                 <th>
@@ -237,7 +291,7 @@
       <div class="panel panel--items">
         <header>Itens da Nota {{ sel }}</header>
         <div class="items">
-          <table>
+          <table class="ph-selectable-table">
             <thead>
               <tr>
                 <th>Lote</th>
@@ -252,7 +306,7 @@
                 <th>Obs</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody id="panelItemsBody">
               {% for ctrl, seq, cod, descr, vol, qtd, peso, vlu, vlt, obs, gp in itens %}
               <tr>
                 <td>{{ ctrl }}</td>
@@ -412,11 +466,11 @@
         <div>
           <label>Produtos inseridos</label>
           <div style="max-height:42vh; overflow:auto; border:1px solid var(--border); border-radius:6px;">
-            <table style="width:100%; border-collapse:collapse;">
+            <table class="ph-selectable-table" style="width:100%; border-collapse:collapse;">
               <thead>
                 <tr>
                   <th>Produto</th>
-                  <th style="padding:8px">Lote</th>
+                  <th>Lote</th>
                   <th>Classifica</th>
                   <th>Qtd</th>
                   <th>Vol</th>
@@ -425,7 +479,7 @@
                   <th></th>
                 </tr>
               </thead>
-              <tbody id="itemsListBody"><tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr></tbody>
+              <tbody id="itemsListBody"><tr><td colspan="8" style="color:var(--muted)">Nenhum item carregado.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -482,11 +536,98 @@
   </div>
   <script>
     ;(function(){
+      // Overlay controller shared across navigation points
+      const PHOverlay = (()=>{
+        const el = document.getElementById('pageOverlay');
+        return {
+          show(){ if(!el) return; el.classList.remove('hidden'); el.style.display = 'flex'; },
+          hide(){ if(!el) return; el.classList.add('hidden'); setTimeout(()=>{ try{ el.style.display = 'none'; }catch(_){} }, 280); }
+        };
+      })();
+      try { window.PHOverlay = PHOverlay; } catch(_){ }
+      // Show overlay during navigation/refresh, hide after DOM ready (earlier)
+      window.__PH_INITIAL_LOADING = true;
+      document.addEventListener('DOMContentLoaded', function(){ try{ PHOverlay.hide(); }catch(_){ } });
+      window.addEventListener('load', ()=>{ setTimeout(()=>{ try{ PHOverlay.hide(); window.__PH_INITIAL_LOADING = false; }catch(_){ } }, 200); });
+      window.addEventListener('beforeunload', ()=>{ try{ PHOverlay.show(); }catch(_){ } });
+      window.addEventListener('pagehide', ()=>{ try{ PHOverlay.show(); }catch(_){ } });
+
       const tbl = document.getElementById('notasTable');
       const listEl = document.getElementById('notasList');
+  const panelItemsBody = document.getElementById('panelItemsBody');
       if (!tbl) return;
+      // Helpers to render items into bottom panel
+      function panelRenderEmpty(){ if(panelItemsBody) panelItemsBody.innerHTML = '<tr><td colspan="10">Nenhum item para a seleção.</td></tr>'; }
+      function panelRenderRows(rows){
+        if(!panelItemsBody) return;
+        if(!rows || !rows.length){ panelRenderEmpty(); return; }
+        let html = '';
+        for(const it of rows){
+          const ctrl = it.lote || '';
+          const cod = (it.cod!=null? it.cod : '');
+          const descr = it.descr || '';
+          const vol = it.codvol || '';
+          const qtd = (it.qtd!=null? it.qtd : '');
+          const peso = (it.peso!=null? it.peso : '');
+          const classif = (it.classifica==null? '' : (it.classifica? 'Sim':'Não'));
+          const vlu = (it.vlu!=null? it.vlu : '');
+          const vlt = (it.vlt!=null? it.vlt : '');
+          const obs = it.obs || '';
+          html += `<tr><td>${ctrl}</td><td>${cod}</td><td>${descr}</td><td>${vol}</td><td>${qtd}</td><td>${peso}</td><td>${classif}</td><td>${vlu}</td><td>${vlt}</td><td>${obs}</td></tr>`;
+        }
+        panelItemsBody.innerHTML = html;
+      }
+      async function panelLoadItems(nunota){
+        const resolved = normalizeNunota(nunota);
+        if(!resolved){ panelRenderEmpty(); return; }
+        // cache-first
+        let j=null; try{ j = window.__ITEMS_CACHE && window.__ITEMS_CACHE[String(resolved)]; }catch(_){ }
+        if(j && j.ok){ panelRenderRows(j.items || j.results || []); }
+        // background fetch to refresh (and seed cache) if missing or for freshness
+        try{
+          const url = '/sankhya/item/list/?nunota=' + encodeURIComponent(resolved);
+          const r = await fetch(url, { credentials: 'same-origin' });
+          let jj={}; try{ jj = await r.json(); }catch(_){ jj = {}; }
+          if(jj && jj.ok){
+            try{ window.__ITEMS_CACHE = window.__ITEMS_CACHE || {}; window.__ITEMS_CACHE[String(resolved)] = jj; }catch(_){ }
+            // only re-render if the selected nunota is still the same
+            const active = tbl.querySelector('tbody tr.row--click.row--active');
+            const cur = active && active.dataset && active.dataset.nunota;
+            if(String(cur) === String(resolved)) panelRenderRows(jj.items || jj.results || []);
+          }
+        }catch(_){ }
+      }
       let clickTimer = null;
       const CLICK_DELAY = 250; // ms
+      // Items prefetch controls
+      const ITEMS_PREFETCH = { inflight: Object.create(null), scheduled: Object.create(null) };
+      function hasItemsInCache(nun){ try{ return !!(window.__ITEMS_CACHE && window.__ITEMS_CACHE[String(nun)] && window.__ITEMS_CACHE[String(nun)].ok); }catch(_){ return false; } }
+      async function prefetchItems(nun){
+        const resolved = (nun||'').trim(); if(!resolved) return;
+        if (hasItemsInCache(resolved)) return;
+        if (ITEMS_PREFETCH.inflight[resolved]) return;
+        ITEMS_PREFETCH.inflight[resolved] = true;
+        try{
+          const url = '/sankhya/item/list/?nunota=' + encodeURIComponent(resolved);
+          const r = await fetch(url, { credentials: 'same-origin' });
+          let j = {}; try{ j = await r.json(); }catch(_){ j = {}; }
+          if (j && j.ok){
+            try { window.__ITEMS_CACHE = window.__ITEMS_CACHE || {}; window.__ITEMS_CACHE[String(resolved)] = j; } catch(_){ }
+          }
+        }catch(_){
+          // ignore prefetch errors silently
+        } finally {
+          delete ITEMS_PREFETCH.inflight[resolved];
+        }
+      }
+      function schedulePrefetch(nun, delay){
+        const resolved = (nun||'').trim(); if(!resolved) return;
+        if (hasItemsInCache(resolved)) return;
+        if (ITEMS_PREFETCH.scheduled[resolved]) return; // already scheduled
+        ITEMS_PREFETCH.scheduled[resolved] = setTimeout(() => {
+          try{ prefetchItems(resolved); }finally{ try{ clearTimeout(ITEMS_PREFETCH.scheduled[resolved]); }catch(_){} delete ITEMS_PREFETCH.scheduled[resolved]; }
+        }, typeof delay === 'number' ? delay : 150);
+      }
       function updateDeleteBtn(){
         const btnDel = document.getElementById('btnDeleteNota');
         if (!btnDel) return;
@@ -503,14 +644,10 @@
         updateDeleteBtn();
         if (clickTimer) clearTimeout(clickTimer);
         clickTimer = setTimeout(() => {
-          try {
-            const url = new URL(window.location.href);
-            url.searchParams.set('sel', tr.dataset.nunota);
-            window.location.href = url.pathname + '?' + url.searchParams.toString();
-          } catch (err) {
-            const qs = window.location.search ? window.location.search + '&' : '?';
-            window.location.href = window.location.pathname + qs + 'sel=' + encodeURIComponent(tr.dataset.nunota);
-          }
+          // Clique simples: apenas seleciona e atualiza o card ITENS abaixo
+          const nunota = tr.dataset.nunota;
+          try { const url = new URL(window.location.href); url.searchParams.set('sel', nunota); window.history.replaceState({}, '', url.pathname + '?' + url.searchParams.toString()); } catch(_) {}
+          try{ panelLoadItems(nunota); }catch(err){ console.error('Falha ao carregar itens no painel', err); }
           clickTimer = null;
         }, CLICK_DELAY);
       });
@@ -525,20 +662,14 @@
           window.location.href = tr.dataset.centralUrl;
           return;
         }
-        // Prefer in-place edit: open header AND items side-by-side if available
+        // Dê preferência ao modal em-loco no duplo clique
         try{
-          if (typeof openCabModalForEdit === 'function' && typeof showItemsModal === 'function'){
-            openCabModalForEdit(nunota);
-            // After header shows, open items next to it
-            setTimeout(()=>{ try{ showItemsModal(nunota); }catch(_){} }, 120);
-            return;
-          } else if (typeof openCabModalForEdit === 'function'){
-            openCabModalForEdit(nunota);
-            return;
-          }
+          if (typeof openCabModalForEdit === 'function') openCabModalForEdit(nunota);
+          if (typeof showItemsModal === 'function') showItemsModal(nunota);
+          return;
         }catch(_){ }
-        // Fallback: navigate to central
-        try { window.location.href = `/sankhya/packing/central/?nunota=${encodeURIComponent(nunota)}`; } catch (_) { window.location.href = tr.dataset.centralUrl; }
+        // Fallback: navegar para a central
+        try { PHOverlay.show(); window.location.href = `/sankhya/packing/central/?nunota=${encodeURIComponent(nunota)}`; } catch (_) { try{ PHOverlay.show(); }catch(_){ } window.location.href = tr.dataset.centralUrl; }
       });
 
       // Navegação por teclado (setas) na lista de notas
@@ -559,6 +690,8 @@
         rows.forEach(r => r.classList.remove('row--active'));
         row.classList.add('row--active');
         row.scrollIntoView({ block: 'nearest' });
+        // Prefetch items for the active row to make dblclick instant
+        try{ const nun = row && row.dataset && row.dataset.nunota; if(nun) schedulePrefetch(nun, 60); }catch(_){ }
         if (triggerApply) {
           applySelection();
         }
@@ -566,15 +699,10 @@
       function applySelection(){
         const row = tbl.querySelector('tbody tr.row--active');
         if (!row) return;
-        // Replica comportamento de clique: ajustar sel e recarregar
-        try {
-          const url = new URL(window.location.href);
-          url.searchParams.set('sel', row.dataset.nunota);
-          window.location.href = url.pathname + '?' + url.searchParams.toString();
-        } catch (err) {
-          const qs = window.location.search ? window.location.search + '&' : '?';
-          window.location.href = window.location.pathname + qs + 'sel=' + encodeURIComponent(row.dataset.nunota);
-        }
+        const nunota = row.dataset.nunota;
+        // Atualiza URL sem recarregar para manter estado e atualizar itens do painel
+        try { const url = new URL(window.location.href); url.searchParams.set('sel', nunota); window.history.replaceState({}, '', url.pathname + '?' + url.searchParams.toString()); } catch(_) {}
+        try{ panelLoadItems(nunota); }catch(err){ console.error('applySelection panel load error', err); }
       }
       function isTypingTarget(el){
         const t = (el && el.tagName) ? el.tagName.toLowerCase() : '';
@@ -595,6 +723,20 @@
       });
       // Foco inicial na lista para já permitir setas
       try { listEl && listEl.focus(); } catch(_) {}
+
+      // Prefetch items for the first few notes in view (instant first clicks)
+      try {
+        const first = getRows().slice(0, 4);
+        first.forEach((r, i) => { const nun = r && r.dataset && r.dataset.nunota; if (nun) schedulePrefetch(nun, 220 + (i*140)); });
+      } catch(_) {}
+
+      // Hover-based prefetch to anticipate user choice
+      tbl.addEventListener('mouseover', (e) => {
+        const tr = e.target && e.target.closest ? e.target.closest('tr.row--click') : null;
+        if (!tr) return;
+        const nun = tr.dataset && tr.dataset.nunota; if (!nun) return;
+        schedulePrefetch(nun, 120);
+      });
 
       // Habilitar lixeira conforme seleção atual
       updateDeleteBtn();
@@ -638,8 +780,9 @@
           try {
             const url = new URL(window.location.href);
             url.searchParams.delete('sel');
+            try{ PHOverlay.show(); }catch(_){ }
             window.location.href = url.pathname + '?' + url.searchParams.toString();
-          } catch(_){ window.location.reload(); }
+          } catch(_){ try{ PHOverlay.show(); }catch(__){} window.location.reload(); }
         } else {
           const errs = (res.body?.errors||[]).join('\n') || 'Falha ao excluir nota.';
           const warns = (res.body?.warnings||[]).join('\n');
@@ -688,6 +831,7 @@
             form.appendChild(pg);
           }
           pg.value = '1';
+          try{ PHOverlay.show(); }catch(_){ }
         });
         // Replicar data inicial para data final ao digitar no primeiro campo
         try {
@@ -706,9 +850,11 @@
         try {
           const url = new URL(window.location.href);
           url.searchParams.set('page', String(targetPage));
+          try{ PHOverlay.show(); }catch(_){ }
           window.location.href = url.pathname + '?' + url.searchParams.toString();
         } catch (err) {
           const qs = window.location.search ? window.location.search + '&' : '?';
+          try{ PHOverlay.show(); }catch(_){ }
           window.location.href = window.location.pathname + qs + 'page=' + encodeURIComponent(targetPage);
         }
       }
@@ -854,6 +1000,7 @@
         const el = e.target.closest('[data-cod]');
         if(!el) return;
         const cod = el.getAttribute('data-cod');
+        try{ PHOverlay.show(); }catch(_){ }
         window.location.href = `/sankhya/packing/central/?codtipoper=${encodeURIComponent(cod)}`;
       });
   // --- Novo: Modal de Cabeçalho (Portal) ---
@@ -1038,8 +1185,18 @@
         requestAnimationFrame(()=>{ itemsCard.style.left = leftForItems; });
         // move focus to item product field for immediate typing
         setTimeout(()=>{ try{ document.getElementById('item_prod_vis')?.focus(); }catch(_){ } }, 160);
-        // after shown, load items
-        setTimeout(()=>{ try{ console.debug('showItemsModal calling loadItems for', resolved); loadItems(resolved); }catch(e){ console.error('loadItems call failed', e); } }, 260);
+        // Render itens imediatamente do cache (se houver) e iniciar load sem atraso
+        try{
+          let j=null; try{ j = window.__ITEMS_CACHE && window.__ITEMS_CACHE[String(resolved)]; }catch(_){ }
+          if(j && j.ok){
+            const rows = j.items || j.results || [];
+            itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item.</td></tr>';
+            for(const it of rows){ addItemRowToList(it); }
+          } else {
+            itemsListBody.innerHTML = '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Carregando…</td></tr>';
+          }
+        }catch(_){ }
+        try{ console.debug('showItemsModal calling loadItems for', resolved); loadItems(resolved); }catch(e){ console.error('loadItems call failed', e); }
       }
 
       // Abort controller for in-flight items list fetches
@@ -1097,9 +1254,10 @@
 
       // Items modal buttons
   // Top close (X): fechar ambos modais (Itens e Cabeçalho)
-  document.getElementById('cabItemsClose')?.addEventListener('click', ()=>{ try{ hideItemsModal(); }catch(_){ } try{ hideCabModal(); }catch(_){ } });
+  document.getElementById('cabItemsClose')?.addEventListener('click', ()=>{ try{ const nunRaw = document.getElementById('items_nunota')?.value; const nun = normalizeNunota(nunRaw); if(nun){ try{ if(window.__ITEMS_CACHE) delete window.__ITEMS_CACHE[String(nun)]; }catch(_){ } try{ panelLoadItems(nun); }catch(_){ } } hideItemsModal(); }catch(_){ } try{ hideCabModal(); }catch(_){ } });
   // Salvar: fechar os dois modais (Itens e Cabeçalho)
   document.getElementById('itemsSave')?.addEventListener('click', ()=>{
+        try{ const nunRaw = document.getElementById('items_nunota')?.value; const nun = normalizeNunota(nunRaw); if(nun){ try{ if(window.__ITEMS_CACHE) delete window.__ITEMS_CACHE[String(nun)]; }catch(_){ } try{ panelLoadItems(nun); }catch(_){ } } }catch(_){ }
         try{ hideItemsModal(); }catch(_){ }
         try{ hideCabModal(); }catch(_){ }
         showToast('Itens salvos. Modais fechados.','success');
@@ -1206,6 +1364,16 @@
       function normalizeNunota(n){ try{ if(n==null) return null; const s = String(n).trim(); if(!s) return null; const m = s.match(/(\d+)/); if(!m) return null; const v = parseInt(m[1],10); return Number.isFinite(v) ? v : null; }catch(_){ return null; } }
 
       function clearItemsList(){ if(!itemsListBody) return; itemsListBody.innerHTML = '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr>'; }
+      // Click-to-select for items modal rows (visual highlight and future actions)
+      try{
+        itemsListBody?.addEventListener('click', function(e){
+          const tr = e.target && e.target.closest ? e.target.closest('tr') : null;
+          if(!tr) return;
+          const rows = Array.from(itemsListBody.querySelectorAll('tr'));
+          rows.forEach(r => r.classList.remove('selected','is-selected','row--active','ph-row-selected'));
+          tr.classList.add('selected');
+        });
+      }catch(_){ }
       // Check if an item with same product (and optionally same volume) already exists in current list
       function hasDuplicateItemInList(codprod, codvol){
         try{
@@ -1249,7 +1417,7 @@
         })();
         tr.innerHTML = `
           <td>${it.cod||''} ${it.descr||''}</td>
-          <td style="padding:8px">${it.lote||''}</td>
+          <td>${it.lote||''}</td>
           <td style="text-align:center">${classTxt}</td>
           <td style="text-align:right">${qtdFormatted}</td>
           <td>${it.codvol||''}</td>
@@ -1279,7 +1447,7 @@
         }catch(_){ }
         itemsListBody.appendChild(tr);
   // wire delete (sequence is kept as data attribute for server delete but not shown to user)
-  tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunRaw = document.getElementById('items_nunota')?.value; const nun = normalizeNunota(nunRaw); if(!nun || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nun,10), sequencias: [ parseInt(seq,10) ] }); if(res.ok){ alert('Item excluído'); loadItems(nun); } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
+  tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunRaw = document.getElementById('items_nunota')?.value; const nun = normalizeNunota(nunRaw); if(!nun || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nun,10), sequencias: [ parseInt(seq,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(window.__ITEMS_CACHE) delete window.__ITEMS_CACHE[String(nun)]; }catch(_){ } try{ loadItems(nun); }catch(_){ } try{ panelLoadItems(nun); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
 
         // enable dblclick to load row into edit form
         tr.addEventListener('dblclick', function(){
@@ -1311,25 +1479,33 @@
         const resolved = normalizeNunota(nunota) || normalizeNunota(document.getElementById('items_nunota')?.value);
         if(!resolved){ console.error('loadItems: nunota inválido', nunota); return; }
         document.getElementById('items_nunota').value = resolved;
-        clearItemsList();
         try{
-          itemsListController = new AbortController();
-          const opts = { credentials: 'same-origin', signal: itemsListController.signal };
-          const url = '/sankhya/item/list/?nunota=' + encodeURIComponent(resolved);
-          console.debug('loadItems fetching', url);
-          const r = await fetch(url, opts);
-          // clear controller reference on success
-          itemsListController = null;
-          console.debug('loadItems response status', r.status);
-          let j = {};
-          try{ j = await r.json(); console.debug('loadItems response json keys', Object.keys(j), 'itemsLen', (j.items||j.results||[]).length); }catch(_){ j = {}; console.debug('loadItems could not parse JSON'); }
-          if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="8">Erro: ${j.error||'falha'}</td></tr>`; return; }
-          const rows = j.items || j.results || [];
-          if(!rows.length){ console.debug('loadItems: server returned zero rows for', resolved); clearItemsList(); return; }
-          itemsListBody.innerHTML = '';
-          for(const it of rows){ addItemRowToList(it); }
+          // Use client-side cache first
+          let j = null; try{ const cache = window.__ITEMS_CACHE || {}; if (cache && cache[String(resolved)]) j = cache[String(resolved)]; }catch(_){ }
+          if(j){
+            const rows = j.items || j.results || [];
+            itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item.</td></tr>';
+            for(const it of rows){ addItemRowToList(it); }
+          } else {
+            // Status enquanto aguarda rede
+            itemsListBody.innerHTML = '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Carregando…</td></tr>';
+            itemsListController = new AbortController();
+            const opts = { credentials: 'same-origin', signal: itemsListController.signal };
+            const url = '/sankhya/item/list/?nunota=' + encodeURIComponent(resolved);
+            console.debug('loadItems fetching', url);
+            const r = await fetch(url, opts);
+            // clear controller reference on success
+            itemsListController = null;
+            console.debug('loadItems response status', r.status);
+            try{ j = await r.json(); console.debug('loadItems response json keys', Object.keys(j), 'itemsLen', (j.items||j.results||[]).length); }catch(_){ j = {}; console.debug('loadItems could not parse JSON'); }
+            // Save to cache for next loads
+            try{ if(j && j.ok){ window.__ITEMS_CACHE = window.__ITEMS_CACHE || {}; window.__ITEMS_CACHE[String(resolved)] = j; } }catch(_){ }
+            if(!j || !j.ok){ itemsListBody.innerHTML = `<tr><td colspan="8">Erro: ${(j&&j.error)||'falha'}</td></tr>`; return; }
+            const rows = j.items || j.results || [];
+            itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item.</td></tr>';
+            for(const it of rows){ addItemRowToList(it); }
+          }
         }catch(err){
-          // handle aborts silently but log them for debugging
           if(err && err.name === 'AbortError'){
             console.info('loadItems aborted for nunota', nunota);
             return;
@@ -1460,7 +1636,9 @@
           const resp = await postJSON('/sankhya/item/save/', payload);
           if(resp.ok && resp.body && (resp.body.executed || resp.body.item)){
             showToast('Item atualizado','success');
+            try{ if(window.__ITEMS_CACHE) delete window.__ITEMS_CACHE[String(nun)]; }catch(_){ }
             try{ loadItems(nun); }catch(_){ }
+            try{ panelLoadItems(nun); }catch(_){ }
             // reset edit state and clear fields
             try{ document.getElementById('item_seq_edit').value=''; setItemAddBtnMode('add'); }catch(_){}
             try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_peso').value=''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ }
@@ -1476,8 +1654,10 @@
         if(saveResp.ok && saveResp.body && (saveResp.body.executed || saveResp.body.item)){
           showToast('Item salvo','success');
           const created = saveResp.body.item || saveResp.body.created_item || null;
-          if(created){ try{ addItemRowToList(created); }catch(_){ try{ loadItems(nun); }catch(__){} } }
-          else { try{ loadItems(nun); }catch(_){ } }
+          try{ if(window.__ITEMS_CACHE) delete window.__ITEMS_CACHE[String(nun)]; }catch(_){ }
+          if(created){ try{ addItemRowToList(created); }catch(_){ } }
+          try{ loadItems(nun); }catch(_){ }
+          try{ panelLoadItems(nun); }catch(_){ }
           try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ }
         } else {
           const body = saveResp.body || {};
@@ -1584,6 +1764,19 @@
           cabSave.removeAttribute('disabled');
         }
       });
+    })();
+  </script>
+  <script>
+    // Seed initial items cache from server-side to make first items load instant
+    (function(){
+      try {
+        const nun = '{{ initial_items_nunota|default:"" }}';
+        const jstr = '{{ initial_items_json|default:"" }}';
+        if (nun && jstr) {
+          const cache = (window.__ITEMS_CACHE = window.__ITEMS_CACHE || {});
+          try { const data = JSON.parse(jstr); if (data && data.ok) { cache[String(nun)] = data; } } catch(_){ }
+        }
+      } catch(_) {}
     })();
   </script>
 </body>

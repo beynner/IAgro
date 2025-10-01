@@ -4,6 +4,7 @@ from datetime import date as _date
 from django.views.decorators.csrf import ensure_csrf_cookie
 import logging
 import json
+import time
 
 try:
     from sankhya_integration.services.oracle_conn import (
@@ -23,6 +24,9 @@ try:
         insert_item,
         plan_update_item,
         update_item,
+        listar_lotes_entradas_classificaveis,
+        consultar_lotes_sumario_top11_classificaveis,
+    sync_item_to_classification,
         plan_update_cabecalho,
         update_cabecalho,
         delete_itens,
@@ -89,6 +93,7 @@ except Exception as exc:  # pragma: no cover - make views importable when Oracle
     is_auto_duplicate_on_save_enabled = _missing('is_auto_duplicate_on_save_enabled')
     should_auto_duplicate_item = _missing('should_auto_duplicate_item')
     consultar_lote = _missing('consultar_lote')
+    sync_item_to_classification = _missing('sync_item_to_classification')
 logger = logging.getLogger(__name__)
 
 
@@ -330,12 +335,57 @@ def compras_portal(request: HttpRequest) -> HttpResponse:
         "prev_page": prev_page,
         "next_page": next_page,
     }
+    # Seed initial items JSON for client-side cache (match /sankhya/item/list format)
+    try:
+        items_out = []
+        if sel_nunota and itens:
+            for r in itens:
+                # Template provides tuples: ctrl, seq, cod, descr, vol, qtd, peso, vlu, vlt, obs, gp
+                cont = r[0] if len(r) > 0 else None
+                seq = r[1] if len(r) > 1 else None
+                codp = r[2] if len(r) > 2 else None
+                descrp = r[3] if len(r) > 3 else ''
+                codvol = r[4] if len(r) > 4 else ''
+                qtdneg = r[5] if len(r) > 5 else None
+                peso = r[6] if len(r) > 6 else None
+                vlrunit = r[7] if len(r) > 7 else None
+                vltot = r[8] if len(r) > 8 else None
+                obs = r[9] if len(r) > 9 else ''
+                gp = r[10] if len(r) > 10 else None
+                total = None
+                try:
+                    if qtdneg is not None and peso is not None:
+                        total = float(qtdneg) * float(peso)
+                except Exception:
+                    total = None
+                items_out.append({
+                    'nunota': int(sel_nunota),
+                    'sequencia': int(seq) if seq is not None else None,
+                    'cod': int(codp) if codp is not None else None,
+                    'descr': descrp or '',
+                    'lote': cont or '',
+                    'codvol': (codvol or ''),
+                    'qtd': float(qtdneg or 0) if qtdneg is not None else 0,
+                    'peso': float(peso) if peso is not None else None,
+                    'total': float(total) if total is not None else None,
+                    'vlu': float(vlrunit or 0),
+                    'vlt': float(vltot or 0),
+                    'obs': obs or '',
+                    'classifica': (None if gp is None else (str(gp).upper() != 'N')),
+                    'geraproducao': (None if gp is None else str(gp).upper()),
+                })
+        ctx['initial_items_json'] = json.dumps({'ok': True, 'items': items_out}) if items_out else None
+        ctx['initial_items_nunota'] = sel_nunota
+    except Exception:
+        ctx['initial_items_json'] = None
+        ctx['initial_items_nunota'] = None
     return render(request, "sankhya_integration/compras_portal.html", ctx)
 
 
 @ensure_csrf_cookie
 def compras_classificacao(request: HttpRequest) -> HttpResponse:
     # Listar lotes recentes e mostrar agregados + produtos classificados para o lote selecionado
+    t0 = time.perf_counter()
     def _to_int(value):
         if value in (None, "", "None", "none", "null"):
             return None
@@ -359,9 +409,9 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
         page = 1
     page_size = 50
 
-    # Classificação: Buscar apenas lotes TOP 26 (Classificação)
-    offset = (page - 1) * page_size
-    lotes_class = listar_lotes_classificacao(
+    # Classificação: Mostrar lotes do Portal (TOP 11) que são classificáveis (GERAPRODUCAO='S')
+    t_list0 = time.perf_counter()
+    lotes_class = listar_lotes_entradas_classificaveis(
         days=params['days'],
         limit=page_size,
         codparc=params['codparc'],
@@ -369,57 +419,85 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
         date_start=params['date_start'],
         date_end=params['date_end'],
     )
+    t_list1 = time.perf_counter()
     # Extrair controles para compatibilidade com código existente
     controles = [lote[0] for lote in lotes_class]  # Primeiro campo é o controle
 
-    # Construir lista de lotes com agregados resumidos em batch para performance
+    # Construir lista de lotes com resumo LEVE (apenas TOP 11 classificáveis) para performance
     lotes = []
     exemplo_map = {}
     try:
-        from sankhya_integration.services.oracle_conn import consultar_lotes_sumario
-        sum_map = consultar_lotes_sumario(controles)
+        t_sum0 = time.perf_counter()
+        sum_map = consultar_lotes_sumario_top11_classificaveis(controles)
+        t_sum1 = time.perf_counter()
     except Exception:
         sum_map = {}
+        t_sum0 = t_sum1 = time.perf_counter()
     for ctrl in controles:
         info = sum_map.get(ctrl, {})
+        # Produto: concatenar todos os produtos classificáveis (codigo - descr)
+        produtos_list = info.get('produtos_entrada') or []
+        produto_descr = ''
+        try:
+            if produtos_list:
+                produto_descr = '\n'.join([f"{p.get('cod') or ''} - {p.get('descr') or ''}" for p in produtos_list])
+        except Exception:
+            produto_descr = ''
         lotes.append((
             ctrl,
             info.get('parceiro') or '',
-            info.get('produto_descr') or '',
-            float(info.get('qtd_pedido') or 0.0),
-            float(info.get('qtd_classificada') or 0.0),
-            float(info.get('qtd_disponivel') or 0.0),
-            info.get('exemplo_nunota'),
-            info.get('exemplo_seq'),
-            info.get('produtos_entrada') or [],
+            produto_descr,
+            float(info.get('qtd_cx') or 0.0),
+            float(info.get('qtd_kg') or 0.0),
+            0.0,  # qtde classificado (adiado/mix down)
+            0.0,  # qtde estoque (adiado/mix down)
+            None,  # exemplo_nunota (não necessário por enquanto)
+            None,  # exemplo_seq
+            produtos_list,
             info.get('codparc'),
         ))
         exemplo_map[ctrl] = {'nunota': info.get('exemplo_nunota'), 'sequencia': info.get('exemplo_seq')}
 
     # Seleção do lote (controle/codagregacao) por query param 'sel' (valor do controle)
     sel_controle = (request.GET.get('sel') or (lotes[0][0] if lotes else None))
+    # Pré-carregar dados do lote selecionado (modo leve) para render instantânea no cliente
     produtos_classificados = []
-    selected_exemplo = None
+    initial_lote = None
+    try:
+        if sel_controle:
+            from sankhya_integration.services.oracle_conn import consultar_lote_light
+            initial_lote = consultar_lote_light(sel_controle)
+    except Exception:
+        initial_lote = None
+    selected_exemplo = exemplo_map.get(sel_controle) if sel_controle else None
     nunota_class_sel = None
-    if sel_controle:
-        try:
-            info_sel = consultar_lote(sel_controle)
-            # Para o painel inferior, mostrar os itens já classificados (TOP 26)
-            produtos_classificados = info_sel.get('classificacoes') or []
-            selected_exemplo = exemplo_map.get(sel_controle)
-            nunota_class_sel = info_sel.get('nunota_class')
-        except Exception:
-            produtos_classificados = []
 
+    # Paginador simples (baseado no tamanho do lote retornado)
     has_prev = page > 1
-    has_next = len(controles) == page_size
+    has_next = len(lotes_class) == page_size
     prev_page = page - 1 if has_prev else 1
     next_page = page + 1 if has_next else page
+
+    # Perf breakdown (ms)
+    t_end = time.perf_counter()
+    timings = {
+        'list_ms': int((t_list1 - t_list0) * 1000),
+        'sum_ms': int((t_sum1 - t_sum0) * 1000),
+        'total_ms': int((t_end - t0) * 1000),
+        'count_lotes': len(controles),
+    }
+    try:
+        logger.info('[classificacao] perf list=%dms sum=%dms total=%dms lotes=%d', timings['list_ms'], timings['sum_ms'], timings['total_ms'], timings['count_lotes'])
+    except Exception:
+        pass
+    show_perf = str(request.GET.get('perf') or '').lower() in ('1','true','yes','on')
 
     ctx = {
         'lotes': lotes,
         'produtos_classificados': produtos_classificados,
         'sel': sel_controle,
+        'initial_lote_ctrl': sel_controle,
+        'initial_lote_json': json.dumps(initial_lote) if initial_lote else None,
         'params': params,
         'page': page,
         'has_prev': has_prev,
@@ -428,6 +506,8 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
         'next_page': next_page,
         'selected_exemplo': selected_exemplo,
         'nunota_class_sel': nunota_class_sel,
+        'timings': timings if show_perf else None,
+        'timings_json': json.dumps(timings) if show_perf else None,
     }
     return render(request, "sankhya_integration/compras_classificacao.html", ctx)
 
@@ -1527,55 +1607,7 @@ def item_save(request: HttpRequest) -> JsonResponse:
             'GERAPRODUCAO': _map_gp(payload.get('geraproducao')),
         }, dry_run=False)
         if plan.get('executed'):
-            # Duplicação automática após atualizar item (se habilitada)
-            try:
-                nunota = _to_int_or(payload.get('nunota'))
-                codprod = _to_int_or(payload.get('codprod'))
-                plan['debug_auto_duplicate'] = {
-                    'nunota': nunota,
-                    'codprod': codprod,
-                    'step': 'update_start'
-                }
-                
-                if nunota and codprod:
-                    from sankhya_integration.services.oracle_conn import (
-                        should_auto_duplicate_item, duplicate_to_classification, get_duplicate_status,
-                        is_auto_duplicate_on_save_enabled
-                    )
-                    
-                    # Debug: verificar se está habilitado
-                    enabled = is_auto_duplicate_on_save_enabled()
-                    plan['debug_auto_duplicate']['enabled'] = enabled
-                    
-                    if enabled:
-                        check = should_auto_duplicate_item(nunota, codprod)
-                        plan['debug_auto_duplicate']['check'] = check
-                        
-                        if check.get('should_duplicate'):
-                            # Sempre tentar duplicar (função já verifica se TOP 26 existe)
-                            dup_result = duplicate_to_classification(nunota, dry_run=False)
-                            plan['debug_auto_duplicate']['dup_result'] = dup_result
-                            
-                            if dup_result.get('ok'):
-                                plan['auto_duplicated'] = True
-                                plan['nunota_26'] = dup_result.get('nunota_26')
-                                items_duplicated = dup_result.get('items_duplicated', 0)
-                                if items_duplicated > 0:
-                                    plan['duplicate_message'] = f'Item adicionado à classificação (TOP 26: {dup_result.get("nunota_26")})'
-                                else:
-                                    plan['duplicate_message'] = 'Item já existe na classificação'
-                            else:
-                                plan['auto_duplicate_error'] = dup_result.get('errors', [])
-                        else:
-                            plan['debug_auto_duplicate']['reason'] = check.get('reason', 'Não deve duplicar')
-                    else:
-                        plan['debug_auto_duplicate']['reason'] = 'Auto duplicate desabilitado'
-                else:
-                    plan['debug_auto_duplicate']['reason'] = 'NUNOTA ou CODPROD inválidos'
-                    
-            except Exception as e:
-                plan['debug_auto_duplicate']['exception'] = str(e)
-                logger.error('Auto duplicate update failed: %s', e, exc_info=True)
+            # Removido: duplicação/upsync automática de TOP 11→26 no Portal
             return JsonResponse(plan, status=200)
         # Log and return clearer error for clients
         err_msg = plan.get('db_error', {}).get('message') if isinstance(plan.get('db_error'), dict) else None
@@ -1599,60 +1631,7 @@ def item_save(request: HttpRequest) -> JsonResponse:
         'GERAPRODUCAO': _map_gp(payload.get('geraproducao')),
     }, dry_run=False)
     if plan.get('executed'):
-        # Duplicação automática após inserir item (se habilitada)
-        try:
-            nunota = _to_int_or(payload.get('nunota'))
-            codprod = _to_int_or(payload.get('codprod'))
-            plan['debug_auto_duplicate'] = {
-                'nunota': nunota,
-                'codprod': codprod,
-                'step': 'start'
-            }
-            
-            if nunota and codprod:
-                from sankhya_integration.services.oracle_conn import (
-                    should_auto_duplicate_item, duplicate_to_classification, get_duplicate_status,
-                    is_auto_duplicate_on_save_enabled
-                )
-                
-                # Debug: verificar se está habilitado
-                enabled = is_auto_duplicate_on_save_enabled()
-                plan['debug_auto_duplicate']['enabled'] = enabled
-                
-                if not enabled:
-                    plan['debug_auto_duplicate']['reason'] = 'Auto duplicate desabilitado'
-                else:
-                    check = should_auto_duplicate_item(nunota, codprod)
-                    plan['debug_auto_duplicate']['check'] = check
-                    
-                    if check.get('should_duplicate'):
-                        # Sempre tentar duplicar (função já verifica se TOP 26 existe)
-                        plan['debug_auto_duplicate']['step'] = 'duplicating'
-                        dup_result = duplicate_to_classification(nunota, dry_run=False)
-                        plan['debug_auto_duplicate']['dup_result'] = dup_result
-                        
-                        if dup_result.get('ok'):
-                            plan['auto_duplicated'] = True
-                            plan['nunota_26'] = dup_result.get('nunota_26')
-                            items_duplicated = dup_result.get('items_duplicated', 0)
-                            plan['items_duplicated'] = items_duplicated
-                            
-                            if items_duplicated > 0:
-                                plan['duplicate_message'] = f'Item adicionado à classificação (TOP 26: {dup_result.get("nunota_26")})'
-                            else:
-                                plan['duplicate_message'] = 'Item já existe na classificação'
-                            plan['debug_auto_duplicate']['step'] = 'success'
-                        else:
-                            plan['auto_duplicate_error'] = dup_result.get('errors', [])
-                            plan['debug_auto_duplicate']['step'] = 'failed'
-                    else:
-                        plan['debug_auto_duplicate']['reason'] = check.get('reason', 'Não deve duplicar')
-            else:
-                plan['debug_auto_duplicate']['reason'] = 'NUNOTA ou CODPROD inválidos'
-                
-        except Exception as e:
-            plan['debug_auto_duplicate']['exception'] = str(e)
-            logger.error('Auto duplicate failed: %s', e, exc_info=True)
+        # Removido: duplicação/upsync automática de TOP 11→26 no Portal
         return JsonResponse(plan, status=200)
     err_msg = plan.get('db_error', {}).get('message') if isinstance(plan.get('db_error'), dict) else None
     if not err_msg:
@@ -1785,23 +1764,21 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"ok": False, "error": "Parâmetro 'controle' obrigatório"}, status=400)
     try:
         # Service function expects CODAGREGACAO (we accept "controle" query param for compatibility)
-        info = consultar_lote(controle)
+        # Use a lightweight path by default to reduce latency; opt-in to full via ?full=1
+        from sankhya_integration.services.oracle_conn import consultar_lote_light as _consultar_lote_light, consultar_lote as _consultar_lote_full
+        full = (request.GET.get('full') in ('1', 'true', 'yes', 'on'))
+        info = _consultar_lote_full(controle) if full else _consultar_lote_light(controle)
         agreg = info.get('agregados') or {}
         classific = info.get('classificacoes') or []
         classificaveis = info.get('classificaveis') or []
         entradas = info.get('entradas') or []
-        # Helper to compute display quantity in the item's CODVOL
-        def _disp_qty(codprod, codvol, qtdneg):
+        # Helper to compute display quantity quickly (no DB lookups here)
+        # We assume QTDNEG já está na unidade do item (CODVOL). Qualquer conversão avançada deve ser feita on-demand no client.
+        def _disp_qty(_codprod, _codvol, qtdneg):
             try:
-                if codprod is None or not codvol:
-                    return float(qtdneg or 0)
-                from sankhya_integration.services.oracle_conn import get_base_unit_and_factor
-                base, fator = get_base_unit_and_factor(int(codprod), str(codvol))
-                if base and str(base).upper() != str(codvol).upper() and fator and float(fator) > 0:
-                    return float(qtdneg or 0) / float(fator)
                 return float(qtdneg or 0)
             except Exception:
-                return float(qtdneg or 0)
+                return 0.0
 
         # Convert rows to simple dicts for JSON
         results = []
@@ -1853,6 +1830,8 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
             _p = _get_params(); _prod_inn = _p.get('PROD_IN_NATURA')
         except Exception:
             _prod_inn = None
+        # Include timings if present (esp. from light mode)
+        timings = info.get('timings') if isinstance(info, dict) else None
         return JsonResponse({
             "ok": True,
             "agregados": agreg,
@@ -1861,6 +1840,7 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
             "entradas": entradas_out,
             "nunota_class": info.get('nunota_class'),
             "prod_in_natura": _prod_inn,
+            "timings": timings,
         })
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
@@ -1946,71 +1926,6 @@ def comercial_sim_list(request: HttpRequest) -> JsonResponse:
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
 
-def duplicate_classification_endpoint(request: HttpRequest) -> JsonResponse:
-    """POST /sankhya/duplicate/classification/ - Duplica TOP 11 para TOP 26"""
-    if request.method != 'POST':
-        return JsonResponse({'ok': False, 'error': 'Use POST'}, status=405)
-    
-    try:
-        payload = json.loads(request.body.decode('utf-8'))
-        nunota_11 = int(payload.get('nunota_11'))
-        dry_run = payload.get('dry_run', True)
-    except Exception:
-        return JsonResponse({'ok': False, 'error': 'Parâmetros inválidos'}, status=400)
-    
-    result = duplicate_to_classification(nunota_11, dry_run=dry_run)
-    status_code = 200 if result.get('ok') else 400
-    return JsonResponse(result, status=status_code)
-
-
-def duplicate_status_endpoint(request: HttpRequest) -> JsonResponse:
-    """GET /sankhya/duplicate/status/?nunota_11=... - Status de duplicação"""
-    if request.method != 'GET':
-        return JsonResponse({'ok': False, 'error': 'Use GET'}, status=405)
-    
-    try:
-        nunota_11 = int(request.GET.get('nunota_11'))
-    except Exception:
-        return JsonResponse({'ok': False, 'error': 'Parâmetro nunota_11 inválido'}, status=400)
-    
-    result = get_duplicate_status(nunota_11)
-    if 'error' in result:
-        return JsonResponse({'ok': False, 'error': result['error']}, status=400)
-    
-    result['ok'] = True
-    result['auto_enabled'] = is_auto_duplicate_enabled()
-    result['auto_on_save'] = is_auto_duplicate_on_save_enabled()
-    return JsonResponse(result)
-
-
-def auto_duplicate_config(request: HttpRequest) -> JsonResponse:
-    """GET /sankhya/auto/config/ - Configurações de duplicação automática"""
-    if request.method != 'GET':
-        return JsonResponse({'ok': False, 'error': 'Use GET'}, status=405)
-    
-    try:
-        from django.conf import settings
-        config = getattr(settings, 'SANKHYA_CONFIG', {})
-        auto_flows = config.get('AUTO_FLOWS', {})
-        
-        result = {
-            'ok': True,
-            'auto_duplicate_enabled': is_auto_duplicate_enabled(),
-            'auto_duplicate_on_save': is_auto_duplicate_on_save_enabled(),
-            'duplicate_method': auto_flows.get('DUPLICATE_METHOD', 'python'),
-            'separate_interfaces': auto_flows.get('SEPARATE_INTERFACES', True),
-            'write_enabled': is_write_enabled(),
-            'config': {
-                'duplicate_on_save': auto_flows.get('DUPLICATE_ON_SAVE', True),
-                'duplicate_classification': auto_flows.get('DUPLICATE_CLASSIFICATION', True),
-                'create_vale_compra': auto_flows.get('CREATE_VALE_COMPRA', False),
-            }
-        }
-        
-        return JsonResponse(result)
-        
-    except Exception as e:
-        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
 
 @ensure_csrf_cookie

@@ -1,0 +1,24 @@
+/* Global compact table styling for current and future tables */
+:root{
+  --ph-selected-bg:#FEF9C3; /* yellow highlight */
+  --ph-selected-border:#F59E0B;
+  --ph-border:#e5e7eb;
+}
+
+/* Base tables */
+table{ width:100%; border-collapse:collapse; }
+/* Ensure a consistent compact size everywhere (override local styles) */
+table th, table td{ border-bottom:1px solid var(--ph-border); text-align:left; font-size:12px !important; padding:4px 8px !important; line-height:1.2 !important; }
+/* Sticky headers when container scrolls */
+th{ background:#f3f4f6; position:sticky; top:0; z-index:1; }
+
+/* Reusable selectable table styles (works even without explicit class, but class ensures intent) */
+.ph-selectable-table tbody tr{ transition: background-color .12s ease, box-shadow .12s ease; }
+.ph-selectable-table tbody tr:hover{ background:#f6f7fb; }
+.ph-selectable-table tbody tr.is-selected,
+.ph-selectable-table tbody tr.selected,
+.ph-selectable-table tbody tr.row--active,
+tbody tr.ph-row-selected{
+  background:var(--ph-selected-bg);
+  box-shadow: inset 3px 0 0 var(--ph-selected-border);
+}

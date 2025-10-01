@@ -34,8 +34,7 @@ urlpatterns = [
     path("item/debug/tgfite/", views.item_debug_tgfite, name="item_debug_tgfite"),
     path("item/weight/debug/", views.item_weight_debug, name="item_weight_debug"),
     path("item/save/", views.item_save, name="item_save"),
-    path("item/delete/", views.item_delete, name="item_delet" \
-    "e"),
+    path("item/delete/", views.item_delete, name="item_delete"),
     path("item/duplicate/", views.item_duplicate, name="item_duplicate"),
     path("nota/delete/", views.nota_delete, name="nota_delete"),
     path("nota/diagnose/", views.nota_diagnose, name="nota_diagnose"),
@@ -46,7 +45,5 @@ urlpatterns = [
     path("header/plan/", views.header_plan, name="header_plan"),
     path("comercial/sim/save/", views.comercial_sim_save, name="comercial_sim_save"),
     path("comercial/sim/list/", views.comercial_sim_list, name="comercial_sim_list"),
-    path("duplicate/classification/", views.duplicate_classification_endpoint, name="duplicate_classification"),
-    path("duplicate/status/", views.duplicate_status_endpoint, name="duplicate_status"),
-    path("auto/config/", views.auto_duplicate_config, name="auto_duplicate_config"),
+    # Duplicação automática/rotas removidas a pedido: sem duplicar TOP 11→26 via portal
 ]

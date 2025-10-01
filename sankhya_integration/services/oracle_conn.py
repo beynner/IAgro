@@ -72,8 +72,8 @@ DEFAULT_PARAMS = {
     'PROD_CLASS_LIST': [358, 359, 907],
     'PROD_DESCARTE': 910,
     # Flags de controle para automação
-    'AUTO_DUPLICATE_CLASSIFICATION': True,
-    'AUTO_DUPLICATE_ON_SAVE': True,    # Duplicar ao salvar item classificável
+    'AUTO_DUPLICATE_CLASSIFICATION': False,
+    'AUTO_DUPLICATE_ON_SAVE': False,    # Duplicar ao salvar item classificável
     'AUTO_CREATE_VALE_COMPRA': False,  # Será implementado na tela Comercial
     'FALLBACK_MANUAL_ENABLED': True,
 }
@@ -1741,11 +1741,17 @@ def consultar_lote(controle: str) -> dict:
         'reservas': [],
         'nunota_class': None,
     }
-
+    # Perf counters
+    import time
+    t0 = time.perf_counter()
+    t_ag0 = time.perf_counter()
+    # calcular_agregados_lote já executado acima
+    t_ag1 = time.perf_counter()
     with get_connection() as conn:
         cur = conn.cursor()
 
         # Entradas
+        t_e0 = time.perf_counter()
         cur.execute(
             """
             SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.VLRUNIT, i.VLRTOT, pr.NOMEPARC
@@ -1759,8 +1765,10 @@ def consultar_lote(controle: str) -> dict:
             c=controle, top=TOP_ENTRADA
         )
         resultado['entradas'] = cur.fetchall()
+        t_e1 = time.perf_counter()
 
                 # Itens classificáveis (entrada TOP_ENTRADA com GERAPRODUCAO = 'S' apenas)
+        t_cv0 = time.perf_counter()
         cur.execute(
             """
             SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.VLRUNIT, i.VLRTOT
@@ -1774,8 +1782,10 @@ def consultar_lote(controle: str) -> dict:
             c=controle, top_ent=TOP_ENTRADA
         )
         resultado['classificaveis'] = cur.fetchall()
+        t_cv1 = time.perf_counter()
 
         # Classificações — mostrar todos os itens classificados (TOP_CLASS)
+        t_cl0 = time.perf_counter()
         cur.execute(
             """
             SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.VLRUNIT, i.VLRTOT
@@ -1788,8 +1798,10 @@ def consultar_lote(controle: str) -> dict:
             c=controle, top=TOP_CLASS
         )
         resultado['classificacoes'] = cur.fetchall()
+        t_cl1 = time.perf_counter()
 
         # Descarte
+        t_ds0 = time.perf_counter()
         cur.execute(
             """
             SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.QTDNEG
@@ -1802,8 +1814,10 @@ def consultar_lote(controle: str) -> dict:
             c=controle, tc=TOP_CLASS, ta=TOP_AVARIA
         )
         resultado['descarte'] = cur.fetchall()
+        t_ds1 = time.perf_counter()
 
         # Vendas
+        t_v0 = time.perf_counter()
         cur.execute(
             f"""
             SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.QTDNEG, i.VLRUNIT, i.VLRTOT, c.CODTIPOPER
@@ -1816,8 +1830,10 @@ def consultar_lote(controle: str) -> dict:
             c=controle
         )
         resultado['vendas'] = cur.fetchall()
+        t_v1 = time.perf_counter()
 
         # Reservas
+        t_r0 = time.perf_counter()
         cur.execute(
             """
             SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.QTDNEG
@@ -1830,8 +1846,128 @@ def consultar_lote(controle: str) -> dict:
             c=controle, top=TOP_PED_VENDA
         )
         resultado['reservas'] = cur.fetchall()
+        t_r1 = time.perf_counter()
 
         # Nota TOP_CLASS existente para este controle (se houver)
+        try:
+            t_nc0 = time.perf_counter()
+            cur.execute(
+                """
+                SELECT i.NUNOTA FROM (
+                  SELECT DISTINCT i.NUNOTA
+                    FROM TGFITE i
+                    JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                   WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top
+                   ORDER BY i.NUNOTA DESC
+                ) WHERE ROWNUM = 1
+                """,
+                c=controle, top=TOP_CLASS
+            )
+            row_nc = cur.fetchone()
+            if row_nc and row_nc[0] is not None:
+                try:
+                    resultado['nunota_class'] = int(row_nc[0])
+                except Exception:
+                    resultado['nunota_class'] = row_nc[0]
+            t_nc1 = time.perf_counter()
+        except Exception:
+            resultado['nunota_class'] = None
+            t_nc1 = time.perf_counter()
+    t1 = time.perf_counter()
+    try:
+        resultado['timings'] = {
+            'total_ms': int((t1 - t0) * 1000),
+            'agregados_ms': int((t_ag1 - t_ag0) * 1000),
+            'entradas_ms': int((t_e1 - t_e0) * 1000),
+            'classificaveis_ms': int((t_cv1 - t_cv0) * 1000),
+            'classificacoes_ms': int((t_cl1 - t_cl0) * 1000),
+            'descarte_ms': int((t_ds1 - t_ds0) * 1000),
+            'vendas_ms': int((t_v1 - t_v0) * 1000),
+            'reservas_ms': int((t_r1 - t_r0) * 1000),
+            'nunota_class_ms': int((t_nc1 - t_nc0) * 1000),
+        }
+    except Exception:
+        pass
+    return resultado
+
+
+def consultar_lote_light(controle: str) -> dict:
+    """Versão leve de consultar_lote usada no clique da UI.
+    Busca somente:
+      - entradas (TOP_ENTRADA)
+      - itens classificáveis (subset de entradas com GERAPRODUCAO='S')
+      - classificações (TOP_CLASS)
+      - nunota_class (mais recente)
+    Ignora agregados, vendas, reservas e descarte para reduzir latência.
+    Retorna também um bloco de timings em milissegundos.
+    """
+    p = get_params()
+    TOP_ENTRADA = p['TOP_ENTRADA']
+    TOP_CLASS = p['TOP_CLASS']
+
+    resultado = {
+        'entradas': [],
+        'classificaveis': [],
+        'classificacoes': [],
+        'nunota_class': None,
+    }
+    import time
+    t0 = time.perf_counter()
+    with get_connection() as conn:
+        cur = conn.cursor()
+
+        # Entradas (TOP_ENTRADA)
+        t_e0 = time.perf_counter()
+        cur.execute(
+            """
+            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.VLRUNIT, i.VLRTOT, pr.NOMEPARC
+              FROM TGFITE i
+              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+              LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
+              LEFT JOIN TGFPAR pr ON pr.CODPARC = c.CODPARC
+             WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top
+             ORDER BY c.NUNOTA, i.SEQUENCIA
+            """,
+            c=controle, top=TOP_ENTRADA
+        )
+        resultado['entradas'] = cur.fetchall()
+        t_e1 = time.perf_counter()
+
+        # Classificáveis (subset das entradas com GERAPRODUCAO='S')
+        t_cv0 = time.perf_counter()
+        cur.execute(
+            """
+            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.VLRUNIT, i.VLRTOT
+              FROM TGFITE i
+              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+              LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
+             WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top_ent
+               AND NVL(i.GERAPRODUCAO, 'N') = 'S'
+             ORDER BY c.NUNOTA, i.SEQUENCIA
+            """,
+            c=controle, top_ent=TOP_ENTRADA
+        )
+        resultado['classificaveis'] = cur.fetchall()
+        t_cv1 = time.perf_counter()
+
+        # Classificações (TOP_CLASS)
+        t_cl0 = time.perf_counter()
+        cur.execute(
+            """
+            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.VLRUNIT, i.VLRTOT
+              FROM TGFITE i
+              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+              LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
+             WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top
+             ORDER BY c.NUNOTA, i.SEQUENCIA
+            """,
+            c=controle, top=TOP_CLASS
+        )
+        resultado['classificacoes'] = cur.fetchall()
+        t_cl1 = time.perf_counter()
+
+        # NUNOTA TOP_CLASS mais recente (se existir)
+        t_nc0 = time.perf_counter()
         try:
             cur.execute(
                 """
@@ -1853,7 +1989,20 @@ def consultar_lote(controle: str) -> dict:
                     resultado['nunota_class'] = row_nc[0]
         except Exception:
             resultado['nunota_class'] = None
+        t_nc1 = time.perf_counter()
 
+    t1 = time.perf_counter()
+    try:
+        resultado['timings'] = {
+            'total_ms': int((t1 - t0) * 1000),
+            'entradas_ms': int((t_e1 - t_e0) * 1000),
+            'classificaveis_ms': int((t_cv1 - t_cv0) * 1000),
+            'classificacoes_ms': int((t_cl1 - t_cl0) * 1000),
+            'nunota_class_ms': int((t_nc1 - t_nc0) * 1000),
+            'mode': 'light',
+        }
+    except Exception:
+        pass
     return resultado
 
 
@@ -1900,15 +2049,19 @@ def consultar_lotes_sumario(controles: list[str]) -> dict[str, dict]:
         'produtos_entrada': [],
     } for c in keys}
 
+    import time
+    t0 = time.perf_counter()
     with get_connection() as conn:
         cur = conn.cursor()
         # 1) Entradas: parceiro, qtd_pedido (In Natura), exemplo nunota/seq
+        t_ent0 = time.perf_counter()
         sql_ent = (
             f"""
             SELECT i.CODAGREGACAO AS CTRL,
                    MAX(pr.NOMEPARC) AS PARCEIRO,
                    MAX(c.CODPARC) AS CODPARC,
-                   SUM(CASE WHEN c.CODTIPOPER = :top_ent AND i.CODPROD = :prod_inn THEN i.QTDNEG ELSE 0 END) AS QTD_PEDIDO,
+                   SUM(CASE WHEN c.CODTIPOPER = :top_ent AND UPPER(NVL(i.CODVOL,'')) = 'CX' THEN i.QTDNEG ELSE 0 END) AS QTD_CX,
+                   SUM(CASE WHEN c.CODTIPOPER = :top_ent AND UPPER(NVL(i.CODVOL,'')) = 'KG' THEN i.QTDNEG ELSE 0 END) AS QTD_KG,
                    MIN(c.NUNOTA) KEEP (DENSE_RANK FIRST ORDER BY c.NUNOTA) AS EX_NUNOTA,
                    MIN(i.SEQUENCIA) KEEP (DENSE_RANK FIRST ORDER BY i.SEQUENCIA) AS EX_SEQ
               FROM TGFITE i
@@ -1918,8 +2071,10 @@ def consultar_lotes_sumario(controles: list[str]) -> dict[str, dict]:
              GROUP BY i.CODAGREGACAO
             """
         )
-        cur.execute(sql_ent, {**binds, 'top_ent': TOP_ENTRADA, 'prod_inn': PROD_IN_NATURA})
-        for ctrl, parceiro, codparc, qtd_pedido, ex_n, ex_s in cur.fetchall():
+        cur.execute(sql_ent, {**binds, 'top_ent': TOP_ENTRADA})
+        rows_ent = cur.fetchall()
+        t_ent1 = time.perf_counter()
+        for ctrl, parceiro, codparc, qtd_cx, qtd_kg, ex_n, ex_s in rows_ent:
             d = out.get(ctrl)
             if d is not None:
                 d['parceiro'] = parceiro or ''
@@ -1927,14 +2082,22 @@ def consultar_lotes_sumario(controles: list[str]) -> dict[str, dict]:
                     d['codparc'] = int(codparc) if codparc is not None else None
                 except Exception:
                     d['codparc'] = codparc
+                # New fields
                 try:
-                    d['qtd_pedido'] = float(qtd_pedido or 0)
+                    d['qtd_cx'] = float(qtd_cx or 0)
                 except Exception:
-                    d['qtd_pedido'] = 0.0
+                    d['qtd_cx'] = 0.0
+                try:
+                    d['qtd_kg'] = float(qtd_kg or 0)
+                except Exception:
+                    d['qtd_kg'] = 0.0
+                # Back-compat for existing UI: keep qtd_pedido as qtd_cx
+                d['qtd_pedido'] = d['qtd_cx']
                 d['exemplo_nunota'] = ex_n
                 d['exemplo_seq'] = ex_s
 
         # 2) Classificada: sum for class products in TOP_CLASS
+        t_cls0 = time.perf_counter()
         sql_cls = (
             f"""
             SELECT i.CODAGREGACAO AS CTRL, NVL(SUM(i.QTDNEG), 0)
@@ -1947,7 +2110,9 @@ def consultar_lotes_sumario(controles: list[str]) -> dict[str, dict]:
             """
         )
         cur.execute(sql_cls, {**binds, 'top_class': TOP_CLASS})
-        for ctrl, qtd_class in cur.fetchall():
+        rows_cls = cur.fetchall()
+        t_cls1 = time.perf_counter()
+        for ctrl, qtd_class in rows_cls:
             d = out.get(ctrl)
             if d is not None:
                 try:
@@ -1956,6 +2121,7 @@ def consultar_lotes_sumario(controles: list[str]) -> dict[str, dict]:
                     d['qtd_classificada'] = 0.0
 
         # 3) Vendas (TOPs vendas)
+        t_vnd0 = time.perf_counter()
         sql_vnd = (
             f"""
             SELECT i.CODAGREGACAO AS CTRL, NVL(SUM(i.QTDNEG), 0)
@@ -1967,9 +2133,12 @@ def consultar_lotes_sumario(controles: list[str]) -> dict[str, dict]:
             """
         )
         cur.execute(sql_vnd, binds)
-        vendidas = {ctrl: float(q or 0) for ctrl, q in cur.fetchall()}
+        rows_vnd = cur.fetchall()
+        vendidas = {ctrl: float(q or 0) for ctrl, q in rows_vnd}
+        t_vnd1 = time.perf_counter()
 
         # 4) Reservas (pedido de venda TOP)
+        t_rsv0 = time.perf_counter()
         sql_rsv = (
             f"""
             SELECT i.CODAGREGACAO AS CTRL, NVL(SUM(i.QTDNEG), 0)
@@ -1981,9 +2150,12 @@ def consultar_lotes_sumario(controles: list[str]) -> dict[str, dict]:
             """
         )
         cur.execute(sql_rsv, {**binds, 'top_ped': TOP_PED_VENDA})
-        reservadas = {ctrl: float(q or 0) for ctrl, q in cur.fetchall()}
+        rows_rsv = cur.fetchall()
+        reservadas = {ctrl: float(q or 0) for ctrl, q in rows_rsv}
+        t_rsv1 = time.perf_counter()
 
         # 5) NUNOTA TOP_CLASS existente (mais recente)
+        t_nc0 = time.perf_counter()
         sql_ncls = (
             f"""
             SELECT ctrl, MAX(nun) AS nunota_class FROM (
@@ -1996,12 +2168,15 @@ def consultar_lotes_sumario(controles: list[str]) -> dict[str, dict]:
             """
         )
         cur.execute(sql_ncls, {**binds, 'top_class': TOP_CLASS})
-        for ctrl, nun in cur.fetchall():
+        rows_nc = cur.fetchall()
+        t_nc1 = time.perf_counter()
+        for ctrl, nun in rows_nc:
             d = out.get(ctrl)
             if d is not None:
                 d['nunota_class'] = nun
 
         # 6) Produtos de entrada por controle (TOP_ENTRADA)
+        t_pe0 = time.perf_counter()
         sql_pe = (
             f"""
             SELECT i.CODAGREGACAO AS CTRL, i.CODPROD, p.DESCRPROD
@@ -2013,7 +2188,9 @@ def consultar_lotes_sumario(controles: list[str]) -> dict[str, dict]:
             """
         )
         cur.execute(sql_pe, {**binds, 'top_ent': TOP_ENTRADA})
-        for ctrl, cod, descr in cur.fetchall():
+        rows_pe = cur.fetchall()
+        t_pe1 = time.perf_counter()
+        for ctrl, cod, descr in rows_pe:
             d = out.get(ctrl)
             if d is not None:
                 lst = d.setdefault('produtos_entrada', [])
@@ -2037,6 +2214,17 @@ def consultar_lotes_sumario(controles: list[str]) -> dict[str, dict]:
             disp = q_class - q_vend - q_resv
             d['qtd_disponivel'] = disp if disp > 0 else 0.0
 
+    t1 = time.perf_counter()
+    try:
+        import logging
+        logging.getLogger(__name__).info(
+            '[sumario] ent=%dms cls=%dms vnd=%dms rsv=%dms nuncls=%dms prod=%dms total=%dms controles=%d',
+            int((t_ent1 - t_ent0) * 1000), int((t_cls1 - t_cls0) * 1000), int((t_vnd1 - t_vnd0) * 1000),
+            int((t_rsv1 - t_rsv0) * 1000), int((t_nc1 - t_nc0) * 1000), int((t_pe1 - t_pe0) * 1000),
+            int((t1 - t0) * 1000), len(keys)
+        )
+    except Exception:
+        pass
     return out
 
 
@@ -2117,6 +2305,175 @@ def listar_lotes_recentes(
         cur.execute(sql, binds)
         rows = cur.fetchmany(limit)
         return [r[0] for r in rows]
+
+
+def listar_lotes_entradas_classificaveis(
+        days: int = 7,
+        limit: int = 50,
+        codparc: int | None = None,
+        codprod: int | None = None,
+        date_start: str | None = None,
+        date_end: str | None = None,
+    ):
+        """Lista CONTROLEs (lotes) a partir de itens de ENTRADA (TOP 11) que são classificáveis (GERAPRODUCAO='S').
+        - Filtro por período (DTNEG) com days ou date_start/date_end
+        - Filtros opcionais por CODPARC e CODPROD
+        - Retorna até `limit` controles distintos (ordenados por DTNEG desc e controle desc)
+        """
+        from datetime import datetime, date as _date, timedelta
+
+        def _to_date(val: str | _date | None):
+            if val in (None, '', 'None', 'none', 'null'):
+                return None
+            if isinstance(val, _date):
+                return val
+            if isinstance(val, datetime):
+                return val.date()
+            try:
+                return datetime.strptime(str(val), "%Y-%m-%d").date()
+            except Exception:
+                return None
+
+        params = get_params()
+        TOP_ENTRADA = params['TOP_ENTRADA']  # 11
+
+        dtini = _to_date(date_start)
+        dtfim = _to_date(date_end)
+        if dtini is None and dtfim is None:
+            dtini = (_date.today() - timedelta(days=days))
+            dtfim = _date.today()
+
+        where = [
+            "c.CODTIPOPER = :top_entrada",
+            "i.CODAGREGACAO IS NOT NULL",
+            "NVL(i.GERAPRODUCAO,'N') = 'S'",
+        ]
+        binds: dict[str, object] = {"top_entrada": TOP_ENTRADA}
+
+        if dtini:
+            where.append("c.DTNEG >= :dtini")
+            binds["dtini"] = dtini
+        if dtfim:
+            where.append("c.DTNEG <= :dtfim")
+            binds["dtfim"] = dtfim
+        if codparc is not None:
+            where.append("c.CODPARC = :codparc")
+            binds["codparc"] = codparc
+        if codprod is not None:
+            where.append("i.CODPROD = :codprod")
+            binds["codprod"] = codprod
+
+        inner = (
+            "SELECT DISTINCT i.CODAGREGACAO AS controle, c.DTNEG "
+            "FROM TGFITE i JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA "
+            f"WHERE {' AND '.join(where)} "
+            "ORDER BY c.DTNEG DESC, i.CODAGREGACAO DESC"
+        )
+        sql = f"SELECT controle FROM ({inner}) WHERE ROWNUM <= :lim"
+        binds['lim'] = int(limit or 50)
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, binds)
+            rows = cur.fetchall()
+            # return as list of tuples to mirror other list_* functions usage
+            return [(r[0],) if not isinstance(r, (list, tuple)) else r for r in rows]
+
+
+def consultar_lotes_sumario_top11_classificaveis(controles: list[str]) -> dict[str, dict]:
+        """Resumo leve para múltiplos controles baseado SOMENTE em entradas TOP 11
+        classificáveis (GERAPRODUCAO='S') para uso na página de Classificação.
+        Retorna por controle: parceiro/codparc, qtd_cx, qtd_kg e lista de produtos classificáveis.
+        """
+        if not controles:
+            return {}
+        keys = [str(c) for c in controles if c]
+        if not keys:
+            return {}
+
+        # Build IN clause
+        placeholders = []
+        binds: dict[str, object] = {}
+        for idx, c in enumerate(keys):
+            ph = f"c{idx}"
+            placeholders.append(f":{ph}")
+            binds[ph] = c
+        in_clause = ",".join(placeholders)
+
+        p = get_params()
+        TOP_ENTRADA = p['TOP_ENTRADA']
+
+        out: dict[str, dict] = {c: {
+            'parceiro': '',
+            'codparc': None,
+            'qtd_cx': 0.0,
+            'qtd_kg': 0.0,
+            'produtos_entrada': [],  # classifiable products only
+        } for c in keys}
+
+        with get_connection() as conn:
+            cur = conn.cursor()
+            # Partner + quantities by volume
+            sql_q = (
+                f"""
+                SELECT i.CODAGREGACAO AS CTRL,
+                       MAX(pr.NOMEPARC) AS PARCEIRO,
+                       MAX(c.CODPARC) AS CODPARC,
+                       SUM(CASE WHEN UPPER(NVL(i.CODVOL,''))='CX' THEN i.QTDNEG ELSE 0 END) AS QTD_CX,
+                       SUM(CASE WHEN UPPER(NVL(i.CODVOL,''))='KG' THEN i.QTDNEG ELSE 0 END) AS QTD_KG
+                  FROM TGFITE i
+                  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                  LEFT JOIN TGFPAR pr ON pr.CODPARC = c.CODPARC
+                 WHERE i.CODAGREGACAO IN ({in_clause})
+                   AND c.CODTIPOPER = :top_ent
+                   AND NVL(i.GERAPRODUCAO,'N') = 'S'
+                 GROUP BY i.CODAGREGACAO
+                """
+            )
+            cur.execute(sql_q, {**binds, 'top_ent': TOP_ENTRADA})
+            for ctrl, parceiro, codparc, qcx, qkg in cur.fetchall():
+                d = out.get(ctrl)
+                if not d:
+                    continue
+                d['parceiro'] = parceiro or ''
+                try:
+                    d['codparc'] = int(codparc) if codparc is not None else None
+                except Exception:
+                    d['codparc'] = codparc
+                try:
+                    d['qtd_cx'] = float(qcx or 0)
+                except Exception:
+                    d['qtd_cx'] = 0.0
+                try:
+                    d['qtd_kg'] = float(qkg or 0)
+                except Exception:
+                    d['qtd_kg'] = 0.0
+
+            # Classifiable product list
+            sql_p = (
+                f"""
+                SELECT i.CODAGREGACAO AS CTRL, i.CODPROD, MAX(p.DESCRPROD)
+                  FROM TGFITE i
+                  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                  LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
+                 WHERE i.CODAGREGACAO IN ({in_clause})
+                   AND c.CODTIPOPER = :top_ent
+                   AND NVL(i.GERAPRODUCAO,'N') = 'S'
+                 GROUP BY i.CODAGREGACAO, i.CODPROD
+                """
+            )
+            cur.execute(sql_p, {**binds, 'top_ent': TOP_ENTRADA})
+            for ctrl, cod, descr in cur.fetchall():
+                d = out.get(ctrl)
+                if not d:
+                    continue
+                lst = d.setdefault('produtos_entrada', [])
+                try:
+                    cod_i = int(cod) if cod is not None else None
+                except Exception:
+                    cod_i = cod
+                lst.append({'cod': cod_i, 'descr': descr or ''})
+
+        return out
 
 
 def listar_itens_sem_controle(limit: int = 50):
@@ -2295,7 +2652,8 @@ def listar_lotes_classificacao(
         where.append("i.CODPROD = :codprod")
         binds["codprod"] = codprod
 
-    sql = (
+    # Apply server-side row limiting with ROWNUM to avoid materializing the full grouped set
+    inner = (
         "SELECT DISTINCT i.CODAGREGACAO AS controle, "
         "       c.NUNOTA, c.CODPARC, p.RAZAOSOCIAL, c.DTNEG, c.STATUSNOTA, "
         "       COUNT(*) AS itens, "
@@ -2309,11 +2667,22 @@ def listar_lotes_classificacao(
         "GROUP BY i.CODAGREGACAO, c.NUNOTA, c.CODPARC, p.RAZAOSOCIAL, c.DTNEG, c.STATUSNOTA "
         "ORDER BY c.DTNEG DESC, i.CODAGREGACAO DESC"
     )
-    
+    sql = f"SELECT * FROM ({inner}) WHERE ROWNUM <= :lim"
+    binds['lim'] = int(limit or 50)
+
+    import time
+    t0 = time.perf_counter()
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(sql, binds)
-        return cur.fetchmany(limit)
+        rows = cur.fetchall()
+        t1 = time.perf_counter()
+        try:
+            import logging
+            logging.getLogger(__name__).info('[lotes_class] rows=%d ms=%d', len(rows), int((t1 - t0) * 1000))
+        except Exception:
+            pass
+        return rows
 
 
 def listar_produtos(limit: int = 50, offset: int = 0, nome: str | None = None):
@@ -3979,4 +4348,255 @@ def get_duplicate_status(nunota_11: int) -> dict:
         pass
         
     return result
+
+
+def sync_item_to_classification(nunota_11: int, codprod: int, dry_run: bool = False) -> dict:
+    """Sincroniza alterações do item (TOP 11) para o item correspondente na TOP 26 com UPSERT.
+
+    Passos:
+    - Localiza o item origem em TOP 11 (por NUNOTA, CODPROD) e lê campos: CODAGREGACAO (controle),
+      QTDNEG, VLRUNIT, VLRTOT, CODVOL, PESO, CODLOCALORIG, GERAPRODUCAO.
+    - Busca a TOP 26 mais recente para este controle.
+      - Se existir: tenta UPDATE do item (match por CODPROD+CODAGREGACAO).
+      - Se o UPDATE afetar 0 linhas e GERAPRODUCAO='S': faz INSERT (upsert) do item.
+    - Se não existir TOP 26 para o controle e GERAPRODUCAO='S': cria cabeçalho TOP 26 baseado na TOP 11
+      (via insert_cabecalho) e insere o item.
+
+    Observações:
+    - O INSERT considera apenas colunas existentes em TGFITE (detecção dinâmica) e define DTALTER=SYSDATE quando disponível.
+    - Itens não classificáveis (GERAPRODUCAO!='S') não são inseridos na TOP 26.
+
+    Returns:
+        dict: { ok, updated: int, inserted: int, nunota_26: int|None, created_header: bool, warnings: list, errors: list }
+    """
+    out = {
+        'ok': False, 'updated': 0, 'inserted': 0,
+        'nunota_26': None, 'created_header': False,
+        'warnings': [], 'errors': []
+    }
+    try:
+        nun = int(nunota_11)
+        prod = int(codprod)
+    except Exception:
+        out['errors'].append('Parâmetros inválidos (nunota_11, codprod)')
+        return out
+
+    params = get_params()
+    TOP_CLASS = params['TOP_CLASS']
+
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+
+            # 1) Obter dados do item na TOP 11
+            cur.execute(
+                """
+                SELECT /*+ FIRST_ROWS(1) */
+                       CODAGREGACAO,
+                       QTDNEG,
+                       VLRUNIT,
+                       VLRTOT,
+                       CODVOL,
+                       NVL(PESO, 0) AS PESO,
+                       CODLOCALORIG,
+                       NVL(GERAPRODUCAO,'N') AS GP
+                  FROM (
+                        SELECT CODAGREGACAO, QTDNEG, VLRUNIT, VLRTOT, CODVOL, PESO, CODLOCALORIG, GERAPRODUCAO
+                          FROM TGFITE
+                         WHERE NUNOTA = :n AND CODPROD = :p
+                         ORDER BY SEQUENCIA
+                       )
+                 WHERE ROWNUM = 1
+                """,
+                n=nun, p=prod
+            )
+            row = cur.fetchone()
+            if not row:
+                out['warnings'].append('Item não encontrado em TOP 11')
+                out['ok'] = True
+                return out
+
+            ctrl, qtd, vlu, vlt, codvol, peso, codlocal, gp = row
+            if not ctrl:
+                out['warnings'].append('Item sem controle (CODAGREGACAO) — nada a sincronizar')
+                out['ok'] = True
+                return out
+
+            # 2) Localizar NUNOTA da TOP 26 mais recente para o mesmo controle
+            cur.execute(
+                """
+                SELECT /*+ FIRST_ROWS(1) */ x.NUNOTA FROM (
+                    SELECT i.NUNOTA
+                      FROM TGFITE i
+                      JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                     WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top
+                     ORDER BY c.DTMOV DESC, i.NUNOTA DESC
+                ) x WHERE ROWNUM = 1
+                """,
+                c=ctrl, top=TOP_CLASS
+            )
+            r26 = cur.fetchone()
+            nun26 = int(r26[0]) if r26 and r26[0] is not None else None
+
+            # Se não há TOP 26 para o controle e o item é classificável, criaremos o cabeçalho
+            if nun26 is None and str(gp).strip().upper() == 'S':
+                # Carregar dados do cabeçalho TOP 11 para basear a criação
+                cur.execute(
+                    """
+                    SELECT CODEMP, CODPARC, CODNAT, CODCENCUS, DTNEG, DTMOV, DTENTSAI,
+                           CODVEND, CODPARCTRANSP, CODPROJ, NUMNOTA, OBSERVACAO
+                      FROM TGFCAB WHERE NUNOTA = :n
+                    """,
+                    n=nun
+                )
+                cab11 = cur.fetchone()
+                if not cab11:
+                    out['errors'].append('Cabeçalho TOP 11 não encontrado para criar TOP 26')
+                    return out
+                cab_data = {
+                    'CODEMP': cab11[0],
+                    'CODPARC': cab11[1],
+                    'CODTIPOPER': TOP_CLASS,
+                    'CODNAT': cab11[2],
+                    'CODCENCUS': cab11[3],
+                    'DTNEG': cab11[4].strftime('%d/%m/%Y') if cab11[4] else None,
+                    'DTMOV': cab11[5].strftime('%d/%m/%Y') if cab11[5] else None,
+                    'DTENTSAI': cab11[6].strftime('%d/%m/%Y') if cab11[6] else None,
+                    'CODVEND': cab11[7] if cab11[7] else 0,
+                    'CODPARCTRANSP': cab11[8] if cab11[8] else 0,
+                    'CODPROJ': cab11[9] if cab11[9] else 0,
+                    'NUMNOTA': cab11[10] if cab11[10] else None,
+                    'OBSERVACAO': f'Sync (auto) de TOP 11 NUNOTA {nun}'
+                }
+                if dry_run or not is_write_enabled():
+                    out['warnings'].append('Criaria cabeçalho TOP 26 (dry_run ou write desabilitado)')
+                else:
+                    cab_res = insert_cabecalho(cab_data, dry_run=False)
+                    if not cab_res.get('executed'):
+                        out['errors'].append('Falha ao criar cabeçalho TOP 26 (upsert)')
+                        out['errors'].extend(cab_res.get('errors', []))
+                        return out
+                    nun26 = int(cab_res.get('nunota'))
+                    out['created_header'] = True
+                out['nunota_26'] = nun26
+
+            # Se ainda não há TOP 26 e gp != 'S', nada a inserir
+            if nun26 is None and str(gp).strip().upper() != 'S':
+                out['warnings'].append('TOP 26 inexistente e item não classificável — sem upsert')
+                out['ok'] = True
+                return out
+
+            # Se chegamos aqui e for dry_run/write disabled, apenas reportar
+            if dry_run or not is_write_enabled():
+                out['warnings'].append('Execução em modo simulado (dry_run ou write desabilitado)')
+                out['ok'] = True
+                return out
+
+            # 3) Tentar UPDATE no item correspondente da TOP 26
+            cols = _get_table_columns(conn, 'TGFITE')
+            set_parts = [
+                'QTDNEG=:Q', 'VLRUNIT=:VU', 'VLRTOT=:VT', 'CODVOL=:CV', 'PESO=:PS', 'CODLOCALORIG=:LOC', 'GERAPRODUCAO=:GP'
+            ]
+            if 'DTALTER' in cols:
+                set_parts.append('DTALTER=SYSDATE')
+
+            sql_upd = f"UPDATE TGFITE SET {', '.join(set_parts)} WHERE NUNOTA=:N26 AND CODPROD=:P AND CODAGREGACAO=:CTRL"
+            binds_upd = {
+                'Q': float(qtd or 0),
+                'VU': float(vlu or 0),
+                'VT': float(vlt or 0),
+                'CV': (codvol or None),
+                'PS': float(peso or 0),
+                'LOC': int(codlocal or 0) if codlocal is not None else 0,
+                'GP': (str(gp).strip().upper() if gp is not None else None),
+                'N26': nun26,
+                'P': prod,
+                'CTRL': ctrl,
+            }
+            cur.execute(sql_upd, binds_upd)
+            out['updated'] = int(cur.rowcount or 0)
+
+            # 4) Se nenhum item foi atualizado e for classificável, realizar INSERT (UPSERT)
+            if out['updated'] == 0 and str(gp).strip().upper() == 'S':
+                # Obter CODEMP do cabeçalho destino e próxima SEQUENCIA
+                cur.execute("SELECT CODEMP FROM TGFCAB WHERE NUNOTA=:n", n=nun26)
+                row_emp = cur.fetchone()
+                dest_emp = int(row_emp[0]) if row_emp and row_emp[0] is not None else None
+                cur.execute("SELECT NVL(MAX(SEQUENCIA),0) + 1 FROM TGFITE WHERE NUNOTA=:n", n=nun26)
+                (next_seq,) = cur.fetchone()
+                try:
+                    next_seq = int(next_seq or 1)
+                except Exception:
+                    next_seq = 1
+
+                # Montar INSERT dinâmico com colunas existentes
+                tcols = _get_table_columns(conn, 'TGFITE')
+                base_cols = [
+                    'NUNOTA','SEQUENCIA','CODEMP','CODPROD','QTDNEG','PESO','VLRUNIT','VLRTOT','CODVOL','CODLOCALORIG','CODAGREGACAO','OBSERVACAO','GERAPRODUCAO'
+                ]
+                cols_present = [c for c in base_cols if c in tcols]
+                col_list = cols_present[:]
+                values_parts = []
+                binds_ins = {}
+                for c in cols_present:
+                    if c == 'NUNOTA':
+                        values_parts.append(':NUNOTA'); binds_ins['NUNOTA'] = nun26
+                    elif c == 'SEQUENCIA':
+                        values_parts.append(':SEQUENCIA'); binds_ins['SEQUENCIA'] = next_seq
+                    elif c == 'CODEMP':
+                        values_parts.append(':CODEMP'); binds_ins['CODEMP'] = dest_emp
+                    elif c == 'CODPROD':
+                        values_parts.append(':CODPROD'); binds_ins['CODPROD'] = prod
+                    elif c == 'QTDNEG':
+                        values_parts.append(':QTDNEG'); binds_ins['QTDNEG'] = float(qtd or 0)
+                    elif c == 'PESO':
+                        values_parts.append(':PESO'); binds_ins['PESO'] = float(peso or 0)
+                    elif c == 'VLRUNIT':
+                        values_parts.append(':VLRUNIT'); binds_ins['VLRUNIT'] = float(vlu or 0)
+                    elif c == 'VLRTOT':
+                        values_parts.append(':VLRTOT'); binds_ins['VLRTOT'] = float(vlt or 0)
+                    elif c == 'CODVOL':
+                        values_parts.append(':CODVOL'); binds_ins['CODVOL'] = (codvol or None)
+                    elif c == 'CODLOCALORIG':
+                        values_parts.append(':CODLOCALORIG'); binds_ins['CODLOCALORIG'] = int(codlocal or 0) if codlocal is not None else 0
+                    elif c == 'CODAGREGACAO':
+                        values_parts.append(':CODAGREGACAO'); binds_ins['CODAGREGACAO'] = ctrl
+                    elif c == 'OBSERVACAO':
+                        values_parts.append(':OBS'); binds_ins['OBS'] = 'Upsert automático (sync portal)'
+                    elif c == 'GERAPRODUCAO':
+                        values_parts.append(':GP'); binds_ins['GP'] = (str(gp).strip().upper() if gp is not None else None)
+                # DTALTER
+                add_dtalter = 'DTALTER' in tcols
+                if add_dtalter:
+                    col_list.append('DTALTER')
+                    values_parts.append('SYSDATE')
+
+                sql_ins = f"INSERT INTO TGFITE ({', '.join(col_list)}) VALUES ({', '.join(values_parts)})"
+                cur.execute(sql_ins, binds_ins)
+                out['inserted'] = int(cur.rowcount or 0)
+
+                # Padronizações pós-gravação
+                try:
+                    std = standardize_item_fields(nun26, next_seq, conn=conn)
+                    out['standardize'] = std
+                except Exception:
+                    pass
+
+            # Commit final e retorno
+            conn.commit()
+            out['nunota_26'] = nun26
+            out['ok'] = True
+            if out['updated'] == 0 and out['inserted'] == 0:
+                out['warnings'].append('Nenhum item correspondente atualizado ou inserido na TOP 26')
+            return out
+
+    except cx_Oracle.DatabaseError as e:
+        try:
+            err, = e.args
+            out['errors'].append(getattr(err, 'message', str(e)))
+        except Exception:
+            out['errors'].append(str(e))
+        out['ok'] = False
+        return out
+
 
