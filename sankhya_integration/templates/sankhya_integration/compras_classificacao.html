@@ -100,6 +100,11 @@
         </span>
       {% endif %}
     </h1>
+    {% if db_error %}
+      <div style="margin-top:8px; padding:8px 10px; border:1px solid #fecaca; background:#fef2f2; color:#991b1b; border-radius:6px; font-size:12px;">
+        Não foi possível conectar ao banco Oracle no momento. Detalhes: {{ db_error }}
+      </div>
+    {% endif %}
   </header>
 
   <main>
@@ -166,12 +171,12 @@
     <section class="rightcol">
       <!-- Toolbar acima do card de resultados -->
       <div class="toolbar-top">
-        <a class="icon-btn" title="Novo lançamento" href="/sankhya/packing/central/?codtipoper=11" id="btnNew">
+        <button class="icon-btn" title="Adicionar classificação" id="btnAddClassify" disabled>
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <line x1="12" y1="5" x2="12" y2="19"></line>
             <line x1="5" y1="12" x2="19" y2="12"></line>
           </svg>
-        </a>
+        </button>
         <button class="icon-btn danger" id="btnDeleteNota" type="button" title="Excluir lote selecionado" disabled>
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="3 6 5 6 21 6"></polyline>
@@ -223,14 +228,21 @@
                 <td>{{ controle }}</td>
                 <td>{{ parceiro }}</td>
                 <td>
+                  {# Prefer per-item render to allow styling missing manufacturer in red #}
                   {% if produtos_entrada %}
                     <div style="font-size:13px;">
                       {% for p in produtos_entrada %}
-                        <div>{{ p.cod }} - {{ p.descr }}</div>
+                        {% if p.fabricante %}
+                          <div>{{ p.fabricante }}</div>
+                        {% else %}
+                          <div style="color:#b91c1c;">(SEM FABRICANTE)</div>
+                        {% endif %}
                       {% endfor %}
                     </div>
+                  {% elif produto_descr %}
+                    <div style="white-space:pre-line; font-size:13px;">{{ produto_descr }}</div>
                   {% else %}
-                    {{ produto_descr }}
+                    <span style="color:#6b7280;">—</span>
                   {% endif %}
                 </td>
                 <td>{{ qtd_cx }}</td>
@@ -256,23 +268,13 @@
           <span id="nunotaClassBadge" style="display:none; margin-left:8px; font-weight:600; color:#1f2937; background:#e5e7eb; padding:2px 6px; border-radius:9999px; font-size:12px;"></span>
         {% endif %}
       </div>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <button id="prodAddBtn" class="icon-btn" type="button" title="Adicionar" disabled>
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-        </button>
-        <button id="prodEditBtn" class="icon-btn" type="button" title="Editar" disabled>
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
-        </button>
-        <button id="prodDeleteBtn" class="icon-btn danger" type="button" title="Excluir" disabled>
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg>
-        </button>
-      </div>
+      <div style="display:flex; gap:8px; align-items:center;"></div>
     </header>
         <div class="items">
           <table class="ph-selectable-table">
             <thead>
               <tr>
-                <th>Controle</th>
+                <th>Lote</th>
                 <th>Seq</th>
                 <th>Produto</th>
                 <th>Descrição</th>
@@ -355,7 +357,7 @@
   <!-- Item edit/add modal (for Produtos Classificados) -->
   <div id="modalItemEdit" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); align-items:center; justify-content:center; z-index:70;">
     <div style="background:#fff; border-radius:8px; width:640px; max-width:95%; padding:14px;">
-      <h3 id="itemModalTitle">Editar Item</h3>
+  <h3 id="itemModalTitle">Editar Item</h3>
       <div style="display:grid; grid-template-columns: 1fr 120px; gap:8px;">
         <div style="position:relative;">
           <label>Produto (código)</label>
@@ -576,7 +578,7 @@
                   <label>Observação</label>
                   <input type="text" id="item_obs" />
                 </div>
-                <div style="width:70px; display:flex; justify-content:flex-end;">
+                <div style="width:70px; display:flex; justify-content:center;">
                   <button id="itemAddBtn" class="icon-btn success icon-btn--plain" title="Adicionar" aria-label="Adicionar">
                     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <circle cx="12" cy="12" r="9"></circle>
@@ -636,7 +638,10 @@
         if (LOTES_PREFETCH.scheduled[c]) return;
         LOTES_PREFETCH.scheduled[c] = setTimeout(()=>{ try{ prefetchLote(c); }finally{ try{ clearTimeout(LOTES_PREFETCH.scheduled[c]); }catch(_){ } delete LOTES_PREFETCH.scheduled[c]; } }, typeof delay==='number'?delay:140);
       }
-      function updateDeleteBtn(){ const btnDel = document.getElementById('btnDeleteNota'); if(!btnDel) return; const hasActive = !!tbl.querySelector('tbody tr.row--click.row--active'); if(hasActive) btnDel.removeAttribute('disabled'); else btnDel.setAttribute('disabled','disabled'); }
+  function updateDeleteBtn(){ const btnDel = document.getElementById('btnDeleteNota'); if(!btnDel) return; const hasActive = !!tbl.querySelector('tbody tr.row--click.row--active'); if(hasActive) btnDel.removeAttribute('disabled'); else btnDel.setAttribute('disabled','disabled'); }
+  // Enable/disable top '+' add button based on selection
+  const btnAddClassify = document.getElementById('btnAddClassify');
+  function updateAddClassifyBtn(){ if(!btnAddClassify) return; const hasActive = !!tbl.querySelector('tbody tr.row--click.row--active'); if(hasActive) btnAddClassify.removeAttribute('disabled'); else btnAddClassify.setAttribute('disabled','disabled'); }
   const btnClassify = document.getElementById('btnClassify');
   function updateClassifyBtn(){ if(!btnClassify) return; const rows = Array.from(tbl.querySelectorAll('tbody tr.row--click')); const selected = rows.filter(r=>r.classList.contains('row--active')); if(selected.length===1){ btnClassify.removeAttribute('disabled'); } else { btnClassify.setAttribute('disabled','disabled'); } }
       tbl.addEventListener('click', (e) => {
@@ -644,7 +649,8 @@
         if(!tr) return;
         Array.from(tbl.querySelectorAll('tbody tr.row--click')).forEach(r=>r.classList.remove('row--active'));
         tr.classList.add('row--active');
-        updateDeleteBtn();
+  updateDeleteBtn();
+  updateAddClassifyBtn();
         if (clickTimer) clearTimeout(clickTimer);
         clickTimer = setTimeout(()=>{
           const ctrl = tr.dataset.nunota;
@@ -689,7 +695,7 @@
                 // Populate already-open Items with nunota and load
                 try{ const itemsNunota = document.getElementById('items_nunota'); if(itemsNunota) itemsNunota.value = j.nunota_class; }catch(_){ }
                 try{ const addBtn = document.getElementById('itemAddBtn'); addBtn && addBtn.removeAttribute('disabled'); }catch(_){ }
-                try{ if(typeof loadItems === 'function') loadItems(j.nunota_class); }catch(_){ }
+                try{ if(typeof refreshItemsList === 'function') refreshItemsList(); }catch(_){ }
                 return;
               }
               // No existing TOP 26 header: edit-only flow. Keep header/items open and wait for manual save.
@@ -713,13 +719,14 @@
         row.scrollIntoView({ block: 'nearest' });
         // agendar prefetch para a linha ativa
         try{ const ctrl = row && row.dataset && row.dataset.nunota; if(ctrl) schedulePrefetch(ctrl, 80); }catch(_){ }
-        if (triggerApply) { applySelection(); }
+  if (triggerApply) { applySelection(); }
       }
       function applySelection(){
         const row = tbl.querySelector('tbody tr.row--active'); if(!row) return;
         const ctrl = row.dataset.nunota;
         try{ const url = new URL(window.location.href); url.searchParams.set('sel', ctrl); window.history.replaceState({}, '', url.pathname + '?' + url.searchParams.toString()); }catch(_){ }
         try{ loadClassifiedFor(ctrl); }catch(err){ console.error('applySelection load classified error', err); }
+        try{ updateAddClassifyBtn(); }catch(_){ }
       }
       // Hover-based prefetch para antecipar escolha
       tbl.addEventListener('mouseover', (e)=>{
@@ -734,6 +741,7 @@
       try{ listEl && listEl.focus(); }catch(_){}
     updateDeleteBtn();
   updateClassifyBtn();
+  updateAddClassifyBtn();
   const btnDeleteNota = document.getElementById('btnDeleteNota');
   function getCookie(name){ const m=document.cookie.match(new RegExp('(^| )'+name+'=([^;]+)')); return m? decodeURIComponent(m[2]) : null; }
   async function postJSON(url, body){ const csrftoken = getCookie('csrftoken'); const headers = {'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'}; if (csrftoken) headers['X-CSRFToken'] = csrftoken; const r = await fetch(url, {method:'POST', headers, body: JSON.stringify(body), credentials:'same-origin'}); let j={}; try{ j=await r.json(); }catch(_){ j={}; } return {ok:r.ok, body:j, status:r.status}; }
@@ -794,33 +802,7 @@
     }catch(_){ }
   if(rows.length===0){ bodyEl.innerHTML = '<tr><td colspan="9">Nenhum produto classificado para a seleção.</td></tr>'; return; } bodyEl.innerHTML = ''; for(const it of rows){ const tr = document.createElement('tr'); tr.innerHTML = `<td>${it.nunota||''}</td><td>${it.sequencia||''}</td><td>${it.cod||''}</td><td>${it.descr||''}</td><td>${it.qtd!=null?it.qtd:''}</td><td>${it.vlu||''}</td><td>${it.vlt||''}</td><td>${it.codvol||''}</td><td></td>`; bodyEl.appendChild(tr); } }catch(err){ bodyEl.innerHTML = '<tr><td colspan="9">Erro ao carregar.</td></tr>'; } finally { try { if (window.__PH_INITIAL_LOADING) { window.__PH_INITIAL_LOADING = false; window.PHOverlay && window.PHOverlay.hide && window.PHOverlay.hide(); } } catch(_) {} } }
 
-      // Enable/disable header action buttons depending on selection
-      const prodAddBtn = document.getElementById('prodAddBtn'); const prodEditBtn = document.getElementById('prodEditBtn'); const prodDeleteBtn = document.getElementById('prodDeleteBtn');
-      function updateHeaderActionButtons(){ const selected = document.querySelector('#prodClassBody tr.selected'); const activeRow = tbl.querySelector('tbody tr.row--active');
-        // Edit/Delete enabled only when a classified item (row) is selected
-        if(selected){ prodEditBtn.removeAttribute('disabled'); prodDeleteBtn.removeAttribute('disabled'); } else { prodEditBtn.setAttribute('disabled','disabled'); prodDeleteBtn.setAttribute('disabled','disabled'); }
-        // Add enabled only when a lote (active row in notasTable) is selected AND an origem (innatura) is selected in the modalOrigem select
-        const innSelected = document.getElementById('modalOrigem')?.value; if(activeRow && innSelected){ prodAddBtn.removeAttribute('disabled'); } else { prodAddBtn.setAttribute('disabled','disabled'); }
-      }
-
-      // When a classified row is clicked, mark it as selected (single select) and update header buttons
-      document.getElementById('prodClassBody')?.addEventListener('click', function(e){ const tr = e.target.closest('tr'); if(!tr) return; // clear previous
-        Array.from(document.querySelectorAll('#prodClassBody tr')).forEach(r=> r.classList.remove('selected','is-selected','row--active','ph-row-selected')); tr.classList.add('selected'); updateHeaderActionButtons(); });
-
-      // Also update when notasTable selection changes
-      const notasObserver = new MutationObserver(()=>{ updateHeaderActionButtons(); }); notasObserver.observe(tbl.querySelector('tbody') || tbl, { attributes: true, childList: true, subtree: true });
-
-      // Wire header button handlers
-      prodEditBtn.addEventListener('click', function(){ const sel = document.querySelector('#prodClassBody tr.selected'); if(!sel){ alert('Selecione um item para editar.'); return; } const nunota = sel.children[0]?.textContent?.trim(); const seq = sel.children[1]?.textContent?.trim(); const cod = sel.children[2]?.textContent?.trim(); openItemModal({ nunota, sequencia: seq, codprod: cod }); });
-
-      prodDeleteBtn.addEventListener('click', function(){ const sel = document.querySelector('#prodClassBody tr.selected'); if(!sel){ alert('Selecione um item para excluir.'); return; } const nunota = sel.children[0]?.textContent?.trim(); const seq = sel.children[1]?.textContent?.trim(); confirmDeleteItem(nunota, seq); });
-
-      prodAddBtn.addEventListener('click', function(){ const activeRow = tbl.querySelector('tbody tr.row--active'); if(!activeRow){ alert('Selecione um lote (na lista de lotes) para adicionar classificação.'); return; } // open modal for new item; require origem selected
-        const controle = activeRow.dataset.nunota; // prefill product from selected innatura? we'll open modal blank but include nunota
-        openItemModal({ nunota: controle, sequencia: null, codprod: null }); });
-
-      // Call updateHeaderActionButtons initially
-      updateHeaderActionButtons();
+      // Removed obsolete in-card header action buttons (Add/Edit/Delete) and their handlers
 
       // Item modal behavior
       const itemModal = document.getElementById('modalItemEdit'); const itemTitle = document.getElementById('itemModalTitle'); const itemProdCod = document.getElementById('itemProdCod'); const itemVol = document.getElementById('itemVol'); const itemQtd = document.getElementById('itemQtd'); const itemVlr = document.getElementById('itemVlr'); const itemObs = document.getElementById('itemObs'); const itemDeleteBtn = document.getElementById('itemDeleteBtn'); const itemModalCancel = document.getElementById('itemModalCancel'); const itemModalSave = document.getElementById('itemModalSave');
@@ -875,25 +857,35 @@
   })();
 
   // Typeahead for item modal: vol
-  (function(){ const volInput = document.getElementById('itemVol'); const volHidden = document.getElementById('itemVolHidden'); const volSuggest = document.getElementById('itemVolSuggest'); let tvol = null; volInput.addEventListener('input', function(){ const q = volInput.value.trim(); if(tvol) clearTimeout(tvol); if(!q){ volSuggest.style.display='none'; volHidden.value=''; return; } tvol = setTimeout(()=>{ fetch('/sankhya/vol/search/?q=' + encodeURIComponent(q) + '&limit=8',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ const items = j.results||[]; volSuggest.innerHTML = items.map(it=>`<div class="sugg-vol" data-cod="${it.cod}" data-descr="${(it.descr||'').replace(/"/g,'&quot;')}">${it.cod} - ${it.descr}</div>`).join(''); volSuggest.style.display = items.length ? 'block' : 'none'; Array.from(volSuggest.querySelectorAll('.sugg-vol')).forEach(el=> el.addEventListener('click', ()=>{ volHidden.value = el.dataset.cod; volInput.value = el.textContent || el.dataset.cod; volSuggest.style.display='none'; try{ document.getElementById('itemQtd').focus(); }catch(_){ } })); }).catch(()=>{ volSuggest.style.display='none'; }); }, 150); });
+  (function(){ const volInput = document.getElementById('itemVol'); const volHidden = document.getElementById('itemVolHidden'); const volSuggest = document.getElementById('itemVolSuggest'); let tvol = null; volInput.addEventListener('input', function(){ const q = volInput.value.trim(); if(tvol) clearTimeout(tvol); if(!q){ volSuggest.style.display='none'; volHidden.value=''; return; } tvol = setTimeout(()=>{ const prodHidden = document.getElementById('itemProdHidden'); const codprod = (prodHidden && prodHidden.value) ? prodHidden.value.trim() : ''; const url = '/sankhya/vol/search/?q=' + encodeURIComponent(q) + '&limit=8' + (codprod?('&codprod='+encodeURIComponent(codprod)):''); fetch(url,{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ const items = j.results||[]; volSuggest.innerHTML = items.map(it=>`<div class="sugg-vol" data-cod="${it.cod}" data-descr="${(it.descr||'').replace(/"/g,'&quot;')}">${it.cod} - ${it.descr}</div>`).join(''); volSuggest.style.display = items.length ? 'block' : 'none'; Array.from(volSuggest.querySelectorAll('.sugg-vol')).forEach(el=> el.addEventListener('click', ()=>{ volHidden.value = el.dataset.cod; volInput.value = el.textContent || el.dataset.cod; volSuggest.style.display='none'; try{ document.getElementById('itemQtd').focus(); }catch(_){ } })); }).catch(()=>{ volSuggest.style.display='none'; }); }, 150); });
   })();
 
-  // Ensure Add button enabled only when selected lote has origem entries loaded
-  function refreshAddButtonState(){ const activeRow = tbl.querySelector('tbody tr.row--active'); const addBtn = document.getElementById('prodAddBtn'); const selOrig = document.getElementById('modalOrigem'); if(!addBtn) return; if(activeRow && selOrig && selOrig.options && selOrig.options.length>0 && selOrig.options[0].value !== ''){ addBtn.removeAttribute('disabled'); } else { addBtn.setAttribute('disabled','disabled'); } }
-  // call when origem select changes or when notas selection changes
-  document.getElementById('modalOrigem')?.addEventListener('change', refreshAddButtonState);
-  tbl.addEventListener('click', ()=> setTimeout(()=>{ refreshAddButtonState(); updateHeaderActionButtons(); }, 100));
+  // Keep top '+' button state in sync with selection
+  document.getElementById('modalOrigem')?.addEventListener('change', ()=> updateAddClassifyBtn());
+  tbl.addEventListener('click', ()=> setTimeout(()=>{ updateAddClassifyBtn(); }, 100));
 
-  async function confirmDeleteItem(nunota, sequencia){ if(!confirm(`Confirma excluir item ${sequencia} da nota ${nunota}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nunota,10), sequencias: [ parseInt(sequencia,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(window.__LOTES_CACHE) delete window.__LOTES_CACHE[String(nunota)]; }catch(_){ } const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha: ' + (res.body?.error || (res.body?.errors||[]).join('\n') || 'Erro')); } }
+  async function confirmDeleteItem(nunota, sequencia){ if(!confirm(`Confirma excluir item ${sequencia} da nota ${nunota}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nunota,10), sequencias: [ parseInt(sequencia,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(window.__LOTES_CACHE){ const activeRow = tbl.querySelector('tbody tr.row--active'); const ctrl = activeRow ? activeRow.dataset.nunota : null; if(ctrl) delete window.__LOTES_CACHE[String(ctrl)]; } }catch(_){ } const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha: ' + (res.body?.error || (res.body?.errors||[]).join('\n') || 'Erro')); } }
 
-  itemDeleteBtn.addEventListener('click', async function(){ if(!currentEditing || !currentEditing.nunota || !currentEditing.sequencia) return; if(!confirm('Confirmar exclusão do item?')) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(currentEditing.nunota,10), sequencias: [ parseInt(currentEditing.sequencia,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(window.__LOTES_CACHE) delete window.__LOTES_CACHE[String(currentEditing.nunota)]; }catch(_){ } itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Erro: ' + (res.body?.error || (res.body?.errors||[]).join('\n') || 'Falha')); } });
+  itemDeleteBtn.addEventListener('click', async function(){ if(!currentEditing || !currentEditing.nunota || !currentEditing.sequencia) return; if(!confirm('Confirmar exclusão do item?')) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(currentEditing.nunota,10), sequencias: [ parseInt(currentEditing.sequencia,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(window.__LOTES_CACHE){ const activeRow = tbl.querySelector('tbody tr.row--active'); const ctrl = activeRow ? activeRow.dataset.nunota : null; if(ctrl) delete window.__LOTES_CACHE[String(ctrl)]; } }catch(_){ } itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Erro: ' + (res.body?.error || (res.body?.errors||[]).join('\n') || 'Falha')); } });
 
       itemModalSave.addEventListener('click', async function(){ const nun = currentEditing?.nunota; const seq = currentEditing?.sequencia; if(!nun){ alert('Nota desconhecida'); return; }
         // normalize numeric inputs (comma -> dot)
         const rawQtd = String(itemQtd.value||'0').replace(',','.'); const rawVlr = String(itemVlr.value||'0').replace(',','.');
         // codprod: prefer hidden value, else try to parse leading number from visible field
         let codprod = null; const ph = (document.getElementById('itemProdHidden').value||'').trim(); if(ph) codprod = parseInt(ph,10); else { const txt = (document.getElementById('itemProdCod').value||'').trim(); const m = txt.match(/^(\d+)/); if(m) codprod = parseInt(m[1],10); }
-        const payload = { nunota: parseInt(nun,10), codprod: codprod || null, qtdneg: parseFloat(rawQtd || '0'), vlrunit: parseFloat(rawVlr || '0'), codvol: (document.getElementById('itemVolHidden').value || document.getElementById('itemVol').value || null), obs: itemObs.value || null };
+        // attach controle (lote): prefer the Lote shown in the Cabeçalho card; fallback to active LOTES selection
+        let selectedControle = null;
+        try {
+          const cabLote = document.getElementById('cab_lote_text');
+          const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : '';
+          if (cabeLoteText) {
+            selectedControle = cabeLoteText;
+          }
+        } catch(_) {}
+        if (!selectedControle) {
+          try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedControle = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ }
+        }
+  const payload = { nunota: parseInt(nun,10), codprod: codprod || null, qtdneg: parseFloat(rawQtd || '0'), vlrunit: parseFloat(rawVlr || '0'), codvol: (document.getElementById('itemVolHidden').value || document.getElementById('itemVol').value || null), obs: itemObs.value || null, codagregacao: selectedControle };
         if(seq) payload.sequencia = parseInt(seq,10);
         // Run plan endpoint to validate and obtain SQL preview
         const planResp = await postJSON('/sankhya/item/plan/', payload);
@@ -903,17 +895,17 @@
         // Build SQL preview
         let preview = '';
         if(planData.sql){ preview += '-- SQL a ser executado\n' + (planData.sql || '') + '\n\n'; }
-        if(planData.binds){ preview += '-- Binds: ' + JSON.stringify(planData.binds || {}, null, 2) + '\n\n'; }
+  if(planData.binds){ preview += '-- Binds: ' + JSON.stringify(planData.binds || {}) + '\n\n'; }
         if(!preview) preview = '-- Nenhum SQL disponível para exibição.';
-        // Reuse global SQL preview modal
-        const sqlModal = document.getElementById('sqlPreviewModal'); const sqlContent = document.getElementById('sqlPreviewContent'); const sqlCancel = document.getElementById('sqlPreviewCancel'); const sqlConfirm = document.getElementById('sqlPreviewConfirm');
+  // Reuse SQL preview modal (prefer global so it shows above any other overlays)
+  const sqlModal = document.getElementById('sqlPreviewModalGlobal') || document.getElementById('sqlPreviewModal'); const sqlContent = document.getElementById('sqlPreviewContentGlobal') || document.getElementById('sqlPreviewContent'); const sqlCancel = document.getElementById('sqlPreviewCancelGlobal') || document.getElementById('sqlPreviewCancel'); const sqlConfirm = document.getElementById('sqlPreviewConfirmGlobal') || document.getElementById('sqlPreviewConfirm');
         if(!sqlModal || !sqlContent){ // fallback to direct save
-          const ok = confirm('Aplicar alteração (sem preview)?'); if(!ok) return; const saveRes = await postJSON('/sankhya/item/save/', payload); if(saveRes.ok){ alert('Item salvo'); try{ if(window.__LOTES_CACHE) delete window.__LOTES_CACHE[String(nun)]; }catch(_){ } itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha ao salvar: ' + (saveRes.body?.errors||[]).join('\n') || 'Erro'); } return; }
+          const ok = confirm('Aplicar alteração (sem preview)?'); if(!ok) return; const saveRes = await postJSON('/sankhya/item/save/', payload); if(saveRes.ok){ alert('Item salvo'); try{ if(window.__LOTES_CACHE){ const activeRow = tbl.querySelector('tbody tr.row--active'); const ctrl = activeRow ? activeRow.dataset.nunota : null; if(ctrl) delete window.__LOTES_CACHE[String(ctrl)]; } }catch(_){ } itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha ao salvar: ' + (saveRes.body?.errors||[]).join('\n') || 'Erro'); } return; }
         sqlContent.textContent = preview; sqlModal.style.display = 'flex';
         sqlCancel.onclick = function(){ sqlModal.style.display='none'; };
         sqlConfirm.onclick = async function(){ sqlModal.style.display='none'; // perform actual save
           const saveRes = await postJSON('/sankhya/item/save/', payload);
-          if(saveRes.ok){ alert('Item salvo'); try{ if(window.__LOTES_CACHE) delete window.__LOTES_CACHE[String(nun)]; }catch(_){ } itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha ao salvar: ' + (saveRes.body?.errors||[]).join('\n') || 'Erro'); }
+          if(saveRes.ok){ alert('Item salvo'); try{ if(window.__LOTES_CACHE){ const activeRow = tbl.querySelector('tbody tr.row--active'); const ctrl = activeRow ? activeRow.dataset.nunota : null; if(ctrl) delete window.__LOTES_CACHE[String(ctrl)]; } }catch(_){ } itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha ao salvar: ' + (saveRes.body?.errors||[]).join('\n') || 'Erro'); }
         };
       });
 
@@ -924,6 +916,49 @@
   tbl.addEventListener('keydown', ()=> setTimeout(onSelectionChanged, 50));
   // If a row is already active on page load, load its classified products
   try{ onSelectionChanged(); }catch(_){ }
+  // Wire top '+' Add button to open Cabeçalho + Itens for selected lote (reuse or create TOP 26)
+  (function(){
+    const addBtn = document.getElementById('btnAddClassify');
+    if(!addBtn) return;
+    addBtn.addEventListener('click', async function(){
+      const tr = tbl.querySelector('tbody tr.row--click.row--active');
+      if(!tr) { alert('Selecione um Lote na lista.'); return; }
+      try{
+        if (typeof window.showCabModal === 'function') {
+          window.showCabModal();
+          try{ if(typeof window.showItemsModal === 'function') window.showItemsModal(null); }catch(_){ }
+          const controle = tr.dataset.nunota;
+          try{
+            const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' });
+            const j = await r.json();
+            try {
+              if (j && j.ok) {
+                const entradas = Array.isArray(j.entradas) ? j.entradas : [];
+                const pin = j.prod_in_natura || null;
+                let innCod = null;
+                if (entradas.length) {
+                  const match = pin ? entradas.find(e => String(e.codprod||'') === String(pin)) : null;
+                  innCod = (match && match.codprod) ? match.codprod : (entradas[0]?.codprod || null);
+                }
+                window.PH_INNATURA_CODPROD = innCod || null;
+              } else {
+                window.PH_INNATURA_CODPROD = null;
+              }
+            } catch(_) {}
+            if (j && j.ok && j.nunota_class) {
+              if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(j.nunota_class);
+              try{ const itemsNunota = document.getElementById('items_nunota'); if(itemsNunota) itemsNunota.value = j.nunota_class; }catch(_){ }
+              try{ const addItem = document.getElementById('itemAddBtn'); addItem && addItem.removeAttribute('disabled'); }catch(_){ }
+              try{ if(typeof refreshItemsList === 'function') refreshItemsList(); }catch(_){ }
+              return;
+            }
+            try{ if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(null); }catch(_){ }
+            return;
+          }catch(_){ return; }
+        }
+      }catch(_){ }
+    });
+  })();
 
       // Classify modal logic
       const modal = document.getElementById('modalClassify');
@@ -1047,7 +1082,7 @@
 
   // vol typeahead: search CODVOL (endpoint /sankhya/vol/search/ exists)
         let timerV = null;
-  function handleVolInput(){ const q = volVis.value.trim(); if(timerV) clearTimeout(timerV); if(!q){ volSuggest.style.display='none'; volSuggest.innerHTML=''; volHidden.value = ''; return; } timerV = setTimeout(()=>{ fetch('/sankhya/vol/search/?q=' + encodeURIComponent(q) + '&limit=8',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ const items = j.results||[]; volSuggest.innerHTML = items.map(it=>`<div class="ma-vol-item" data-cod="${it.cod}" data-descr="${(it.descr||'').replace(/"/g,'&quot;')}" style="padding:6px; cursor:pointer;">${it.cod} - ${it.descr}</div>`).join(''); volSuggest.style.display = items.length ? 'block' : 'none'; Array.from(volSuggest.querySelectorAll('.ma-vol-item')).forEach(el=> el.addEventListener('click', ()=>{ volHidden.value = el.dataset.cod; volVis.value = el.textContent || el.dataset.cod; volSuggest.style.display='none'; try{ const next = tr.querySelector('.ma-qtd'); if(next) next.focus(); }catch(_){ } }));
+  function handleVolInput(){ const q = volVis.value.trim(); if(timerV) clearTimeout(timerV); if(!q){ volSuggest.style.display='none'; volSuggest.innerHTML=''; volHidden.value = ''; return; } timerV = setTimeout(()=>{ const codprod = (prodHidden && prodHidden.value) ? prodHidden.value.trim() : ''; const url = '/sankhya/vol/search/?q=' + encodeURIComponent(q) + '&limit=8' + (codprod?('&codprod='+encodeURIComponent(codprod)):''); fetch(url,{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ const items = j.results||[]; volSuggest.innerHTML = items.map(it=>`<div class="ma-vol-item" data-cod="${it.cod}" data-descr="${(it.descr||'').replace(/"/g,'&quot;')}" style="padding:6px; cursor:pointer;">${it.cod} - ${it.descr}</div>`).join(''); volSuggest.style.display = items.length ? 'block' : 'none'; Array.from(volSuggest.querySelectorAll('.ma-vol-item')).forEach(el=> el.addEventListener('click', ()=>{ volHidden.value = el.dataset.cod; volVis.value = el.textContent || el.dataset.cod; volSuggest.style.display='none'; try{ const next = tr.querySelector('.ma-qtd'); if(next) next.focus(); }catch(_){ } }));
       // keyboard navigation for vol
       let vsel = -1; const vnodes = Array.from(volSuggest.querySelectorAll('.ma-vol-item'));
       function vhighlight(){ vnodes.forEach((n, i)=> n.style.background = (i===vsel) ? '#eef2ff' : ''); }
@@ -1129,13 +1164,13 @@
           if(planResp.plano && planResp.plano.cabecalho_sql){
             preview += '-- Inserção de cabeçalho (TGFCAB)\n';
             preview += (planResp.plano.cabecalho_sql || '') + '\n';
-            preview += '-- Binds: ' + JSON.stringify(planResp.plano.cabecalho_binds || {}, null, 2) + '\n\n';
+            preview += '-- Binds: ' + JSON.stringify(planResp.plano.cabecalho_binds || {}) + '\n\n';
           }
           if(planResp.plano && Array.isArray(planResp.plano.itens) && planResp.plano.itens.length){
             preview += '-- Itens (TGFITE)\n';
             planResp.plano.itens.forEach((it, idx)=>{
               preview += (it.sql || '') + '\n';
-              preview += '-- Binds: ' + JSON.stringify(it.binds || it.binds || {}, null, 2) + '\n\n';
+              preview += '-- Binds: ' + JSON.stringify(it.binds || {}) + '\n\n';
             });
           }
           if(!preview) preview = '-- Nenhum SQL disponível para exibição.';
@@ -1314,11 +1349,12 @@
         if(resolved){
           itemsNunota.value = resolved;
           if(addBtn){ addBtn.removeAttribute('disabled'); addBtn.setAttribute('title', 'Adicionar'); }
-          try{ if(typeof loadItems === 'function') loadItems(resolved); }catch(e){ }
+          try{ refreshItemsList(); }catch(e){ }
         } else {
           itemsNunota.value = '';
-          if(listBody) listBody.innerHTML = '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Preparando...</td></tr>';
-          if(addBtn){ addBtn.setAttribute('disabled','disabled'); addBtn.setAttribute('title','Adicionar (salve o Cabeçalho para habilitar)'); }
+          if(listBody) listBody.innerHTML = '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item carregado ainda.</td></tr>';
+          // Allow creating the header on first add
+          if(addBtn){ addBtn.removeAttribute('disabled'); addBtn.setAttribute('title','Criar Cabeçalho 26 e Adicionar'); }
         }
         // Disable header while items modal is open
         setHeaderDisabled(true);
@@ -1339,15 +1375,17 @@
   function clearItemsList(){ if(!itemsListBody) return; itemsListBody.innerHTML = '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr>'; }
       function addItemRowToList(it){ if(!itemsListBody) return; if(itemsListBody.querySelector('td')){ const first = itemsListBody.querySelector('td').parentElement; if(first && first.childElementCount === 1 && first.children[0].getAttribute('colspan')) itemsListBody.innerHTML = ''; }
         const tr = document.createElement('tr'); tr.innerHTML = `\n          <td style="padding:8px">${it.lote||''}</td>\n          <td>${it.cod||''} ${it.descr||''}</td>\n          <td>${it.codvol||''}</td>\n          <td style="text-align:right">${it.qtd!=null?String(it.qtd):''}</td>\n          <td style="text-align:right">${it.peso!=null?String(it.peso):''}</td>\n          <td style="text-align:right">${it.total!=null?String(it.total):''}</td>\n          <td><button class="icon-btn danger icon-btn--plain item-del" data-seq="${it.sequencia||''}" aria-label="Excluir">\n            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">\n              <polyline points="3 6 5 6 21 6"></polyline>\n              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>\n              <path d="M10 11v6"></path>\n              <path d="M14 11v6"></path>\n              <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>\n            </svg>\n          </button></td>\n        `; itemsListBody.appendChild(tr);
-        tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nun,10), sequencias: [ parseInt(seq,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(typeof loadItems === 'function') loadItems(nun); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
+  tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nun,10), sequencias: [ parseInt(seq,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(typeof loadItems === 'function') loadItems(nun); }catch(_){ } try{ refreshClassifiedCard(); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
       }
       let itemsListController = null;
       async function loadItems(nunota){ try{ if(itemsListController){ try{ itemsListController.abort(); }catch(_){ } itemsListController = null; } }catch(_){ }
         const resolved = nunota!=null ? (parseInt(nunota,10)||null) : (parseInt(document.getElementById('items_nunota')?.value||'',10)||null); if(!resolved){ console.error('loadItems: nunota inválido', nunota); return; } document.getElementById('items_nunota').value = resolved; clearItemsList(); try{ itemsListController = new AbortController(); const opts = { credentials: 'same-origin', signal: itemsListController.signal }; const url = '/sankhya/item/list/?nunota=' + encodeURIComponent(resolved); const r = await fetch(url, opts); itemsListController = null; let j = {}; try{ j = await r.json(); }catch(_){ j = {}; } if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="7">Erro: ${j.error||'falha'}</td></tr>`; return; } const rows = j.items || j.results || []; if(!rows.length){ clearItemsList(); return; } itemsListBody.innerHTML = ''; for(const it of rows){ addItemRowToList(it); } }catch(err){ if(err && err.name === 'AbortError'){ console.info('loadItems aborted for nunota', nunota); return; } itemsListBody.innerHTML = '<tr><td colspan="7">Erro ao carregar.</td></tr>'; } }
 
       // Add single-item plan/save behavior (reuse portal flow)
-      document.getElementById('itemAddBtn')?.addEventListener('click', async function(){ const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun){ alert('NUNOTA desconhecido.'); return; } let codprodRaw = (document.getElementById('item_prod_hidden')?.value||'').trim(); if(!codprodRaw){ const txt = (document.getElementById('item_prod_vis')?.value||'').trim(); const m = txt.match(/(\d+)/); codprodRaw = m ? m[1] : ''; } const codprodNum = codprodRaw ? parseInt(codprodRaw,10) : NaN; if(!codprodRaw || !Number.isFinite(codprodNum)){ alert('Selecione um produto válido.'); return; } const qtd = parseFloat(String(document.getElementById('item_qtd')?.value||'').replace(',','.')) || 0; if(!(qtd > 0)){ alert('Informe quantidade maior que zero.'); return; } const vlr = 0; const peso = parseFloat(String(document.getElementById('item_peso')?.value||'').replace(',','.')) || null; const codvol = (document.getElementById('item_vol_hidden')?.value||document.getElementById('item_vol')?.value||'CX') || null; const obs = (document.getElementById('item_obs')?.value||'') || null; const payload = { nunota: parseInt(nun,10), codprod: codprodNum, qtdneg: qtd, vlrunit: vlr, codvol: codvol || null, peso: peso, obs: obs || null };
-        const planResp = await postJSON('/sankhya/item/plan/', payload); if(!planResp.ok){ alert('Erro no plano'); return; } const saveResp = await postJSON('/sankhya/item/save/', payload); if(saveResp.ok && saveResp.body && (saveResp.body.executed || saveResp.body.item)){ alert('Item salvo'); const created = saveResp.body.item || saveResp.body.created_item || null; if(created){ try{ addItemRowToList(created); }catch(_){ try{ loadItems(nun); }catch(__){} } } else { try{ loadItems(nun); }catch(_){ } } try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ } } else { const body = saveResp.body || {}; const errs = Array.isArray(body.errors) && body.errors.length ? body.errors.join('\n') : (body.error || ''); alert('Falha ao salvar item: ' + (errs || ('status ' + saveResp.status))); try{ loadItems(nun); }catch(_){ } }
+  document.getElementById('itemAddBtn')?.addEventListener('click', async function(){ const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun){ alert('NUNOTA desconhecido.'); return; } let codprodRaw = (document.getElementById('item_prod_hidden')?.value||'').trim(); if(!codprodRaw){ const txt = (document.getElementById('item_prod_vis')?.value||'').trim(); const m = txt.match(/(\d+)/); codprodRaw = m ? m[1] : ''; } const codprodNum = codprodRaw ? parseInt(codprodRaw,10) : NaN; if(!codprodRaw || !Number.isFinite(codprodNum)){ alert('Selecione um produto válido.'); return; } const qtd = parseFloat(String(document.getElementById('item_qtd')?.value||'').replace(',','.')) || 0; if(!(qtd > 0)){ alert('Informe quantidade maior que zero.'); return; } const vlr = 0; const peso = parseFloat(String(document.getElementById('item_peso')?.value||'').replace(',','.')) || null; const codvol = (document.getElementById('item_vol_hidden')?.value||document.getElementById('item_vol')?.value||'CX') || null; const obs = (document.getElementById('item_obs')?.value||'') || null; let selectedControle = null; try{ const cabLote = document.getElementById('cab_lote_text'); const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : ''; if (cabeLoteText) { selectedControle = cabeLoteText; } }catch(_){ } if(!selectedControle){ try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedControle = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ } } const payload = { nunota: parseInt(nun,10), codprod: codprodNum, qtdneg: qtd, vlrunit: vlr, codvol: codvol || null, peso: peso, obs: obs || null, codagregacao: selectedControle };
+  const planResp = await postJSON('/sankhya/item/plan/', payload);
+  if(!planResp.ok){ const b = planResp.body || {}; const errs = (Array.isArray(b.errors) && b.errors.length) ? b.errors.join('\n') : (b.error || (b.db_error && (b.db_error.message || b.db_error.msg)) || ''); alert('Erro no plano: ' + (errs || '')); return; }
+  const saveResp = await postJSON('/sankhya/item/save/', payload); if(saveResp.ok && saveResp.body && (saveResp.body.executed || saveResp.body.item)){ alert('Item salvo'); const created = saveResp.body.item || saveResp.body.created_item || null; if(created){ try{ addItemRowToList(created); }catch(_){ try{ loadItems(nun); }catch(__){} } } else { try{ loadItems(nun); }catch(_){ } } try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ } } else { const body = saveResp.body || {}; const errs = Array.isArray(body.errors) && body.errors.length ? body.errors.join('\n') : (body.error || ''); alert('Falha ao salvar item: ' + (errs || ('status ' + saveResp.status))); try{ loadItems(nun); }catch(_){ } }
       });
 
       // Cab Save: create header and open items modal (reuses portal endpoints)
@@ -1363,7 +1401,7 @@
           // Build SQL preview
           let preview = '';
           if(planData.sql){ preview += '-- SQL a ser executado\n' + (planData.sql || '') + '\n\n'; }
-          if(planData.binds){ preview += '-- Binds: ' + JSON.stringify(planData.binds || {}, null, 2) + '\n\n'; }
+          if(planData.binds){ preview += '-- Binds: ' + JSON.stringify(planData.binds || {}) + '\n\n'; }
           if(!preview){ preview = '-- Nenhum SQL disponível para exibição.'; }
           const sqlModal = document.getElementById('sqlPreviewModalGlobal') || document.getElementById('sqlPreviewModal');
           const sqlContent = document.getElementById('sqlPreviewContentGlobal') || document.getElementById('sqlPreviewContent');
@@ -1423,13 +1461,63 @@
           tr.dataset.obs = it.obs != null ? String(it.obs) : '';
           tr.dataset.lote = it.lote != null ? String(it.lote) : '';
           tr.dataset.gp = it.geraproducao != null ? String(it.geraproducao) : (typeof it.classifica !== 'undefined' ? (it.classifica ? 'S' : 'N') : '');
+          if (it.nunota != null) tr.dataset.nunota = String(it.nunota);
         }catch(_){ }
-        tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nun,10), sequencias: [ parseInt(seq,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(typeof loadItems === 'function') loadItems(nun); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
+        tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunFromRow = tr.dataset.nunota ? parseInt(tr.dataset.nunota,10) : null; if(!nunFromRow || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: nunFromRow, sequencias: [ parseInt(seq,10) ] }); if(res.ok){ alert('Item excluído'); try{ refreshItemsList(); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
         tr.addEventListener('dblclick', function(){ try{ const seq = tr.dataset.seq; if(!seq) return; const seqInp = document.getElementById('item_seq_edit'); if(seqInp) seqInp.value = seq; const prodH = document.getElementById('item_prod_hidden'); const prodV = document.getElementById('item_prod_vis'); if(prodH) prodH.value = tr.dataset.cod || ''; if(prodV) prodV.value = tr.dataset.cod ? `${tr.dataset.cod} — ${tr.dataset.descr||''}` : ''; const volH = document.getElementById('item_vol_hidden'); const volV = document.getElementById('item_vol'); if(volH) volH.value = tr.dataset.codvol || ''; if(volV) volV.value = tr.dataset.codvol || ''; const qtd = document.getElementById('item_qtd'); if(qtd) qtd.value = tr.dataset.qtd || ''; const peso = document.getElementById('item_peso'); if(peso) peso.value = tr.dataset.peso || ''; const obs = document.getElementById('item_obs'); if(obs) obs.value = tr.dataset.obs || ''; const chk = document.getElementById('item_classifica'); if(chk) chk.checked = (String(tr.dataset.gp||'S').toUpperCase() !== 'N'); const addBtn = document.getElementById('itemAddBtn'); if(addBtn){ addBtn.setAttribute('title','Atualizar'); addBtn.dataset.mode = 'edit'; } try{ recalcItemTotal(); }catch(_){ } try{ prodV && prodV.focus(); }catch(_){ } }catch(e){ console.error('editLoad failed', e); } });
       }
 
       async function loadItems(nunota){ try{ if(itemsListController){ try{ itemsListController.abort(); }catch(_){ } itemsListController = null; try{ window.itemsListController = null; }catch(_){ } } }catch(_){ }
         const resolved = nunota!=null ? (parseInt(nunota,10)||null) : (parseInt(document.getElementById('items_nunota')?.value||'',10)||null); if(!resolved){ console.error('loadItems: nunota inválido', nunota); return; } document.getElementById('items_nunota').value = resolved; clearItemsList(); try{ itemsListController = new AbortController(); try{ window.itemsListController = itemsListController; }catch(_){ } const opts = { credentials: 'same-origin', signal: itemsListController.signal }; const url = '/sankhya/item/list/?nunota=' + encodeURIComponent(resolved); const r = await fetch(url, opts); itemsListController = null; try{ window.itemsListController = null; }catch(_){ } let j = {}; try{ j = await r.json(); }catch(_){ j = {}; } if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="8">Erro: ${j.error||'falha'}</td></tr>`; return; } const rows = j.items || j.results || []; if(!rows.length){ clearItemsList(); return; } itemsListBody.innerHTML = ''; for(const it of rows){ addItemRowToList(it); } try{ applyClassificaFilter(); }catch(_){ } }catch(err){ if(err && err.name === 'AbortError'){ console.info('loadItems aborted for nunota', nunota); return; } itemsListBody.innerHTML = '<tr><td colspan="8">Erro ao carregar.</td></tr>'; } }
+
+      // Helpers to show items by Lote (controle/CODAGREGACAO)
+      function getCurrentControle(){
+        try{
+          const cabLote = document.getElementById('cab_lote_text');
+          const txt = cabLote ? (cabLote.textContent||'').trim() : '';
+          if (txt) return txt;
+        }catch(_){ }
+        try{
+          const active = document.querySelector('#notasTable tbody tr.row--active');
+          if(active) return active.dataset.nunota || active.cells[0]?.textContent || '';
+        }catch(_){ }
+        return '';
+      }
+
+      async function loadItemsByControle(controle){
+        const ctrl = (controle || getCurrentControle() || '').toString().trim();
+        if(!ctrl){ clearItemsList(); return; }
+        clearItemsList();
+        try{
+          itemsListController = new AbortController();
+          try{ window.itemsListController = itemsListController; }catch(_){ }
+          const url = '/sankhya/lote/consultar/?controle=' + encodeURIComponent(ctrl);
+          const r = await fetch(url, { credentials: 'same-origin', signal: itemsListController.signal });
+          itemsListController = null; try{ window.itemsListController = null; }catch(_){ }
+          let j = {}; try{ j = await r.json(); }catch(_){ j = {}; }
+          if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="8">Erro: ${j.error||'falha'}</td></tr>`; return; }
+          const rows = j.classificacoes || [];
+          if(!rows.length){ clearItemsList(); return; }
+          itemsListBody.innerHTML = '';
+          for(const row of rows){
+            addItemRowToList({ nunota: row.nunota, sequencia: row.sequencia, cod: row.cod, descr: row.descr, codvol: row.codvol, qtd: row.qtd, peso: null, total: row.vlt || null, lote: ctrl, geraproducao: null });
+          }
+          try{ applyClassificaFilter(); }catch(_){ }
+        }catch(err){ if(err && err.name === 'AbortError'){ return; } itemsListBody.innerHTML = '<tr><td colspan="8">Erro ao carregar.</td></tr>'; }
+      }
+
+      function refreshItemsList(){ try{ const c = getCurrentControle(); if(c) loadItemsByControle(c); else clearItemsList(); }catch(_){ }
+      }
+
+      // Refresh Produtos Classificados card (main page) while modal stays open
+      function refreshClassifiedCard(){
+        try{
+          const ctrl = getCurrentControle();
+          if(!ctrl) return;
+          try{ if(window.__LOTES_CACHE && window.__LOTES_CACHE[ctrl]){ delete window.__LOTES_CACHE[ctrl]; } }catch(_){ }
+          if(typeof loadClassifiedFor === 'function') loadClassifiedFor(ctrl);
+        }catch(_){ }
+      }
 
       // Default filter to show only items that classify (gp != 'N')
       function applyClassificaFilter(){ try{ const cb = document.getElementById('filterOnlyClassifica'); const body = document.getElementById('itemsListBody'); if(!body || !cb) return; const only = cb.checked; const rows = Array.from(body.querySelectorAll('tr')); rows.forEach(tr=>{ const gp = (tr.dataset && tr.dataset.gp) ? String(tr.dataset.gp).toUpperCase() : null; if(only){ if(gp === 'N'){ tr.style.display = 'none'; } else { tr.style.display = ''; } } else { tr.style.display = ''; } }); }catch(e){ /* no-op */ } }
@@ -1474,7 +1562,165 @@
       attachTA('item_prod_vis','item_prod_hidden','item_prod_sugg','/sankhya/produtos/search/');
 
       // Replace Add button handler to support edit mode and Classifica toggle
-  (function(){ const oldBtn = document.getElementById('itemAddBtn'); if(!oldBtn) return; const newBtn = oldBtn.cloneNode(true); oldBtn.parentNode.replaceChild(newBtn, oldBtn); newBtn.addEventListener('click', async function(){ const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun){ alert('NUNOTA desconhecido.'); return; } const seqEditRaw = (document.getElementById('item_seq_edit')?.value||'').trim(); const isEdit = !!seqEditRaw && /^\d+$/.test(seqEditRaw); let codprodRaw = (document.getElementById('item_prod_hidden')?.value||'').trim(); if(!codprodRaw){ const txt = (document.getElementById('item_prod_vis')?.value||'').trim(); const m = txt.match(/(\d+)/); codprodRaw = m ? m[1] : ''; } const codprodNum = codprodRaw ? parseInt(codprodRaw,10) : NaN; if(!codprodRaw || !Number.isFinite(codprodNum)){ alert('Selecione um produto válido.'); return; } const qtd = parseFloat(String(document.getElementById('item_qtd')?.value||'').replace(',','.')) || 0; if(!(qtd > 0)){ alert('Informe quantidade maior que zero.'); return; } const vlr = 0; const peso = parseFloat(String(document.getElementById('item_peso')?.value||'').replace(',','.')) || null; const codvol = (document.getElementById('item_vol_hidden')?.value||document.getElementById('item_vol')?.value||'CX') || null; const obs = (document.getElementById('item_obs')?.value||'') || null; const classificaEl = document.getElementById('item_classifica'); const geraproducao = classificaEl ? (classificaEl.checked ? 'S' : 'N') : 'S'; const basePayload = { nunota: parseInt(nun,10), codprod: codprodNum, qtdneg: qtd, vlrunit: vlr, codvol: codvol || null, peso: peso, obs: obs || null, geraproducao: geraproducao }; if (isEdit){ const payload = Object.assign({}, basePayload, { sequencia: parseInt(seqEditRaw,10) }); const resp = await postJSON('/sankhya/item/save/', payload); if(resp.ok && resp.body && (resp.body.executed || resp.body.item)){ alert('Item atualizado'); try{ loadItems(nun); }catch(_){ } try{ document.getElementById('item_seq_edit').value=''; const addBtn=document.getElementById('itemAddBtn'); addBtn && (addBtn.dataset.mode='', addBtn.setAttribute('title','Adicionar')); }catch(_){} try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_peso').value=''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ } } else { const body = resp.body || {}; const errs = Array.isArray(body.errors)&&body.errors.length? body.errors.join('\n') : (body.error || ''); const dbmsg = (body.db_error && (body.db_error.message || body.db_error.msg)) ? (body.db_error.message || body.db_error.msg) : ''; alert('Falha ao atualizar item: ' + (errs || dbmsg || ('status ' + resp.status))); } return; } const planResp = await postJSON('/sankhya/item/plan/', basePayload); if(!planResp.ok){ alert('Erro no plano'); return; } const saveResp = await postJSON('/sankhya/item/save/', basePayload); if(saveResp.ok && saveResp.body && (saveResp.body.executed || saveResp.body.item)){ alert('Item salvo'); const created = saveResp.body.item || saveResp.body.created_item || null; if(created){ try{ addItemRowToList(created); }catch(_){ try{ loadItems(nun); }catch(__){} } } else { try{ loadItems(nun); }catch(_){ } } try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ } } else { const body = saveResp.body || {}; const errs = Array.isArray(body.errors) && body.errors.length ? body.errors.join('\n') : (body.error || ''); alert('Falha ao salvar item: ' + (errs || ('status ' + saveResp.status))); try{ loadItems(nun); }catch(_){ } } }); })();
+  (function(){ const oldBtn = document.getElementById('itemAddBtn'); if(!oldBtn) return; const newBtn = oldBtn.cloneNode(true); oldBtn.parentNode.replaceChild(newBtn, oldBtn);
+    async function ensureNunota(){
+      // If already present, return it
+      const itemsNunotaEl = document.getElementById('items_nunota');
+      const nunRaw = itemsNunotaEl?.value;
+      let nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null;
+      if(nun) return nun;
+      // Create header (TOP 26) on the fly using selected lote context
+      try{
+        const activeRow = document.querySelector('#notasTable tbody tr.row--active');
+        if(!activeRow){ alert('Selecione um Lote para criar a Classificação.'); return null; }
+        const codparc = activeRow.getAttribute('data-codparc') || '';
+        if(!codparc){ alert('Não foi possível identificar o parceiro do Lote.'); return null; }
+        // Reuse nunota per lote across the session: cache mapping
+        try { window.__NUNOTA_CLASS_BY_CTRL = window.__NUNOTA_CLASS_BY_CTRL || {}; } catch(_) {}
+        // Before creating, check if lot already has a TOP 26 header (nunota_class) and reuse
+        try{
+          const ctrl = activeRow.dataset.nunota;
+          // 1) check in-memory mapping first (survives within the page session)
+          try { const cached = window.__NUNOTA_CLASS_BY_CTRL && window.__NUNOTA_CLASS_BY_CTRL[ctrl]; if(cached){ nun = parseInt(cached,10); if(itemsNunotaEl) itemsNunotaEl.value = String(nun); try{ if(typeof refreshItemsList === 'function') refreshItemsList(); }catch(_){ } return nun; } }catch(_){ }
+          // Reuse cached lote consult when available to avoid extra network round-trip
+          let j0 = null;
+          try { if (window.__LOTES_CACHE && window.__LOTES_CACHE[ctrl]) { j0 = window.__LOTES_CACHE[ctrl]; } } catch(_) {}
+          if (!j0) {
+            const r0 = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(ctrl), { credentials: 'same-origin' });
+            j0 = await r0.json();
+            try { if (j0 && j0.ok) { window.__LOTES_CACHE = window.__LOTES_CACHE || {}; window.__LOTES_CACHE[ctrl] = j0; } } catch(_) {}
+          }
+          if(j0 && j0.ok && j0.nunota_class){
+            nun = parseInt(j0.nunota_class, 10);
+            if(itemsNunotaEl) itemsNunotaEl.value = String(nun);
+            try { window.__NUNOTA_CLASS_BY_CTRL[ctrl] = String(nun); } catch(_) {}
+            try{ if(typeof refreshItemsList === 'function') refreshItemsList(); }catch(_){ }
+            return nun;
+          }
+        }catch(_){ }
+        // Defaults aligned with Cabeçalho card
+        const payload = {
+          codemp: '1',
+          codparc: String(codparc),
+          codtipoper: '26',
+          codnat: '20010100',
+          codcencus: '10100',
+          dtneg: new Date().toISOString().slice(0,10),
+          dtmov: new Date().toISOString().slice(0,10),
+          dtentsai: new Date().toISOString().slice(0,10),
+          nronota: '',
+          obs: ''
+        };
+        const res = await postJSON('/sankhya/packing/central/salvar/', payload);
+        if(!res.ok || !res.body || !res.body.executed || !res.body.nunota){
+          const msg = (res.body && ((res.body.errors||[]).join('\n') || res.body.error || (res.body.db_error && (res.body.db_error.message||res.body.db_error.msg)))) || 'Falha ao criar Cabeçalho 26';
+          alert(msg); return null;
+        }
+        nun = parseInt(res.body.nunota, 10);
+        if(itemsNunotaEl) itemsNunotaEl.value = String(nun);
+        // Remember nunota for this lote (session cache) to avoid creating multiple headers if no items were inserted yet
+        try { const ctrl = activeRow.dataset.nunota; if(ctrl) { window.__NUNOTA_CLASS_BY_CTRL[ctrl] = String(nun); } } catch(_) {}
+        // Open Items list for the new nunota
+        try{ if(typeof refreshItemsList === 'function') refreshItemsList(); }catch(_){ }
+        return nun;
+      }catch(e){
+        alert('Erro ao criar Cabeçalho 26: ' + (e && e.message ? e.message : e) + '\nDica: atualize a página (F5) para renovar o cookie CSRF e tente novamente.');
+        try{ if(typeof window.showCabModal==='function') window.showCabModal(); }catch(_){ }
+        return null;
+      }
+    }
+    newBtn.addEventListener('click', async function(){
+      let nun = null;
+      // Ensure header exists before adding
+      nun = await ensureNunota();
+      if(!nun) return;
+      const seqEditRaw = (document.getElementById('item_seq_edit')?.value||'').trim();
+      const isEdit = !!seqEditRaw && /^\d+$/.test(seqEditRaw);
+      let codprodRaw = (document.getElementById('item_prod_hidden')?.value||'').trim();
+      if(!codprodRaw){ const txt = (document.getElementById('item_prod_vis')?.value||'').trim(); const m = txt.match(/(\d+)/); codprodRaw = m ? m[1] : ''; }
+      const codprodNum = codprodRaw ? parseInt(codprodRaw,10) : NaN;
+      if(!codprodRaw || !Number.isFinite(codprodNum)){ alert('Selecione um produto válido.'); return; }
+      const qtd = parseFloat(String(document.getElementById('item_qtd')?.value||'').replace(',','.')) || 0;
+      if(!(qtd > 0)){ alert('Informe quantidade maior que zero.'); return; }
+  const vlr = 0;
+      const peso = parseFloat(String(document.getElementById('item_peso')?.value||'').replace(',','.')) || null;
+      const codvol = (document.getElementById('item_vol_hidden')?.value||document.getElementById('item_vol')?.value||'CX') || null;
+      const obs = (document.getElementById('item_obs')?.value||'') || null;
+      const classificaEl = document.getElementById('item_classifica');
+      const geraproducao = classificaEl ? (classificaEl.checked ? 'S' : 'N') : 'S';
+  // Resolve codagregacao (lote) from header or active LOTES row
+  let selectedControle = null; try{ const cabLote = document.getElementById('cab_lote_text'); const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : ''; if (cabeLoteText) { selectedControle = cabeLoteText; } }catch(_){ } if(!selectedControle){ try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedControle = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ } }
+  const basePayload = { nunota: parseInt(nun,10), codprod: codprodNum, qtdneg: qtd, vlrunit: vlr, codvol: codvol || null, peso: peso, obs: obs || null, geraproducao: geraproducao, codagregacao: selectedControle };
+      if (isEdit){
+        const payload = Object.assign({}, basePayload, { sequencia: parseInt(seqEditRaw,10) });
+        const resp = await postJSON('/sankhya/item/save/', payload);
+        if(resp.ok && resp.body && (resp.body.executed || resp.body.item)){
+          alert('Item atualizado'); try{ refreshItemsList(); }catch(_){ } try{ refreshClassifiedCard(); }catch(_){ }
+          try{ document.getElementById('item_seq_edit').value=''; const addBtn=document.getElementById('itemAddBtn'); addBtn && (addBtn.dataset.mode='', addBtn.setAttribute('title','Adicionar')); }catch(_){}
+          try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_peso').value=''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ }
+        } else {
+          const body = resp.body || {}; const errs = Array.isArray(body.errors)&&body.errors.length? body.errors.join('\n') : (body.error || ''); const dbmsg = (body.db_error && (body.db_error.message || body.db_error.msg)) ? (body.db_error.message || body.db_error.msg) : ''; alert('Falha ao atualizar item: ' + (errs || dbmsg || ('status ' + resp.status)));
+        }
+        return;
+      }
+      // Show SQL modal immediately (better perceived performance), then fetch plan and populate content
+      let userChoice = 'confirm';
+      try{
+        const sqlModal = document.getElementById('sqlPreviewModalGlobal') || document.getElementById('sqlPreviewModal');
+        const sqlContent = document.getElementById('sqlPreviewContentGlobal') || document.getElementById('sqlPreviewContent');
+        const sqlCancel = document.getElementById('sqlPreviewCancelGlobal') || document.getElementById('sqlPreviewCancel');
+        const sqlConfirm = document.getElementById('sqlPreviewConfirmGlobal') || document.getElementById('sqlPreviewConfirm');
+        if(sqlModal && sqlContent && sqlCancel && sqlConfirm){
+          // Initial loading state
+          sqlContent.textContent = 'Gerando preview SQL...';
+          sqlModal.style.display = 'flex';
+          sqlConfirm.setAttribute('disabled','disabled');
+          // Kick off plan request
+          const planResp = await postJSON('/sankhya/item/plan/', basePayload);
+          if(!planResp.ok){
+            try{
+              const b = planResp.body || {};
+              const errs = (Array.isArray(b.errors) && b.errors.length) ? b.errors.join('\n') : (b.error || (b.db_error && (b.db_error.message || b.db_error.msg)) || '');
+              sqlContent.textContent = errs ? ('Erro ao gerar plano:\n' + errs) : 'Erro ao gerar plano.';
+            }catch(_){
+              sqlContent.textContent = 'Erro ao gerar plano.';
+            }
+            sqlConfirm.removeAttribute('disabled');
+            const decision = await new Promise((resolve)=>{ sqlCancel.onclick = ()=>{ try{ sqlModal.style.display='none'; }catch(_){} resolve('cancel'); }; sqlConfirm.onclick = ()=>{ try{ sqlModal.style.display='none'; }catch(_){} resolve('confirm'); }; }); if(decision !== 'confirm'){ return; }
+          }
+          const body = (planResp.body || {});
+          // Build preview with compact binds (faster stringify and smaller text)
+          let preview = '';
+          if(body.sql){ preview += '-- SQL a ser executado\n' + (body.sql || '') + '\n\n'; }
+          if(body.binds){ preview += '-- Binds: ' + JSON.stringify(body.binds || {}) + '\n\n'; }
+          if(!preview) preview = '-- Nenhum SQL disponível para exibição.';
+          sqlContent.textContent = preview;
+          sqlConfirm.removeAttribute('disabled');
+          // Wait for user choice
+          userChoice = await new Promise((resolve)=>{
+            const onCancel = ()=>{ try{ sqlModal.style.display='none'; }catch(_){} resolve('cancel'); };
+            const onConfirm = ()=>{ try{ sqlModal.style.display='none'; }catch(_){} resolve('confirm'); };
+            sqlCancel.onclick = onCancel;
+            sqlConfirm.onclick = onConfirm;
+          });
+          if (userChoice !== 'confirm') { return; }
+        } else {
+          // Fallback: no modal, fetch plan then confirm via confirm()
+          const planResp = await postJSON('/sankhya/item/plan/', basePayload);
+          if(!planResp.ok){ const ok = confirm('Falha ao gerar plano. Deseja tentar salvar mesmo assim?'); if(!ok) return; }
+        }
+      }catch(_){ }
+      const saveResp = await postJSON('/sankhya/item/save/', basePayload);
+      if(saveResp.ok && saveResp.body && (saveResp.body.executed || saveResp.body.item)){
+        alert('Item salvo'); const created = saveResp.body.item || saveResp.body.created_item || null;
+  if(created){ try{ addItemRowToList(created); }catch(_){ try{ refreshItemsList(); }catch(__){} } } else { try{ refreshItemsList(); }catch(_){ } }
+        try{ refreshClassifiedCard(); }catch(_){ }
+        try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ }
+      } else {
+        const body = saveResp.body || {}; const errs = Array.isArray(body.errors) && body.errors.length ? body.errors.join('\n') : (body.error || ''); alert('Falha ao salvar item: ' + (errs || ('status ' + saveResp.status))); try{ loadItems(nun); }catch(_){ }
+      }
+    });
+  })();
     })();
   </script>
 </body>

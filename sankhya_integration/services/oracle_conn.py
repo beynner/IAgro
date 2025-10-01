@@ -1,6 +1,8 @@
 import os
+import importlib
 try:
-    import cx_Oracle as cx_Oracle  # try classic driver first
+    # Dynamically import legacy driver if available
+    cx_Oracle = importlib.import_module('cx_Oracle')  # type: ignore
 except Exception:
     # Fallback to python-oracledb (thin/thick modes). Keep the same name for compatibility.
     import oracledb as cx_Oracle
@@ -29,6 +31,9 @@ except Exception:
         pass
 
 from contextlib import contextmanager
+
+# Optional global connection pool to reduce connect overhead
+_POOL = None
 
 def _get_app_config():
     try:
@@ -87,6 +92,41 @@ def get_params():
     return params
 
 
+# ===== Lightweight in-memory caches (per-process) to reduce DB roundtrips =====
+# Safe because Oracle metadata and product volume mappings change rarely during a Django worker lifetime.
+# If needed, call clear_caches() after DDL changes or VOAs maintenance.
+_COLS_CACHE: dict[str, set] = {}
+_PK_CACHE: dict[str, list] = {}
+_FK_CACHE: dict[str, list] = {}
+_NN_CACHE: dict[str, list] = {}
+_TRG_CACHE: dict[str, list] = {}
+_LIKE_COLS_CACHE: dict[tuple[str, str], list] = {}
+_BASE_UNIT_CACHE: dict[int, str] = {}
+_FACTOR_CACHE: dict[tuple[int, str], float | None] = {}
+
+
+def clear_caches(kind: str | None = None):
+    kinds = {k.strip().lower() for k in ([kind] if kind else [])}
+    def m(k):
+        return (not kinds) or (k in kinds)
+    if m('cols'):
+        _COLS_CACHE.clear()
+    if m('pk'):
+        _PK_CACHE.clear()
+    if m('fk'):
+        _FK_CACHE.clear()
+    if m('nn') or m('notnull'):
+        _NN_CACHE.clear()
+    if m('trg') or m('triggers'):
+        _TRG_CACHE.clear()
+    if m('like') or m('likecols'):
+        _LIKE_COLS_CACHE.clear()
+    if m('unit') or m('base'):
+        _BASE_UNIT_CACHE.clear()
+    if m('factor') or m('unit'):
+        _FACTOR_CACHE.clear()
+
+
 def _make_dsn(host: str, port: int, service_name: str | None, sid: str | None, full_dsn: str | None) -> str:
     # Use makedsn when available; otherwise use host:port/service_name
     try:
@@ -106,11 +146,29 @@ def _make_dsn(host: str, port: int, service_name: str | None, sid: str | None, f
 
 @contextmanager
 def get_connection():
+    global _POOL
     dsn_cfg = _get_dsn_cfg()
     dsn = _make_dsn(
         dsn_cfg['host'], dsn_cfg['port'], dsn_cfg.get('service_name'), dsn_cfg.get('sid'), dsn_cfg.get('dsn')
     )
-    conn = cx_Oracle.connect(user=dsn_cfg['user'], password=dsn_cfg['password'], dsn=dsn)
+    conn = None
+    try:
+        # Initialize pool on first use when supported by the driver
+        if _POOL is None and hasattr(cx_Oracle, 'create_pool'):
+            try:
+                _POOL = cx_Oracle.create_pool(
+                    user=dsn_cfg['user'], password=dsn_cfg['password'], dsn=dsn,
+                    min=1, max=max(4, int(os.getenv('SANKHYA_DB_POOL_MAX', '4'))), increment=1
+                )
+            except Exception:
+                _POOL = None
+        if _POOL is not None and hasattr(_POOL, 'acquire'):
+            conn = _POOL.acquire()
+        else:
+            conn = cx_Oracle.connect(user=dsn_cfg['user'], password=dsn_cfg['password'], dsn=dsn)
+    except Exception:
+        # Fallback to direct connection if pooling failed
+        conn = cx_Oracle.connect(user=dsn_cfg['user'], password=dsn_cfg['password'], dsn=dsn)
     try:
         yield conn
     finally:
@@ -162,17 +220,24 @@ def _fetchall(conn, sql: str, **binds):
 
 
 def get_table_pk(table: str):
+    t = str(table).upper()
+    if t in _PK_CACHE:
+        return _PK_CACHE[t]
     sql = (
         "SELECT cc.column_name FROM user_constraints c "
         "JOIN user_cons_columns cc ON cc.constraint_name = c.constraint_name "
         "WHERE c.table_name = :t AND c.constraint_type = 'P' ORDER BY cc.position"
     )
     with get_connection() as conn:
-        rows = _fetchall(conn, sql, t=table.upper())
-        return [r[0] for r in rows]
+        rows = _fetchall(conn, sql, t=t)
+        _PK_CACHE[t] = [r[0] for r in rows]
+        return _PK_CACHE[t]
 
 
 def get_table_fks(table: str):
+    t = str(table).upper()
+    if t in _FK_CACHE:
+        return _FK_CACHE[t]
     sql = (
         "SELECT a.column_name, pk.table_name r_table, pkc.column_name r_column "
         "FROM user_constraints c "
@@ -182,22 +247,31 @@ def get_table_fks(table: str):
         "WHERE c.table_name = :t AND c.constraint_type = 'R' ORDER BY a.position"
     )
     with get_connection() as conn:
-        return _fetchall(conn, sql, t=table.upper())
+        _FK_CACHE[t] = _fetchall(conn, sql, t=t)
+        return _FK_CACHE[t]
 
 
 def get_not_null_cols(table: str):
+    t = str(table).upper()
+    if t in _NN_CACHE:
+        return _NN_CACHE[t]
     sql = (
         "SELECT column_name, data_type, data_default FROM user_tab_cols "
         "WHERE table_name=:t AND nullable='N'"
     )
     with get_connection() as conn:
-        return _fetchall(conn, sql, t=table.upper())
+        _NN_CACHE[t] = _fetchall(conn, sql, t=t)
+        return _NN_CACHE[t]
 
 
 def get_triggers(table: str):
+    t = str(table).upper()
+    if t in _TRG_CACHE:
+        return _TRG_CACHE[t]
     sql = "SELECT trigger_name, status FROM user_triggers WHERE table_name = :t"
     with get_connection() as conn:
-        return _fetchall(conn, sql, t=table.upper())
+        _TRG_CACHE[t] = _fetchall(conn, sql, t=t)
+        return _TRG_CACHE[t]
 
 
 def find_triggers_using_nextval(table: str, column_keyword: str = 'NUNOTA'):
@@ -988,8 +1062,8 @@ def get_trigger_ddl(owner: str | None, trigger_name: str) -> str | None:
 
 
 def proximo_sequencial_controle(data) -> str:
-    """Retorna próximo sequencial HEX (5 dígitos) para o prefixo AAMMDD do CONTROLE.
-    Busca TGFITE por prefixo, independente do DTNEG do cabeçalho.
+    """Retorna próximo sequencial HEX (5 dígitos) para o prefixo AAMMDD do lote (CODAGREGACAO).
+    Busca TGFITE por prefixo de CODAGREGACAO, independente do DTNEG do cabeçalho.
     """
     from datetime import datetime, date as _date
     if isinstance(data, str):
@@ -1073,7 +1147,7 @@ def obter_proxima_sequencia(nunota: int) -> int:
 
 
 def montar_item_compra(nunota: int, codparc: int, codprod: int, quantidade: float, vlrunit: float, data, sufixo: str|None=None):
-    """Monta estrutura de item bruto (entrada) com CONTROLE gerado.
+    """Monta estrutura de item bruto (entrada) com lote (CODAGREGACAO) gerado.
     Não insere no banco, apenas retorna dict pronto para bind.
     """
     from datetime import date as _date, datetime
@@ -1106,7 +1180,7 @@ def build_insert_item_sql():
 
 def plan_insert_item(d: dict) -> dict:
     """Planeja o INSERT em TGFITE com validações mínimas e binds calculados.
-    Campos esperados: NUNOTA, CODPROD, QTDNEG, VLRUNIT, CONTROLE(opcional), CODVOL(opcional), OBSERVACAO(opcional).
+    Campos esperados: NUNOTA, CODPROD, QTDNEG, VLRUNIT, CODAGREGACAO(opcional), CODVOL(opcional), OBSERVACAO(opcional).
     """
     data = d.copy()
     errs: list[str] = []
@@ -1231,7 +1305,11 @@ def plan_insert_item(d: dict) -> dict:
     try:
         if not errs and data.get('CODPROD') is not None and data.get('CODVOL'):
             base, fator = get_base_unit_and_factor(int(data['CODPROD']), str(data['CODVOL']))
-            if base and str(base).upper() != str(data['CODVOL']).upper() and fator and fator > 0:
+            # Enforce: if unit differs from base and no factor mapping exists in TGFVOA, reject as invalid alternative unit
+            if base and str(base).upper() != str(data['CODVOL']).upper() and (fator is None or float(fator) <= 0):
+                errs.append(f"Unidade (CODVOL='{data['CODVOL']}') não é alternativa válida para o produto {data['CODPROD']}")
+            # If alternative and factor exists, normalize to base
+            if base and str(base).upper() != str(data['CODVOL']).upper() and fator and float(fator) > 0:
                 try:
                     q_alt = float(data['QTDNEG'])
                     q_base = round(q_alt * float(fator), 6)
@@ -1257,13 +1335,31 @@ def plan_insert_item(d: dict) -> dict:
     except Exception:
         data['VLRTOT'] = None
 
-    # Gerar CODAGREGACAO se não informado but dtneg available
-    if not data.get('CODAGREGACAO') and dtneg_date is not None:
-        try:
-            data['CODAGREGACAO'] = gerar_lote(dtneg_date, codparc, data.get('CODPROD'))
-            warns.append(f"CODAGREGACAO não informado; sugerido automaticamente: {data['CODAGREGACAO']}")
-        except Exception:
-            pass
+    # Política de CODAGREGACAO:
+    # - Para notas de Classificação (TOP_CLASS), exigir CODAGREGACAO fornecido pelo cliente (lote imutável)
+    # - Para outras TOPs, manter comportamento de sugerir automaticamente quando possível
+    try:
+        top_class = get_params().get('TOP_CLASS')
+    except Exception:
+        top_class = None
+    is_class_note = False
+    try:
+        if cab_codtop is not None and top_class is not None and int(cab_codtop) == int(top_class):
+            is_class_note = True
+    except Exception:
+        is_class_note = False
+
+    if is_class_note:
+        if not data.get('CODAGREGACAO'):
+            errs.append('CODAGREGACAO (lote) é obrigatório para itens de Classificação (TOP 26)')
+    else:
+        # Gerar CODAGREGACAO se não informado but dtneg available (não-classificação)
+        if not data.get('CODAGREGACAO') and dtneg_date is not None:
+            try:
+                data['CODAGREGACAO'] = gerar_lote(dtneg_date, codparc, data.get('CODPROD'))
+                warns.append(f"CODAGREGACAO não informado; sugerido automaticamente: {data['CODAGREGACAO']}")
+            except Exception:
+                pass
 
     # Montar SQL/binds mínimos — incluir DTALTER=SYSDATE se a coluna existir em TGFITE
     has_dtalter_tgfite = False
@@ -1313,12 +1409,18 @@ def plan_insert_item(d: dict) -> dict:
 # ===== Standardization helpers (must be defined before insert/update item usage) =====
 def _get_table_columns(conn, table: str) -> set[str]:
     try:
+        t = str(table).upper()
+        cached = _COLS_CACHE.get(t)
+        if cached is not None:
+            return cached
         cur = conn.cursor()
         cur.execute(
             "SELECT column_name FROM user_tab_cols WHERE table_name=:t",
-            t=str(table).upper()
+            t=t
         )
-        return {r[0].upper() for r in cur.fetchall()}
+        cols = {r[0].upper() for r in cur.fetchall()}
+        _COLS_CACHE[t] = cols
+        return cols
     except Exception:
         return set()
 
@@ -1512,7 +1614,10 @@ def plan_update_item(d: dict) -> dict:
     try:
         if data.get('CODPROD') is not None and data.get('CODVOL') is not None and data.get('QTDNEG') is not None:
             base, fator = get_base_unit_and_factor(int(data['CODPROD']), str(data['CODVOL']))
-            if base and str(base).upper() != str(data['CODVOL']).upper() and fator and fator > 0:
+            # Enforce valid alternative unit mapping
+            if base and str(base).upper() != str(data['CODVOL']).upper() and (fator is None or float(fator) <= 0):
+                errs.append(f"Unidade (CODVOL='{data['CODVOL']}') não é alternativa válida para o produto {data['CODPROD']}")
+            if base and str(base).upper() != str(data['CODVOL']).upper() and fator and float(fator) > 0:
                 try:
                     q_alt = float(data['QTDNEG'])
                     data['QTDNEG'] = round(q_alt * float(fator), 6)
@@ -1547,7 +1652,22 @@ def plan_update_item(d: dict) -> dict:
     if data.get('CODLOCALORIG') is not None:
         sets.append('CODLOCALORIG=:CODLOCALORIG'); binds['CODLOCALORIG'] = data['CODLOCALORIG']
     if data.get('CODAGREGACAO') is not None:
-        sets.append('CODAGREGACAO=:CODAGREGACAO'); binds['CODAGREGACAO'] = data['CODAGREGACAO']
+        # Enforce: if destination header is TOP_CLASS, do not allow changing CODAGREGACAO (immutable lote)
+        try:
+            with get_connection() as _c2:
+                cur2 = _c2.cursor()
+                cur2.execute("SELECT CODTIPOPER FROM TGFCAB WHERE NUNOTA=:n", n=data['NUNOTA'])
+                row2 = cur2.fetchone()
+                codtop = row2[0] if row2 else None
+                top_class = get_params().get('TOP_CLASS')
+                if codtop is not None and top_class is not None and int(codtop) == int(top_class):
+                    # skip adding CODAGREGACAO to SETs for classification note
+                    pass
+                else:
+                    sets.append('CODAGREGACAO=:CODAGREGACAO'); binds['CODAGREGACAO'] = data['CODAGREGACAO']
+        except Exception:
+            # On failure to determine, default to allowing update
+            sets.append('CODAGREGACAO=:CODAGREGACAO'); binds['CODAGREGACAO'] = data['CODAGREGACAO']
     if data.get('OBSERVACAO') is not None:
         sets.append('OBSERVACAO=:OBSERVACAO'); binds['OBSERVACAO'] = data['OBSERVACAO']
     # Permitir alterar GERAPRODUCAO quando informado
@@ -2055,22 +2175,44 @@ def consultar_lotes_sumario(controles: list[str]) -> dict[str, dict]:
         cur = conn.cursor()
         # 1) Entradas: parceiro, qtd_pedido (In Natura), exemplo nunota/seq
         t_ent0 = time.perf_counter()
-        sql_ent = (
-            f"""
-            SELECT i.CODAGREGACAO AS CTRL,
-                   MAX(pr.NOMEPARC) AS PARCEIRO,
-                   MAX(c.CODPARC) AS CODPARC,
-                   SUM(CASE WHEN c.CODTIPOPER = :top_ent AND UPPER(NVL(i.CODVOL,'')) = 'CX' THEN i.QTDNEG ELSE 0 END) AS QTD_CX,
-                   SUM(CASE WHEN c.CODTIPOPER = :top_ent AND UPPER(NVL(i.CODVOL,'')) = 'KG' THEN i.QTDNEG ELSE 0 END) AS QTD_KG,
-                   MIN(c.NUNOTA) KEEP (DENSE_RANK FIRST ORDER BY c.NUNOTA) AS EX_NUNOTA,
-                   MIN(i.SEQUENCIA) KEEP (DENSE_RANK FIRST ORDER BY i.SEQUENCIA) AS EX_SEQ
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-              LEFT JOIN TGFPAR pr ON pr.CODPARC = c.CODPARC
-             WHERE i.CODAGREGACAO IN ({in_clause})
-             GROUP BY i.CODAGREGACAO
-            """
-        )
+        sql_ent = f"""
+                        SELECT i.CODAGREGACAO AS CTRL,
+                                     MAX(pr.NOMEPARC) AS PARCEIRO,
+                                     MAX(c.CODPARC) AS CODPARC,
+                                     -- Qtde de caixas calculada dividindo a quantidade base pelo fator da unidade alternativa (quando CX)
+                                     SUM(CASE 
+                                                 WHEN c.CODTIPOPER = :top_ent 
+                                                    AND UPPER(NVL(i.CODVOL,'')) = 'CX' 
+                                                    AND (
+                                                             CASE 
+                                                                 WHEN voa.FATOR IS NOT NULL AND voa.FATOR > 0 THEN voa.FATOR
+                                                                 WHEN voa.QUANTIDADE IS NOT NULL AND UPPER(NVL(voa.DIVIDEMULTIPLICA,'M')) = 'M' THEN voa.QUANTIDADE
+                                                                 WHEN voa.QUANTIDADE IS NOT NULL AND UPPER(NVL(voa.DIVIDEMULTIPLICA,'M')) = 'D' AND voa.QUANTIDADE <> 0 THEN (1/voa.QUANTIDADE)
+                                                                 ELSE NULL
+                                                             END
+                                                            ) > 0
+                                                    THEN i.QTDNEG / (
+                                                             CASE 
+                                                                 WHEN voa.FATOR IS NOT NULL AND voa.FATOR > 0 THEN voa.FATOR
+                                                                 WHEN voa.QUANTIDADE IS NOT NULL AND UPPER(NVL(voa.DIVIDEMULTIPLICA,'M')) = 'M' THEN voa.QUANTIDADE
+                                                                 WHEN voa.QUANTIDADE IS NOT NULL AND UPPER(NVL(voa.DIVIDEMULTIPLICA,'M')) = 'D' AND voa.QUANTIDADE <> 0 THEN (1/voa.QUANTIDADE)
+                                                                 ELSE NULL
+                                                             END
+                                                    )
+                                                 ELSE 0 
+                                             END) AS QTD_CX,
+                                     -- Qtde em KG: somar somente produtos cuja unidade base é KG
+                                     SUM(CASE WHEN c.CODTIPOPER = :top_ent AND UPPER(NVL(pp.CODVOL,'')) = 'KG' THEN i.QTDNEG ELSE 0 END) AS QTD_KG,
+                                     MIN(c.NUNOTA) KEEP (DENSE_RANK FIRST ORDER BY c.NUNOTA) AS EX_NUNOTA,
+                                     MIN(i.SEQUENCIA) KEEP (DENSE_RANK FIRST ORDER BY i.SEQUENCIA) AS EX_SEQ
+                            FROM TGFITE i
+                            JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                            LEFT JOIN TGFPAR pr ON pr.CODPARC = c.CODPARC
+                            LEFT JOIN TGFPRO pp ON pp.CODPROD = i.CODPROD
+                            LEFT JOIN TGFVOA voa ON voa.CODPROD = i.CODPROD AND UPPER(voa.CODVOL) = UPPER(NVL(i.CODVOL,''))
+                         WHERE i.CODAGREGACAO IN ({in_clause})
+                         GROUP BY i.CODAGREGACAO
+        """
         cur.execute(sql_ent, {**binds, 'top_ent': TOP_ENTRADA})
         rows_ent = cur.fetchall()
         t_ent1 = time.perf_counter()
@@ -2413,22 +2555,43 @@ def consultar_lotes_sumario_top11_classificaveis(controles: list[str]) -> dict[s
         with get_connection() as conn:
             cur = conn.cursor()
             # Partner + quantities by volume
-            sql_q = (
-                f"""
+            sql_q = f"""
                 SELECT i.CODAGREGACAO AS CTRL,
-                       MAX(pr.NOMEPARC) AS PARCEIRO,
-                       MAX(c.CODPARC) AS CODPARC,
-                       SUM(CASE WHEN UPPER(NVL(i.CODVOL,''))='CX' THEN i.QTDNEG ELSE 0 END) AS QTD_CX,
-                       SUM(CASE WHEN UPPER(NVL(i.CODVOL,''))='KG' THEN i.QTDNEG ELSE 0 END) AS QTD_KG
-                  FROM TGFITE i
-                  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-                  LEFT JOIN TGFPAR pr ON pr.CODPARC = c.CODPARC
-                 WHERE i.CODAGREGACAO IN ({in_clause})
-                   AND c.CODTIPOPER = :top_ent
-                   AND NVL(i.GERAPRODUCAO,'N') = 'S'
-                 GROUP BY i.CODAGREGACAO
-                """
-            )
+                       MAX(UPPER(NVL(pr.RAZAOSOCIAL, pr.NOMEPARC))) AS PARCEIRO,
+                                             MAX(c.CODPARC) AS CODPARC,
+                                             -- Qtde de caixas convertida pela unidade alternativa (CX)
+                                             SUM(CASE 
+                                                         WHEN UPPER(NVL(i.CODVOL,''))='CX' 
+                                                            AND (
+                                                                     CASE 
+                                                                         WHEN voa.FATOR IS NOT NULL AND voa.FATOR > 0 THEN voa.FATOR
+                                                                         WHEN voa.QUANTIDADE IS NOT NULL AND UPPER(NVL(voa.DIVIDEMULTIPLICA,'M')) = 'M' THEN voa.QUANTIDADE
+                                                                         WHEN voa.QUANTIDADE IS NOT NULL AND UPPER(NVL(voa.DIVIDEMULTIPLICA,'M')) = 'D' AND voa.QUANTIDADE <> 0 THEN (1/voa.QUANTIDADE)
+                                                                         ELSE NULL
+                                                                     END
+                                                                    ) > 0
+                                                         THEN i.QTDNEG / (
+                                                                     CASE 
+                                                                         WHEN voa.FATOR IS NOT NULL AND voa.FATOR > 0 THEN voa.FATOR
+                                                                         WHEN voa.QUANTIDADE IS NOT NULL AND UPPER(NVL(voa.DIVIDEMULTIPLICA,'M')) = 'M' THEN voa.QUANTIDADE
+                                                                         WHEN voa.QUANTIDADE IS NOT NULL AND UPPER(NVL(voa.DIVIDEMULTIPLICA,'M')) = 'D' AND voa.QUANTIDADE <> 0 THEN (1/voa.QUANTIDADE)
+                                                                         ELSE NULL
+                                                                     END
+                                                         )
+                                                         ELSE 0 
+                                                     END) AS QTD_CX,
+                                             -- Qtde em KG baseada na unidade base do produto
+                                             SUM(CASE WHEN UPPER(NVL(pp.CODVOL,''))='KG' THEN i.QTDNEG ELSE 0 END) AS QTD_KG
+                                    FROM TGFITE i
+                                    JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                                    LEFT JOIN TGFPAR pr ON pr.CODPARC = c.CODPARC
+                                    LEFT JOIN TGFPRO pp ON pp.CODPROD = i.CODPROD
+                                    LEFT JOIN TGFVOA voa ON voa.CODPROD = i.CODPROD AND UPPER(voa.CODVOL) = UPPER(NVL(i.CODVOL,''))
+                                 WHERE i.CODAGREGACAO IN ({in_clause})
+                                     AND c.CODTIPOPER = :top_ent
+                                     AND NVL(i.GERAPRODUCAO,'N') = 'S'
+                                 GROUP BY i.CODAGREGACAO
+            """
             cur.execute(sql_q, {**binds, 'top_ent': TOP_ENTRADA})
             for ctrl, parceiro, codparc, qcx, qkg in cur.fetchall():
                 d = out.get(ctrl)
@@ -2447,22 +2610,20 @@ def consultar_lotes_sumario_top11_classificaveis(controles: list[str]) -> dict[s
                     d['qtd_kg'] = float(qkg or 0)
                 except Exception:
                     d['qtd_kg'] = 0.0
-
-            # Classifiable product list
+            # Classifiable product list — return manufacturer (FABRICANTE)
             sql_p = (
                 f"""
-                SELECT i.CODAGREGACAO AS CTRL, i.CODPROD, MAX(p.DESCRPROD)
+                SELECT i.CODAGREGACAO AS CTRL, i.CODPROD, MAX(UPPER(NVL(p.FABRICANTE,''))) AS FABRICANTE
                   FROM TGFITE i
                   JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
                   LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
                  WHERE i.CODAGREGACAO IN ({in_clause})
                    AND c.CODTIPOPER = :top_ent
-                   AND NVL(i.GERAPRODUCAO,'N') = 'S'
                  GROUP BY i.CODAGREGACAO, i.CODPROD
                 """
             )
             cur.execute(sql_p, {**binds, 'top_ent': TOP_ENTRADA})
-            for ctrl, cod, descr in cur.fetchall():
+            for ctrl, cod, fabricante in cur.fetchall():
                 d = out.get(ctrl)
                 if not d:
                     continue
@@ -2471,7 +2632,7 @@ def consultar_lotes_sumario_top11_classificaveis(controles: list[str]) -> dict[s
                     cod_i = int(cod) if cod is not None else None
                 except Exception:
                     cod_i = cod
-                lst.append({'cod': cod_i, 'descr': descr or ''})
+                lst.append({'cod': cod_i, 'fabricante': fabricante or ''})
 
         return out
 
@@ -2952,6 +3113,16 @@ def get_base_unit_and_factor(codprod: int, codvol: str) -> tuple[str | None, flo
         codvol_u = None
     base = None
     fator = None
+    # Fast path: cached base for product and factor for (product, unit)
+    try:
+        if codprod and isinstance(codprod, int):
+            if codprod in _BASE_UNIT_CACHE:
+                base = _BASE_UNIT_CACHE[codprod]
+        key = (int(codprod or 0), codvol_u or '')
+        if key in _FACTOR_CACHE:
+            return (base or _BASE_UNIT_CACHE.get(key[0]) or None, _FACTOR_CACHE[key])
+    except Exception:
+        pass
     try:
         with get_connection() as conn:
             cur = conn.cursor()
@@ -2961,6 +3132,7 @@ def get_base_unit_and_factor(codprod: int, codvol: str) -> tuple[str | None, flo
                 row = cur.fetchone()
                 if row and row[0]:
                     base = str(row[0]).strip().upper()
+                    _BASE_UNIT_CACHE[int(codprod)] = base
             except Exception:
                 base = None
             # If requested unit equals base, factor is 1.0 (no conversion needed)
@@ -3009,6 +3181,11 @@ def get_base_unit_and_factor(codprod: int, codvol: str) -> tuple[str | None, flo
                                     fator = None
                 except Exception:
                     pass
+        # Cache factor result (including None to avoid re-querying)
+        try:
+            _FACTOR_CACHE[(int(codprod or 0), codvol_u or '')] = fator
+        except Exception:
+            pass
     except Exception:
         # On any connection error, return safe fallbacks
         return base, fator
@@ -3678,6 +3855,11 @@ def plan_classificacao(nunota_origem: int, sequencia_origem: int, saidas: list[d
 def _list_columns_like(table: str, like_pattern: str) -> list[str]:
     """Returns column names for `table` whose name matches LIKE pattern (case-insensitive), ordered by column_id."""
     try:
+        t = str(table).upper(); p = str(like_pattern).upper()
+        key = (t, p)
+        cached = _LIKE_COLS_CACHE.get(key)
+        if cached is not None:
+            return cached
         with get_connection() as conn:
             cur = conn.cursor()
             cur.execute(
@@ -3686,9 +3868,11 @@ def _list_columns_like(table: str, like_pattern: str) -> list[str]:
                  WHERE table_name=:t AND UPPER(column_name) LIKE :p
                  ORDER BY column_id
                 """,
-                t=str(table).upper(), p=str(like_pattern).upper()
+                t=t, p=p
             )
-            return [r[0] for r in cur.fetchall()]
+            cols = [r[0] for r in cur.fetchall()]
+            _LIKE_COLS_CACHE[key] = cols
+            return cols
     except Exception:
         return []
 

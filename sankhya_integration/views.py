@@ -411,14 +411,20 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
 
     # Classificação: Mostrar lotes do Portal (TOP 11) que são classificáveis (GERAPRODUCAO='S')
     t_list0 = time.perf_counter()
-    lotes_class = listar_lotes_entradas_classificaveis(
-        days=params['days'],
-        limit=page_size,
-        codparc=params['codparc'],
-        codprod=params['codprod'],
-        date_start=params['date_start'],
-        date_end=params['date_end'],
-    )
+    db_error = None
+    try:
+        lotes_class = listar_lotes_entradas_classificaveis(
+            days=params['days'],
+            limit=page_size,
+            codparc=params['codparc'],
+            codprod=params['codprod'],
+            date_start=params['date_start'],
+            date_end=params['date_end'],
+        )
+    except Exception as e:
+        # Gracefully handle Oracle connectivity errors so the page can render and surface a message
+        lotes_class = []
+        db_error = str(e)
     t_list1 = time.perf_counter()
     # Extrair controles para compatibilidade com código existente
     controles = [lote[0] for lote in lotes_class]  # Primeiro campo é o controle
@@ -433,14 +439,105 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
     except Exception:
         sum_map = {}
         t_sum0 = t_sum1 = time.perf_counter()
+    # Fill lotes list; ensure partner name is available. If missing from summary, fetch via fallback batch.
+    # Identify controls missing partner info
+    missing_partner_ctrls = []
     for ctrl in controles:
         info = sum_map.get(ctrl, {})
-        # Produto: concatenar todos os produtos classificáveis (codigo - descr)
+        if not info.get('parceiro'):
+            missing_partner_ctrls.append(ctrl)
+    # Batched fallback to resolve partner names when missing
+    if missing_partner_ctrls:
+        try:
+            from sankhya_integration.services.oracle_conn import get_connection, get_params as _get_params
+            _p = _get_params(); _top_ent = _p.get('TOP_ENTRADA', 11)
+            # Build IN clause
+            phs = []
+            binds = {'top_ent': _top_ent}
+            for idx, c in enumerate(missing_partner_ctrls):
+                key = f"c{idx}"
+                phs.append(f":{key}")
+                binds[key] = c
+            in_clause = ",".join(phs) if phs else "''"
+            sql = (
+                f"""
+                SELECT i.CODAGREGACAO AS CTRL,
+                       MAX(UPPER(NVL(pr.RAZAOSOCIAL, pr.NOMEPARC))) AS PARCEIRO,
+                       MAX(c.CODPARC) AS CODPARC
+                  FROM TGFITE i
+                  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                  LEFT JOIN TGFPAR pr ON pr.CODPARC = c.CODPARC
+                 WHERE i.CODAGREGACAO IN ({in_clause})
+                   AND c.CODTIPOPER = :top_ent
+                 GROUP BY i.CODAGREGACAO
+                """
+            )
+            with get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(sql, binds)
+                for ctrl, parceiro, codparc in cur.fetchall():
+                    d = sum_map.setdefault(ctrl, {})
+                    d['parceiro'] = parceiro or d.get('parceiro') or ''
+                    try:
+                        d['codparc'] = int(codparc) if codparc is not None else d.get('codparc')
+                    except Exception:
+                        d['codparc'] = codparc if codparc is not None else d.get('codparc')
+        except Exception:
+            pass
+
+    # If any control has no fabricantes list, backfill manufacturers in a single batch for those controls
+    missing_fab_ctrls = [c for c in controles if not (sum_map.get(c, {}).get('produtos_entrada') or [])]
+    if missing_fab_ctrls:
+        try:
+            from sankhya_integration.services.oracle_conn import get_connection, get_params as _get_params
+            _p = _get_params(); _top_ent = _p.get('TOP_ENTRADA', 11)
+            phs = []
+            binds = {'top_ent': _top_ent}
+            for idx, c in enumerate(missing_fab_ctrls):
+                key = f"c{idx}"
+                phs.append(f":{key}")
+                binds[key] = c
+            in_clause = ",".join(phs) if phs else "''"
+            sql = (
+                f"""
+                SELECT i.CODAGREGACAO AS CTRL, i.CODPROD, UPPER(NVL(p.FABRICANTE,'')) AS FABRICANTE
+                  FROM TGFITE i
+                  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                  LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
+                 WHERE i.CODAGREGACAO IN ({in_clause})
+                   AND c.CODTIPOPER = :top_ent
+                """
+            )
+            with get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(sql, binds)
+                for ctrl, cod, fabricante in cur.fetchall():
+                    d = sum_map.setdefault(ctrl, {})
+                    lst = d.setdefault('produtos_entrada', [])
+                    try:
+                        cod_i = int(cod) if cod is not None else None
+                    except Exception:
+                        cod_i = cod
+                    lst.append({'cod': cod_i, 'fabricante': fabricante or ''})
+        except Exception:
+            pass
+
+    for ctrl in controles:
+        info = sum_map.get(ctrl, {})
+        # Produto: concatenar fabricantes (por produto) — solicitou usar TGFPRO.FABRICANTE
         produtos_list = info.get('produtos_entrada') or []
         produto_descr = ''
         try:
             if produtos_list:
-                produto_descr = '\n'.join([f"{p.get('cod') or ''} - {p.get('descr') or ''}" for p in produtos_list])
+                # Aggregate by manufacturer; show distinct list with counts when repeated
+                mans = {}
+                for p in produtos_list:
+                    m = (p.get('fabricante') or '').strip()
+                    if not m:
+                        m = '(SEM FABRICANTE)'
+                    mans[m] = mans.get(m, 0) + 1
+                # Compose lines like: FABRICANTE (N itens) or just FABRICANTE
+                produto_descr = '\n'.join([f"{k}" + (f" ({v})" if v>1 else '') for k, v in mans.items()])
         except Exception:
             produto_descr = ''
         lotes.append((
@@ -508,6 +605,7 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
         'nunota_class_sel': nunota_class_sel,
         'timings': timings if show_perf else None,
         'timings_json': json.dumps(timings) if show_perf else None,
+        'db_error': db_error,
     }
     return render(request, "sankhya_integration/compras_classificacao.html", ctx)
 
@@ -986,6 +1084,7 @@ def produtos_search(request: HttpRequest) -> JsonResponse:
     with get_connection() as conn:
         cur = conn.cursor()
         # Detect context (InNatura) to constrain by FABRICANTE and optional token (e.g., TOMATE SALADA/ITALIANO)
+        exclude_in_natura = False
         try:
             if cod_inn_raw and str(cod_inn_raw).isdigit():
                 cod_inn = int(cod_inn_raw)
@@ -994,6 +1093,7 @@ def produtos_search(request: HttpRequest) -> JsonResponse:
                 if r:
                     fabricante_flt = (r[0] or '').strip() or None
                     descr_inn = (r[1] or '').strip()
+                    exclude_in_natura = True  # we're in modal context; exclude 'IN NATURA' items from results
                     if fabricante_flt == 'TOMATE':
                         # Identify subtype by keywords in In Natura description
                         if 'SALADA' in descr_inn:
@@ -1004,6 +1104,13 @@ def produtos_search(request: HttpRequest) -> JsonResponse:
         except Exception:
             fabricante_flt = None; token_flt = None
 
+        # New rule: when cod_innatura is provided but the In Natura product has no FABRICANTE, return empty list
+        try:
+            if cod_inn_raw and (not fabricante_flt):
+                return JsonResponse({"results": []})
+        except Exception:
+            pass
+
         def _append_filters(base_sql: str, add_order: bool = False) -> tuple[str, dict]:
             sql = base_sql
             binds: dict = {}
@@ -1013,6 +1120,9 @@ def produtos_search(request: HttpRequest) -> JsonResponse:
             if token_flt:
                 sql += " AND UPPER(DESCRPROD) LIKE :tok"
                 binds['tok'] = f"%{token_flt}%"
+            # Exclude 'IN NATURA' from listing when in modal classification context
+            if exclude_in_natura:
+                sql += " AND UPPER(DESCRPROD) NOT LIKE '%IN NATURA%'"
             if add_order:
                 sql += " ORDER BY DESCRPROD"
             return sql, binds
@@ -1049,6 +1159,7 @@ def next_lote(request: HttpRequest) -> JsonResponse:
     - Total 11 caracteres, sem produto no código
     - Data base: DTNEG (YYYY-MM-DD)
     - Escopo do incremento: global no dia por CODPROD (todas as notas da data)
+    Campo de lote no ERP: CODAGREGACAO
     """
     from datetime import datetime
     codprod_raw = request.GET.get('codprod')
@@ -1066,11 +1177,11 @@ def next_lote(request: HttpRequest) -> JsonResponse:
     aammdd = f"{dt.year%100:02d}{dt.month:02d}{dt.day:02d}"
     # Prefixo somente com a data AAMMDD
     prefix = aammdd
-    # Buscar controles existentes pelo prefixo diretamente em TGFITE (independente do DTNEG atual do cabeçalho)
+    # Buscar lotes existentes pelo prefixo diretamente em TGFITE (independente do DTNEG atual do cabeçalho)
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT CONTROLE FROM TGFITE WHERE CONTROLE LIKE :pfx AND CONTROLE IS NOT NULL",
+            "SELECT CODAGREGACAO FROM TGFITE WHERE CODAGREGACAO LIKE :pfx AND CODAGREGACAO IS NOT NULL",
             pfx=f"{prefix}%",
         )
         rows = cur.fetchall()
@@ -1184,32 +1295,61 @@ def empresa_search(request: HttpRequest) -> JsonResponse:
 def vol_search(request: HttpRequest) -> JsonResponse:
     q = (request.GET.get("q", "").strip() or "").upper()
     lim = int(request.GET.get("limit", 10))
+    # Optional: constrain by product code to only base + alternatives configured for that product
+    codprod_raw = (request.GET.get('codprod') or '').strip()
+    codprod = None
+    try:
+        if codprod_raw and codprod_raw.isdigit():
+            codprod = int(codprod_raw)
+    except Exception:
+        codprod = None
     with get_connection() as conn:
         cur = conn.cursor()
-        if q:
-            # Prioriza código exato/prefixo, depois descrição
-            cur.execute(
-                "SELECT CODVOL, DESCRVOL FROM ("
-                "  SELECT CODVOL, DESCRVOL, 0 PRIO FROM TGFVOL WHERE UPPER(CODVOL) = :k"
-                "  UNION ALL"
-                "  SELECT CODVOL, DESCRVOL, 1 PRIO FROM TGFVOL WHERE UPPER(CODVOL) LIKE :p"
-                "  UNION ALL"
-                "  SELECT CODVOL, DESCRVOL, 2 PRIO FROM TGFVOL WHERE UPPER(DESCRVOL) LIKE :d"
-                ") WHERE ROWNUM <= :lim ORDER BY PRIO, CODVOL",
-                k=q, p=f"{q}%", d=f"%{q}%", lim=lim,
-            )
+        if codprod is not None:
+            # Restrict to base unit for product plus alternatives from TGFVOA for that product
+            if q:
+                cur.execute(
+                    "SELECT CODVOL, DESCRVOL FROM ("
+                    "  SELECT p.CODVOL AS CODVOL, v.DESCRVOL, 0 PRIO FROM TGFPRO p LEFT JOIN TGFVOL v ON UPPER(v.CODVOL)=UPPER(p.CODVOL) WHERE p.CODPROD=:cp AND (UPPER(p.CODVOL)=:k OR UPPER(p.CODVOL) LIKE :p OR UPPER(v.DESCRVOL) LIKE :d)"
+                    "  UNION ALL"
+                    "  SELECT a.CODVOL, v.DESCRVOL, 1 PRIO FROM TGFVOA a LEFT JOIN TGFVOL v ON UPPER(v.CODVOL)=UPPER(a.CODVOL) WHERE a.CODPROD=:cp AND (UPPER(a.CODVOL)=:k OR UPPER(a.CODVOL) LIKE :p OR UPPER(v.DESCRVOL) LIKE :d)"
+                    ") WHERE ROWNUM <= :lim ORDER BY PRIO, CODVOL",
+                    cp=codprod, k=q, p=f"{q}%", d=f"%{q}%", lim=lim,
+                )
+            else:
+                cur.execute(
+                    "SELECT CODVOL, DESCRVOL FROM ("
+                    "  SELECT p.CODVOL AS CODVOL, v.DESCRVOL, 0 PRIO FROM TGFPRO p LEFT JOIN TGFVOL v ON UPPER(v.CODVOL)=UPPER(p.CODVOL) WHERE p.CODPROD=:cp"
+                    "  UNION ALL"
+                    "  SELECT a.CODVOL, v.DESCRVOL, 1 PRIO FROM TGFVOA a LEFT JOIN TGFVOL v ON UPPER(v.CODVOL)=UPPER(a.CODVOL) WHERE a.CODPROD=:cp"
+                    ") WHERE ROWNUM <= :lim ORDER BY PRIO, CODVOL",
+                    cp=codprod, lim=lim,
+                )
         else:
-            cur.execute(
-                "SELECT CODVOL, DESCRVOL FROM (SELECT CODVOL, DESCRVOL FROM TGFVOL ORDER BY CODVOL) WHERE ROWNUM <= :lim",
-                lim=lim,
-            )
+            if q:
+                # Prioriza código exato/prefixo, depois descrição
+                cur.execute(
+                    "SELECT CODVOL, DESCRVOL FROM ("
+                    "  SELECT CODVOL, DESCRVOL, 0 PRIO FROM TGFVOL WHERE UPPER(CODVOL) = :k"
+                    "  UNION ALL"
+                    "  SELECT CODVOL, DESCRVOL, 1 PRIO FROM TGFVOL WHERE UPPER(CODVOL) LIKE :p"
+                    "  UNION ALL"
+                    "  SELECT CODVOL, DESCRVOL, 2 PRIO FROM TGFVOL WHERE UPPER(DESCRVOL) LIKE :d"
+                    ") WHERE ROWNUM <= :lim ORDER BY PRIO, CODVOL",
+                    k=q, p=f"{q}%", d=f"%{q}%", lim=lim,
+                )
+            else:
+                cur.execute(
+                    "SELECT CODVOL, DESCRVOL FROM (SELECT CODVOL, DESCRVOL FROM TGFVOL ORDER BY CODVOL) WHERE ROWNUM <= :lim",
+                    lim=lim,
+                )
         rows = cur.fetchall()
     return JsonResponse({"results": [{"cod": (c or ""), "descr": (d or "")} for c, d in rows]})
 
 def lote_search(request: HttpRequest) -> JsonResponse:
-    """Pesquisar controles (lotes) por prefixo, para typeahead do filtro.
+    """Pesquisar lotes (CODAGREGACAO) por prefixo, para typeahead do filtro.
     Query: q (string), limit (default 10)
-    Returns: { results: [ { cod: CONTROLE, descr: '' } ] }
+    Returns: { results: [ { cod: CODAGREGACAO, descr: '' } ] }
     """
     q = (request.GET.get('q') or '').strip()
     try:
@@ -1222,10 +1362,10 @@ def lote_search(request: HttpRequest) -> JsonResponse:
         cur = conn.cursor()
         # Buscar por substring, case-insensitive
         cur.execute(
-            "SELECT CONTROLE FROM (\n"
-            "  SELECT DISTINCT CONTROLE FROM TGFITE\n"
-            "   WHERE CONTROLE IS NOT NULL AND UPPER(CONTROLE) LIKE :p\n"
-            "   ORDER BY CONTROLE\n"
+            "SELECT CODAGREGACAO FROM (\n"
+            "  SELECT DISTINCT CODAGREGACAO FROM TGFITE\n"
+            "   WHERE CODAGREGACAO IS NOT NULL AND UPPER(CODAGREGACAO) LIKE :p\n"
+            "   ORDER BY CODAGREGACAO\n"
             ") WHERE ROWNUM <= :lim",
             p=f"%{q.upper()}%", lim=max(1, lim)
         )
@@ -1324,7 +1464,7 @@ def item_plan(request: HttpRequest) -> JsonResponse:
         'PESO': payload.get('peso'),
         'CODVOL': payload.get('codvol') or 'UN',
         'CODLOCALORIG': _to_int_or(payload.get('codlocal'), 101),
-        'CODAGREGACAO': (payload.get('controle') or '').strip() or None,
+        'CODAGREGACAO': ((payload.get('codagregacao') or payload.get('controle') or '')).strip() or None,
         'OBSERVACAO': (payload.get('obs') or '').strip() or None,
         # Classificação (GERAPRODUCAO) opcional
         'GERAPRODUCAO': _map_gp(payload.get('geraproducao')),
@@ -1589,10 +1729,35 @@ def item_save(request: HttpRequest) -> JsonResponse:
         payload = json.loads(request.body.decode('utf-8') or '{}')
     except Exception:
         payload = {}
+    # Helper: detect TOP of the destination NUNOTA and the classification TOP value
+    def _get_nota_top(nun):
+        try:
+            from sankhya_integration.services.oracle_conn import get_params as _get_params
+            top_class = _get_params().get('TOP_CLASS')
+        except Exception:
+            top_class = None
+        codtop = None
+        try:
+            n = _to_int_or(payload.get('nunota')) if nun is None else int(nun)
+        except Exception:
+            n = None
+        if n:
+            try:
+                with get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT CODTIPOPER FROM TGFCAB WHERE NUNOTA=:n", n=n)
+                    row = cur.fetchone()
+                    if row:
+                        codtop = row[0]
+            except Exception:
+                codtop = None
+        return codtop, top_class
     # If payload contains 'sequencia', treat as update of existing item
     seq = _to_int_or(payload.get('sequencia'))
     if seq:
-        plan = update_item({
+        codtop, top_class = _get_nota_top(_to_int_or(payload.get('nunota')))
+        # For classification notes (TOP 26), enforce lote immutability: do NOT allow changing CODAGREGACAO on update
+        update_dict = {
             'NUNOTA': _to_int_or(payload.get('nunota')),
             'SEQUENCIA': seq,
             'CODPROD': _to_int_or(payload.get('codprod')),
@@ -1601,11 +1766,19 @@ def item_save(request: HttpRequest) -> JsonResponse:
             'PESO': payload.get('peso'),
             'CODVOL': payload.get('codvol') or None,
             'CODLOCALORIG': _to_int_or(payload.get('codlocal'), None),
-            'CODAGREGACAO': (payload.get('controle') or '').strip() or None,
             'OBSERVACAO': (payload.get('obs') or '').strip() or None,
             # Atualizar GERAPRODUCAO se informado
             'GERAPRODUCAO': _map_gp(payload.get('geraproducao')),
-        }, dry_run=False)
+        }
+        try:
+            if not (codtop is not None and top_class is not None and int(codtop) == int(top_class)):
+                # Only allow CODAGREGACAO update when not a classification TOP
+                val_ctrl = (payload.get('codagregacao') or payload.get('controle') or '').strip()
+                update_dict['CODAGREGACAO'] = val_ctrl or None
+        except Exception:
+            # If we can't determine, be conservative and do not include CODAGREGACAO in update
+            pass
+        plan = update_item(update_dict, dry_run=False)
         if plan.get('executed'):
             # Removido: duplicação/upsync automática de TOP 11→26 no Portal
             return JsonResponse(plan, status=200)
@@ -1617,19 +1790,90 @@ def item_save(request: HttpRequest) -> JsonResponse:
         return JsonResponse({'ok': False, 'error': err_msg, 'plan': plan}, status=400)
 
     # Otherwise, insert as new item
+    # Enforce immutable lote for classification TOP: require 'controle' and reuse existing when available
+    nun = _to_int_or(payload.get('nunota'))
+    codtop, top_class = _get_nota_top(nun)
+    # Prefer 'codagregacao' from client; keep 'controle' for temporary compatibility
+    controle = (payload.get('codagregacao') or payload.get('controle') or '').strip()
+    try:
+        if codtop is not None and top_class is not None and int(codtop) == int(top_class):
+            # If no controle provided, attempt to reuse existing from items in this note
+            if not controle and nun:
+                try:
+                    with get_connection() as conn:
+                        cur = conn.cursor()
+                        cur.execute("SELECT MAX(CODAGREGACAO) FROM TGFITE WHERE NUNOTA=:n AND CODAGREGACAO IS NOT NULL", n=nun)
+                        row = cur.fetchone()
+                        if row and row[0]:
+                            controle = str(row[0])
+                except Exception:
+                    controle = controle or ''
+            if not controle:
+                return JsonResponse({"ok": False, "errors": ["Controle (lote) obrigatório para itens de Classificação"], "error": "Controle (lote) obrigatório para itens de Classificação"}, status=400)
+    except Exception:
+        pass
+
+    # Server-side enforcement: if there is already a TOP_CLASS header (TGFCAB) with items for this lote,
+    # always reuse its NUNOTA regardless of the provided one — guarantees a single header per lote.
+    nun_overridden = None
+    try:
+        if controle:
+            # Resolve TOP_CLASS parameter (fallback to _get_nota_top-derived top_class if needed)
+            try:
+                from sankhya_integration.services.oracle_conn import get_params as _gp
+                top_cls_val = _gp().get('TOP_CLASS')
+            except Exception:
+                top_cls_val = None
+            if top_cls_val is None:
+                # fallback to previously detected top_class
+                top_cls_val = top_class
+            if top_cls_val is not None:
+                with get_connection() as _c:
+                    cur2 = _c.cursor()
+                    cur2.execute(
+                        """
+                        SELECT i.NUNOTA FROM (
+                          SELECT DISTINCT i.NUNOTA
+                            FROM TGFITE i
+                            JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                           WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top
+                           ORDER BY i.NUNOTA DESC
+                        ) WHERE ROWNUM = 1
+                        """,
+                        c=controle, top=top_cls_val
+                    )
+                    row2 = cur2.fetchone()
+                    if row2 and row2[0] is not None:
+                        try:
+                            existing_nun = int(row2[0])
+                        except Exception:
+                            existing_nun = row2[0]
+                        if existing_nun and existing_nun != nun:
+                            nun_overridden = existing_nun
+                            nun = existing_nun
+    except Exception:
+        # Non-fatal; continue with provided nun
+        pass
+
     plan = insert_item({
-        'NUNOTA': _to_int_or(payload.get('nunota')),
+        'NUNOTA': nun,
         'CODPROD': _to_int_or(payload.get('codprod')),
         'QTDNEG': payload.get('qtdneg'),
         'VLRUNIT': payload.get('vlrunit'),
         'PESO': payload.get('peso'),
         'CODVOL': payload.get('codvol') or 'UN',
         'CODLOCALORIG': _to_int_or(payload.get('codlocal'), 101),
-        'CODAGREGACAO': (payload.get('controle') or '').strip() or None,
+        'CODAGREGACAO': (controle or None),
         'OBSERVACAO': (payload.get('obs') or '').strip() or None,
         # Inserir GERAPRODUCAO quando informado; default será do trigger ('S')
         'GERAPRODUCAO': _map_gp(payload.get('geraproducao')),
     }, dry_run=False)
+    if nun_overridden:
+        try:
+            plan.setdefault('warnings', []).append(f"Reutilizado cabeçalho de Classificação existente (NUNOTA {nun_overridden}) para o lote {controle}.")
+            plan['nunota'] = nun_overridden
+        except Exception:
+            pass
     if plan.get('executed'):
         # Removido: duplicação/upsync automática de TOP 11→26 no Portal
         return JsonResponse(plan, status=200)
