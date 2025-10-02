@@ -1083,6 +1083,14 @@ def produtos_search(request: HttpRequest) -> JsonResponse:
     token_flt = None
     with get_connection() as conn:
         cur = conn.cursor()
+        # Ensure accent-insensitive, case-insensitive comparisons for LIKE
+        # Using linguistic comparisons makes 'MÉDIO' match 'medio', 'médio', etc.
+        try:
+            cur.execute("ALTER SESSION SET NLS_COMP=LINGUISTIC")
+            cur.execute("ALTER SESSION SET NLS_SORT=BINARY_AI")
+        except Exception:
+            # If database doesn't allow session changes here, proceed without; queries will still work but be accent-sensitive
+            pass
         # Detect context (InNatura) to constrain by FABRICANTE and optional token (e.g., TOMATE SALADA/ITALIANO)
         exclude_in_natura = False
         try:
@@ -2016,13 +2024,24 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
         classific = info.get('classificacoes') or []
         classificaveis = info.get('classificaveis') or []
         entradas = info.get('entradas') or []
-        # Helper to compute display quantity quickly (no DB lookups here)
-        # We assume QTDNEG já está na unidade do item (CODVOL). Qualquer conversão avançada deve ser feita on-demand no client.
+        # Helper to compute display quantity converting from base to alternative unit when needed
         def _disp_qty(_codprod, _codvol, qtdneg):
             try:
-                return float(qtdneg or 0)
+                q = float(qtdneg or 0)
             except Exception:
-                return 0.0
+                q = 0.0
+            try:
+                if _codprod is None or not _codvol:
+                    return q
+                # Lazy import to avoid cycles
+                from sankhya_integration.services.oracle_conn import get_base_unit_and_factor as _get_bf
+                base, fator = _get_bf(int(_codprod), str(_codvol))
+                if base and str(base).upper() != str(_codvol).upper() and fator and float(fator) > 0:
+                    # QTDNEG está na base; para exibir na unidade alternativa informada (ex.: CX), divide pelo fator
+                    return round(q / float(fator), 6)
+                return q
+            except Exception:
+                return q
 
         # Convert rows to simple dicts for JSON
         results = []

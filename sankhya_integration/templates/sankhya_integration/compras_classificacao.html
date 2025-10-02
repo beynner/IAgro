@@ -68,6 +68,11 @@
     /* Plain/inline icon style */
     .icon-btn--plain { border: none !important; background: transparent !important; padding: 0; width:34px; height:34px; display:inline-flex; align-items:center; justify-content:center; }
     .icon-btn--plain .icon { width:18px; height:18px; }
+    /* Green success color for primary action '+/check' */
+    .icon-btn.success { color: #16a34a; }
+    .icon-btn.success .icon { color: #16a34a; }
+    #cabItemsCard #itemAddBtn { width: 44px; height: 44px; }
+    #cabItemsCard #itemAddBtn .icon { width: 28px; height: 28px; }
   /* Enlarge the '+' Add button inside Items modal for better visibility */
   #cabItemsCard #itemAddBtn { width: 44px; height: 44px; }
   #cabItemsCard #itemAddBtn .icon { width: 28px; height: 28px; }
@@ -501,7 +506,9 @@
             <div>
               <div style="font-size:14px; color:#6b7280;">Lote</div>
               <div id="cab_lote_text" style="font-weight:700; color:#111827; font-size:20px; line-height:1.2;">—</div>
-              <div id="cab_parc_text" style="margin-top:4px; color:#374151; background:#FEF9C3; border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-weight:600;">—</div>
+              <div style="margin-top:4px; font-size:12px; color:#6b7280;">NUNOTA</div>
+              <div id="cab_nunota_text" style="color:#374151; background:#E5E7EB; border:1px solid var(--border); border-radius:6px; padding:4px 8px; display:inline-block;">—</div>
+              <div id="cab_parc_text" style="margin-top:6px; color:#374151; background:#FEF9C3; border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-weight:600;">—</div>
               <div id="cab_prod_text" style="margin-top:6px; color:#374151; background:#FEF9C3; border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-weight:600;">—</div>
             </div>
 
@@ -593,9 +600,10 @@
             <div>
               <div style="display:flex; justify-content:space-between; align-items:center;">
                 <label>Produtos inseridos</label>
-                <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#374151;">
-                  <input type="checkbox" id="filterOnlyClassifica" checked /> Somente classifica
-                </label>
+              </div>
+              <div style="display:flex; justify-content: space-between; gap:8px; align-items:center; margin:6px 0;">
+                <input type="text" id="itemsSearch" placeholder="Pesquisar produto (ignora acento)" style="flex:1; padding:6px; border:1px solid var(--border); border-radius:6px;">
+                <span style="color:var(--muted); font-size:12px;">Filtra por nome/código</span>
               </div>
               <div style="max-height:42vh; overflow:auto; border:1px solid var(--border); border-radius:6px;">
                 <table class="ph-selectable-table" style="width:100%; border-collapse:collapse;">
@@ -671,6 +679,8 @@
           if (typeof window.showCabModal === 'function') {
             window.showCabModal();
             // Open Items immediately for instant UX (nunota may be set after consult/save)
+            try{ const inu = document.getElementById('items_nunota'); if(inu) inu.value=''; }catch(_){ }
+            try{ if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(null); }catch(_){ }
             try{ if(typeof window.showItemsModal === 'function') window.showItemsModal(null); }catch(_){ }
             const controle = tr.dataset.nunota;
             try{
@@ -698,7 +708,19 @@
                 try{ if(typeof refreshItemsList === 'function') refreshItemsList(); }catch(_){ }
                 return;
               }
-              // No existing TOP 26 header: edit-only flow. Keep header/items open and wait for manual save.
+              // No existing TOP 26 header per backend: fallback to session map (recently created headers)
+              try{
+                const ctrl = controle;
+                const mapped = (window.__NUNOTA_CLASS_BY_CTRL && window.__NUNOTA_CLASS_BY_CTRL[ctrl]) ? window.__NUNOTA_CLASS_BY_CTRL[ctrl] : null;
+                if(mapped){
+                  if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(mapped);
+                  try{ const itemsNunota = document.getElementById('items_nunota'); if(itemsNunota) itemsNunota.value = mapped; }catch(_){ }
+                  try{ const addBtn = document.getElementById('itemAddBtn'); addBtn && addBtn.removeAttribute('disabled'); }catch(_){ }
+                  try{ if(typeof refreshItemsList === 'function') refreshItemsList(); }catch(_){ }
+                  return;
+                }
+              }catch(_){ }
+              // Keep header/items open and wait for manual save.
               try{ if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(null); }catch(_){ }
               return;
             }catch(_){ /* keep header open; user can save manually */ return; }
@@ -926,6 +948,8 @@
       try{
         if (typeof window.showCabModal === 'function') {
           window.showCabModal();
+          try{ const inu = document.getElementById('items_nunota'); if(inu) inu.value=''; }catch(_){ }
+          try{ if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(null); }catch(_){ }
           try{ if(typeof window.showItemsModal === 'function') window.showItemsModal(null); }catch(_){ }
           const controle = tr.dataset.nunota;
           try{
@@ -952,6 +976,18 @@
               try{ if(typeof refreshItemsList === 'function') refreshItemsList(); }catch(_){ }
               return;
             }
+            // Fallback to session map
+            try{
+              const ctrl = controle;
+              const mapped = (window.__NUNOTA_CLASS_BY_CTRL && window.__NUNOTA_CLASS_BY_CTRL[ctrl]) ? window.__NUNOTA_CLASS_BY_CTRL[ctrl] : null;
+              if(mapped){
+                if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(mapped);
+                try{ const itemsNunota = document.getElementById('items_nunota'); if(itemsNunota) itemsNunota.value = mapped; }catch(_){ }
+                try{ const addItem = document.getElementById('itemAddBtn'); addItem && addItem.removeAttribute('disabled'); }catch(_){ }
+                try{ if(typeof refreshItemsList === 'function') refreshItemsList(); }catch(_){ }
+                return;
+              }
+            }catch(_){ }
             try{ if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(null); }catch(_){ }
             return;
           }catch(_){ return; }
@@ -1211,6 +1247,7 @@
             const parceiroCod = active.dataset.codparc || '';
             const prodCell = active.cells[2]?.textContent?.trim() || '';
             const loteText = document.getElementById('cab_lote_text'); if(loteText) loteText.textContent = lote || '—';
+            const nunEl = document.getElementById('cab_nunota_text'); if(nunEl) nunEl.textContent = '';
             // Show "cod — nome" if we have both; else fallback to name only
             const parcVis = (parceiroCod ? (parceiroCod + ' — ' + parceiroNome) : parceiroNome);
             const parcText = document.getElementById('cab_parc_text'); if(parcText) parcText.textContent = parcVis || '—';
@@ -1245,7 +1282,7 @@
             // TOP text (fixed)
             try { const topText = document.getElementById('cab_top_text'); if(topText) topText.textContent = '26 — Classificação'; } catch(_) {}
 
-            // Populate details from lote consult (In Natura, Classificados, NUNOTA badge)
+            // Populate details from lote consult (In Natura, Classificados, NUNOTA badge, and real product from TOP 11)
             try {
               const controle = active?.dataset?.nunota || lote;
               fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' })
@@ -1275,15 +1312,52 @@
                     if(j.nunota_class){ nunBadge.textContent = 'NUNOTA ' + j.nunota_class; nunBadge.style.display = 'inline-block'; }
                     else { nunBadge.style.display = 'none'; }
                   }
+                  // Header NUNOTA text should reflect TOP 26 (nunota_class)
+                  try { const nunTextEl = document.getElementById('cab_nunota_text'); if(nunTextEl) nunTextEl.textContent = j.nunota_class ? String(j.nunota_class) : ''; } catch(_){ }
+                  // Fallback: infer nunota_class from first classification item when backend didn't return it
+                  try {
+                    if (!j.nunota_class && Array.isArray(j.classificacoes) && j.classificacoes.length) {
+                      const inferred = j.classificacoes[0].nunota;
+                      if (inferred) {
+                        j.nunota_class = inferred;
+                        const nunTextEl = document.getElementById('cab_nunota_text'); if(nunTextEl) nunTextEl.textContent = String(inferred);
+                        const nunBadge2 = document.getElementById('cab_nunota_class_badge'); if(nunBadge2){ nunBadge2.textContent = 'NUNOTA ' + inferred; nunBadge2.style.display = 'inline-block'; }
+                        try { if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(inferred); } catch(_){ }
+                        try { const active = document.querySelector('#notasTable tbody tr.row--active'); const ctrl = active ? active.dataset.nunota : (document.getElementById('cab_lote_text')?.textContent||''); if(ctrl){ window.__NUNOTA_CLASS_BY_CTRL = window.__NUNOTA_CLASS_BY_CTRL || {}; window.__NUNOTA_CLASS_BY_CTRL[String(ctrl)] = String(inferred); } } catch(_){ }
+                      }
+                    }
+                  } catch(_){ }
+
+                  // Header product: use the real TOP 11 product (In Natura) from entradas
+                  try {
+                    const entradas = Array.isArray(j.entradas) ? j.entradas : [];
+                    let picked = null;
+                    if (j.prod_in_natura) {
+                      picked = entradas.find(e => String(e.codprod||'') === String(j.prod_in_natura));
+                    }
+                    if (!picked) {
+                      picked = entradas.length ? entradas[0] : null;
+                    }
+                    const prodTextEl = document.getElementById('cab_prod_text');
+                    const prodCodH = document.getElementById('cab_prod_cod');
+                    if (picked) {
+                      const cod = picked.codprod || picked.CODPROD || '';
+                      const descr = picked.descr || picked.DESCR || picked.descrprod || picked.DESCRPROD || '';
+                      if (prodTextEl) prodTextEl.textContent = `${cod} — ${descr}`.trim();
+                      if (prodCodH) prodCodH.value = String(cod||'');
+                    }
+                  } catch(_) { }
                 })
                 .catch(()=>{
                   const qpEl = document.getElementById('cab_qtd_pedido_text'); if(qpEl) qpEl.textContent = '—';
                   const ccEl = document.getElementById('cab_class_count_text'); if(ccEl) ccEl.textContent = '—';
                   const nunBadge = document.getElementById('cab_nunota_class_badge'); if(nunBadge) nunBadge.style.display = 'none';
+                  const nunTextEl = document.getElementById('cab_nunota_text'); if(nunTextEl) nunTextEl.textContent = '';
                 });
             } catch(_) {}
           } else {
             const loteText = document.getElementById('cab_lote_text'); if(loteText) loteText.textContent = '—';
+            const nunEl = document.getElementById('cab_nunota_text'); if(nunEl) nunEl.textContent = '';
             const parcText = document.getElementById('cab_parc_text'); if(parcText) parcText.textContent = '—';
             const prodText = document.getElementById('cab_prod_text'); if(prodText) prodText.textContent = '—';
             const prodCodH = document.getElementById('cab_prod_cod'); if(prodCodH) prodCodH.value = '';
@@ -1330,13 +1404,15 @@
   function _setOverlayVisible(visible){ try{ const ov = document.getElementById('cabModal'); const itemsOv = document.getElementById('cabItemsModal'); if(ov) ov.style.display = visible ? 'block' : 'none'; if(itemsOv) itemsOv.style.display = visible ? 'block' : 'none'; }catch(e){ } }
 
       // Items modal orchestration
-      function showItemsModal(nunota){
+  async function showItemsModal(nunota){
         const itemsWrap = document.getElementById('cabItemsModal');
         const itemsCard = document.getElementById('cabItemsCard');
         const itemsNunota = document.getElementById('items_nunota');
         const cab = document.getElementById('cabCard');
         if(!itemsWrap||!itemsCard||!itemsNunota||!cab) return;
-        const resolved = (nunota!=null? (parseInt(nunota,10)||null) : null) || parseInt(itemsNunota.value||'',10) || null;
+    // If opening for a new lote (nunota not provided), clear any stale nunota from previous lote
+    try{ if(nunota==null){ itemsNunota.value = ''; } }catch(_){ }
+    const resolved = (nunota!=null? (parseInt(nunota,10)||null) : null);
   try{ const cabOv = document.getElementById('cabModal'); const itemsOv = document.getElementById('cabItemsModal'); if(cabOv) cabOv.style.display = 'block'; if(itemsOv) itemsOv.style.display = 'block'; }catch(_){ }
         itemsWrap.style.display = 'block';
         animateHeaderToLeft();
@@ -1352,34 +1428,92 @@
           try{ refreshItemsList(); }catch(e){ }
         } else {
           itemsNunota.value = '';
-          if(listBody) listBody.innerHTML = '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item carregado ainda.</td></tr>';
-          // Allow creating the header on first add
-          if(addBtn){ addBtn.removeAttribute('disabled'); addBtn.setAttribute('title','Criar Cabeçalho 26 e Adicionar'); }
+          if(listBody) listBody.innerHTML = '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Carregando itens do lote...</td></tr>';
+          // First open: load itens por lote e tentar resolver nunota_class existente
+          try{
+            const ctrl = getCurrentControle();
+            if(ctrl){
+              const r0 = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(ctrl), { credentials: 'same-origin' });
+              let j0 = {}; try{ j0 = await r0.json(); }catch(_){ j0 = {}; }
+              if(j0 && j0.ok){
+                // Preencher lista com classificacoes existentes
+                try{ const rows = j0.classificacoes || []; itemsListBody.innerHTML = ''; if(rows.length){ for(const row of rows){ addItemRowToList({ nunota: row.nunota, sequencia: row.sequencia, cod: row.cod, descr: row.descr, codvol: row.codvol, qtd: row.qtd, peso: null, total: row.vlt || null, lote: ctrl, geraproducao: null }); } } else { clearItemsList(); } }catch(_){ }
+                // Se houver nunota_class, setar no hidden e habilitar adicionar
+                if(j0.nunota_class){ try{ itemsNunota.value = String(parseInt(j0.nunota_class,10)); }catch(_){ itemsNunota.value = String(j0.nunota_class); }
+                  if(addBtn){ addBtn.removeAttribute('disabled'); addBtn.setAttribute('title','Adicionar'); }
+                  try{ if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(j0.nunota_class); }catch(_){ }
+                } else {
+                  // Sem nunota_class no backend: tentar inferir do primeiro item classificado, ou fallback a map de sessão
+                  try{
+                    const first = (j0.classificacoes && j0.classificacoes[0]) ? j0.classificacoes[0] : null;
+                    if(first && first.nunota){
+                      const inferred = first.nunota;
+                      itemsNunota.value = String(inferred);
+                      if(addBtn){ addBtn.removeAttribute('disabled'); addBtn.setAttribute('title','Adicionar'); }
+                      try{ if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(inferred); }catch(_){ }
+                      try { window.__NUNOTA_CLASS_BY_CTRL = window.__NUNOTA_CLASS_BY_CTRL || {}; window.__NUNOTA_CLASS_BY_CTRL[ctrl] = String(inferred); } catch(_){ }
+                    } else {
+                      const mapped = (window.__NUNOTA_CLASS_BY_CTRL && window.__NUNOTA_CLASS_BY_CTRL[ctrl]) ? window.__NUNOTA_CLASS_BY_CTRL[ctrl] : null;
+                      if(mapped){
+                        itemsNunota.value = String(mapped);
+                        if(addBtn){ addBtn.removeAttribute('disabled'); addBtn.setAttribute('title','Adicionar'); }
+                        try{ if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(mapped); }catch(_){ }
+                      } else {
+                        // Permitir criar cabeçalho no primeiro adicionar
+                        if(addBtn){ addBtn.removeAttribute('disabled'); addBtn.setAttribute('title','Criar Cabeçalho 26 e Adicionar'); }
+                      }
+                    }
+                  }catch(_){ if(addBtn){ addBtn.removeAttribute('disabled'); addBtn.setAttribute('title','Criar Cabeçalho 26 e Adicionar'); } }
+                }
+              } else {
+                clearItemsList(); if(addBtn){ addBtn.removeAttribute('disabled'); addBtn.setAttribute('title','Criar Cabeçalho 26 e Adicionar'); }
+              }
+            } else {
+              clearItemsList(); if(addBtn){ addBtn.setAttribute('disabled','disabled'); }
+            }
+          }catch(_){ clearItemsList(); if(addBtn){ addBtn.removeAttribute('disabled'); addBtn.setAttribute('title','Criar Cabeçalho 26 e Adicionar'); } }
         }
         // Disable header while items modal is open
         setHeaderDisabled(true);
       }
-      function hideItemsModal(){ try{ if(window.itemsListController){ try{ window.itemsListController.abort(); }catch(_){ } window.itemsListController = null; } }catch(_){ }
+  function hideItemsModal(){ try{ if(window.itemsListController){ try{ window.itemsListController.abort(); }catch(_){ } window.itemsListController = null; } }catch(_){ }
   const itemsWrap = document.getElementById('cabItemsModal'); const itemsCard = document.getElementById('cabItemsCard'); if(!itemsWrap||!itemsCard) return; itemsCard.style.left = '100%'; setTimeout(()=>{ try{ if(window.itemsListController){ try{ window.itemsListController.abort(); }catch(_){ } window.itemsListController = null; } itemsWrap.style.display='none'; const cabCard = document.getElementById('cabCard'); const cabOv = document.getElementById('cabModal'); if(cabOv){ const anyOpen = (cabCard && cabCard.style.left && cabCard.style.left !== '-1200px'); if(!anyOpen) cabOv.style.display = 'none'; } }catch(_){ } }, 320);
-        // Re-enable header when items closes (unless rodapé remains open)
+    // Re-enable header when items closes (unless rodapé remains open)
   try{ setHeaderDisabled(false); }catch(_){ setHeaderDisabled(false); }
+    // Reset edit mode and restore '+' icon
+    try{
+      const addBtn = document.getElementById('itemAddBtn');
+      if(addBtn){
+    addBtn.dataset.mode = '';
+    addBtn.setAttribute('title','Adicionar');
+    const icon = addBtn.querySelector('svg');
+    if(icon){ icon.innerHTML = '<circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line>'; }
       }
-  document.getElementById('cabItemsClose')?.addEventListener('click', ()=>{ try{ hideItemsModal(); }catch(_){ } try{ hideCabModal(); }catch(_){ } });
-  document.getElementById('itemsCancel')?.addEventListener('click', ()=>{ try{ hideItemsModal(); }catch(_){ } try{ hideCabModal(); }catch(_){ } });
+      const seqInp = document.getElementById('item_seq_edit'); if(seqInp) seqInp.value='';
+    }catch(_){ }
+      }
+  document.getElementById('cabItemsClose')?.addEventListener('click', ()=>{ try{ resetItemForm(); }catch(_){ } try{ hideItemsModal(); }catch(_){ } try{ hideCabModal(); }catch(_){ } });
+  document.getElementById('itemsCancel')?.addEventListener('click', ()=>{ try{ resetItemForm(); }catch(_){ } try{ hideItemsModal(); }catch(_){ } try{ hideCabModal(); }catch(_){ } });
 
       // Rodape modal
   // Rodapé removido nesta página; sem ações necessárias
 
       // Items helpers: addItemRowToList and loadItems (mirrors portal functions)
-      const itemsListBody = document.getElementById('itemsListBody');
+  const itemsListBody = document.getElementById('itemsListBody');
+  const itemsSearch = document.getElementById('itemsSearch');
   function clearItemsList(){ if(!itemsListBody) return; itemsListBody.innerHTML = '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr>'; }
       function addItemRowToList(it){ if(!itemsListBody) return; if(itemsListBody.querySelector('td')){ const first = itemsListBody.querySelector('td').parentElement; if(first && first.childElementCount === 1 && first.children[0].getAttribute('colspan')) itemsListBody.innerHTML = ''; }
         const tr = document.createElement('tr'); tr.innerHTML = `\n          <td style="padding:8px">${it.lote||''}</td>\n          <td>${it.cod||''} ${it.descr||''}</td>\n          <td>${it.codvol||''}</td>\n          <td style="text-align:right">${it.qtd!=null?String(it.qtd):''}</td>\n          <td style="text-align:right">${it.peso!=null?String(it.peso):''}</td>\n          <td style="text-align:right">${it.total!=null?String(it.total):''}</td>\n          <td><button class="icon-btn danger icon-btn--plain item-del" data-seq="${it.sequencia||''}" aria-label="Excluir">\n            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">\n              <polyline points="3 6 5 6 21 6"></polyline>\n              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>\n              <path d="M10 11v6"></path>\n              <path d="M14 11v6"></path>\n              <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>\n            </svg>\n          </button></td>\n        `; itemsListBody.appendChild(tr);
-  tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nun,10), sequencias: [ parseInt(seq,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(typeof loadItems === 'function') loadItems(nun); }catch(_){ } try{ refreshClassifiedCard(); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
+  tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nun,10), sequencias: [ parseInt(seq,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(typeof loadItems === 'function') loadItems(nun); }catch(_){ } try{ refreshClassifiedCard(it.lote); }catch(_){ } try{ resetItemForm(); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
       }
       let itemsListController = null;
       async function loadItems(nunota){ try{ if(itemsListController){ try{ itemsListController.abort(); }catch(_){ } itemsListController = null; } }catch(_){ }
         const resolved = nunota!=null ? (parseInt(nunota,10)||null) : (parseInt(document.getElementById('items_nunota')?.value||'',10)||null); if(!resolved){ console.error('loadItems: nunota inválido', nunota); return; } document.getElementById('items_nunota').value = resolved; clearItemsList(); try{ itemsListController = new AbortController(); const opts = { credentials: 'same-origin', signal: itemsListController.signal }; const url = '/sankhya/item/list/?nunota=' + encodeURIComponent(resolved); const r = await fetch(url, opts); itemsListController = null; let j = {}; try{ j = await r.json(); }catch(_){ j = {}; } if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="7">Erro: ${j.error||'falha'}</td></tr>`; return; } const rows = j.items || j.results || []; if(!rows.length){ clearItemsList(); return; } itemsListBody.innerHTML = ''; for(const it of rows){ addItemRowToList(it); } }catch(err){ if(err && err.name === 'AbortError'){ console.info('loadItems aborted for nunota', nunota); return; } itemsListBody.innerHTML = '<tr><td colspan="7">Erro ao carregar.</td></tr>'; } }
+
+      // Accent-insensitive filter for items list
+      function stripAccents(s){ try{ return s.normalize('NFD').replace(/[\u0300-\u036f]/g,''); }catch(_){ return s; } }
+      function applyItemsFilter(){ try{ const q = (itemsSearch?.value||'').trim(); const qn = stripAccents(q.toLowerCase()); const rows = Array.from(itemsListBody.querySelectorAll('tr')); rows.forEach(tr=>{ try{ const txt = (tr.textContent||'').toLowerCase(); const tn = stripAccents(txt); tr.style.display = qn ? (tn.includes(qn) ? '' : 'none') : ''; }catch(_){ } }); }catch(_){ } }
+      itemsSearch?.addEventListener('input', applyItemsFilter);
 
       // Add single-item plan/save behavior (reuse portal flow)
   document.getElementById('itemAddBtn')?.addEventListener('click', async function(){ const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun){ alert('NUNOTA desconhecido.'); return; } let codprodRaw = (document.getElementById('item_prod_hidden')?.value||'').trim(); if(!codprodRaw){ const txt = (document.getElementById('item_prod_vis')?.value||'').trim(); const m = txt.match(/(\d+)/); codprodRaw = m ? m[1] : ''; } const codprodNum = codprodRaw ? parseInt(codprodRaw,10) : NaN; if(!codprodRaw || !Number.isFinite(codprodNum)){ alert('Selecione um produto válido.'); return; } const qtd = parseFloat(String(document.getElementById('item_qtd')?.value||'').replace(',','.')) || 0; if(!(qtd > 0)){ alert('Informe quantidade maior que zero.'); return; } const vlr = 0; const peso = parseFloat(String(document.getElementById('item_peso')?.value||'').replace(',','.')) || null; const codvol = (document.getElementById('item_vol_hidden')?.value||document.getElementById('item_vol')?.value||'CX') || null; const obs = (document.getElementById('item_obs')?.value||'') || null; let selectedControle = null; try{ const cabLote = document.getElementById('cab_lote_text'); const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : ''; if (cabeLoteText) { selectedControle = cabeLoteText; } }catch(_){ } if(!selectedControle){ try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedControle = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ } } const payload = { nunota: parseInt(nun,10), codprod: codprodNum, qtdneg: qtd, vlrunit: vlr, codvol: codvol || null, peso: peso, obs: obs || null, codagregacao: selectedControle };
@@ -1392,7 +1526,12 @@
       cabSave?.addEventListener('click', async ()=>{
         const missing = []; const codemp = (document.getElementById('cab_codemp')?.value||'').trim(); const dtneg = (document.getElementById('cab_dtneg')?.value||'').trim(); const codparc = (document.getElementById('cab_codparc')?.value||'').trim(); const codtop = (document.getElementById('cab_top_cod')?.value||'').trim(); if(!codemp) missing.push('Empresa'); if(!dtneg) missing.push('Dt. Neg.'); if(!codparc) missing.push('Parceiro'); if(!codtop) missing.push('Tipo Operação'); if(missing.length){ alert('Preencha os campos obrigatórios: ' + missing.join(', ')); return; }
         const prodCod = (document.getElementById('cab_prod_cod')?.value||'').trim() || null;
-        const payload = { codemp: codemp, dtneg: dtneg, dtmov: dtneg, dtentsai: dtneg, hrmov: null, codparc: codparc||null, codtipoper: codtop||null, codnat: (document.getElementById('cab_nat_cod')?.value||'')||null, codcencus: (document.getElementById('cab_cencus_cod')?.value||'')||null, obs: (document.getElementById('cab_obs')?.value||'')||null, prodcod_ref: prodCod };
+        // Resolve controle (CODAGREGACAO) from header card or active LOTES row
+        let selectedControle = null;
+        try{ const cabLote = document.getElementById('cab_lote_text'); const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : ''; if (cabeLoteText) { selectedControle = cabeLoteText; } }catch(_){ }
+        if(!selectedControle){ try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedControle = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ }
+        }
+        const payload = { codemp: codemp, dtneg: dtneg, dtmov: dtneg, dtentsai: dtneg, hrmov: null, codparc: codparc||null, codtipoper: codtop||null, codnat: (document.getElementById('cab_nat_cod')?.value||'')||null, codcencus: (document.getElementById('cab_cencus_cod')?.value||'')||null, obs: (document.getElementById('cab_obs')?.value||'')||null, prodcod_ref: prodCod, codagregacao: selectedControle };
         // Request SQL preview/plan from server before saving
         try{
           const planResp = await postJSON('/sankhya/header/plan/', payload);
@@ -1416,7 +1555,7 @@
               sqlModal.style.display='none';
               cabSave.setAttribute('disabled','disabled');
               try{
-                if(cabEditingNunota){ const updPayload = Object.assign({ nunota: parseInt(cabEditingNunota,10) }, payload); const updRes = await postJSON('/sankhya/header/update/', updPayload); if(updRes.ok && updRes.body && updRes.body.executed){ const nun = updRes.body.nunota || cabEditingNunota; cabEditingNunota = nun; animateHeaderToLeft(); showItemsModal(nun); return; } const errs = (updRes.body?.errors||[]).join('\n'); const dbmsg = updRes.body?.db_error?.message || ''; const warns = (updRes.body?.warnings||[]).join('\n'); alert([errs, dbmsg, warns].filter(Boolean).join('\n')); } else { const res = await postJSON('/sankhya/packing/central/salvar/', payload); if(res.ok && res.body && res.body.executed && res.body.nunota){ const nun = res.body.nunota; cabEditingNunota = nun; animateHeaderToLeft(); showItemsModal(nun); return; } const errs = (res.body?.errors||[]).join('\n'); const dbmsg = res.body?.db_error?.message || ''; const warns = (res.body?.warnings||[]).join('\n'); alert([errs, dbmsg, warns].filter(Boolean).join('\n')); }
+                if(cabEditingNunota){ const updPayload = Object.assign({ nunota: parseInt(cabEditingNunota,10) }, payload); const updRes = await postJSON('/sankhya/header/update/', updPayload); if(updRes.ok && updRes.body && updRes.body.executed){ const nun = updRes.body.nunota || cabEditingNunota; cabEditingNunota = nun; animateHeaderToLeft(); showItemsModal(nun); return; } const errs = (updRes.body?.errors||[]).join('\n'); const dbmsg = updRes.body?.db_error?.message || ''; const warns = (updRes.body?.warnings||[]).join('\n'); alert([errs, dbmsg, warns].filter(Boolean).join('\n')); } else { const res = await postJSON('/sankhya/packing/central/salvar/', payload); if(res.ok && res.body && res.body.executed && res.body.nunota){ const nun = res.body.nunota; cabEditingNunota = nun; try{ if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(nun); }catch(_){ } animateHeaderToLeft(); showItemsModal(nun); return; } const errs = (res.body?.errors||[]).join('\n'); const dbmsg = res.body?.db_error?.message || ''; const warns = (res.body?.warnings||[]).join('\n'); alert([errs, dbmsg, warns].filter(Boolean).join('\n')); }
               } finally { cabSave.removeAttribute('disabled'); }
             };
             sqlConfirm.onclick = doSave;
@@ -1427,7 +1566,13 @@
         cabSave.setAttribute('disabled','disabled'); try{ if(cabEditingNunota){ const updPayload = Object.assign({ nunota: parseInt(cabEditingNunota,10) }, payload); const updRes = await postJSON('/sankhya/header/update/', updPayload); if(updRes.ok && updRes.body && updRes.body.executed){ const nun = updRes.body.nunota || cabEditingNunota; cabEditingNunota = nun; animateHeaderToLeft(); showItemsModal(nun); return; } const errs = (updRes.body?.errors||[]).join('\n'); const dbmsg = updRes.body?.db_error?.message || ''; const warns = (updRes.body?.warnings||[]).join('\n'); alert([errs, dbmsg, warns].filter(Boolean).join('\n')); } else { const res = await postJSON('/sankhya/packing/central/salvar/', payload); if(res.ok && res.body && res.body.executed && res.body.nunota){ const nun = res.body.nunota; cabEditingNunota = nun; animateHeaderToLeft(); showItemsModal(nun); return; } const errs = (res.body?.errors||[]).join('\n'); const dbmsg = (res.body?.db_error?.message || res.body?.db_error?.msg || ''); const warns = (res.body?.warnings||[]).join('\n'); alert([errs, dbmsg, warns].filter(Boolean).join('\n')); } } finally { cabSave.removeAttribute('disabled'); } });
 
       // Expose modal helpers globally for dblclick reuse
-      try { window.showCabModal = showCabModal; window.showItemsModal = showItemsModal; window.setCabEditingNunota = function(n){ cabEditingNunota = n; }; } catch(_){ }
+      try { window.showCabModal = showCabModal; window.showItemsModal = showItemsModal; window.setCabEditingNunota = function(n){
+        cabEditingNunota = n;
+        try {
+          const nunTextEl = document.getElementById('cab_nunota_text'); if(nunTextEl) nunTextEl.textContent = n ? String(n) : '';
+          const nunBadge = document.getElementById('cab_nunota_class_badge'); if(nunBadge){ if(n){ nunBadge.textContent = 'NUNOTA ' + n; nunBadge.style.display = 'inline-block'; } else { nunBadge.style.display = 'none'; } }
+        } catch(_){ }
+      }; } catch(_){ }
 
       // Override items helpers to align with portal behavior (Classifica column, edit mode, totals)
       function addItemRowToList(it){ if(!itemsListBody) return; if(itemsListBody.querySelector('td')){ const first = itemsListBody.querySelector('td').parentElement; if(first && first.childElementCount === 1 && first.children[0].getAttribute('colspan')) itemsListBody.innerHTML = ''; }
@@ -1463,12 +1608,12 @@
           tr.dataset.gp = it.geraproducao != null ? String(it.geraproducao) : (typeof it.classifica !== 'undefined' ? (it.classifica ? 'S' : 'N') : '');
           if (it.nunota != null) tr.dataset.nunota = String(it.nunota);
         }catch(_){ }
-        tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunFromRow = tr.dataset.nunota ? parseInt(tr.dataset.nunota,10) : null; if(!nunFromRow || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: nunFromRow, sequencias: [ parseInt(seq,10) ] }); if(res.ok){ alert('Item excluído'); try{ refreshItemsList(); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
-        tr.addEventListener('dblclick', function(){ try{ const seq = tr.dataset.seq; if(!seq) return; const seqInp = document.getElementById('item_seq_edit'); if(seqInp) seqInp.value = seq; const prodH = document.getElementById('item_prod_hidden'); const prodV = document.getElementById('item_prod_vis'); if(prodH) prodH.value = tr.dataset.cod || ''; if(prodV) prodV.value = tr.dataset.cod ? `${tr.dataset.cod} — ${tr.dataset.descr||''}` : ''; const volH = document.getElementById('item_vol_hidden'); const volV = document.getElementById('item_vol'); if(volH) volH.value = tr.dataset.codvol || ''; if(volV) volV.value = tr.dataset.codvol || ''; const qtd = document.getElementById('item_qtd'); if(qtd) qtd.value = tr.dataset.qtd || ''; const peso = document.getElementById('item_peso'); if(peso) peso.value = tr.dataset.peso || ''; const obs = document.getElementById('item_obs'); if(obs) obs.value = tr.dataset.obs || ''; const chk = document.getElementById('item_classifica'); if(chk) chk.checked = (String(tr.dataset.gp||'S').toUpperCase() !== 'N'); const addBtn = document.getElementById('itemAddBtn'); if(addBtn){ addBtn.setAttribute('title','Atualizar'); addBtn.dataset.mode = 'edit'; } try{ recalcItemTotal(); }catch(_){ } try{ prodV && prodV.focus(); }catch(_){ } }catch(e){ console.error('editLoad failed', e); } });
+  tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunFromRow = tr.dataset.nunota ? parseInt(tr.dataset.nunota,10) : null; if(!nunFromRow || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: nunFromRow, sequencias: [ parseInt(seq,10) ] }); if(res.ok){ alert('Item excluído'); try{ refreshItemsList(); }catch(_){ } try{ resetItemForm(); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
+  tr.addEventListener('dblclick', function(){ try{ const seq = tr.dataset.seq; if(!seq) return; const seqInp = document.getElementById('item_seq_edit'); if(seqInp) seqInp.value = seq; const prodH = document.getElementById('item_prod_hidden'); const prodV = document.getElementById('item_prod_vis'); if(prodH) prodH.value = tr.dataset.cod || ''; if(prodV) prodV.value = tr.dataset.cod ? `${tr.dataset.cod} — ${tr.dataset.descr||''}` : ''; const volH = document.getElementById('item_vol_hidden'); const volV = document.getElementById('item_vol'); if(volH) volH.value = tr.dataset.codvol || ''; if(volV) volV.value = tr.dataset.codvol || ''; const qtd = document.getElementById('item_qtd'); if(qtd) qtd.value = tr.dataset.qtd || ''; const peso = document.getElementById('item_peso'); if(peso) peso.value = tr.dataset.peso || ''; const obs = document.getElementById('item_obs'); if(obs) obs.value = tr.dataset.obs || ''; const chk = document.getElementById('item_classifica'); if(chk) chk.checked = (String(tr.dataset.gp||'S').toUpperCase() !== 'N'); const addBtn = document.getElementById('itemAddBtn'); if(addBtn){ addBtn.setAttribute('title','Atualizar'); addBtn.dataset.mode = 'edit'; try{ const icon = addBtn.querySelector('svg'); if(icon){ icon.innerHTML = '<path d="M20 6L9 17l-5-5" />'; icon.setAttribute('viewBox','0 0 24 24'); } addBtn.classList.add('success'); }catch(_){ } } try{ recalcItemTotal(); }catch(_){ } try{ prodV && prodV.focus(); }catch(_){ } }catch(e){ console.error('editLoad failed', e); } });
       }
 
       async function loadItems(nunota){ try{ if(itemsListController){ try{ itemsListController.abort(); }catch(_){ } itemsListController = null; try{ window.itemsListController = null; }catch(_){ } } }catch(_){ }
-        const resolved = nunota!=null ? (parseInt(nunota,10)||null) : (parseInt(document.getElementById('items_nunota')?.value||'',10)||null); if(!resolved){ console.error('loadItems: nunota inválido', nunota); return; } document.getElementById('items_nunota').value = resolved; clearItemsList(); try{ itemsListController = new AbortController(); try{ window.itemsListController = itemsListController; }catch(_){ } const opts = { credentials: 'same-origin', signal: itemsListController.signal }; const url = '/sankhya/item/list/?nunota=' + encodeURIComponent(resolved); const r = await fetch(url, opts); itemsListController = null; try{ window.itemsListController = null; }catch(_){ } let j = {}; try{ j = await r.json(); }catch(_){ j = {}; } if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="8">Erro: ${j.error||'falha'}</td></tr>`; return; } const rows = j.items || j.results || []; if(!rows.length){ clearItemsList(); return; } itemsListBody.innerHTML = ''; for(const it of rows){ addItemRowToList(it); } try{ applyClassificaFilter(); }catch(_){ } }catch(err){ if(err && err.name === 'AbortError'){ console.info('loadItems aborted for nunota', nunota); return; } itemsListBody.innerHTML = '<tr><td colspan="8">Erro ao carregar.</td></tr>'; } }
+        const resolved = nunota!=null ? (parseInt(nunota,10)||null) : (parseInt(document.getElementById('items_nunota')?.value||'',10)||null); if(!resolved){ console.error('loadItems: nunota inválido', nunota); return; } document.getElementById('items_nunota').value = resolved; clearItemsList(); try{ itemsListController = new AbortController(); try{ window.itemsListController = itemsListController; }catch(_){ } const opts = { credentials: 'same-origin', signal: itemsListController.signal }; const url = '/sankhya/item/list/?nunota=' + encodeURIComponent(resolved); const r = await fetch(url, opts); itemsListController = null; try{ window.itemsListController = null; }catch(_){ } let j = {}; try{ j = await r.json(); }catch(_){ j = {}; } if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="8">Erro: ${j.error||'falha'}</td></tr>`; return; } const rows = j.items || j.results || []; if(!rows.length){ clearItemsList(); return; } itemsListBody.innerHTML = ''; for(const it of rows){ addItemRowToList(it); } }catch(err){ if(err && err.name === 'AbortError'){ console.info('loadItems aborted for nunota', nunota); return; } itemsListBody.innerHTML = '<tr><td colspan="8">Erro ao carregar.</td></tr>'; } }
 
       // Helpers to show items by Lote (controle/CODAGREGACAO)
       function getCurrentControle(){
@@ -1502,7 +1647,6 @@
           for(const row of rows){
             addItemRowToList({ nunota: row.nunota, sequencia: row.sequencia, cod: row.cod, descr: row.descr, codvol: row.codvol, qtd: row.qtd, peso: null, total: row.vlt || null, lote: ctrl, geraproducao: null });
           }
-          try{ applyClassificaFilter(); }catch(_){ }
         }catch(err){ if(err && err.name === 'AbortError'){ return; } itemsListBody.innerHTML = '<tr><td colspan="8">Erro ao carregar.</td></tr>'; }
       }
 
@@ -1510,23 +1654,46 @@
       }
 
       // Refresh Produtos Classificados card (main page) while modal stays open
-      function refreshClassifiedCard(){
+      function refreshClassifiedCard(ctrlOverride){
         try{
-          const ctrl = getCurrentControle();
+          const ctrl = (ctrlOverride && String(ctrlOverride).trim()) || getCurrentControle();
           if(!ctrl) return;
           try{ if(window.__LOTES_CACHE && window.__LOTES_CACHE[ctrl]){ delete window.__LOTES_CACHE[ctrl]; } }catch(_){ }
           if(typeof loadClassifiedFor === 'function') loadClassifiedFor(ctrl);
         }catch(_){ }
       }
 
-      // Default filter to show only items that classify (gp != 'N')
-      function applyClassificaFilter(){ try{ const cb = document.getElementById('filterOnlyClassifica'); const body = document.getElementById('itemsListBody'); if(!body || !cb) return; const only = cb.checked; const rows = Array.from(body.querySelectorAll('tr')); rows.forEach(tr=>{ const gp = (tr.dataset && tr.dataset.gp) ? String(tr.dataset.gp).toUpperCase() : null; if(only){ if(gp === 'N'){ tr.style.display = 'none'; } else { tr.style.display = ''; } } else { tr.style.display = ''; } }); }catch(e){ /* no-op */ } }
-      document.getElementById('filterOnlyClassifica')?.addEventListener('change', function(){ try{ applyClassificaFilter(); }catch(_){ } });
+  // Checkbox 'Somente classifica' removido: listamos todos os itens sempre
 
       // Total calc for items modal
       function recalcItemTotal(){ try{ const qtd = parseFloat(String(document.getElementById('item_qtd').value||'').replace(',','.')) || 0; const peso = parseFloat(String(document.getElementById('item_peso').value||'').replace(',','.')) || 0; const total = (qtd && peso) ? (qtd * peso) : 0; document.getElementById('item_total').value = total ? String(total) : ''; }catch(_){ } }
       document.getElementById('item_qtd')?.addEventListener('input', recalcItemTotal);
       document.getElementById('item_peso')?.addEventListener('input', recalcItemTotal);
+
+      // Reset item form fields and set VOL to 'CX'
+      function resetItemForm(){
+        try{
+          const prodV = document.getElementById('item_prod_vis');
+          const prodH = document.getElementById('item_prod_hidden');
+          const qtd   = document.getElementById('item_qtd');
+          const peso  = document.getElementById('item_peso');
+          const volV  = document.getElementById('item_vol');
+          const volH  = document.getElementById('item_vol_hidden');
+          const obs   = document.getElementById('item_obs');
+          const total = document.getElementById('item_total');
+          const seq   = document.getElementById('item_seq_edit');
+          if(prodV) prodV.value = '';
+          if(prodH) prodH.value = '';
+          if(qtd)   qtd.value   = '';
+          if(peso)  peso.value  = '';
+          if(volV)  volV.value  = 'CX';
+          if(volH)  volH.value  = 'CX';
+          if(obs)   obs.value   = '';
+          if(total) total.value = '';
+          if(seq)   seq.value   = '';
+          try{ recalcItemTotal(); }catch(_){ }
+        }catch(_){ }
+      }
 
       // Minimal typeahead for product in items modal
       function attachTA(inpId, hidId, ddId, url){
@@ -1561,6 +1728,11 @@
       }
       attachTA('item_prod_vis','item_prod_hidden','item_prod_sugg','/sankhya/produtos/search/');
 
+      // Defaults: CODVOL='CX'; if unit is KG/UN/UM/PC then default PESO=1
+      (function(){ try{ const volH=document.getElementById('item_vol_hidden'); const volV=document.getElementById('item_vol'); const peso=document.getElementById('item_peso'); function setDefaults(){ try{ const v=(volH?.value||volV?.value||'').toUpperCase(); if(!v){ if(volV) volV.value='CX'; if(volH) volH.value='CX'; }
+        const u=(volH?.value||volV?.value||'').toUpperCase(); if(['KG','UN','UM','PC'].includes(u) && peso && (!peso.value || Number(peso.value)===0)) peso.value='1'; }catch(_){ } }
+        setDefaults(); volV?.addEventListener('change', ()=>{ setDefaults(); recalcItemTotal(); }); volH?.addEventListener('change', ()=>{ setDefaults(); recalcItemTotal(); }); document.getElementById('itemAddBtn')?.addEventListener('click', setDefaults); }catch(_){ } })();
+
       // Replace Add button handler to support edit mode and Classifica toggle
   (function(){ const oldBtn = document.getElementById('itemAddBtn'); if(!oldBtn) return; const newBtn = oldBtn.cloneNode(true); oldBtn.parentNode.replaceChild(newBtn, oldBtn);
     async function ensureNunota(){
@@ -1568,6 +1740,13 @@
       const itemsNunotaEl = document.getElementById('items_nunota');
       const nunRaw = itemsNunotaEl?.value;
       let nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null;
+      // Validate nunota belongs to current controle; else, clear
+      try{
+        const activeRow = document.querySelector('#notasTable tbody tr.row--active');
+        const ctrl = activeRow ? activeRow.dataset.nunota : null;
+        const mapped = (ctrl && window.__NUNOTA_CLASS_BY_CTRL) ? window.__NUNOTA_CLASS_BY_CTRL[ctrl] : null;
+        if (!(nun && mapped && parseInt(mapped,10) === nun)) { nun = null; if(itemsNunotaEl) itemsNunotaEl.value=''; }
+      }catch(_){ }
       if(nun) return nun;
       // Create header (TOP 26) on the fly using selected lote context
       try{
@@ -1595,10 +1774,15 @@
             if(itemsNunotaEl) itemsNunotaEl.value = String(nun);
             try { window.__NUNOTA_CLASS_BY_CTRL[ctrl] = String(nun); } catch(_) {}
             try{ if(typeof refreshItemsList === 'function') refreshItemsList(); }catch(_){ }
+            try{ if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(nun); }catch(_){ }
             return nun;
           }
         }catch(_){ }
         // Defaults aligned with Cabeçalho card
+        // Resolve controle (CODAGREGACAO) from active row or header card
+        let selectedControle = null;
+        try{ const cabLote = document.getElementById('cab_lote_text'); const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : ''; if (cabeLoteText) { selectedControle = cabeLoteText; } }catch(_){ }
+        if(!selectedControle){ try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedControle = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ } }
         const payload = {
           codemp: '1',
           codparc: String(codparc),
@@ -1609,19 +1793,23 @@
           dtmov: new Date().toISOString().slice(0,10),
           dtentsai: new Date().toISOString().slice(0,10),
           nronota: '',
-          obs: ''
+          obs: '',
+          codagregacao: selectedControle
         };
         const res = await postJSON('/sankhya/packing/central/salvar/', payload);
         if(!res.ok || !res.body || !res.body.executed || !res.body.nunota){
           const msg = (res.body && ((res.body.errors||[]).join('\n') || res.body.error || (res.body.db_error && (res.body.db_error.message||res.body.db_error.msg)))) || 'Falha ao criar Cabeçalho 26';
           alert(msg); return null;
         }
-        nun = parseInt(res.body.nunota, 10);
+  nun = parseInt(res.body.nunota, 10);
         if(itemsNunotaEl) itemsNunotaEl.value = String(nun);
         // Remember nunota for this lote (session cache) to avoid creating multiple headers if no items were inserted yet
         try { const ctrl = activeRow.dataset.nunota; if(ctrl) { window.__NUNOTA_CLASS_BY_CTRL[ctrl] = String(nun); } } catch(_) {}
+        // Invalidate cached consult for this controle so next open fetches fresh nunota_class
+        try{ const ctrl = activeRow.dataset.nunota; if(ctrl && window.__LOTES_CACHE && window.__LOTES_CACHE[ctrl]){ delete window.__LOTES_CACHE[ctrl]; } }catch(_){ }
         // Open Items list for the new nunota
         try{ if(typeof refreshItemsList === 'function') refreshItemsList(); }catch(_){ }
+  try{ if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(nun); }catch(_){ }
         return nun;
       }catch(e){
         alert('Erro ao criar Cabeçalho 26: ' + (e && e.message ? e.message : e) + '\nDica: atualize a página (F5) para renovar o cookie CSRF e tente novamente.');
@@ -1655,9 +1843,10 @@
         const payload = Object.assign({}, basePayload, { sequencia: parseInt(seqEditRaw,10) });
         const resp = await postJSON('/sankhya/item/save/', payload);
         if(resp.ok && resp.body && (resp.body.executed || resp.body.item)){
-          alert('Item atualizado'); try{ refreshItemsList(); }catch(_){ } try{ refreshClassifiedCard(); }catch(_){ }
-          try{ document.getElementById('item_seq_edit').value=''; const addBtn=document.getElementById('itemAddBtn'); addBtn && (addBtn.dataset.mode='', addBtn.setAttribute('title','Adicionar')); }catch(_){}
-          try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_peso').value=''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ }
+          alert('Item atualizado'); try{ refreshItemsList(); }catch(_){ } try{ refreshClassifiedCard(selectedControle); }catch(_){ }
+          try{ resetItemForm(); }catch(_){ }
+          try{ document.getElementById('item_seq_edit').value=''; const addBtn=document.getElementById('itemAddBtn'); if(addBtn){ addBtn.dataset.mode=''; addBtn.setAttribute('title','Adicionar'); const icon = addBtn.querySelector('svg'); if(icon){ icon.innerHTML = '<circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line>'; icon.setAttribute('viewBox','0 0 24 24'); } addBtn.classList.add('success'); } }catch(_){}
+          
         } else {
           const body = resp.body || {}; const errs = Array.isArray(body.errors)&&body.errors.length? body.errors.join('\n') : (body.error || ''); const dbmsg = (body.db_error && (body.db_error.message || body.db_error.msg)) ? (body.db_error.message || body.db_error.msg) : ''; alert('Falha ao atualizar item: ' + (errs || dbmsg || ('status ' + resp.status)));
         }
@@ -1714,8 +1903,8 @@
       if(saveResp.ok && saveResp.body && (saveResp.body.executed || saveResp.body.item)){
         alert('Item salvo'); const created = saveResp.body.item || saveResp.body.created_item || null;
   if(created){ try{ addItemRowToList(created); }catch(_){ try{ refreshItemsList(); }catch(__){} } } else { try{ refreshItemsList(); }catch(_){ } }
-        try{ refreshClassifiedCard(); }catch(_){ }
-        try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ }
+  try{ refreshClassifiedCard(selectedControle); }catch(_){ }
+        try{ resetItemForm(); }catch(_){ }
       } else {
         const body = saveResp.body || {}; const errs = Array.isArray(body.errors) && body.errors.length ? body.errors.join('\n') : (body.error || ''); alert('Falha ao salvar item: ' + (errs || ('status ' + saveResp.status))); try{ loadItems(nun); }catch(_){ }
       }
