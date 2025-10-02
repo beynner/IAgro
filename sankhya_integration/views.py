@@ -45,6 +45,7 @@ try:
         should_auto_duplicate_item,
         consultar_lote,
         fetch_tgfite_details,
+        listar_itens_portal_basico,
         
     )
     # Lazy import inside functions for advanced helpers when needed
@@ -94,6 +95,7 @@ except Exception as exc:  # pragma: no cover - make views importable when Oracle
     should_auto_duplicate_item = _missing('should_auto_duplicate_item')
     consultar_lote = _missing('consultar_lote')
     sync_item_to_classification = _missing('sync_item_to_classification')
+    listar_itens_portal_basico = _missing('listar_itens_portal_basico')
 logger = logging.getLogger(__name__)
 
 
@@ -1402,8 +1404,57 @@ def header_update(request: HttpRequest) -> JsonResponse:
         'CODTIPOPER': _to_int_or(payload.get('codtipoper')),
     # Natureza e Centro Resultado não editáveis por política atual
         'OBSERVACAO': payload.get('obs'),
+        'STATUSNOTA': payload.get('statusnota'),
     }, dry_run=False)
     return JsonResponse(plan, status=200 if plan.get('executed') else 400)
+
+
+def header_status_toggle(request: HttpRequest) -> JsonResponse:
+    """Define STATUSNOTA do TGFCAB ('A' Atendimento, 'L' Liberado).
+    POST JSON: { nunota: int, status: 'A'|'L' }
+    """
+    if request.method != 'POST':
+        return JsonResponse({"ok": False, "error": "Use POST"}, status=405)
+    try:
+        import json
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except Exception:
+        payload = {}
+    nunota = _to_int_or(payload.get('nunota'))
+    status = (payload.get('status') or '').strip().upper()
+    if not nunota:
+        return JsonResponse({"ok": False, "error": "nunota obrigatório"}, status=400)
+    if status not in ('A','L'):
+        return JsonResponse({"ok": False, "error": "status inválido (use 'A' ou 'L')"}, status=400)
+    try:
+        plan = update_cabecalho({'NUNOTA': nunota, 'STATUSNOTA': status}, dry_run=False)
+        ok = bool(plan.get('executed')) or bool(plan.get('ok'))
+        return JsonResponse({"ok": ok, **plan}, status=200 if ok else 400)
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+
+
+def header_status_get(request: HttpRequest) -> JsonResponse:
+    """GET STATUSNOTA atual do TGFCAB para um NUNOTA."""
+    if request.method != 'GET':
+        return JsonResponse({"ok": False, "error": "Use GET"}, status=405)
+    try:
+        nunota = int(request.GET.get('nunota') or '0')
+    except Exception:
+        return JsonResponse({"ok": False, "error": "nunota inválido"}, status=400)
+    if not nunota:
+        return JsonResponse({"ok": False, "error": "nunota obrigatório"}, status=400)
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT STATUSNOTA FROM TGFCAB WHERE NUNOTA=:n", n=nunota)
+            row = cur.fetchone()
+            if not row:
+                return JsonResponse({"ok": False, "error": "Cabeçalho não encontrado"}, status=404)
+            status = (row[0] or '').strip().upper()
+            return JsonResponse({"ok": True, "nunota": nunota, "statusnota": status})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=500)
 
 
 def header_plan(request: HttpRequest) -> JsonResponse:
@@ -2195,3 +2246,78 @@ def comercial_sim_list(request: HttpRequest) -> JsonResponse:
 def comercial_dashboard(request: HttpRequest) -> HttpResponse:
     """Render a página do Painel Comercial (template localizado em templates/sankhya_integration/comercial_dashboard.html)."""
     return render(request, "sankhya_integration/comercial_dashboard.html", {})
+
+
+def comercial_lista(request: HttpRequest) -> JsonResponse:
+    """Endpoint JSON para a 'Lista' do painel Comercial.
+    Retorna linhas com Parceiro, Produto (fabricante), Qtdneg e Data da TOP 11.
+    Query params aceitos: days, start, end, codparc, codprod, limit, offset
+    """
+    if request.method != 'GET':
+        return JsonResponse({"ok": False, "error": "Use GET"}, status=405)
+    try:
+        def _to_int(v, default=None):
+            try:
+                return int(v)
+            except Exception:
+                return default
+        days = _to_int(request.GET.get('days'), 60)
+        date_start = request.GET.get('start') or None
+        date_end = request.GET.get('end') or None
+        codparc = _to_int(request.GET.get('codparc'))
+        codprod = _to_int(request.GET.get('codprod'))
+        limit = _to_int(request.GET.get('limit'), 50)
+        offset = _to_int(request.GET.get('offset'), 0)
+
+        rows = listar_itens_portal_basico(
+            days=days,
+            date_start=date_start,
+            date_end=date_end,
+            codparc=codparc,
+            codprod=codprod,
+            limit=limit,
+            offset=offset,
+        )
+        out = []
+        for r in rows:
+            # (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, GP)
+            parc = r[0] if len(r) > 0 else ''
+            prod = r[1] if len(r) > 1 else ''
+            qtd = r[2] if len(r) > 2 else 0
+            dt = r[3] if len(r) > 3 else None
+            codvol = (r[4] if len(r) > 4 else None) or None
+            codprod_val = (r[5] if len(r) > 5 else None)
+            nunota_val = (r[6] if len(r) > 6 else None)
+            gp_val = (r[7] if len(r) > 7 else None)
+            try:
+                # compact date for UI: send DD/MM
+                if hasattr(dt, 'strftime'):
+                    dt_iso = dt.strftime('%d/%m')
+                else:
+                    s = str(dt)[:10]
+                    dt_iso = (s[8:10] + '/' + s[5:7]) if len(s) >= 10 else None
+            except Exception:
+                dt_iso = None
+            # Normalize QTDNEG to the displayed unit (alternative) if needed
+            disp_qtd = qtd
+            try:
+                if codprod_val is not None and codvol:
+                    from sankhya_integration.services.oracle_conn import get_base_unit_and_factor  # lazy import
+                    base, fator = get_base_unit_and_factor(int(codprod_val), str(codvol))
+                    if base and str(base).upper() != str(codvol).upper() and fator and float(fator) > 0:
+                        disp_qtd = float(qtd or 0) / float(fator)
+            except Exception:
+                disp_qtd = qtd
+            out.append({
+                'parceiro': parc or '',
+                'produto': prod or '',
+                'qtdneg': float(disp_qtd or 0),
+                'dtneg': dt_iso,
+                'nunota': int(nunota_val) if nunota_val is not None else None,
+                'classificavel': (None if gp_val is None else (str(gp_val).upper() != 'N')),
+                'codvol': (str(codvol).upper() if codvol is not None else None)
+            })
+        return JsonResponse({ 'ok': True, 'rows': out, 'limit': limit, 'offset': offset })
+    except Exception as e:
+        logger.exception('comercial_lista failed')
+        return JsonResponse({ 'ok': False, 'error': str(e) }, status=500)

@@ -824,7 +824,7 @@ def _obter_proximo_nunota(conn) -> int:
 
 def plan_update_cabecalho(d: dict) -> dict:
     """Planeja UPDATE no cabeçalho TGFCAB. Revalida campos-chave e monta SQL com binds.
-    Campos aceitos para atualização: NUMNOTA, DTNEG, DTMOV, DTENTSAI, HRMOV, CODPARC, CODTIPOPER, DHTIPOPER, CODNAT, CODCENCUS, OBSERVACAO.
+    Campos aceitos para atualização: NUMNOTA, DTNEG, DTMOV, DTENTSAI, HRMOV, CODPARC, CODTIPOPER, DHTIPOPER, CODNAT, CODCENCUS, OBSERVACAO, STATUSNOTA.
     Requer: NUNOTA.
     """
     data = d.copy()
@@ -948,6 +948,29 @@ def plan_update_cabecalho(d: dict) -> dict:
     if data.get('OBSERVACAO') is not None:
         sets.append('OBSERVACAO=:OBSERVACAO')
         binds['OBSERVACAO'] = data.get('OBSERVACAO')
+
+    # STATUSNOTA ('A' Atendimento, 'L' Liberado)
+    if data.get('STATUSNOTA') is not None:
+        try:
+            sn = str(data.get('STATUSNOTA') or '').strip().upper()
+        except Exception:
+            sn = ''
+        if sn not in ('A', 'L'):
+            errs.append("STATUSNOTA inválido (use 'A' ou 'L')")
+        else:
+            sets.append('STATUSNOTA=:STATUSNOTA')
+            binds['STATUSNOTA'] = sn
+    # PENDENTE ('S' ou 'N')
+    if data.get('PENDENTE') is not None:
+        try:
+            pd = str(data.get('PENDENTE') or '').strip().upper()
+        except Exception:
+            pd = ''
+        if pd not in ('S','N'):
+            errs.append("PENDENTE inválido (use 'S' ou 'N')")
+        else:
+            sets.append('PENDENTE=:PENDENTE')
+            binds['PENDENTE'] = pd
 
     if not sets and len(errs) == 0:
         warns.append('Nenhuma alteração informada')
@@ -1352,6 +1375,12 @@ def plan_insert_item(d: dict) -> dict:
     if is_class_note:
         if not data.get('CODAGREGACAO'):
             errs.append('CODAGREGACAO (lote) é obrigatório para itens de Classificação (TOP 26)')
+        # Política de preços: TOP 26 não trabalha com preço
+        try:
+            data['VLRUNIT'] = 0.0
+            data['VLRTOT'] = 0.0
+        except Exception:
+            pass
     else:
         # Gerar CODAGREGACAO se não informado but dtneg available (não-classificação)
         if not data.get('CODAGREGACAO') and dtneg_date is not None:
@@ -1388,8 +1417,8 @@ def plan_insert_item(d: dict) -> dict:
         'CODPROD': data.get('CODPROD'),
         'QTDNEG': data.get('QTDNEG'),
         'PESO': data.get('PESO'),
-        'VLRUNIT': data.get('VLRUNIT'),
-        'VLRTOT': data.get('VLRTOT'),
+        'VLRUNIT': 0.0 if is_class_note else data.get('VLRUNIT'),
+        'VLRTOT': 0.0 if is_class_note else data.get('VLRTOT'),
         'CODVOL': data.get('CODVOL'),
         'CODLOCALORIG': data.get('CODLOCALORIG'),
         'CODAGREGACAO': data.get('CODAGREGACAO'),
@@ -1634,6 +1663,20 @@ def plan_update_item(d: dict) -> dict:
         except Exception:
             data['VLRTOT'] = None
 
+    # Se a nota for TOP_CLASS, forçar preço 0 (política: TOP 26 não trabalha com preço)
+    try:
+        with get_connection() as _c3:
+            cur3 = _c3.cursor()
+            cur3.execute("SELECT CODTIPOPER FROM TGFCAB WHERE NUNOTA=:n", n=data['NUNOTA'])
+            row3 = cur3.fetchone()
+            codtop3 = row3[0] if row3 else None
+            top_class3 = get_params().get('TOP_CLASS')
+            if codtop3 is not None and top_class3 is not None and int(codtop3) == int(top_class3):
+                data['VLRUNIT'] = 0.0
+                data['VLRTOT'] = 0.0
+    except Exception:
+        pass
+
     # Montar SETs/binds
     sets = []
     binds = {'NUNOTA': data['NUNOTA'], 'SEQUENCIA': data['SEQUENCIA']}
@@ -1860,6 +1903,7 @@ def consultar_lote(controle: str) -> dict:
         'vendas': [],
         'reservas': [],
         'nunota_class': None,
+        'statusnota_class': None,
     }
     # Perf counters
     import time
@@ -1989,6 +2033,17 @@ def consultar_lote(controle: str) -> dict:
                     resultado['nunota_class'] = int(row_nc[0])
                 except Exception:
                     resultado['nunota_class'] = row_nc[0]
+                # Fetch STATUSNOTA for this header
+                try:
+                    cur.execute("SELECT STATUSNOTA FROM TGFCAB WHERE NUNOTA=:n", n=resultado['nunota_class'])
+                    row_st = cur.fetchone()
+                    if row_st and row_st[0] is not None:
+                        try:
+                            resultado['statusnota_class'] = str(row_st[0]).strip()
+                        except Exception:
+                            resultado['statusnota_class'] = row_st[0]
+                except Exception:
+                    resultado['statusnota_class'] = None
             t_nc1 = time.perf_counter()
         except Exception:
             resultado['nunota_class'] = None
@@ -2030,6 +2085,7 @@ def consultar_lote_light(controle: str) -> dict:
         'classificaveis': [],
         'classificacoes': [],
         'nunota_class': None,
+        'statusnota_class': None,
     }
     import time
     t0 = time.perf_counter()
@@ -2107,6 +2163,17 @@ def consultar_lote_light(controle: str) -> dict:
                     resultado['nunota_class'] = int(row_nc[0])
                 except Exception:
                     resultado['nunota_class'] = row_nc[0]
+                # STATUSNOTA do cabeçalho TOP_CLASS
+                try:
+                    cur.execute("SELECT STATUSNOTA FROM TGFCAB WHERE NUNOTA=:n", n=resultado['nunota_class'])
+                    row_st = cur.fetchone()
+                    if row_st and row_st[0] is not None:
+                        try:
+                            resultado['statusnota_class'] = str(row_st[0]).strip()
+                        except Exception:
+                            resultado['statusnota_class'] = row_st[0]
+                except Exception:
+                    resultado['statusnota_class'] = None
         except Exception:
             resultado['nunota_class'] = None
         t_nc1 = time.perf_counter()
@@ -2894,6 +2961,85 @@ def listar_parceiros(limit: int = 50, offset: int = 0, nome: str | None = None):
                     return []
         rows = cur.fetchmany(limit)
         return rows
+
+
+def listar_itens_portal_basico(
+    days: int = 60,
+    date_start: str | None = None,
+    date_end: str | None = None,
+    codparc: int | None = None,
+    codprod: int | None = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """Lista itens de TOP 11 (Portal) com colunas básicas para o painel Comercial.
+    Retorna tuplas: (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD)
+    Suporta filtros por data, parceiro e produto, com paginação segura via ROW_NUMBER.
+    """
+    from datetime import datetime, date as _date
+
+    def _to_date(val):
+        if val in (None, '', 'None', 'none', 'null'):
+            return None
+        if isinstance(val, _date):
+            return val
+        if isinstance(val, datetime):
+            return val.date()
+        try:
+            return datetime.strptime(str(val), "%Y-%m-%d").date()
+        except Exception:
+            return None
+
+    p = get_params()
+    TOP_ENTRADA = int(p['TOP_ENTRADA'])
+
+    dtini = _to_date(date_start)
+    dtfim = _to_date(date_end)
+
+    where = ["c.CODTIPOPER = :top"]
+    binds: dict[str, object] = {"top": TOP_ENTRADA}
+
+    if dtini and dtfim:
+        where.append("TRUNC(c.DTNEG) BETWEEN :dtini AND :dtfim")
+        binds["dtini"], binds["dtfim"] = dtini, dtfim
+    elif dtini:
+        where.append("TRUNC(c.DTNEG) >= :dtini")
+        binds["dtini"] = dtini
+    elif dtfim:
+        where.append("TRUNC(c.DTNEG) <= :dtfim")
+        binds["dtfim"] = dtfim
+    else:
+        where.append("c.DTNEG >= SYSDATE - :days")
+        binds["days"] = int(days or 60)
+
+    if codparc is not None:
+        where.append("c.CODPARC = :codparc")
+        binds["codparc"] = int(codparc)
+    if codprod is not None:
+        where.append("i.CODPROD = :codprod")
+        binds["codprod"] = int(codprod)
+
+    inner = (
+        "SELECT p.NOMEPARC, NVL(pr.FABRICANTE, pr.DESCRPROD) AS PRODNAME, i.QTDNEG, c.DTNEG, i.CODVOL, i.CODPROD, c.NUNOTA, i.SEQUENCIA, NVL(i.GERAPRODUCAO, 'S') AS GP "
+        "  FROM TGFITE i "
+        "  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA "
+        "  LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC "
+        "  LEFT JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD "
+        f" WHERE {' AND '.join(where)} "
+        "  ORDER BY c.DTNEG DESC, c.NUNOTA DESC, i.SEQUENCIA ASC"
+    )
+    sql = (
+        "SELECT NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, GP FROM ("
+        "  SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.DTNEG DESC, t.NUNOTA DESC, t.SEQUENCIA ASC) rn FROM (" + inner + ") t"
+        ") WHERE rn BETWEEN :start_row AND :end_row ORDER BY rn"
+    )
+    binds["start_row"] = int(offset) + 1
+    binds["end_row"] = int(offset) + int(limit)
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, binds)
+        return cur.fetchall()
 
 def buscar_parceiros(q: str, limit: int = 10):
     """Busca parceiros por código (numérico) ou nome (LIKE), retornando tuplas (CODPARC, NOMEPARC).

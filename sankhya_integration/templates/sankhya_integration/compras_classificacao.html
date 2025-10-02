@@ -382,7 +382,7 @@
         </div>
         <div>
           <label>Vlr Unit</label>
-          <input type="number" id="itemVlr" step="0.01" />
+          <input type="number" id="itemVlr" step="0.01" value="0" disabled title="Definido na página Comercial (TOP 26 não usa preço)" />
         </div>
         <div style="grid-column:1 / -1;">
           <label>Obs</label>
@@ -612,8 +612,19 @@
                 </table>
               </div>
             </div>
-            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:6px;">
-              <button id="itemsCancel" type="button" title="Fechar">Fechar</button>
+            <div style="display:flex; gap:8px; justify-content:space-between; align-items:center; margin-top:6px;">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:#374151;">
+                  Classificação Finalizada
+                  <span class="switch">
+                    <input type="checkbox" id="toggleStatusNota" />
+                    <span class="slider"></span>
+                  </span>
+                </label>
+              </div>
+              <div>
+                <button id="itemsCancel" type="button" title="Fechar">Fechar</button>
+              </div>
             </div>
           </div>
         </div>
@@ -704,6 +715,7 @@
                 if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(j.nunota_class);
                 // Populate already-open Items with nunota and load
                 try{ const itemsNunota = document.getElementById('items_nunota'); if(itemsNunota) itemsNunota.value = j.nunota_class; }catch(_){ }
+                try{ if (typeof window.initHeaderStatusToggle === 'function') window.initHeaderStatusToggle(j.nunota_class); }catch(_){ }
                 try{ const addBtn = document.getElementById('itemAddBtn'); addBtn && addBtn.removeAttribute('disabled'); }catch(_){ }
                 try{ if(typeof refreshItemsList === 'function') refreshItemsList(); }catch(_){ }
                 return;
@@ -802,6 +814,15 @@
           window.PH_INNATURA_CODPROD = innCod || null;
         }catch(_){ }
   try{ const badge = document.getElementById('nunotaClassBadge'); if(badge){ if(j.nunota_class){ badge.textContent = 'NUNOTA ' + j.nunota_class; badge.style.display = 'inline-block'; } else { badge.style.display = 'none'; } } }catch(_){ }
+        // Sync toggle with STATUSNOTA (prefer server-provided status; fallback to GET by nunota_class)
+        try{
+          const tgl = document.getElementById('toggleStatusNota');
+          if(tgl){
+            const st = (j.statusnota_class||'').toString().toUpperCase();
+            if(st){ tgl.checked = (st === 'L'); }
+            else if(j.nunota_class){ try{ if (typeof window.initHeaderStatusToggle === 'function') window.initHeaderStatusToggle(j.nunota_class); }catch(_){ } }
+          }
+        }catch(_){ }
         // Update 'Qtde cx' and 'Qtde kg' in the active LOTES row from entradas
         try{
           const entradas = Array.isArray(j.entradas) ? j.entradas : [];
@@ -1424,6 +1445,7 @@
         const addBtn = document.getElementById('itemAddBtn');
         if(resolved){
           itemsNunota.value = resolved;
+          try{ if (typeof window.initHeaderStatusToggle === 'function') window.initHeaderStatusToggle(resolved); }catch(_){ }
           if(addBtn){ addBtn.removeAttribute('disabled'); addBtn.setAttribute('title', 'Adicionar'); }
           try{ refreshItemsList(); }catch(e){ }
         } else {
@@ -1441,6 +1463,7 @@
                 // Se houver nunota_class, setar no hidden e habilitar adicionar
                 if(j0.nunota_class){ try{ itemsNunota.value = String(parseInt(j0.nunota_class,10)); }catch(_){ itemsNunota.value = String(j0.nunota_class); }
                   if(addBtn){ addBtn.removeAttribute('disabled'); addBtn.setAttribute('title','Adicionar'); }
+                  try{ if (typeof window.initHeaderStatusToggle === 'function') window.initHeaderStatusToggle(j0.nunota_class); }catch(_){ }
                   try{ if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(j0.nunota_class); }catch(_){ }
                 } else {
                   // Sem nunota_class no backend: tentar inferir do primeiro item classificado, ou fallback a map de sessão
@@ -1572,6 +1595,7 @@
           const nunTextEl = document.getElementById('cab_nunota_text'); if(nunTextEl) nunTextEl.textContent = n ? String(n) : '';
           const nunBadge = document.getElementById('cab_nunota_class_badge'); if(nunBadge){ if(n){ nunBadge.textContent = 'NUNOTA ' + n; nunBadge.style.display = 'inline-block'; } else { nunBadge.style.display = 'none'; } }
         } catch(_){ }
+        try { if (n && typeof window.initHeaderStatusToggle === 'function') window.initHeaderStatusToggle(n); } catch(_){ }
       }; } catch(_){ }
 
       // Override items helpers to align with portal behavior (Classifica column, edit mode, totals)
@@ -1642,6 +1666,12 @@
           let j = {}; try{ j = await r.json(); }catch(_){ j = {}; }
           if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="8">Erro: ${j.error||'falha'}</td></tr>`; return; }
           const rows = j.classificacoes || [];
+          // Reflect current STATUSNOTA from TGFCAB TOP 26, if there is a nunota_class
+          try{
+            const st = (j.statusnota_class||'').toString().toUpperCase();
+            const tgl = document.getElementById('toggleStatusNota');
+            if(tgl){ tgl.checked = (st === 'L'); }
+          }catch(_){ }
           if(!rows.length){ clearItemsList(); return; }
           itemsListBody.innerHTML = '';
           for(const row of rows){
@@ -1910,6 +1940,41 @@
       }
     });
   })();
+
+    // Helper: initialize toggle STATUSNOTA from header (TGFCAB) given a nunota
+    try {
+      window.initHeaderStatusToggle = function(nun){
+        const n = parseInt(nun,10); if(!n) return;
+        const tgl = document.getElementById('toggleStatusNota'); if(!tgl) return;
+        fetch('/sankhya/header/status/get/?nunota=' + encodeURIComponent(n), { credentials: 'same-origin' })
+          .then(r=>r.json())
+          .then(h=>{ if(h && h.ok){ const s=(h.statusnota||'').toUpperCase(); tgl.checked = (s === 'L'); } })
+          .catch(()=>{});
+      };
+    } catch(_) {}
+
+    // Wire toggle STATUSNOTA save: checkbox on -> 'L'; off -> 'A'
+    (function(){
+      const tgl = document.getElementById('toggleStatusNota');
+      if(!tgl) return;
+      async function saveStatus(){
+        try{
+          const nunRaw = document.getElementById('items_nunota')?.value;
+          const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null;
+          if(!nun){ return; }
+          const status = tgl.checked ? 'L' : 'A';
+          const res = await postJSON('/sankhya/header/status/', { nunota: nun, status });
+          if(!res.ok){
+            const msg = (res.body?.error) || (res.body?.errors||[]).join('\n') || 'Falha ao atualizar STATUSNOTA';
+            alert(msg);
+            // revert UI state
+            tgl.checked = !tgl.checked;
+          }
+        }catch(e){ console.error('toggle STATUSNOTA failed', e); }
+      }
+      tgl.addEventListener('change', saveStatus);
+      // Initialize toggle from header if available later: we assume default 'A' unchecked.
+    })();
     })();
   </script>
 </body>
