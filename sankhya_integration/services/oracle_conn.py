@@ -1489,7 +1489,6 @@ def standardize_item_fields(nunota: int, sequencia: int, conn=None) -> dict:
             'ALTURA': 0,
             'LARGURA': 0,
             'ESPESSURA': 0,
-            'PRECOBASE': 0,
             'VLRACRESCDESC': 0,
             'VLRRETENCAO': 0,
             'CSTIPI': -1,
@@ -1513,6 +1512,18 @@ def standardize_item_fields(nunota: int, sequencia: int, conn=None) -> dict:
             'CUSTO': 0,
         }
         apply_items = [(k, v) for k, v in wanted_defaults.items() if k in cols]
+        # Special handling: do NOT overwrite PRECOBASE if it's already set. Only default to 0 when NULL.
+        try:
+            if 'PRECOBASE' in cols:
+                cur.execute("SELECT PRECOBASE FROM TGFITE WHERE NUNOTA=:N AND SEQUENCIA=:S", N=int(nunota), S=int(sequencia))
+                row_pb = cur.fetchone()
+                current_pb = row_pb[0] if row_pb else None
+                if current_pb in (None, ''):
+                    apply_items.append(('PRECOBASE', 0))
+                # else: keep existing PRECOBASE (user-edited) — do not add to defaults
+        except Exception:
+            # On any error reading current value, be conservative and do not touch PRECOBASE
+            pass
         set_parts = []
         binds = {}
         if apply_items:
@@ -1633,6 +1644,34 @@ def plan_update_item(d: dict) -> dict:
             data['VLRUNIT'] = float(data.get('VLRUNIT'))
         except Exception:
             errs.append('VLRUNIT inválido')
+    # Permitir atualizar PRECOBASE (Preço Inicial unitário na tela Comercial)
+    if data.get('PRECOBASE') is not None:
+        def _parse_decimal(val):
+            try:
+                # aceita numérico direto
+                if isinstance(val, (int, float)):
+                    return float(val)
+                s = str(val).strip()
+                if s == '':
+                    return None
+                # remove símbolos monetários e espaços
+                import re
+                s = re.sub(r"[^0-9,\.-]", "", s)
+                # remove separadores de milhar (.) quando há vírgula como decimal
+                if ',' in s and '.' in s:
+                    s = s.replace('.', '')
+                # vírgula para decimal
+                s = s.replace(',', '.')
+                return float(s)
+            except Exception:
+                return None
+        pb = _parse_decimal(data.get('PRECOBASE'))
+        if pb is None:
+            # valor inválido: não incluir PRECOBASE na atualização (em vez de gravar 0)
+            data.pop('PRECOBASE', None)
+            warns.append('PRECOBASE ignorado (formato inválido)')
+        else:
+            data['PRECOBASE'] = pb
     if data.get('CODVOL') is not None:
         try:
             data['CODVOL'] = str(data.get('CODVOL')).strip().upper()
@@ -1690,6 +1729,8 @@ def plan_update_item(d: dict) -> dict:
         sets.append('VLRUNIT=:VLRUNIT'); binds['VLRUNIT'] = data['VLRUNIT']
     if data.get('VLRTOT') is not None:
         sets.append('VLRTOT=:VLRTOT'); binds['VLRTOT'] = data['VLRTOT']
+    if data.get('PRECOBASE') is not None:
+        sets.append('PRECOBASE=:PRECOBASE'); binds['PRECOBASE'] = data['PRECOBASE']
     if data.get('CODVOL') is not None:
         sets.append('CODVOL=:CODVOL'); binds['CODVOL'] = data['CODVOL']
     if data.get('CODLOCALORIG') is not None:
@@ -2973,7 +3014,7 @@ def listar_itens_portal_basico(
     offset: int = 0,
 ):
     """Lista itens de TOP 11 (Portal) com colunas básicas para o painel Comercial.
-    Retorna tuplas: (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD)
+    Retorna tuplas: (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE)
     Suporta filtros por data, parceiro e produto, com paginação segura via ROW_NUMBER.
     """
     from datetime import datetime, date as _date
@@ -3020,7 +3061,7 @@ def listar_itens_portal_basico(
         binds["codprod"] = int(codprod)
 
     inner = (
-        "SELECT p.NOMEPARC, NVL(pr.FABRICANTE, pr.DESCRPROD) AS PRODNAME, i.QTDNEG, c.DTNEG, i.CODVOL, i.CODPROD, c.NUNOTA, i.SEQUENCIA, NVL(i.GERAPRODUCAO, 'S') AS GP "
+        "SELECT p.NOMEPARC, NVL(pr.FABRICANTE, pr.DESCRPROD) AS PRODNAME, i.QTDNEG, c.DTNEG, i.CODVOL, i.CODPROD, c.NUNOTA, i.SEQUENCIA, NVL(i.GERAPRODUCAO, 'S') AS GP, i.PESO AS PESO, i.PRECOBASE AS PRECOBASE, i.VLRUNIT AS VLRUNIT "
         "  FROM TGFITE i "
         "  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA "
         "  LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC "
@@ -3029,7 +3070,7 @@ def listar_itens_portal_basico(
         "  ORDER BY c.DTNEG DESC, c.NUNOTA DESC, i.SEQUENCIA ASC"
     )
     sql = (
-        "SELECT NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, GP FROM ("
+        "SELECT NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT FROM ("
         "  SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.DTNEG DESC, t.NUNOTA DESC, t.SEQUENCIA ASC) rn FROM (" + inner + ") t"
         ") WHERE rn BETWEEN :start_row AND :end_row ORDER BY rn"
     )

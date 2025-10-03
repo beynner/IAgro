@@ -1822,6 +1822,7 @@ def item_save(request: HttpRequest) -> JsonResponse:
             'CODPROD': _to_int_or(payload.get('codprod')),
             'QTDNEG': payload.get('qtdneg'),
             'VLRUNIT': payload.get('vlrunit'),
+            'PRECOBASE': payload.get('preco_inicial'),
             'PESO': payload.get('peso'),
             'CODVOL': payload.get('codvol') or None,
             'CODLOCALORIG': _to_int_or(payload.get('codlocal'), None),
@@ -2280,7 +2281,7 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
         )
         out = []
         for r in rows:
-            # (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, GP)
+            # (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT)
             parc = r[0] if len(r) > 0 else ''
             prod = r[1] if len(r) > 1 else ''
             qtd = r[2] if len(r) > 2 else 0
@@ -2288,7 +2289,11 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
             codvol = (r[4] if len(r) > 4 else None) or None
             codprod_val = (r[5] if len(r) > 5 else None)
             nunota_val = (r[6] if len(r) > 6 else None)
-            gp_val = (r[7] if len(r) > 7 else None)
+            sequencia_val = (r[7] if len(r) > 7 else None)
+            gp_val = (r[8] if len(r) > 8 else None)
+            peso_val = (r[9] if len(r) > 9 else None)
+            precobase_val = (r[10] if len(r) > 10 else None)
+            vlrunit_val = (r[11] if len(r) > 11 else None)
             try:
                 # compact date for UI: send DD/MM
                 if hasattr(dt, 'strftime'):
@@ -2314,8 +2319,16 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                 'qtdneg': float(disp_qtd or 0),
                 'dtneg': dt_iso,
                 'nunota': int(nunota_val) if nunota_val is not None else None,
+                'sequencia': int(sequencia_val) if sequencia_val is not None else None,
                 'classificavel': (None if gp_val is None else (str(gp_val).upper() != 'N')),
-                'codvol': (str(codvol).upper() if codvol is not None else None)
+                'codvol': (str(codvol).upper() if codvol is not None else None),
+                'peso': (float(peso_val) if peso_val is not None else None),
+                # Preço Inicial: usar PRECOBASE; se estiver vazio/zero, usar VLRUNIT como fallback para exibir
+                'preco_inicial': (
+                    float(precobase_val) if precobase_val not in (None, '') and float(precobase_val or 0) != 0 else (
+                        float(vlrunit_val) if vlrunit_val not in (None, '') and float(vlrunit_val or 0) != 0 else None
+                    )
+                )
             })
         return JsonResponse({ 'ok': True, 'rows': out, 'limit': limit, 'offset': offset })
     except Exception as e:
