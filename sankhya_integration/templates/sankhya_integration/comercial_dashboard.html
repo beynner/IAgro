@@ -10,19 +10,31 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Courgette&display=swap" rel="stylesheet">
   <style>
-  :root{--bg:#fff;--muted:#6b7280;--accent:#0ea5e9;--card:#f8fafb;--gap:16px;--card-padding:12px;--wrap-pad:20px;--appbar-h:48px;--mini-label-w:24px}
+  :root{--bg:#fff;--muted:#6b7280;--accent:#0ea5e9;--card:#f8fafb;--gap:10px;--card-padding:8px;--wrap-pad:12px;--appbar-h:40px;--mini-label-w:24px;--g-pesquisa:#0ea5e9;--g-dist:#3b82f6;--g-class:#10b981;--g-entrada:#f59e0b}
     *,*::before,*::after{box-sizing:border-box}
-  body{font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:var(--bg);color:#111;overflow-y:hidden}
+  body{font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:var(--bg);color:#111;overflow-y:hidden;font-size:12px}
   /* full viewport container so inner panels can stretch to bottom */
   html,body{height:100%}
   .wrap{padding:var(--wrap-pad);min-height:100%;height:100%}
   .appbar{height:var(--appbar-h);display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--gap)}
-  .appbar h1{margin:0;font-size:1.5rem;line-height:1.2}
-  .appbar .sup-name{font-family:"Courgette", cursive;font-size:1.15rem;font-weight:400;color:#0a3392;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0;max-width:45%}
+  .appbar h1{margin:0;font-size:1.1rem;line-height:1.2}
+  .appbar .sup-name{font-family:"Courgette", cursive;font-size:.9rem;font-weight:400;color:#0a3392;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0;max-width:45%}
+
+  /* Group section helpers */
+  .section-head{margin:0 0 8px 0;padding:6px 8px;font-size:.75rem;font-weight:800;color:#334155;letter-spacing:.04em;text-transform:uppercase;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafb}
+  .section--pesquisa{border-left:3px solid var(--g-pesquisa)}
+  .group.panel{border-top:0}
+  /* Thick, colored borders on main cards (no top, only sides and bottom) */
+  #distCard{border-color:var(--g-dist);border-style:solid;border-width:0 3px 3px 3px}
+  #classCard{border-color:var(--g-class);border-style:solid;border-width:0 3px 3px 3px}
+  #entradaCard{border-color:var(--g-entrada);border-style:solid;border-width:0 3px 3px 3px}
+  /* Sidebar panels: Filtros e Lista com borda cinza mais escura (laterais e inferior) */
+  #filtersCard{border-style:solid;border-color:#cbd5e1;border-width:0 3px 3px 3px}
+  #tableCard{border-style:solid;border-color:#cbd5e1;border-width:0 3px 3px 3px}
 
     /* two-column main layout: left narrow sidebar, right main area */
   /* left column approx 20% to match design */
-  .layout{display:grid;grid-template-columns:20% 1fr;gap:var(--gap);align-items:stretch;height:calc(100vh - var(--appbar-h) - (2 * var(--wrap-pad)) - var(--gap))}
+  .layout{display:grid;grid-template-columns:19% 1fr;gap:var(--gap);align-items:stretch;height:calc(100vh - var(--appbar-h) - (2 * var(--wrap-pad)) - var(--gap))}
   .sidebar{min-width:200px;display:flex;flex-direction:column;min-height:0;height:100%}
 
     /* main z area (flex column so a top bar can sit above the grid) */
@@ -43,32 +55,32 @@
   /* specific regions - tuned to match screenshot */
   /* Filtros: altura automática para comportar o formulário */
   #filtersCard{height:auto}
-  #filtersCard .filtros-form{display:grid;grid-template-columns:1fr;gap:10px}
+  #filtersCard .filtros-form{display:grid;grid-template-columns:1fr;gap:8px}
   #filtersCard fieldset{border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;background:var(--card);margin:0}
   #filtersCard legend{font-size:.8rem;font-weight:700;color:#334155;padding:0 4px}
   #filtersCard .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  #filtersCard label{display:flex;align-items:center;gap:8px;font-size:.85rem;color:#334155}
-  #filtersCard .stack{display:flex;flex-direction:column;gap:6px}
-  #filtersCard input[type="text"],#filtersCard input[type="date"],#filtersCard select{width:100%;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:.85rem}
+  #filtersCard label{display:flex;align-items:center;gap:6px;font-size:.8rem;color:#334155}
+  #filtersCard .stack{display:flex;flex-direction:column;gap:4px}
+  #filtersCard input[type="text"],#filtersCard input[type="date"],#filtersCard select{width:100%;padding:5px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:.8rem}
   #filtersCard .actions{display:flex;justify-content:flex-end}
-  #filtersCard .btn{appearance:none;-webkit-appearance:none;border-radius:6px;padding:6px 12px;font-size:.8rem;font-weight:600;cursor:pointer;line-height:1;border:1px solid transparent;background:#fff}
+  #filtersCard .btn{appearance:none;-webkit-appearance:none;border-radius:6px;padding:5px 10px;font-size:.8rem;font-weight:600;cursor:pointer;line-height:1;border:1px solid transparent;background:#fff}
   #filtersCard .btn-clear{border-color:#f59e0b;color:#b45309;background:#fff}
   #filtersCard .btn-clear:hover{background:#fff7ed}
   /* make tableCard grow to fill remaining height in the sidebar */
-  #tableCard{flex:1;min-height:0;margin-top:8px}
+  #tableCard{flex:1 1 auto;min-height:0;margin-top:8px;display:flex;flex-direction:column}
 
    /* Distribuição area will contain simPanel aligned to the right */
    /* distWrapper: flex container; distMain grows, distSim is a fixed-width panel */
   #distWrapper{display:flex; gap:16px; align-items:stretch;height:100%}
   #distMain{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
   /* grid de mini-cards dentro do distMain */
-  #distGrid{flex:1 1 auto;min-height:0;height:100%;display:grid;grid-template-columns:120px 1fr 1fr 1fr;grid-template-rows:110px 1fr;gap:12px}
+  #distGrid{flex:1 1 auto;min-height:0;height:100%;display:grid;grid-template-columns:96px 1fr 1fr 1fr;grid-template-rows:90px 1fr;gap:8px}
   .dist-mini{background:var(--card);border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px 8px calc(var(--mini-label-w) + 6px);display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden}
   /* rótulo suave rotacionado a 90º e centralizado na faixa esquerda */
   /* rótulo em faixa fixa à esquerda, centralizado e rotacionado +90º */
   .dist-label{position:absolute;left:calc(var(--mini-label-w) / 2);top:50%;transform:translate(-50%, -50%) rotate(-90deg);transform-origin:center;text-align:center;font-size:.75rem;font-weight:500;color:var(--muted);letter-spacing:.03em;white-space:nowrap}
   /* número destacado */
-  .dist-value{margin-top:4px;font-size:clamp(32px,2.6vw,30px);font-weight:800;line-height:1.1;color:#0a3392;text-align:center;align-self:stretch;width:100%}
+  .dist-value{margin-top:4px;font-size:clamp(20px,1.8vw,22px);font-weight:800;line-height:1.1;color:#0a3392;text-align:center;align-self:stretch;width:100%}
   /* aumentar o espaço entre os dois números do card Custo (somente o segundo valor) */
   #distMini2 .dist-value + .dist-value{margin-top:12px}
   /* sufixo de unidade para valores (mesma fonte do rótulo, sem rotação) */
@@ -113,7 +125,7 @@
   
   /* ----- CUSTO (#distMini2): edição inline para CX e KG ----- */
   #distMini2 .editable{cursor:text}
-  #distMini2 .value-input{display:none;font-weight:800;color:#0a3392;text-align:center;background:transparent;border:1px solid #cbd5e1;border-radius:6px;padding:4px 8px;width:auto;max-width:calc(100% - 24px);margin:0 auto;outline:none;font-size:clamp(28px,2.4vw,28px);line-height:1.1;box-sizing:border-box}
+  #distMini2 .value-input{display:none;font-weight:800;color:#0a3392;text-align:center;background:transparent;border:1px solid #cbd5e1;border-radius:6px;padding:4px 8px;width:auto;max-width:calc(100% - 24px);margin:0 auto;outline:none;font-size:clamp(18px,1.8vw,20px);line-height:1.1;box-sizing:border-box}
   /* alternância por campo */
   #distMini2.editing-cx .cost-top .dist-value{display:none}
   #distMini2.editing-cx .cost-top .value-input{display:block}
@@ -122,23 +134,23 @@
   
   /* ----- VALOR TOTAL (#distMini4): edição inline com campo compacto ----- */
   #distMini4 .editable{cursor:text}
-  #distMini4 .value-input{display:none;font-weight:800;color:#0a3392;text-align:center;background:transparent;border:1px solid #cbd5e1;border-radius:6px;padding:4px 8px;width:auto;max-width:calc(100% - 24px);margin:0 auto;outline:none;font-size:clamp(32px,2.6vw,30px);line-height:1.1;box-sizing:border-box}
+  #distMini4 .value-input{display:none;font-weight:800;color:#0a3392;text-align:center;background:transparent;border:1px solid #cbd5e1;border-radius:6px;padding:4px 8px;width:auto;max-width:calc(100% - 24px);margin:0 auto;outline:none;font-size:clamp(20px,1.8vw,22px);line-height:1.1;box-sizing:border-box}
   #distMini4.editing .dist-value{display:none}
   #distMini4.editing .value-input{display:block}
   
   /* ----- BLOCO 5: Layout A (dois cards lado a lado) ----- */
-  #distMini5 .kpiA-wrap{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  #distMini5 .kpiA-wrap{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   #distMini5 .kpiA-card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;display:flex;flex-direction:column}
-  #distMini5 .kpiA-head{padding:10px 12px;background:var(--card);border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center}
+  #distMini5 .kpiA-head{padding:8px 10px;background:var(--card);border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center}
   #distMini5 .kpiA-title{font-size:.85rem;font-weight:700;color:#334155}
   #distMini5 .kpiA-body{display:flex;flex-direction:column}
-  #distMini5 .kpiA-row{display:flex;justify-content:space-between;align-items:baseline;padding:10px 12px;border-bottom:1px solid #e5e7eb}
+  #distMini5 .kpiA-row{display:flex;justify-content:space-between;align-items:baseline;padding:8px 10px;border-bottom:1px solid #e5e7eb}
   #distMini5 .kpiA-label{font-size:.85rem;font-weight:500;color:var(--muted)}
   #distMini5 .kpiA-value{display:flex;gap:6px;align-items:baseline;color:#0a3392;font-weight:800}
-  #distMini5 .kpiA-value .unit{font-size:.8rem;font-weight:500;color:var(--muted)}
+  #distMini5 .kpiA-value .unit{font-size:.75rem;font-weight:500;color:var(--muted)}
   #distMini5 .kpiA-row.total{background:#f1f5f9}
-  #distMini5 .kpiA-row.total .kpiA-value{font-size:clamp(18px,2.2vw,22px)}
-  #distMini5 .currency{font-size:.9rem;font-weight:600;color:var(--muted)}
+  #distMini5 .kpiA-row.total .kpiA-value{font-size:clamp(14px,1.8vw,18px)}
+  #distMini5 .currency{font-size:.85rem;font-weight:600;color:var(--muted)}
   @media (max-width:900px){#distMini5 .kpiA-wrap{grid-template-columns:1fr}}
     
   /* posições: 1 ocupa duas linhas à esquerda; 2/3/4 na 1ª linha; 5 preenche a 2ª linha sob 2-4 */
@@ -153,7 +165,7 @@
      - use box-sizing:border-box so padding is included
    */
   /* simulation inset panel on the right of Distribuição */
-  #distSim{width:280px; margin:4px 4px 4px 0; box-sizing:border-box; padding:var(--card-padding)}
+  #distSim{width:260px; margin:4px 4px 4px 0; box-sizing:border-box; padding:var(--card-padding)}
 
    /* Make Distribuição fill the available horizontal space (stretch to grid cell) */
   /* Distribuição: no fixed height; it takes the height of the first grid row */
@@ -171,20 +183,20 @@
   /* ----- SIMULAÇÃO (T1 - tabelas compactas) ----- */
   #distSim .sim-wrap{display:flex;flex-direction:column;gap:6px}
   #distSim .sim-sec{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px}
-  #distSim .sim-title{font-size:.75rem;font-weight:700;color:#334155;margin:0 0 4px 0}
+  #distSim .sim-title{font-size:.72rem;font-weight:700;color:#334155;margin:0 0 4px 0}
   #distSim .sim-table{display:flex;flex-direction:column;gap:4px}
   #distSim .sim-row{display:flex;align-items:center;justify-content:space-between;gap:6px}
-  #distSim .sim-label{flex:0 0 44%;font-size:.75rem;color:#475569;line-height:1.2}
+  #distSim .sim-label{flex:0 0 42%;font-size:.75rem;color:#475569;line-height:1.2}
   #distSim .sim-control{flex:1;display:flex;align-items:center;gap:6px}
-  #distSim .sim-control input{width:100%;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:.85rem;line-height:1.2;text-align:right}
+  #distSim .sim-control input{width:100%;padding:3px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:.8rem;line-height:1.2;text-align:right}
   #distSim .sim-control input::placeholder{color:#94a3b8}
   #distSim .sim-footer{margin-top:2px}
-  #distSim .sim-summary{display:flex;flex-direction:column;background:#f8fafb;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px}
-  #distSim .sim-total-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-weight:700;color:#0a3392;border-top:1px solid #e5e7eb;font-size:.9rem}
+  #distSim .sim-summary{display:flex;flex-direction:column;background:#f8fafb;border:1px solid #e5e7eb;border-radius:8px;padding:6px 8px}
+  #distSim .sim-total-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-weight:700;color:#0a3392;border-top:1px solid #e5e7eb;font-size:.85rem}
   #distSim .sim-total-row:first-child{border-top:none;padding-top:0}
   #distSim .sim-total-row span:first-child{font-weight:400;color:#334155}
-  #distSim .sim-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px;margin-bottom:10px}
-  #distSim .btn{appearance:none;-webkit-appearance:none;border-radius:6px;padding:6px 12px;font-size:.8rem;font-weight:600;cursor:pointer;line-height:1;border:1px solid transparent;background:#fff}
+  #distSim .sim-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px;margin-bottom:8px}
+  #distSim .btn{appearance:none;-webkit-appearance:none;border-radius:6px;padding:5px 10px;font-size:.8rem;font-weight:600;cursor:pointer;line-height:1;border:1px solid transparent;background:#fff}
   /* Limpar: borda laranja, fundo branco */
   #distSim .btn-secondary{border-color:#f59e0b;color:#b45309;background:#fff}
   #distSim .btn-secondary:hover{background:#fff7ed}
@@ -213,7 +225,7 @@
   #classCard .cell-prod{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.85rem}
   #classCard .cell-pct{display:flex;align-items:center;gap:6px;justify-content:flex-end}
   #classCard .cell-pct .pct-val{min-width:38px;text-align:right;font-weight:700;color:#0a3392;font-size:.85rem}
-  #classCard .percent-bar{flex:1;height:5px;background:#e2e8f0;border-radius:999px;overflow:hidden;max-width:72px}
+  #classCard .percent-bar{flex:1;height:4px;background:#e2e8f0;border-radius:999px;overflow:hidden;max-width:72px}
     #classCard .percent-bar>span{display:block;height:100%;background:linear-gradient(90deg,#0ea5e9,#3b82f6);width:0%}
   #classCard .summary{grid-column:2;grid-row:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr auto;gap:12px;align-content:start;min-height:0;height:100%;overflow:hidden}
   /* Extra card (direita) */
@@ -225,20 +237,20 @@
     #classCard .class-table,#classCard .summary,#classCard .extra{grid-column:1;grid-row:auto}
   }
   #classCard .summary .kpi:first-child{grid-column:1 / -1;grid-row:1}
-  #classCard .kpi{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+  #classCard .kpi{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px}
     #classCard .kpi-label{font-size:.8rem;color:#475569}
-    #classCard .kpi-value{font-size:1.2rem;font-weight:800;color:#0a3392}
+  #classCard .kpi-value{font-size:1.1rem;font-weight:800;color:#0a3392}
     #classCard .kpi-sub{font-size:.75rem;color:#64748b}
   /* Gauge (semicírculo) para progresso de classificação */
   #classCard .gauge{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:0}
-  #classCard .gauge svg{width:260px;height:140px;max-width:100%;display:block}
+  #classCard .gauge svg{width:240px;height:128px;max-width:100%;display:block}
   /* reduzir espaço abaixo do título apenas neste card */
   #classCard > h3{margin-bottom:0}
-  #classCard .gauge #gArc,#classCard .gauge #gTrack{stroke-width:16px}
+  #classCard .gauge #gArc,#classCard .gauge #gTrack{stroke-width:14px}
   #classCard .gauge #gArc{transition:stroke-dasharray 900ms ease-in-out, stroke 900ms linear}
   #classCard .summary .kpi:first-child{padding:0;background:transparent;border:0;box-shadow:none;gap:0}
   #classCard .gauge .gauge-label{font-size:.7rem;font-weight:400;color:#94a3b8;fill:currentColor}
-  #classCard .gauge .gauge-val{font-weight:800;color:#0a3392;font-size:26px}
+  #classCard .gauge .gauge-val{font-weight:800;color:#0a3392;font-size:22px}
   /* Mostrar somente o gráfico (com legenda) no card Aproveitamento */
   #classCard .summary .kpi:nth-child(1) .kpi-label,
   #classCard .summary .kpi:nth-child(1) .kpi-value,
@@ -258,7 +270,7 @@
     #entradaCard .entrada-head .product{font-weight:700;color:#334155}
     #entradaCard .entrada-head .doc-meta{font-size:.8rem;color:#64748b}
   #entradaCard .badges{display:flex;gap:8px;flex-wrap:wrap}
-  #entradaCard .badge{background:#eef2ff;color:#1d4ed8;border:1px solid #dbeafe;border-radius:999px;padding:4px 10px;font-size:.75rem;font-weight:700}
+  #entradaCard .badge{background:#eef2ff;color:#1d4ed8;border:1px solid #dbeafe;border-radius:999px;padding:3px 8px;font-size:.72rem;font-weight:700}
   /* Entrada: usar layout de uma coluna (sem divisão) para o card unificado ocupar toda a largura */
   #entradaCard .grid{display:grid;grid-template-columns:1fr;gap:12px;align-items:stretch;min-height:0}
   /* garantir que o card unificado ocupe a coluna única */
@@ -269,9 +281,9 @@
   #quantidadeInnCard .divider{width:50%;margin:6px auto}
   #entradaCard .headline{display:flex;align-items:baseline;justify-content:center;flex-direction:row}
   #entradaCard .headline .metric-label{display:none}
-  #entradaCard .headline .big{font-size:clamp(32px,4.5vw,42px);font-weight:800;color:#0a3392;line-height:1}
+  #entradaCard .headline .big{font-size:clamp(22px,3.0vw,30px);font-weight:800;color:#0a3392;line-height:1}
     #entradaCard .metric-label{font-size:.8rem;color:#475569}
-    #entradaCard .value{font-size:1.1rem;color:#0a3392;font-weight:800}
+  #entradaCard .value{font-size:1.0rem;color:#0a3392;font-weight:800}
     #entradaCard .unit{font-size:.75rem;color:#94a3b8;margin-left:6px}
   #entradaCard .twocol{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   #entradaCard .peso-row{display:flex;justify-content:space-between;align-items:baseline}
@@ -305,6 +317,59 @@
   /* Lista: comportamento clicável e destaque */
   #listaTable tbody tr{cursor:pointer}
   #listaTable tbody tr:hover{background:#f3f4f6}
+  /* Lista: prevent horizontal scroll */
+  #listaTable{table-layout:fixed;width:100%}
+  #listaTable th, #listaTable td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Header: single-line, no wrap, show full labels (no ellipsis) */
+  #listaTable thead th{overflow:visible;text-overflow:clip;white-space:nowrap}
+  /* Stronger guarantee: header labels fully visible without changing column width */
+  #listaTable thead th, #listaTable thead td{
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: nowrap !important;
+    position: relative;
+    z-index: 1;
+  }
+  /* Lista: header row clickable for collapse/expand */
+  .vale-head-inner{display:flex;align-items:center;gap:8px}
+  #listaTable tr.vale-header{cursor:pointer}
+  #listaTable tr.vale-header{color:#334155; background:rgba(203,213,225,0.5)}
+  /* Ensure header row uses the same background, even if external CSS sets another */
+  #listaTable thead tr, #listaTable thead th{background:#cbd5e1 !important}
+  /* Lista header actions */
+  #tableCard .lista-title{display:block;margin-bottom:4px}
+  #tableCard .lista-actions-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px}
+  .lista-actions{display:inline-flex;gap:6px}
+  /* Segmented toggle: Por Vale | Por Parceiro */
+  .lista-view-toggle{display:inline-flex;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;background:#fff}
+  .lista-view-toggle .seg{position:relative;display:inline-flex}
+  .lista-view-toggle .seg input{position:absolute;opacity:0;pointer-events:none}
+  .lista-view-toggle .seg .seg-btn{display:inline-flex;align-items:center;justify-content:center;padding:3px 8px;font-size:.72rem;color:#334155;cursor:pointer;user-select:none;min-width:84px;opacity:.55;transition:opacity .15s ease, background-color .15s ease, color .15s ease}
+  .lista-view-toggle .seg + .seg .seg-btn{border-left:1px solid #cbd5e1}
+  .lista-view-toggle .seg input:checked + .seg-btn{background:#eef2ff;color:#1d4ed8;font-weight:700;opacity:1}
+  .lista-actions .btn-sm{appearance:none;-webkit-appearance:none;border:1px solid #cbd5e1;background:#fff;border-radius:6px;padding:3px 6px;line-height:1;cursor:pointer;color:#334155;font-size:.72rem;display:inline-flex;align-items:center;gap:4px}
+  .lista-actions .btn-sm svg{width:12px;height:12px}
+  /* (removed) .is-hidden utility: no longer used */
+  /* Inline qty + unit in product cell (same line; qty right-aligned) */
+  .list-prod-inner{display:flex;justify-content:space-between;align-items:baseline;gap:8px;color:#334155}
+  /* Product closer to left edge with a clear indent */
+  #listaTable tbody td:nth-child(2){padding-left:10px}
+  .list-prod-inner .list-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Right-side meta block (date + qty) */
+  .list-prod-inner .list-meta{display:flex;align-items:baseline;gap:10px;flex:0 0 auto}
+  /* Slightly smaller date and a nudge to the left */
+  .list-meta .list-date{font-size:.72em;color:#64748b;margin-right:6px}
+  .list-qty{font-weight:800;color:inherit;flex:0 0 auto}
+  .list-qty .list-unit{font-size:.78em;color:#64748b;margin-left:4px}
+  /* Quantity must never be hidden/wrapped */
+  .list-qty{white-space:nowrap}
+  /* Enforce contract: no per-item date in Vale view; show in Partner view */
+  #listaTable[data-view="vale"] .list-date{display:none !important}
+  #listaTable[data-view="parceiro"] .list-date{display:inline}
+  /* Partner icon next to partner name */
+  #entradaCard .doc-meta{display:flex;align-items:center;gap:6px}
+  .partner-icon{display:inline-flex;width:14px;height:14px;color:#64748b}
+  .partner-icon svg{width:14px;height:14px;display:block}
   #listaTable tbody tr.row--sel{background:#fef3c7}
   
 
@@ -315,46 +380,10 @@
   <header class="appbar"><h1>Painel Comercial — (Layout reiniciado)</h1><span class="sup-name" id="supplierName">—</span></header>
 
     <div class="layout">
-      <aside class="sidebar">
+      <aside class="sidebar group group--pesquisa">
         <div id="filtersCard" class="panel">
           <h3>Filtros</h3>
           <form id="filtrosForm" class="filtros-form">
-            <div class="row">
-              <fieldset class="stack">
-                <legend>Status</legend>
-                <label><input type="checkbox" id="fltPagar" /> Falta liberar pagamento</label>
-                <label><input type="checkbox" id="fltPrecoInicial" /> Falta preço inicial</label>
-                <label><input type="checkbox" id="fltFinalizarClass" /> Falta finalizar classificação</label>
-              </fieldset>
-              <fieldset class="stack">
-                <legend>Histórico</legend>
-                <label><input type="radio" name="hist" value="15" /> 15 Dias</label>
-                <label><input type="radio" name="hist" value="60" checked /> 60 Dias</label>
-                <label><input type="radio" name="hist" value="all" /> Tudo</label>
-              </fieldset>
-            </div>
-            <div class="row">
-              <fieldset class="stack">
-                <legend>Classificação</legend>
-                <label><input type="radio" name="classif" value="com" /> Com classificação</label>
-                <label><input type="radio" name="classif" value="sem" /> Sem classificação</label>
-              </fieldset>
-              <fieldset class="stack">
-                <legend>Faturado</legend>
-                <label><input type="radio" name="fat" value="sim" /> Sim</label>
-                <label><input type="radio" name="fat" value="nao" /> Não</label>
-              </fieldset>
-            </div>
-            <div class="row">
-              <div class="stack">
-                <label for="fltCracha">Crachá</label>
-                <input type="text" id="fltCracha" placeholder="Digite o crachá" />
-              </div>
-              <div class="stack">
-                <label for="fltDataCompra">Data da compra</label>
-                <input type="date" id="fltDataCompra" />
-              </div>
-            </div>
             <div class="row">
               <div class="stack">
                 <label for="fltFornecedor">Fornecedor</label>
@@ -362,18 +391,17 @@
                   <option value="">Todos</option>
                 </select>
               </div>
-              <fieldset class="stack">
-                <legend>Produtos</legend>
-                <label><input type="checkbox" name="produtoTipo" value="tomate" /> Tomate</label>
-                <label><input type="checkbox" name="produtoTipo" value="cenoura" /> Cenoura</label>
-              </fieldset>
-            </div>
-            <div class="row">
-              <div class="stack" style="grid-column:1 / -1">
+              <div class="stack">
                 <label for="fltProduto">Produto</label>
                 <select id="fltProduto">
                   <option value="">Todos</option>
                 </select>
+              </div>
+            </div>
+            <div class="row">
+              <div class="stack" style="grid-column:1 / -1">
+                <label for="fltDataCompra">Data</label>
+                <input type="date" id="fltDataCompra" />
               </div>
             </div>
             <div class="actions">
@@ -383,18 +411,41 @@
         </div>
 
         <div id="tableCard" class="panel" style="margin-top:12px">
-          <h3>Lista</h3>
-          <div id="listaWrap" style="overflow:auto; max-height:42vh">
+          <h3 class="lista-title">Lista</h3>
+          <div class="lista-actions-row">
+            <span class="lista-actions">
+              <button id="listaCollapseAll" class="btn-sm" title="Recolher todos" aria-label="Recolher todos">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+              </button>
+              <button id="listaExpandAll" class="btn-sm" title="Expandir todos" aria-label="Expandir todos">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+              </button>
+            </span>
+            <div class="lista-view-toggle" role="tablist" aria-label="Modo de visualização da lista">
+              <label class="seg" role="tab" aria-selected="true">
+                <input type="radio" name="listaViewMode" value="vale" checked />
+                <span class="seg-btn">Por Vale</span>
+              </label>
+              <label class="seg" role="tab" aria-selected="false">
+                <input type="radio" name="listaViewMode" value="parceiro" />
+                <span class="seg-btn">Por Parceiro</span>
+              </label>
+            </div>
+          </div>
+          <div id="listaWrap" style="overflow-y:auto; overflow-x:hidden; flex:1 1 auto; min-height:0;">
             <table id="listaTable" style="width:100%; border-collapse:collapse;">
-              <thead>
-                <tr style="background:#f8fafb; border-bottom:1px solid #e5e7eb;">
-                  <th style="text-align:left; padding:6px 8px; font-size:.8rem; color:#334155;">Parceiro</th>
-                  <th style="text-align:left; padding:6px 8px; font-size:.8rem; color:#334155;">Produto</th>
-                  <th style="text-align:right; padding:6px 8px; font-size:.8rem; color:#334155;">Qtde</th>
-                  <th style="text-align:left; padding:6px 8px; font-size:.8rem; color:#334155;">Data</th>
-                  <th style="width:44px; padding:6px 4px; font-size:.8rem; color:#334155;"></th>
-                </tr>
-              </thead>
+              <colgroup>
+                <col style="width:14px" />
+                <col />
+                <col style="width:10px" />
+                <col style="width:64px" />
+                <col style="width:72px" />
+              </colgroup>
               <tbody id="listaBody">
                 <tr><td colspan="5" style="padding:8px; color:#64748b;">Carregando…</td></tr>
               </tbody>
@@ -467,10 +518,73 @@
       </aside>
 
       <section class="zarea">
+        <!-- Modal: Resumo do Parceiro (mesma estrutura do Vale) -->
+        <div id="parceiroResumoModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:1000; align-items:center; justify-content:center;">
+          <div style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; width:min(700px, 70vw); max-height:88vh; display:flex; flex-direction:column;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #e5e7eb;">
+              <div id="parceiroResumoTitle" style="font-weight:800; color:#0a3392;">Parceiro —</div>
+              <button id="parceiroResumoClose" class="btn" style="border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:6px 10px; cursor:pointer;">Fechar</button>
+            </div>
+            <div style="padding:10px 12px; overflow:auto; display:flex; flex-direction:column; gap:14px;">
+              <div>
+                <div style="font-weight:700; color:#334155; margin-bottom:6px;">Classificáveis</div>
+                <table style="width:100%; border-collapse:collapse; table-layout:fixed;">
+                  <colgroup>
+                    <col />
+                    <col style="width:90px" />
+                    <col style="width:110px" />
+                    <col style="width:80px" />
+                  </colgroup>
+                  <thead>
+                    <tr style="background:#f8fafb; border-bottom:1px solid #e5e7eb;">
+                      <th style="text-align:left; padding:6px 8px; font-size:.85rem; color:#334155;">Produto</th>
+                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Qtde</th>
+                      <th style="text-align:left; padding:6px 8px; font-size:.85rem; color:#334155;">Status</th>
+                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody id="parceiroClassBody">
+                    <tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <div style="font-weight:700; color:#334155; margin-bottom:6px;">Não Classificáveis</div>
+                <table style="width:100%; border-collapse:collapse; table-layout:fixed;" class="parceiro-outros-table">
+                  <colgroup>
+                    <col />
+                    <col style="width:90px" />
+                    <col style="width:110px" />
+                    <col style="width:120px" />
+                  </colgroup>
+                  <thead>
+                    <tr style="background:#f8fafb; border-bottom:1px solid #e5e7eb;">
+                      <th style="text-align:left; padding:6px 8px; font-size:.85rem; color:#334155;">Produto</th>
+                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Qtde</th>
+                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Preço</th>
+                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody id="parceiroOutrosBody">
+                    <tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:flex-end; gap:10px; padding:10px 12px; border-top:1px solid #e5e7eb; background:#f8fafb;">
+              <div style="font-weight:600; color:#334155;">Total do Parceiro</div>
+              <div id="parceiroResumoTotal" style="font-weight:800; color:#0a3392; font-size:1.1rem;">R$ 0,00</div>
+            </div>
+            <div style="padding:0 12px 12px 12px; display:flex; gap:8px; justify-content:flex-end;">
+              <button id="parceiroResumoSalvar" class="btn" style="border:1px solid #0ea5e9; color:#0ea5e9; background:#fff; border-radius:8px; padding:10px 16px; font-weight:700;">Salvar</button>
+              <button id="parceiroResumoFaturar" class="btn" style="border:1px solid #16a34a; color:#16a34a; background:#fff; border-radius:8px; padding:10px 16px; font-weight:800;">FATURAR</button>
+            </div>
+          </div>
+        </div>
         
         <div class="zgrid">
           <!-- TL: Distribuição (com Simulação alinhada a direita) -->
-          <div class="zcell z-tl panel" id="distCard" style="grid-column:1 / -1">
+          <div class="zcell z-tl panel group group--dist" id="distCard" style="grid-column:1 / -1">
             <div id="distWrapper">
               <div id="distMain">
                 <h3>Distribuição</h3>
@@ -603,7 +717,7 @@
           <!-- removed TR placeholder so Distribuição spans full top row -->
 
           <!-- BL: Classificação -->
-          <div class="zcell z-bl panel" id="classCard" data-classified="100" data-target="100">
+          <div class="zcell z-bl panel group group--class" id="classCard" data-classified="100" data-target="100">
             <h3>Classificação</h3>
             <div class="class-wrap">
               <div class="class-table">
@@ -694,7 +808,7 @@
           </div>
 
           <!-- BR: Entrada -->
-          <div class="zcell z-br panel" id="entradaCard" data-supplier="" data-product="" data-doc="" data-serie="" data-date="" data-tipo="" data-lote="" data-cx="" data-kg-in="" data-kg-class="" data-preco-kg="" data-preco-cx="">
+          <div class="zcell z-br panel group group--entrada" id="entradaCard" data-supplier="" data-product="" data-doc="" data-serie="" data-date="" data-tipo="" data-lote="" data-cx="" data-kg-in="" data-kg-class="" data-preco-kg="" data-preco-cx="">
             <h3 class="entrada-title">Entrada
               <span class="title-right">
                 <span class="badge" id="entBadgeLote">Andre Patrocinio</span>
@@ -705,7 +819,10 @@
               <div class="entrada-head">
                 <div class="doc">
                   <div class="product" id="entProduct">-</div>
-                  <div class="doc-meta"><span id="entPartner">-</span></div>
+                  <div class="doc-meta">
+                    <span class="partner-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span>
+                    <span id="entPartner">-</span>
+                  </div>
                 </div>
               </div>
               <div class="grid">
@@ -915,6 +1032,7 @@
         if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); enterEdit(); }
       });
 
+
       input.addEventListener('keydown', (e)=>{
         if(e.key === 'Enter'){ e.preventDefault(); input.blur(); }
         else if(e.key === 'Escape'){ e.preventDefault(); input.value = previousText; exitEdit(false); }
@@ -943,6 +1061,42 @@
     (function(){
       const bodyEl = document.getElementById('listaBody');
       if(!bodyEl) return;
+      // Toggle view mode (Por Vale | Por Parceiro)
+      const viewToggle = document.querySelector('#tableCard .lista-view-toggle');
+      let currentViewMode = (document.querySelector('input[name="listaViewMode"]:checked')?.value) || 'vale';
+      // Initial a11y sync and table mark
+      try{
+        const segs = Array.from(viewToggle?.querySelectorAll('.seg') || []);
+        segs.forEach(seg => {
+          const inp = seg.querySelector('input[name="listaViewMode"]');
+          seg.setAttribute('aria-selected', inp && inp.checked ? 'true' : 'false');
+        });
+        const table = document.getElementById('listaTable');
+        if(table) table.setAttribute('data-view', String(currentViewMode));
+      }catch{}
+      viewToggle?.addEventListener('change', (e)=>{
+        const val = document.querySelector('input[name="listaViewMode"]:checked')?.value || 'vale';
+        currentViewMode = val;
+        // Emit event (optional hook for other parts)
+        window.dispatchEvent(new CustomEvent('lista:viewmode', { detail: { mode: val } }));
+        // Sync aria-selected for accessibility (per input's checked)
+        try{
+          const segs = Array.from(viewToggle.querySelectorAll('.seg'));
+          segs.forEach(seg => {
+            const inp = seg.querySelector('input[name="listaViewMode"]');
+            seg.setAttribute('aria-selected', inp && inp.checked ? 'true' : 'false');
+          });
+        }catch{}
+        try{
+          const rows = Array.isArray(window.__COM_LIST_ROWS) ? window.__COM_LIST_ROWS : [];
+          if(rows.length){
+            bodyEl.innerHTML = buildListaHTML(rows, currentViewMode);
+            const table = document.getElementById('listaTable');
+            if(table) table.setAttribute('data-view', String(currentViewMode));
+          }
+        }catch{}
+      });
+      // header removed: no head2 toggle logic
       function parseFilters(ev){
         const d = (ev && ev.detail) ? ev.detail : {};
         const qs = new URLSearchParams();
@@ -952,87 +1106,186 @@
         if(d.produto) qs.set('codprod', d.produto);
         return qs.toString();
       }
-      async function loadLista(ev){
-        try{
-          bodyEl.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#64748b;">Carregando…</td></tr>';
-          const qs = parseFilters(ev);
-          const url = '/sankhya/comercial/lista/' + (qs ? ('?' + qs) : '');
-          const r = await fetch(url, { credentials: 'same-origin' });
-          let j = {}; try{ j = await r.json(); }catch(_){ j = {}; }
-          if(!j.ok){ bodyEl.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#b91c1c;">Falha ao carregar.</td></tr>'; return; }
-          const rows = Array.isArray(j.rows) ? j.rows : [];
-          try{ rows.forEach((r,i)=> r._i = i); window.__COM_LIST_ROWS = rows; }catch(_){ }
-          if(!rows.length){ bodyEl.innerHTML = '<tr><td colspan="5" style="padding:8px; color:#64748b;">Nenhum registro.</td></tr>'; return; }
-          const fmtDate = (s)=>{ if(!s) return ''; const m = String(s).match(/^(\d{2})\/(\d{2})$/); if(m) return s; try{ const d = new Date(s); const dd = String(d.getDate()).padStart(2,'0'); const mm = String(d.getMonth()+1).padStart(2,'0'); return `${dd}/${mm}`; }catch(_){ return String(s).slice(0,5); } };
-          const fmtQty = (n)=>{ try{ return Number(n||0).toLocaleString('pt-BR', { maximumFractionDigits: 3 }); }catch(_){ return String(n||0); } };
-          const abbrName = (s)=>{
-            const str = (s||'').toString().trim();
-            if(!str) return '';
-            const parts = str.split(/\s+/).filter(Boolean);
-            if(parts.length === 1) return parts[0];
-            const first = parts[0];
-            const second = parts[1] || '';
-            const seg = second.slice(0, 3);
-            return seg ? (first + ' ' + seg + '...') : (first + '...');
-          };
-          // Separar classificáveis vs não-classificáveis
-          // Agrupar todos por NUNOTA
+      function fmtDate(s){
+        if(!s) return '';
+        const str = String(s).trim();
+        // dd/mm
+        let m = str.match(/^(\d{2})\/(\d{2})$/);
+        if(m) return `${m[1]}/${m[2]}`;
+        // dd/mm/yyyy or dd-mm-yyyy
+        m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+        if(m){
+          const dd = String(m[1]).padStart(2,'0');
+          const mm = String(m[2]).padStart(2,'0');
+          return `${dd}/${mm}`;
+        }
+        // ISO or parseable date
+        const d = new Date(str);
+        if(!isNaN(d.getTime())){
+          const dd = String(d.getDate()).padStart(2,'0');
+          const mm = String(d.getMonth()+1).padStart(2,'0');
+          return `${dd}/${mm}`;
+        }
+        // generic fallback: try to extract dd and mm anywhere
+        m = str.match(/(\d{1,2})[\/\-](\d{1,2})/);
+        if(m){
+          const dd = String(m[1]).padStart(2,'0');
+          const mm = String(m[2]).padStart(2,'0');
+          return `${dd}/${mm}`;
+        }
+        return '';
+      }
+      function fmtQty(n){ try{ return Number(n||0).toLocaleString('pt-BR', { maximumFractionDigits: 3 }); }catch(_){ return String(n||0); } }
+      function buildListaHTML(rows, mode){
+        const htmlParts = [];
+        if(mode === 'vale'){
+          // Agrupar por NUNOTA (modo atual)
           const byNun = new Map();
-          for(const r of rows){
-            const k = String(r.nunota||''); if(!k) continue;
-            if(!byNun.has(k)) byNun.set(k, []);
-            byNun.get(k).push(r);
-          }
-          const leafIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 20c7-5 9-10 9-15-5 0-10 2-15 9"></path><path d="M2 22s3-3 7-3 7 3 7 3"></path></svg>';
-          const htmlParts = [];
-          // Render por grupo (NUNOTA): header + itens classificáveis + linha Outros
+          for(const r of rows){ const k = String(r.nunota||''); if(!k) continue; if(!byNun.has(k)) byNun.set(k, []); byNun.get(k).push(r); }
           for(const [nun, arr] of byNun.entries()){
             if(!arr.length) continue;
             const parc = arr[0].parceiro||'';
             const dt = fmtDate(arr[0].dtneg);
             const classif = arr.filter(x=> x.classificavel !== false);
             const nclass = arr.filter(x=> x.classificavel === false);
-            const qtdTotal = arr.reduce((s,a)=> s + (Number(a.qtdneg)||0), 0);
-            const btnResumo = `<button class="lista-vale-btn" data-nunota="${nun}" title="Resumo do Vale" style="appearance:none;-webkit-appearance:none;border:1px solid #cbd5e1;background:#fff;border-radius:6px;padding:4px 6px; cursor:pointer; color:#0a3392; display:inline-flex; align-items:center; justify-content:center;">Vale</button>`;
-            // header row
+            const btnResumo = `<span class="lista-vale-ico" data-nunota="${nun}" role="button" tabindex="0" title="Resumo do Vale" aria-label="Abrir resumo do vale" style="cursor:pointer; color:inherit; display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="9" cy="21" r="1"></circle>
+                <circle cx="20" cy="21" r="1"></circle>
+                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h7.72a2 2 0 0 0 2-1.61L23 6H6"/>
+              </svg>
+            </span>`;
             htmlParts.push(`
-              <tr class="vale-header" data-nunota="${nun}" style="background:#f8fafb;">
-                <td colspan="2" title="${parc.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.82rem; font-weight:700; color:#334155;">${parc}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right; font-size:.82rem; color:#334155;">${fmtQty(qtdTotal)}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.82rem; color:#334155;">${dt}</td>
+              <tr class="vale-header" data-expanded="true">
+                <td colspan="3" title="${parc.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.78rem; color:#334155;">
+                  <span class="vale-head-inner">
+                    <span style="font-weight:700">${parc}</span>
+                  </span>
+                </td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.78rem; color:#334155;">${dt}</td>
                 <td style="padding:6px 4px; border-bottom:1px solid #e5e7eb; text-align:right;">${btnResumo}</td>
               </tr>
             `);
-            // itens classificáveis
             for(const r of classif){
               const prod = r.produto||'';
               const qtd = fmtQty(r.qtdneg);
+              const unit = ((r.codvol||'')+'').toUpperCase();
               htmlParts.push(`
-                <tr data-nunota="${nun}" data-classificavel="1" data-idx="${r._i}">
-                  <td></td>
-                  <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.82rem;">${abbrName(prod)}</td>
-                  <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right; font-size:.82rem;">${qtd}</td>
-                  <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.82rem;">${dt}</td>
+                <tr data-classificavel="1" data-idx="${r._i}">
                   <td style="padding:6px 4px; border-bottom:1px solid #e5e7eb;"></td>
+                  <td colspan="4" title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.78rem;">
+                    <div class=\"list-prod-inner\">
+                      <span class=\"list-name\">${prod}</span>
+                      <span class=\"list-qty\">${qtd}<span class=\"list-unit\"> ${unit.toLowerCase()}</span></span>
+                    </div>
+                  </td>
                 </tr>
               `);
             }
-            // itens não classificáveis (render item-a-item)
             for(const r of nclass){
               const prod = r.produto||'';
               const qtd = fmtQty(r.qtdneg);
+              const unit = ((r.codvol||'')+'').toUpperCase();
               htmlParts.push(`
-                <tr data-nunota="${nun}" data-classificavel="0" data-idx="${r._i}">
-                  <td></td>
-                  <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.82rem;">${abbrName(prod)}</td>
-                  <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right; font-size:.82rem;">${qtd}</td>
-                  <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.82rem;">${dt}</td>
+                <tr data-classificavel="0" data-idx="${r._i}">
                   <td style="padding:6px 4px; border-bottom:1px solid #e5e7eb;"></td>
+                  <td colspan="4" title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.78rem;">
+                    <div class=\"list-prod-inner\">
+                      <span class=\"list-name\">${prod}</span>
+                      <span class=\"list-qty\">${qtd}<span class=\"list-unit\"> ${unit.toLowerCase()}</span></span>
+                    </div>
+                  </td>
                 </tr>
               `);
             }
           }
-          bodyEl.innerHTML = htmlParts.join('');
+          return htmlParts.join('');
+        } else {
+          // Agrupar por Parceiro
+          const byParc = new Map();
+          for(const r of rows){ const k = String(r.parceiro||''); if(!k) continue; if(!byParc.has(k)) byParc.set(k, []); byParc.get(k).push(r); }
+          for(const [parc, arr] of byParc.entries()){
+            if(!arr.length) continue;
+            const dates = Array.from(new Set(arr.map(x=> fmtDate(x.dtneg)))).filter(Boolean);
+            const dtCell = dates.length === 1 ? dates[0] : '—';
+            const classif = arr.filter(x=> x.classificavel !== false);
+            const nclass = arr.filter(x=> x.classificavel === false);
+            const icoParc = `<span class="lista-parc-ico" role="button" tabindex="0" data-parceiro="${parc.replace(/\"/g,'&quot;')}" aria-label="Resumo do Parceiro" title="Resumo do Parceiro" style="cursor:pointer; color:inherit; display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="9" cy="21" r="1"></circle>
+                <circle cx="20" cy="21" r="1"></circle>
+                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h7.72a2 2 0 0 0 2-1.61L23 6H6"/>
+              </svg>
+            </span>`;
+            htmlParts.push(`
+              <tr class="vale-header" data-expanded="true">
+                <td colspan="3" title="${parc.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.78rem; color:#334155;">
+                  <span class="vale-head-inner">
+                    <span style="font-weight:700">${parc}</span>
+                  </span>
+                </td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.78rem; color:#334155;">${dtCell}</td>
+                <td style="padding:6px 4px; border-bottom:1px solid #e5e7eb; text-align:right;">${icoParc}</td>
+              </tr>
+            `);
+            for(const r of classif){
+              const prod = r.produto||'';
+              const qtd = fmtQty(r.qtdneg);
+              const unit = ((r.codvol||'')+'').toUpperCase();
+              const dt = fmtDate(r.dtneg) || '—';
+              htmlParts.push(`
+                <tr data-classificavel="1" data-idx="${r._i}">
+                  <td style="padding:6px 4px; border-bottom:1px solid #e5e7eb;"></td>
+                  <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.78rem;">
+                    <div class=\"list-prod-inner\"><span class=\"list-name\">${prod}</span></div>
+                  </td>
+                  <td style="padding:6px 4px; border-bottom:1px solid #e5e7eb;"></td>
+                  <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.78rem; color:#64748b;">${dt}</td>
+                  <td style="padding:6px 4px; border-bottom:1px solid #e5e7eb; text-align:right; font-size:.78rem;">
+                    <span class=\"list-qty\">${qtd}<span class=\"list-unit\"> ${unit.toLowerCase()}</span></span>
+                  </td>
+                </tr>
+              `);
+            }
+            for(const r of nclass){
+              const prod = r.produto||'';
+              const qtd = fmtQty(r.qtdneg);
+              const unit = ((r.codvol||'')+'').toUpperCase();
+              const dt = fmtDate(r.dtneg) || '—';
+              htmlParts.push(`
+                <tr data-classificavel="0" data-idx="${r._i}">
+                  <td style="padding:6px 4px; border-bottom:1px solid #e5e7eb;"></td>
+                  <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.78rem;">
+                    <div class=\"list-prod-inner\"><span class=\"list-name\">${prod}</span></div>
+                  </td>
+                  <td style="padding:6px 4px; border-bottom:1px solid #e5e7eb;"></td>
+                  <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.78rem; color:#64748b;">${dt}</td>
+                  <td style="padding:6px 4px; border-bottom:1px solid #e5e7eb; text-align:right; font-size:.78rem;">
+                    <span class=\"list-qty\">${qtd}<span class=\"list-unit\"> ${unit.toLowerCase()}</span></span>
+                  </td>
+                </tr>
+              `);
+            }
+          }
+          return htmlParts.join('');
+        }
+      }
+
+      async function loadLista(ev){
+        try{
+          bodyEl.innerHTML = '<tr><td colspan="5" style="padding:8px; color:#64748b;">Carregando…</td></tr>';
+          const qs = parseFilters(ev);
+          const url = '/sankhya/comercial/lista/' + (qs ? ('?' + qs) : '');
+          const r = await fetch(url, { credentials: 'same-origin' });
+          let j = {}; try{ j = await r.json(); }catch(_){ j = {}; }
+          if(!j.ok){ bodyEl.innerHTML = '<tr><td colspan="5" style="padding:8px; color:#b91c1c;">Falha ao carregar.</td></tr>'; return; }
+          const rows = Array.isArray(j.rows) ? j.rows : [];
+          try{ rows.forEach((r,i)=> r._i = i); window.__COM_LIST_ROWS = rows; }catch(_){ }
+          if(!rows.length){ bodyEl.innerHTML = '<tr><td colspan="5" style="padding:8px; color:#64748b;">Nenhum registro.</td></tr>'; return; }
+          bodyEl.innerHTML = buildListaHTML(rows, currentViewMode);
+          const table = document.getElementById('listaTable');
+          if(table) table.setAttribute('data-view', String(currentViewMode));
+          
         }catch(_){
           bodyEl.innerHTML = '<tr><td colspan="5" style="padding:8px; color:#b91c1c;">Erro ao carregar.</td></tr>';
         }
@@ -1042,6 +1295,8 @@
       document.getElementById('listaBody')?.addEventListener('click', (ev)=>{
         const tr = ev.target.closest('tr');
         if(!tr) return;
+        // Ignore header clicks for selection (headers toggle expand/collapse)
+        if(tr.classList.contains('vale-header')) return;
         Array.from(document.querySelectorAll('#listaBody tr.row--sel')).forEach(el=> el.classList.remove('row--sel'));
         tr.classList.add('row--sel');
         // Ao selecionar uma linha de item, refletir dados individuais no card Entradas
@@ -1052,15 +1307,85 @@
           if(item) applyItemToEntrada(item);
         }
       });
+      // Toggle collapse per group by clicking header row
+      document.getElementById('listaBody')?.addEventListener('click', (ev)=>{
+        const header = ev.target.closest('tr.vale-header');
+        if(!header) return;
+        // If clicking the Vale icon, do not toggle
+  if(ev.target.closest('.lista-vale-ico') || ev.target.closest('.lista-parc-ico')) return;
+        ev.stopPropagation();
+        const isExpanded = header.getAttribute('data-expanded') !== 'false';
+        header.setAttribute('data-expanded', isExpanded ? 'false' : 'true');
+        let row = header;
+        while((row = row.nextElementSibling)){
+          if(row.classList.contains('vale-header')) break;
+          row.style.display = isExpanded ? 'none' : '';
+        }
+  // header removed: no head2 visibility update
+      });
+      // Collapse/Expand all groups
+      function collapseAllGrupos(){
+        const headers = Array.from(document.querySelectorAll('#listaBody tr.vale-header'));
+        headers.forEach(h => {
+          h.setAttribute('data-expanded','false');
+          let row = h;
+          while((row = row.nextElementSibling)){
+            if(row.classList.contains('vale-header')) break;
+            row.style.display = 'none';
+          }
+        });
+        
+      }
+      function expandAllGrupos(){
+        const headers = Array.from(document.querySelectorAll('#listaBody tr.vale-header'));
+        headers.forEach(h => {
+          h.setAttribute('data-expanded','true');
+          let row = h;
+          while((row = row.nextElementSibling)){
+            if(row.classList.contains('vale-header')) break;
+            row.style.display = '';
+          }
+        });
+        
+      }
+      document.getElementById('listaCollapseAll')?.addEventListener('click', (e)=>{ e.preventDefault(); collapseAllGrupos(); });
+      document.getElementById('listaExpandAll')?.addEventListener('click', (e)=>{ e.preventDefault(); expandAllGrupos(); });
       // (removido) Handler antigo do modal 'Outros'
       // Handler: abrir Resumo do Vale
       document.getElementById('listaBody')?.addEventListener('click', (ev)=>{
-        const btn = ev.target.closest('button.lista-vale-btn');
+        const btn = ev.target.closest('.lista-vale-ico');
         if(!btn) return;
         const nun = btn.getAttribute('data-nunota');
         openValeResumo(nun);
         // não atualiza mais o card Entrada pelo agrupamento; atualização é por item selecionado
         ev.stopPropagation();
+      });
+      // Keyboard support for the icon (Enter/Space)
+      document.getElementById('listaBody')?.addEventListener('keydown', (ev)=>{
+        const ico = ev.target.closest('.lista-vale-ico');
+        if(!ico) return;
+        if(ev.key === 'Enter' || ev.key === ' '){
+          ev.preventDefault();
+          const nun = ico.getAttribute('data-nunota');
+          openValeResumo(nun);
+        }
+      });
+      // Handler: abrir Resumo do Parceiro
+      document.getElementById('listaBody')?.addEventListener('click', (ev)=>{
+        const btn = ev.target.closest('.lista-parc-ico');
+        if(!btn) return;
+        const parceiro = btn.getAttribute('data-parceiro');
+        openParceiroResumo(parceiro);
+        ev.stopPropagation();
+      });
+      document.getElementById('listaBody')?.addEventListener('keydown', (ev)=>{
+        const ico = ev.target.closest('.lista-parc-ico');
+        if(!ico) return;
+        if(ev.key === 'Enter' || ev.key === ' '){
+          ev.preventDefault();
+          const parceiro = ico.getAttribute('data-parceiro');
+          openParceiroResumo(parceiro);
+        }
       });
       // Selecionar o cabeçalho do grupo (vale) para refletir no card Entradas
       // (não atualiza mais por cabeçalho de vale; somente linhas de itens)
@@ -1271,6 +1596,98 @@
             window.dispatchEvent(new CustomEvent('vale:faturar', { detail: { nunota: String(nunota) } }));
           });
         }catch(_){ }
+      }
+
+      // Modal: Resumo do Parceiro (lista os produtos do parceiro atual)
+      function openParceiroResumo(parceiro){
+        try{
+          const modal = document.getElementById('parceiroResumoModal');
+          const title = document.getElementById('parceiroResumoTitle');
+          const classBody = document.getElementById('parceiroClassBody');
+          const outrosBody = document.getElementById('parceiroOutrosBody');
+          const totalEl = document.getElementById('parceiroResumoTotal');
+          if(!modal || !title || !classBody || !outrosBody || !totalEl) return;
+          const rows = (window.__COM_LIST_ROWS||[]).filter(r=> String(r.parceiro||'') === String(parceiro||''));
+          title.textContent = `Parceiro — ${parceiro}`;
+          const fmtMoney = (n)=> isNaN(n) ? 'R$\u00A00,00' : new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n);
+          const fmtQty = (n)=> isNaN(n) ? '0' : Number(n||0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+          const classifs = rows.filter(r=> r.classificavel !== false);
+          const nclass = rows.filter(r=> r.classificavel === false);
+          // Classificáveis
+          if(classifs.length){
+            classBody.innerHTML = classifs.map(r=>{
+              const prod = r.produto||'';
+              const unit = ((r.codvol||'')+'').toUpperCase();
+              const q = fmtQty(Number(r.qtdneg||0));
+              const status = r.statusclass || '-';
+              return `<tr>
+                <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}${unit?` <span style='color:#64748b; font-size:.8rem; margin-left:6px;'>${unit}</span>`:''}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${q}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${status}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;"><button class="btn" style="border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:4px 6px;">Abrir</button></td>
+              </tr>`;
+            }).join('');
+          }else{
+            classBody.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>';
+          }
+          // Não Classificáveis
+          if(nclass.length){
+            outrosBody.innerHTML = nclass.map((r, idx)=>{
+              const prod = r.produto||'';
+              const unit = ((r.codvol||'')+'').toUpperCase();
+              const q = Number(r.qtdneg||0);
+              const id = `pop_${idx}_${Date.now()}`;
+              return `<tr data-idx="${idx}">
+                <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}${unit?` <span style='color:#64748b; font-size:.8rem; margin-left:6px;'>${unit}</span>`:''}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${fmtQty(q)}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;"><input data-idx="${idx}" class="pop-price" id="${id}" type="text" inputmode="decimal" style="width:90px; text-align:right; padding:4px 6px; border:1px solid #cbd5e1; border-radius:6px;" placeholder="R$" /></td>
+                <td class="pop-total" style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">R$\u00A00,00</td>
+              </tr>`;
+            }).join('');
+          }else{
+            outrosBody.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>';
+          }
+          modal.style.display = 'flex';
+          // cálculo total
+          const parsePT = (text) => {
+            if(!text) return NaN;
+            const cleaned = text.toString().trim().replace(/[^0-9,\.]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.');
+            const n = Number(cleaned); return isFinite(n) ? n : NaN;
+          };
+          function recompute(){
+            let sum = 0;
+            const trs = Array.from(outrosBody.querySelectorAll('tr'));
+            trs.forEach((tr, i)=>{
+              const q = Number(nclass[i]?.qtdneg||0);
+              const p = parsePT(tr.querySelector('input.pop-price')?.value||'');
+              const t = (isNaN(p)?0:p) * (isNaN(q)?0:q);
+              const cell = tr.querySelector('.pop-total');
+              if(cell) cell.textContent = fmtMoney(t);
+              sum += t;
+            });
+            totalEl.textContent = fmtMoney(sum);
+          }
+          outrosBody.addEventListener('input', (ev)=>{ if(ev.target && ev.target.classList.contains('pop-price')) recompute(); });
+          recompute();
+          // Close handlers
+          document.getElementById('parceiroResumoClose')?.addEventListener('click', ()=>{ modal.style.display='none'; });
+          modal.addEventListener('click', (ev)=>{ if(ev.target === modal) modal.style.display='none'; });
+          // Salvar/Faturar emit
+          document.getElementById('parceiroResumoSalvar')?.addEventListener('click', ()=>{
+            const items = Array.from(outrosBody.querySelectorAll('tr')).map((tr, i)=>{
+              const prod = String(nclass[i]?.produto||'');
+              const codvol = String(nclass[i]?.codvol||'').toUpperCase();
+              const codprod = nclass[i]?.codprod ?? null;
+              const qtd = Number(nclass[i]?.qtdneg||0);
+              const p = parsePT(tr.querySelector('input.pop-price')?.value||'');
+              return { prod, codprod, codvol, qtd, preco: isNaN(p)?null:p };
+            });
+            window.dispatchEvent(new CustomEvent('parceiro:salvar', { detail: { parceiro: String(parceiro), items } }));
+          });
+          document.getElementById('parceiroResumoFaturar')?.addEventListener('click', ()=>{
+            window.dispatchEvent(new CustomEvent('parceiro:faturar', { detail: { parceiro: String(parceiro) } }));
+          });
+        }catch{}
       }
 
       // Guardar os últimos rows carregados para uso no modal
