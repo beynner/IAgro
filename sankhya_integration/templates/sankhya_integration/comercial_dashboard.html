@@ -218,14 +218,23 @@
     #classCard{display:flex;flex-direction:column}
   #classCard .class-wrap{display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr;gap:12px;min-height:0;height:100%}
   #classCard .class-table{border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;min-height:0;height:100%;grid-column:1;grid-row:1}
-  #classCard .class-head,#classCard .class-row{display:grid;grid-template-columns:64px 1fr 96px 88px;align-items:center;gap:6px;padding:6px 8px}
-  #classCard .class-head{background:var(--card);color:#334155;font-weight:600;position:sticky;top:0;z-index:1;font-size:.8rem}
+  /* Two-line rows: product (line1) + details (line2) */
+  #classCard .class-head{display:none}
+  #classCard .class-row{display:flex;flex-direction:column;align-items:stretch;gap:2px;padding:8px 10px;border-bottom:1px solid #e5e7eb}
   #classCard .class-body{overflow:hidden auto;min-height:0}
-  #classCard .cell-num{text-align:right;font-variant-numeric:tabular-nums;font-size:.85rem}
-  #classCard .cell-prod{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.85rem}
-  #classCard .cell-pct{display:flex;align-items:center;gap:6px;justify-content:flex-end}
-  #classCard .cell-pct .pct-val{min-width:38px;text-align:right;font-weight:700;color:#0a3392;font-size:.85rem}
-  #classCard .percent-bar{flex:1;height:4px;background:#e2e8f0;border-radius:999px;overflow:hidden;max-width:72px}
+  /* Line 1: full product name */
+  #classCard .class-row .line1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem;color:#334155;font-weight:600;text-align:left}
+  /* Line 2: quantities + percent, indented */
+  #classCard .class-row .line2{display:flex;align-items:center;gap:8px;padding-left:10px;color:#475569;font-size:.78rem;flex-wrap:nowrap;white-space:nowrap;overflow:hidden;min-width:0}
+  #classCard .class-row .pct{flex:0 0 auto}
+  #classCard .class-row .line2 .qty{margin-left:auto;display:flex;align-items:center;gap:8px;text-align:right}
+  #classCard .class-row .line2 .u{opacity:.55;font-size:.75em;letter-spacing:.01em;margin-left:2px}
+  #classCard .class-row .line2 .meta-val{font-variant-numeric:tabular-nums}
+  #classCard .class-row .line2 .sep{opacity:.6}
+  #classCard .class-row .line2 .sep-dash{opacity:.45}
+  #classCard .pct{display:flex;align-items:center;gap:6px}
+  #classCard .pct-val{min-width:38px;text-align:right;font-weight:700;color:#0a3392;font-size:.8rem}
+  #classCard .percent-bar{height:4px;background:#e2e8f0;border-radius:999px;overflow:hidden;width:72px;flex:0 0 auto}
     #classCard .percent-bar>span{display:block;height:100%;background:linear-gradient(90deg,#0ea5e9,#3b82f6);width:0%}
   #classCard .summary{grid-column:2;grid-row:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr auto;gap:12px;align-content:start;min-height:0;height:100%;overflow:hidden}
   /* Extra card (direita) */
@@ -245,7 +254,10 @@
   #classCard .gauge{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:0}
   #classCard .gauge svg{width:240px;height:128px;max-width:100%;display:block}
   /* reduzir espaço abaixo do título apenas neste card */
-  #classCard > h3{margin-bottom:0}
+  #classCard > h3{margin-bottom:0; color: var(--g-class)}
+  #entradaCard > h3{color: var(--g-entrada)}
+  /* Título principal do card Distribuição fica dentro de #distMain */
+  #distMain > h3{color: var(--g-dist)}
   #classCard .gauge #gArc,#classCard .gauge #gTrack{stroke-width:14px}
   #classCard .gauge #gArc{transition:stroke-dasharray 900ms ease-in-out, stroke 900ms linear}
   #classCard .summary .kpi:first-child{padding:0;background:transparent;border:0;box-shadow:none;gap:0}
@@ -377,7 +389,7 @@
 </head>
 <body>
   <div class="wrap">
-  <header class="appbar"><h1>Painel Comercial — (Layout reiniciado)</h1><span class="sup-name" id="supplierName">—</span></header>
+  
 
     <div class="layout">
       <aside class="sidebar group group--pesquisa">
@@ -718,50 +730,25 @@
 
           <!-- BL: Classificação -->
           <div class="zcell z-bl panel group group--class" id="classCard" data-classified="100" data-target="100">
-            <h3>Classificação</h3>
+            <h3 style="position:relative;">Classificação
+              <span id="classFabricanteName" style="position:absolute; left:50%; transform:translateX(-50%); font-weight:800; font-size:1.05rem; line-height:1;">-</span>
+            </h3>
             <div class="class-wrap">
               <div class="class-table">
-                <div class="class-head" role="row">
-                  <div class="cell-num" role="columnheader" aria-label="Caixas">CX</div>
-                  <div class="cell-prod" role="columnheader">Produto</div>
-                  <div class="cell-num" role="columnheader" aria-label="Quilos">KG</div>
-                  <div class="cell-pct" role="columnheader" aria-label="Percentual">%</div>
-                </div>
+                
                 <div class="class-body" id="classBody" role="rowgroup">
-                  <div class="class-row" role="row" data-cx="120" data-kg="2640" data-prod="Produto A">
-                    <div class="cell-num cx" role="cell">120</div>
-                    <div class="cell-prod" role="cell">Produto A</div>
-                    <div class="cell-num kg" role="cell">2.640</div>
-                    <div class="cell-pct" role="cell">
-                      <div class="percent-bar" aria-hidden="true"><span></span></div>
-                      <div class="pct-val">0%</div>
-                    </div>
-                  </div>
-                  <div class="class-row" role="row" data-cx="90" data-kg="1980" data-prod="Produto B">
-                    <div class="cell-num cx" role="cell">90</div>
-                    <div class="cell-prod" role="cell">Produto B</div>
-                    <div class="cell-num kg" role="cell">1.980</div>
-                    <div class="cell-pct" role="cell">
-                      <div class="percent-bar" aria-hidden="true"><span></span></div>
-                      <div class="pct-val">0%</div>
-                    </div>
-                  </div>
-                  <div class="class-row" role="row" data-cx="70" data-kg="1590" data-prod="Produto C">
-                    <div class="cell-num cx" role="cell">70</div>
-                    <div class="cell-prod" role="cell">Produto C</div>
-                    <div class="cell-num kg" role="cell">1.590</div>
-                    <div class="cell-pct" role="cell">
-                      <div class="percent-bar" aria-hidden="true"><span></span></div>
-                      <div class="pct-val">0%</div>
-                    </div>
-                  </div>
-                  <div class="class-row" role="row" data-cx="25" data-kg="570" data-prod="Produto D">
-                    <div class="cell-num cx" role="cell">25</div>
-                    <div class="cell-prod" role="cell">Produto D</div>
-                    <div class="cell-num kg" role="cell">570</div>
-                    <div class="cell-pct" role="cell">
-                      <div class="percent-bar" aria-hidden="true"><span></span></div>
-                      <div class="pct-val">0%</div>
+                  <div class="class-row" role="row" data-cx="0" data-kg="0" data-prod="-">
+                    <div class="line1" title="-">-</div>
+                    <div class="line2">
+                      <div class="pct" style="padding-left:10px">
+                        <div class="pct-val">0%</div>
+                        <div class="percent-bar" aria-hidden="true"><span style="width:0%"></span></div>
+                      </div>
+                      <div class="qty">
+                        <span class="meta-val"><strong>0</strong> <span class="u">cx</span></span>
+                        <span class="sep">/</span>
+                        <span class="meta-val"><strong>0</strong> <span class="u">kg</span></span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -811,8 +798,8 @@
           <div class="zcell z-br panel group group--entrada" id="entradaCard" data-supplier="" data-product="" data-doc="" data-serie="" data-date="" data-tipo="" data-lote="" data-cx="" data-kg-in="" data-kg-class="" data-preco-kg="" data-preco-cx="">
             <h3 class="entrada-title">Entrada
               <span class="title-right">
-                <span class="badge" id="entBadgeLote">Andre Patrocinio</span>
-                <span class="badge" id="entBadgeTipo">26/09/2025</span>
+                <span class="badge" id="entBadgeLote">-</span>
+                <span class="badge" id="entBadgeTipo">-</span>
               </span>
             </h3>
             <div class="entrada-wrap">
@@ -829,37 +816,37 @@
                 <div class="card" aria-live="polite" id="quantidadeInnCard">
                   <div class="headline">
                     <div class="metric-label">Caixas</div>
-                    <div class="big" id="quantidadeInn">-</div>
+                    <div class="big" id="quantidadeInn">0</div>
                     <div class="unit">CX</div>
                   </div>
                   <div class="peso-row">
                     <div class="metric-label">Peso In Natura</div>
                     <div class="value">
-                      <span id="pesoInnDisplay">-</span>
+                      <span id="pesoInnDisplay">0</span>
                       <span class="unit">kg</span>
                     </div>
                   </div>
                   <div class="peso-row">
                     <div class="metric-label">Peso Total Aproximado</div>
-                    <div class="value"><span id="totalInn">-</span> <span class="unit">kg</span></div>
+                    <div class="value"><span id="totalInn">0</span> <span class="unit">kg</span></div>
                   </div>
                   <!-- Divisor para separar seção de preço -->
                   <div class="divider" role="separator" aria-hidden="true"></div>
                   <div class="kpi-row">
                     <div class="metric-label">Preço Inicial</div>
                     <div class="value">
-                      <span id="entPrecoCxDisplay" class="editable" role="button" tabindex="0" aria-label="Editar preço por caixa">-</span>
+                      <span id="entPrecoCxDisplay" class="editable" role="button" tabindex="0" aria-label="Editar preço por caixa">R$ 0,00</span>
                       <input id="entPrecoCxInput" class="preco-input" type="text" inputmode="decimal" aria-label="Preço por caixa" />
                       <span class="unit">/cx</span>
                     </div>
                   </div>
                   <div class="kpi-row">
                     <div class="metric-label"></div>
-                    <div class="value"><span id="entPrecoKg">-</span> <span class="unit">/kg</span></div>
+                    <div class="value"><span id="entPrecoKg">R$ 0,00</span> <span class="unit">/kg</span></div>
                   </div>
                   <div class="kpi-row total">
                     <div class="metric-label">Valor Total</div>
-                    <div class="value"><span class="currency">R$</span><span id="entTotalIn">-</span></div>
+                    <div class="value"><span class="currency">R$</span><span id="entTotalIn">0,00</span></div>
                   </div>
                 </div>
               </div>
@@ -1304,6 +1291,29 @@
           const rows = window.__COM_LIST_ROWS || [];
           const item = rows.find(r=> String(r._i) === String(idx));
           if(item) applyItemToEntrada(item);
+          // Buscar e renderizar Classificação com base no lote (CODAGREGACAO)
+          try{
+            // Precisamos do lote (CODAGREGACAO); se não vier no item, buscamos via nunota/seq
+            const nun = Number(item.nunota||0);
+            const seq = Number(item.sequencia||0);
+            const getLote = async ()=>{
+              if(item.lote){ return String(item.lote); }
+              if(nun && seq){
+                const r = await fetch(`/sankhya/item/get_lote/?nunota=${nun}&seq=${seq}`, { credentials:'same-origin' });
+                const j = await r.json();
+                if(j && j.ok && j.lote) return String(j.lote);
+              }
+              return '';
+            };
+            (async ()=>{
+              const lote = await getLote();
+              if(!lote) return;
+              const r2 = await fetch(`/sankhya/classificacao/resumo/?lote=${encodeURIComponent(lote)}`, { credentials:'same-origin' });
+              const j2 = await r2.json();
+              if(!(j2 && j2.ok)) return;
+              renderClassificacaoCard(j2.linhas||[], lote);
+            })();
+          }catch{}
         }
       });
       // Toggle collapse per group by clicking header row
@@ -1497,9 +1507,12 @@
             const card = document.getElementById('quantidadeInnCard');
             if(card){ card.setAttribute('data-nunota', String(nunota||'')); card.setAttribute('data-seq', String(sequencia||'')); }
           }catch{}
-          // AppBar supplier: parceiro - produto
-          const supEl = document.getElementById('supplierName');
-          if(supEl){ const composed = [parceiro, produto].filter(Boolean).join(' - ') || '—'; supEl.textContent = composed; supEl.title = composed; }
+          // Atualizar linha de Fabricante (produto sem a última palavra que indica a classificação)
+          const prodFull = String(produto||'').trim();
+          const parts = prodFull ? prodFull.split(/\s+/) : [];
+          const fabricante = parts.length > 1 ? parts.slice(0, -1).join(' ') : prodFull;
+          const fabEl = document.getElementById('classFabricanteName');
+          if(fabEl){ fabEl.textContent = fabricante || '—'; }
           // Badges
           const tipoEl = document.getElementById('entBadgeTipo');
           const loteEl = document.getElementById('entBadgeLote');
@@ -1559,6 +1572,80 @@
             }catch{}
           }
           // Mantém os valores calculados acima; sem reset para '-'
+        }catch{}
+      }
+  function renderClassificacaoCard(linhas, lote){
+        try{
+          const card = document.getElementById('classCard');
+          if(!card) return;
+          const body = card.querySelector('.class-body');
+          const rows = Array.isArray(linhas) ? linhas : [];
+          // Montar linhas: produto, cx, kg e barra % (baseada em KG total)
+          // Conversão visual para Classificação: 20 kg por caixa
+          const KG_PER_CX = 20;
+          // Total KG base para porcentagem: usar KG quando presente; se ausente e só houver CX, interpretar CX como KG (dados inconsistentes)
+          const totalKg = rows.reduce((s,r)=> {
+            const cx0 = Number(r.cx||0)||0; const kg0 = Number(r.kg||0)||0;
+            const kgDisp = kg0>0 ? kg0 : (cx0>0 ? cx0 : 0);
+            return s + kgDisp;
+          }, 0);
+          const fmtInt = (n)=> Number(n||0).toLocaleString('pt-BR');
+          const pct = (kg)=> totalKg>0 ? (kg/totalKg*100) : 0;
+          // Ordenar por KG (desc), considerando fallback (quando só CX vier)
+          const rowsSorted = rows.slice().sort((a,b)=>{
+            const aCx0 = Number(a.cx||0)||0, aKg0 = Number(a.kg||0)||0;
+            const bCx0 = Number(b.cx||0)||0, bKg0 = Number(b.kg||0)||0;
+            const aKg = aKg0>0 ? aKg0 : (aCx0>0 ? aCx0 : 0);
+            const bKg = bKg0>0 ? bKg0 : (bCx0>0 ? bCx0 : 0);
+            return bKg - aKg;
+          });
+
+          if(body){
+            body.innerHTML = rowsSorted.map(r=>{
+              const cx0 = Number(r.cx||0)||0, kg0 = Number(r.kg||0)||0;
+              // Se há KG, usamos ele; se não houver e só houver CX, assumimos que CX representa KG (dados vieram trocados)
+              const kg = kg0>0 ? kg0 : (cx0>0 ? cx0 : 0);
+              // CX exibe caixas: quando não informado, derivar de KG
+              const cx = cx0>0 && kg0>0 ? cx0 : (kg>0 ? (kg / KG_PER_CX) : 0);
+              const p = Math.max(0, Math.min(100, pct(kg)));
+              const prodFull = (r.produto||'');
+              const prodTitle = String(prodFull).replace(/"/g,'&quot;');
+               return `
+                <div class="class-row" role="row" data-cx="${cx}" data-kg="${kg}" data-prod="${prodTitle}">
+                  <div class="line1" title="${prodTitle}">${prodTitle}</div>
+                  <div class="line2">
+                    <div class="pct" style="padding-left:10px">
+                      <div class="pct-val" style="font-size:.85em;">${p.toLocaleString('pt-BR',{maximumFractionDigits:1})}%</div>
+                      <div class="percent-bar" aria-hidden="true"><span style="width:${p.toFixed(1)}%"></span></div>
+                    </div>
+                    <div class="qty">
+                      <span class="meta-val"><strong>${fmtInt(cx)}</strong> <span class="u">cx</span></span>
+                      <span class="sep">/</span>
+                      <span class="meta-val"><strong>${fmtInt(kg)}</strong> <span class="u">kg</span></span>
+                    </div>
+                  </div>
+                </div>`;
+            }).join('');
+          }
+          // Recalcular KPIs e gauge aproveitando script existente da seção Classificação
+          try{
+            // Forçar reexecução do bloco de cálculo de KPIs redefinindo data-attributes
+            // Totais para base 22kg/cx e percentuais já são recalculados no script Classificação
+            const totalCx = rows.reduce((s,r)=> s + (Number(r.cx||0)||0), 0);
+            // Atualiza atributos somente informativos (não usados diretamente no cálculo do bloco existente)
+            card.setAttribute('data-classified', String(totalKg));
+            card.setAttribute('data-target', String(totalKg));
+          }catch{}
+          // Disparar pequena rotina para reprocessar percentuais/KPIs (reutilizando função já carregada)
+          try{
+            // Simplesmente dispara um microtask para o bloco Classificação ler o DOM atualizado
+            setTimeout(()=>{
+              // O bloco Classificação atual já recalcula com base no DOM renderizado no load.
+              // Para reusar sem duplicar lógica, podemos reexecutar o trecho essencial criando um evento customizado.
+              const ev = new Event('classificacao:updated');
+              window.dispatchEvent(ev);
+            },0);
+          }catch{}
         }catch{}
       }
 
@@ -2070,116 +2157,134 @@
         .forEach(attachSelectAll);
     })();
     
+    // Reminder: After applying Distribuição, prompt to revisit Classificação (gauge + estoque)
+    (function(){
+      try{
+        const classCard = document.getElementById('classCard');
+        const applyBtn = document.getElementById('sim-btn-apply');
+        if(!classCard || !applyBtn) return;
+        function ensureBanner(){
+          let el = document.getElementById('classReminder');
+          if(el) return el;
+          el = document.createElement('div');
+          el.id = 'classReminder';
+          el.setAttribute('role','alert');
+          el.style.cssText = 'display:none;margin:8px 0 10px 0;padding:8px 10px;border:1px solid #f59e0b;background:#fff7ed;color:#7c2d12;border-radius:8px;font-size:.85rem;display:flex;align-items:center;justify-content:space-between;gap:8px;';
+          const msg = document.createElement('span');
+          msg.textContent = 'Pendente: ajustar o gauge e o estoque no card Classificação. Volte aqui após finalizar o card Distribuição.';
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = 'Dispensar';
+          btn.style.cssText = 'border:1px solid #f59e0b;background:#fff;color:#7c2d12;border-radius:6px;padding:4px 8px;cursor:pointer;font-weight:600;';
+          btn.addEventListener('click', ()=>{ el.style.display='none'; try{ localStorage.setItem('classReminderDismissed','1'); }catch{} });
+          el.appendChild(msg); el.appendChild(btn);
+          const mountBefore = classCard.querySelector('.class-wrap') || classCard.firstElementChild;
+          try{ classCard.insertBefore(el, mountBefore); }catch{ classCard.appendChild(el); }
+          return el;
+        }
+        applyBtn.addEventListener('click', ()=>{
+          try{ if(localStorage.getItem('classReminderDismissed')==='1') return; }catch{}
+          const banner = ensureBanner();
+          banner.style.display = 'flex';
+          try{ classCard.scrollIntoView({ behavior: 'smooth', block: 'start' }); }catch{}
+        });
+      }catch{}
+    })();
+    
     // Classificação: cálculo de % por item, Rendimento e Estoque InNatura (escopo apenas do card)
     (function(){
-      const card = document.getElementById('classCard');
-      if(!card) return;
-      const rows = card.querySelectorAll('.class-row');
-  const kpiRend = document.getElementById('kpiRendimento');
-  const kpiEst = document.getElementById('kpiEstoque');
-  const kpiApr = document.getElementById('kpiAproveitamento');
-      const gauge = document.getElementById('gaugeProgress');
-      const gArc = document.getElementById('gArc');
-      const gPct = document.getElementById('gPct');
-      const gLabel = document.getElementById('gaugeLabel');
+      function recalc(){
+        const card = document.getElementById('classCard');
+        if(!card) return;
+        const rows = card.querySelectorAll('.class-row');
+        const kpiRend = document.getElementById('kpiRendimento');
+        const kpiEst = document.getElementById('kpiEstoque');
+        const kpiApr = document.getElementById('kpiAproveitamento');
+        const gauge = document.getElementById('gaugeProgress');
+        const gArc = document.getElementById('gArc');
+        const gPct = document.getElementById('gPct');
+        const gLabel = document.getElementById('gaugeLabel');
 
-      const parsePT = (text) => {
-        if(text == null) return NaN;
-        const cleaned = text.toString().trim()
-          .replace(/[^0-9,\.]/g,'')
-          .replace(/\.(?=\d{3}(\D|$))/g,'')
-          .replace(',', '.');
-        const n = Number(cleaned);
-        return isFinite(n) ? n : NaN;
-      };
-      const fmtQty = (n) => isNaN(n) ? '0' : n.toLocaleString('pt-BR');
-      const fmtPct = (n) => (isNaN(n)?0:n).toLocaleString('pt-BR',{maximumFractionDigits:1}) + '%';
+        const parsePT = (text) => {
+          if(text == null) return NaN;
+          const cleaned = text.toString().trim()
+            .replace(/[^0-9,\.]/g,'')
+            .replace(/\.(?=\d{3}(\D|$))/g,'')
+            .replace(',', '.');
+          const n = Number(cleaned);
+          return isFinite(n) ? n : NaN;
+        };
+        const fmtQty = (n) => isNaN(n) ? '0' : n.toLocaleString('pt-BR');
+        const fmtPct = (n) => (isNaN(n)?0:n).toLocaleString('pt-BR',{maximumFractionDigits:1}) + '%';
 
-      // Totais
-      let totalKg = 0;
-      let totalCx = 0;
-      rows.forEach(r => {
-        const kg = parsePT(r.dataset.kg || r.querySelector('.kg')?.textContent || '0');
-        const cx = parsePT(r.dataset.cx || r.querySelector('.cx')?.textContent || '0');
-        if(!isNaN(kg)) totalKg += kg;
-        if(!isNaN(cx)) totalCx += cx;
-      });
-
-      // Percentual por linha baseado em participação no KG total
-      rows.forEach(r => {
-        const kg = parsePT(r.dataset.kg || r.querySelector('.kg')?.textContent || '0');
-        const pct = totalKg > 0 ? (kg / totalKg * 100) : 0;
-        const pctEl = r.querySelector('.pct-val');
-        const bar = r.querySelector('.percent-bar > span');
-        if(pctEl) pctEl.textContent = fmtPct(pct);
-        if(bar) bar.style.width = Math.max(0, Math.min(100, pct)).toFixed(1) + '%';
-      });
-
-      // Rendimento: diferença percentual entre peso real e padrão 22kg/caixa
-      // padrão total esperado: totalCx * 22; se totalKg > esperado, houve ganho
-      const esperadoKg = totalCx * 22;
-      const rendimentoPct = esperadoKg > 0 ? ((totalKg - esperadoKg) / esperadoKg) * 100 : 0;
-      if(kpiRend) kpiRend.textContent = fmtPct(rendimentoPct);
-
-      // Estoque InNatura: caixas excedentes produzidas pela padronização (totalKg / 22) - totalCx
-      const cxEquivalentes = esperadoKg > 0 ? (totalKg / 22) : 0;
-      const estoqueCx = Math.max(0, Math.floor(cxEquivalentes - totalCx));
-  if(kpiEst) kpiEst.textContent = fmtQty(estoqueCx) + ' cx';
-
-  // Aproveitamento: fração útil aproveitada após padronização (limitada ao peso padrão)
-  const kgUtil = Math.min(totalKg, esperadoKg);
-  const aprPct = totalKg > 0 ? (kgUtil / totalKg) * 100 : 0;
-  if(kpiApr) kpiApr.textContent = fmtPct(aprPct);
-
-      // Gauge de progresso: usa data-classified e data-target em #classCard se presentes
-      if(gauge && gArc && gPct){
-        const classified = Number(card.getAttribute('data-classified') || '0'); // kg já classificados (ou cx)
-        const target = Number(card.getAttribute('data-target') || String(totalKg)); // objetivo (default: totalKg)
-        const p = target > 0 ? Math.max(0, Math.min(1, classified / target)) : 0;
-        const pct = p * 100;
-        // semicírculo: comprimento do arco ~ PI * r ; aqui r=90 no viewBox, arco 180º -> length ~ PI*90
-        const arcLen = Math.PI * 90;
-        // animação: começa do zero e vai até o alvo
-        requestAnimationFrame(()=>{
-          gArc.setAttribute('stroke-dasharray', `0 ${arcLen.toFixed(1)}`);
-          // Força reflow para garantir a transição
-          void gArc.getBBox();
-          gArc.setAttribute('stroke-dasharray', `${(arcLen*p).toFixed(1)} ${arcLen.toFixed(1)}`);
+        let totalKg = 0;
+        let totalCx = 0;
+        rows.forEach(r => {
+          const kg = parsePT(r.dataset.kg || r.querySelector('.kg')?.textContent || '0');
+          const cx = parsePT(r.dataset.cx || r.querySelector('.cx')?.textContent || '0');
+          if(!isNaN(kg)) totalKg += kg;
+          if(!isNaN(cx)) totalCx += cx;
         });
-        // cor sólida interpolada p: 0 -> vermelho; 0.5 -> amarelo; 1 -> verde
-        const lerp = (a,b,t)=> a + (b-a)*t;
-        const toHex = (v)=> ('0' + Math.round(v).toString(16)).slice(-2);
-        const rgb = (r,g,b)=> `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-        let r, g, b;
-        if(p <= 0.5){
-          // vermelho (255,26,26) -> amarelo (245,158,11)
-          const t = p/0.5;
-          r = lerp(255, 245, t);
-          g = lerp(26, 158, t);
-          b = lerp(26, 11, t);
-        }else{
-          // 50% até 99%: amarelo (245,158,11) -> #A2AB2C; 100%: verde puro (#10b981)
-          if(p >= 1){
-            r = 16; g = 185; b = 129; // verde puro somente em 100%
-          }else if(p >= 0.99){
-            r = 162; g = 171; b = 44; // cor alvo em 99%
+
+        rows.forEach(r => {
+          const kg = parsePT(r.dataset.kg || r.querySelector('.kg')?.textContent || '0');
+          const pct = totalKg > 0 ? (kg / totalKg * 100) : 0;
+          const pctEl = r.querySelector('.pct-val');
+          const bar = r.querySelector('.percent-bar > span');
+          if(pctEl) pctEl.textContent = fmtPct(pct);
+          if(bar) bar.style.width = Math.max(0, Math.min(100, pct)).toFixed(1) + '%';
+        });
+
+        const esperadoKg = totalCx * 22;
+        const rendimentoPct = esperadoKg > 0 ? ((totalKg - esperadoKg) / esperadoKg) * 100 : 0;
+        if(kpiRend) kpiRend.textContent = fmtPct(rendimentoPct);
+
+        const cxEquivalentes = esperadoKg > 0 ? (totalKg / 22) : 0;
+        const estoqueCx = Math.max(0, Math.floor(cxEquivalentes - totalCx));
+        if(kpiEst) kpiEst.textContent = fmtQty(estoqueCx) + ' cx';
+
+        const kgUtil = Math.min(totalKg, esperadoKg);
+        const aprPct = totalKg > 0 ? (kgUtil / totalKg) * 100 : 0;
+        if(kpiApr) kpiApr.textContent = fmtPct(aprPct);
+
+        if(gauge && gArc && gPct){
+          const classified = Number(card.getAttribute('data-classified') || String(totalKg));
+          const target = Number(card.getAttribute('data-target') || String(totalKg));
+          const p = target > 0 ? Math.max(0, Math.min(1, classified / target)) : 0;
+          const pct = p * 100;
+          const arcLen = Math.PI * 90;
+          requestAnimationFrame(()=>{
+            gArc.setAttribute('stroke-dasharray', `0 ${arcLen.toFixed(1)}`);
+            void gArc.getBBox();
+            gArc.setAttribute('stroke-dasharray', `${(arcLen*p).toFixed(1)} ${arcLen.toFixed(1)}`);
+          });
+          const lerp = (a,b,t)=> a + (b-a)*t;
+          const rgb = (r,g,b)=> `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+          let r, g, b;
+          if(p <= 0.5){
+            const t = p/0.5;
+            r = lerp(255, 245, t);
+            g = lerp(26, 158, t);
+            b = lerp(26, 11, t);
           }else{
-            const t = (p - 0.5) / 0.49; // mapeia 0.5->0 e 0.99->1
-            // de amarelo (245,158,11) para #A2AB2C (162,171,44)
-            r = lerp(245, 162, t);
-            g = lerp(158, 171, t);
-            b = lerp(11, 44, t);
+            if(p >= 1){ r = 16; g = 185; b = 129; }
+            else if(p >= 0.99){ r = 162; g = 171; b = 44; }
+            else {
+              const t = (p - 0.5) / 0.49;
+              r = lerp(245, 162, t);
+              g = lerp(158, 171, t);
+              b = lerp(11, 44, t);
+            }
           }
+          gArc.setAttribute('stroke', rgb(r,g,b));
+          gPct.textContent = fmtPct(pct);
+          if(gLabel) gLabel.textContent = 'Classificado';
         }
-        gArc.setAttribute('stroke', rgb(r,g,b));
-        // mantém também o número em texto (mesmo oculto) atualizado
-        gPct.textContent = fmtPct(pct);
-        if(gLabel) gLabel.textContent = 'Classificado';
       }
-
-      // (ABC removido por enquanto)
-
-      // Layout agora usa grid-rows (1fr auto) na summary; sem JS para altura
+      // expõe função global para reuso após atualização dinâmica
+      window.recalcClassificacaoMetrics = recalc;
+      // calcular na primeira carga
+      try{ recalc(); }catch{}
     })();
 
     // Supplier bar: montar "Fornecedor - Produto"
@@ -2234,15 +2339,15 @@
         const totalInEl = $('#entTotalIn');
 
   if(productEl) productEl.textContent = product;
-  if(partnerEl) partnerEl.textContent = supplier || '—';
-  if(tipoEl) tipoEl.textContent = tipo || '—';
-  if(loteEl) loteEl.textContent = lote || '—';
+  if(partnerEl) partnerEl.textContent = supplier || '-';
+  if(tipoEl) tipoEl.textContent = tipo || '-';
+  if(loteEl) loteEl.textContent = lote || '-';
 
-  if(cxEl) cxEl.textContent = fmtInt(cx);
+  if(cxEl) cxEl.textContent = fmtInt(cx || 0);
         // Peso In Natura por caixa (inicial): se fornecido por atributo data-preco-kg? não; calcular como kgIn / cx
         const perBox = (cx>0 && kgIn>0) ? (kgIn / cx) : 0;
         const fmtOneDecimal = (n)=> isNaN(n) ? '0,0' : n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-        if(pesoInDisp) pesoInDisp.textContent = fmtOneDecimal(perBox);
+  if(pesoInDisp) pesoInDisp.textContent = fmtOneDecimal(perBox || 0);
         const recomputeTotalApprox = (perBoxVal)=>{
           const total = (cx||0) * (perBoxVal||0);
           const totalInt = Math.floor(total);
@@ -2257,7 +2362,7 @@
         };
         recomputeTotalApprox(perBox);
 
-        if(precoCxDisplay) precoCxDisplay.textContent = fmtMoney(precoCx);
+  if(precoCxDisplay) precoCxDisplay.textContent = fmtMoney(precoCx || 0);
         // Total inicial: se preço por cx informado, calcula por cx; senão, por kg
         const calcTotalFromCx = (cxVal, precoCxVal)=> (cxVal||0) * (precoCxVal||0);
         const calcPrecoKgFromTotal = (totalVal, pesoTotal)=> (pesoTotal>0 ? totalVal / pesoTotal : 0);
@@ -2266,7 +2371,7 @@
           try{ return Number(txt.replace(/\./g,'').replace(',','.')); }catch{ return 0; }
         })();
         let totalInicial = !isNaN(precoCx) && precoCx>0 ? calcTotalFromCx(cx, precoCx) : ((kgIn||0) * (precoKg||0));
-        if(totalInEl) totalInEl.textContent = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}).format(totalInicial);
+  if(totalInEl) totalInEl.textContent = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}).format(totalInicial || 0);
         const precoKgInicial = calcPrecoKgFromTotal(totalInicial, pesoTotalApproxNum);
         if(precoKgEl) precoKgEl.textContent = fmtMoney(precoKgInicial);
 

@@ -37,6 +37,7 @@ urlpatterns = [
     path("item/save/", views.item_save, name="item_save"),
     path("item/delete/", views.item_delete, name="item_delete"),
     path("item/duplicate/", views.item_duplicate, name="item_duplicate"),
+    path("item/get_lote/", views.item_get_lote, name="item_get_lote"),
     path("nota/delete/", views.nota_delete, name="nota_delete"),
     path("nota/diagnose/", views.nota_diagnose, name="nota_diagnose"),
     path("class/plan/", views.class_plan, name="class_plan"),
@@ -48,5 +49,6 @@ urlpatterns = [
     path("header/plan/", views.header_plan, name="header_plan"),
     path("comercial/sim/save/", views.comercial_sim_save, name="comercial_sim_save"),
     path("comercial/sim/list/", views.comercial_sim_list, name="comercial_sim_list"),
+    path("classificacao/resumo/", views.classificacao_resumo, name="classificacao_resumo"),
     # Duplicação automática/rotas removidas a pedido: sem duplicar TOP 11→26 via portal
 ]

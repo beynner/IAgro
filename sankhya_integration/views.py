@@ -46,6 +46,7 @@ try:
         consultar_lote,
         fetch_tgfite_details,
         listar_itens_portal_basico,
+        resumo_classificacao_por_lote,
         
     )
     # Lazy import inside functions for advanced helpers when needed
@@ -1984,6 +1985,49 @@ def item_duplicate(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"ok": False, "error": "Informe nunota e sequencia"}, status=400)
     res = duplicate_item(nunota, sequencia, dry_run=False)
     return JsonResponse(res, status=200 if res.get('executed') else 400)
+
+def item_get_lote(request: HttpRequest) -> JsonResponse:
+    """GET /sankhya/item/get_lote/?nunota=...&seq=... -> { ok, lote }
+    Retorna CODAGREGACAO (lote) do item em TGFITE.
+    """
+    if request.method != 'GET':
+        return JsonResponse({"ok": False, "error": "Use GET"}, status=405)
+    try:
+        nunota = int(request.GET.get('nunota'))
+        seq = int(request.GET.get('seq'))
+    except Exception:
+        return JsonResponse({"ok": False, "error": "Parâmetros inválidos (nunota, seq)"}, status=400)
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT CODAGREGACAO FROM TGFITE WHERE NUNOTA=:n AND SEQUENCIA=:s", n=nunota, s=seq)
+            row = cur.fetchone()
+            lote = (row[0] if row else None) or ''
+            return JsonResponse({"ok": True, "nunota": nunota, "sequencia": seq, "lote": lote})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+
+def classificacao_resumo(request: HttpRequest) -> JsonResponse:
+    """GET /sankhya/classificacao/resumo/?lote=... -> { ok, lote, linhas: [ { produto, cx, kg } ] }
+    Usa somente itens TOP 26 (classificados).
+    """
+    if request.method != 'GET':
+        return JsonResponse({"ok": False, "error": "Use GET"}, status=405)
+    lote = (request.GET.get('lote') or '').strip()
+    if not lote:
+        return JsonResponse({"ok": False, "error": "Informe 'lote'"}, status=400)
+    try:
+        rows = resumo_classificacao_por_lote(lote)
+        linhas = []
+        for descr, sum_cx, sum_kg in rows:
+            linhas.append({
+                'produto': (descr or '').strip(),
+                'cx': float(sum_cx or 0),
+                'kg': float(sum_kg or 0),
+            })
+        return JsonResponse({"ok": True, "lote": lote, "linhas": linhas})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=500)
 
 def nota_delete(request: HttpRequest) -> JsonResponse:
     """Endpoint JSON para excluir uma nota (TGFCAB) e seus itens (TGFITE)."""

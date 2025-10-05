@@ -1827,7 +1827,7 @@ def calcular_agregados_lote(controle: str) -> dict:
     vendas_list_sql = ','.join(str(x) for x in TOP_VENDAS)
 
     agregados = {
-        'controle': controle,
+        'lote': controle,
         'qtd_prevista': 0.0,
         'qtd_classificada': 0.0,
         'qtd_descartada': 0.0,
@@ -1920,6 +1920,37 @@ def calcular_agregados_lote(controle: str) -> dict:
         agregados['estado'] = 'Entregue' if agregados['qtd_reservada'] == 0 else 'Parcialmente Entregue'
 
     return agregados
+
+def resumo_classificacao_por_lote(lote: str) -> list[tuple]:
+    """Agrega itens classificados (TOP 26) por produto para um lote (CODAGREGACAO).
+    Retorna lista de tuplas: (DESCRPROD, SUM_CX, SUM_KG)
+    Regras:
+      - Considera somente cabeçalhos com CODTIPOPER = TOP_CLASS
+      - Interpretação de unidades:
+          QTDNEG é armazenado na unidade base do produto; para exposição:
+            • somatório em CX: somar QTDNEG quando CODVOL='CX'
+            • somatório em KG: somar QTDNEG quando CODVOL='KG'
+        Se necessário, podemos normalizar por fator TGFVOA numa versão futura.
+    """
+    p = get_params()
+    top_class = p['TOP_CLASS']
+    sql = (
+        """
+        SELECT p.DESCRPROD,
+               SUM(CASE WHEN UPPER(NVL(i.CODVOL,''))='CX' THEN NVL(i.QTDNEG,0) ELSE 0 END) AS SUM_CX,
+               SUM(CASE WHEN UPPER(NVL(i.CODVOL,''))='KG' THEN NVL(i.QTDNEG,0) ELSE 0 END) AS SUM_KG
+          FROM TGFITE i
+          JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+          LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
+         WHERE i.CODAGREGACAO = :lote AND c.CODTIPOPER = :top
+         GROUP BY p.DESCRPROD
+         ORDER BY p.DESCRPROD
+        """
+    )
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, lote=lote, top=top_class)
+        return cur.fetchall()
 
 
 def consultar_lote(controle: str) -> dict:
