@@ -3154,7 +3154,7 @@ def listar_itens_portal_basico(
     offset: int = 0,
 ):
     """Lista itens de TOP 11 (Portal) com colunas básicas para o painel Comercial.
-    Retorna tuplas: (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE)
+    Retorna tuplas: (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT)
     Suporta filtros por data, parceiro e produto, com paginação segura via ROW_NUMBER.
     """
     from datetime import datetime, date as _date
@@ -3201,7 +3201,7 @@ def listar_itens_portal_basico(
         binds["codprod"] = int(codprod)
 
     inner = (
-        "SELECT p.NOMEPARC, NVL(pr.FABRICANTE, pr.DESCRPROD) AS PRODNAME, i.QTDNEG, c.DTNEG, i.CODVOL, i.CODPROD, c.NUNOTA, i.SEQUENCIA, NVL(i.GERAPRODUCAO, 'S') AS GP, i.PESO AS PESO, i.PRECOBASE AS PRECOBASE, i.VLRUNIT AS VLRUNIT "
+        "SELECT p.NOMEPARC, NVL(pr.FABRICANTE, pr.DESCRPROD) AS PRODNAME, i.QTDNEG, c.DTNEG, i.CODVOL, i.CODPROD, c.NUNOTA, i.SEQUENCIA, NVL(i.GERAPRODUCAO, 'S') AS GP, i.PESO AS PESO, i.PRECOBASE AS PRECOBASE, i.VLRUNIT AS VLRUNIT, i.VLRTOT AS VLRTOT "
         "  FROM TGFITE i "
         "  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA "
         "  LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC "
@@ -3210,7 +3210,7 @@ def listar_itens_portal_basico(
         "  ORDER BY c.DTNEG DESC, c.NUNOTA DESC, i.SEQUENCIA ASC"
     )
     sql = (
-        "SELECT NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT FROM ("
+        "SELECT NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT FROM ("
         "  SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.DTNEG DESC, t.NUNOTA DESC, t.SEQUENCIA ASC) rn FROM (" + inner + ") t"
         ") WHERE rn BETWEEN :start_row AND :end_row ORDER BY rn"
     )

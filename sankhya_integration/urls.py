@@ -49,6 +49,7 @@ urlpatterns = [
     path("header/plan/", views.header_plan, name="header_plan"),
     path("comercial/sim/save/", views.comercial_sim_save, name="comercial_sim_save"),
     path("comercial/sim/list/", views.comercial_sim_list, name="comercial_sim_list"),
+    path("comercial/dist/save/", views.comercial_dist_save, name="comercial_dist_save"),
     path("classificacao/resumo/", views.classificacao_resumo, name="classificacao_resumo"),
     # Duplicação automática/rotas removidas a pedido: sem duplicar TOP 11→26 via portal
 ]

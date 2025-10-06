@@ -1413,7 +1413,6 @@ def header_update(request: HttpRequest) -> JsonResponse:
     if request.method != 'POST':
         return JsonResponse({"ok": False, "error": "Use POST"}, status=405)
     try:
-        import json
         payload = json.loads(request.body.decode('utf-8') or '{}')
     except Exception:
         payload = {}
@@ -2313,6 +2312,90 @@ def comercial_sim_list(request: HttpRequest) -> JsonResponse:
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
 
+def _to_float_or(val, default=None):
+    if val in (None, '', 'None', 'none', 'null'):
+        return default
+    if isinstance(val, (int, float)):
+        try:
+            return float(val)
+        except Exception:
+            return default
+    try:
+        s = str(val).strip()
+    except Exception:
+        return default
+    if not s:
+        return default
+    s = s.replace('R$', '').replace('r$', '').replace(' ', '')
+    if ',' in s and '.' in s:
+        # assume thousands separator '.' and decimal ','
+        s = s.replace('.', '').replace(',', '.')
+    elif s.count(',') == 1 and s.count('.') == 0:
+        s = s.replace(',', '.')
+    try:
+        return float(s)
+    except Exception:
+        return default
+
+
+def comercial_dist_save(request: HttpRequest) -> JsonResponse:
+    """Persistir custo total e custo por kg da distribuição para o item de entrada (TGFITE)."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'Use POST'}, status=405)
+    try:
+        import json
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except Exception:
+        payload = {}
+
+    nunota = _to_int_or(payload.get('nunota'))
+    sequencia = _to_int_or(payload.get('sequencia') or payload.get('seq'))
+    if not nunota or not sequencia:
+        return JsonResponse({'ok': False, 'error': 'Informe nunota e sequencia válidos'}, status=400)
+
+    total = _to_float_or(payload.get('valor_total', payload.get('custo_total')))
+    custo_kg = _to_float_or(payload.get('custo_kg', payload.get('valor_kg')))
+    if total is None or custo_kg is None:
+        return JsonResponse({'ok': False, 'error': 'Informe valor_total e custo_kg válidos'}, status=400)
+
+    update_payload = {
+        'NUNOTA': nunota,
+        'SEQUENCIA': sequencia,
+        'VLRUNIT': custo_kg,
+        'VLRTOT': total,
+    }
+
+    try:
+        plan = update_item(update_payload, dry_run=False)
+    except Exception as e:
+        logger.exception('comercial_dist_save update_item failed')
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+    executed = bool(plan.get('executed'))
+    plan_ok = bool(plan.get('ok'))
+    plan['plan_ok'] = plan_ok
+    plan['inputs'] = {
+        'valor_total': total,
+        'custo_kg': custo_kg,
+        'custo_extra_total': _to_float_or(payload.get('custo_extra_total')),
+        'custo_medio_total': _to_float_or(payload.get('custo_medio_total')),
+        'custo_extra_kg': _to_float_or(payload.get('custo_extra_kg')),
+        'custo_medio_kg': _to_float_or(payload.get('custo_medio_kg')),
+    }
+    if not executed:
+        if 'error' not in plan:
+            err_msg = None
+            if isinstance(plan.get('db_error'), dict):
+                err_msg = plan['db_error'].get('message')
+            if not err_msg and plan.get('errors'):
+                err_msg = '; '.join(str(e) for e in plan['errors'] if e)
+            if err_msg:
+                plan['error'] = err_msg
+    plan['ok'] = executed
+    plan['write_enabled'] = is_write_enabled()
+    status_code = 200 if executed else 400
+    return JsonResponse(plan, status=status_code)
+
 
 
 @ensure_csrf_cookie
@@ -2353,7 +2436,7 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
         )
         out = []
         for r in rows:
-            # (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT)
+            # (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT)
             parc = r[0] if len(r) > 0 else ''
             prod = r[1] if len(r) > 1 else ''
             qtd = r[2] if len(r) > 2 else 0
@@ -2366,6 +2449,7 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
             peso_val = (r[9] if len(r) > 9 else None)
             precobase_val = (r[10] if len(r) > 10 else None)
             vlrunit_val = (r[11] if len(r) > 11 else None)
+            vlrtot_val = (r[12] if len(r) > 12 else None)
             try:
                 # compact date for UI: send DD/MM
                 if hasattr(dt, 'strftime'):
@@ -2400,6 +2484,9 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                     float(precobase_val) if precobase_val not in (None, '') and float(precobase_val or 0) != 0 else (
                         float(vlrunit_val) if vlrunit_val not in (None, '') and float(vlrunit_val or 0) != 0 else None
                     )
+                ),
+                'vlrtot': (
+                    float(vlrtot_val) if vlrtot_val not in (None, '') and float(vlrtot_val or 0) != 0 else 0.0
                 )
             })
         return JsonResponse({ 'ok': True, 'rows': out, 'limit': limit, 'offset': offset })

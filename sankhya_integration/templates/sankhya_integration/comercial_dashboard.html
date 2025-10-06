@@ -159,6 +159,16 @@
   .dist-class-card .metric-row.stack .metric-label{text-align:center;align-self:center;width:100%}
   .dist-class-card input.value-input{display:none;font-weight:700;color:#0a3392;background:transparent;border:1px solid #cbd5e1;border-radius:6px;padding:4px 6px;min-width:6ch;max-width:10ch;text-align:right;margin-left:auto}
   @media (max-width:900px){.dist-class-card .class-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(68px,1fr)}}
+  .dist-actions{grid-column:3 / 5;grid-row:4;display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:4px}
+  .dist-actions button{appearance:none;-webkit-appearance:none;border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:8px 14px;font-size:.78rem;font-weight:700;color:#334155;cursor:pointer;line-height:1.1;transition:background-color .2s ease,color .2s ease,border-color .2s ease;box-shadow:0 1px 0 rgba(15,23,42,0.05)}
+  .dist-actions button:hover{background:#f1f5f9}
+  .dist-actions button:focus-visible{outline:2px solid #0ea5e9;outline-offset:2px}
+  .dist-actions .btn-warn{border-color:#f59e0b;color:#b45309}
+  .dist-actions .btn-warn:hover{background:#fff7ed}
+  .dist-actions .btn-print{border-color:#94a3b8;color:#475569}
+  .dist-actions .btn-print:hover{background:#e2e8f0}
+  .dist-actions .btn-primary{border-color:#0ea5e9;color:#0ea5e9}
+  .dist-actions .btn-primary:hover{background:#eff6ff}
     
   /* posições: 1 ocupa duas linhas à esquerda; 2/3/4 na 1ª linha; 5 preenche a 2ª linha sob 2-4 */
   #distMini1{grid-column:1;grid-row:1}
@@ -780,6 +790,11 @@
                       </div>
                     </div>
                   </div>
+                  <div id="distActionBar" class="dist-actions" aria-label="Ações da negociação">
+                    <button type="button" id="dist-btn-reset" class="btn-warn">Zerar negociação</button>
+                    <button type="button" id="dist-btn-print" class="btn-print">Imprimir</button>
+                    <button type="button" id="dist-btn-save" class="btn-primary">Salvar</button>
+                  </div>
                 </div>
               </div>
               <div id="distSim" class="panel">
@@ -1381,6 +1396,14 @@
         if(!isFinite(n)) return;
         if(card.classList.contains('editing')) return;
         const normalized = n >= 0 ? n : 0;
+        try{
+          console.debug('[Distrib] updateTotalCard', {
+            value: normalized,
+            source: opts && opts.source ? opts.source : '',
+            reason: opts && opts.reason ? opts.reason : '',
+            skippedZeroOverride: !!(opts && opts.skippedZeroOverride)
+          });
+        }catch{}
         display.textContent = formatBRL(normalized);
         previousText = display.textContent;
         if(opts && opts.syncInput){
@@ -1393,25 +1416,73 @@
 
       // Expose a global setter to initialize/sync Valor Total da Distribuição
       try{
+        try{ if(typeof window.__DIST_TOTAL_LOCK === 'undefined') window.__DIST_TOTAL_LOCK = null; }catch{}
         window.__setDistribTotal = (valueNumber, opts) => {
           const n = Number(valueNumber);
           if(!isFinite(n)) return;
-          const normalized = n >= 0 ? n : 0;
+          let normalized = n >= 0 ? n : 0;
+          let meta = (opts && typeof opts === 'object') ? opts : {};
+          try{
+            console.debug('[Distrib] __setDistribTotal', {
+              input: valueNumber,
+              normalized,
+              source: meta.source || '',
+              reason: meta.reason || '',
+              skipOverride: !!meta.skipOverride
+            });
+          }catch{}
+          try{
+            const lock = window.__DIST_TOTAL_LOCK;
+            const allowZero = !!meta.allowZeroOverride;
+            if(normalized === 0 && lock && typeof lock.value === 'number' && lock.value > 0 && !allowZero){
+              try{
+                console.debug('[Distrib] zero override blocked by lock', {
+                  preserved: lock.value,
+                  lock
+                });
+              }catch{}
+              normalized = lock.value;
+              meta = Object.assign({}, meta, { skippedZeroOverride: true });
+            }
+            if(normalized > 0 && meta.source === 'vlrtot'){
+              window.__DIST_TOTAL_LOCK = {
+                value: normalized,
+                source: meta.source,
+                reason: meta.reason || '',
+                timestamp: Date.now()
+              };
+            }else if(normalized === 0 && allowZero){
+              window.__DIST_TOTAL_LOCK = null;
+            }
+          }catch{}
           if(typeof window.__DIST_updateTotalCard === 'function'){
-            window.__DIST_updateTotalCard(normalized, opts);
+            window.__DIST_updateTotalCard(normalized, meta);
           }else{
             display.textContent = formatBRL(normalized);
             previousText = display.textContent;
             recalcCostsFromTotal(normalized);
           }
+          try{
+            if(meta && meta.source === 'vlrtot'){
+              if(typeof window.__setEntradaTotal === 'function'){
+                window.__setEntradaTotal(normalized, { source: 'vlrtot', reason: 'distrib-sync' });
+              }else{
+                const entradaTotalEl = document.getElementById('entTotalIn');
+                if(entradaTotalEl){
+                  entradaTotalEl.textContent = new Intl.NumberFormat('pt-BR',{ minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(normalized);
+                }
+              }
+            }
+          }catch{}
           let handled = false;
           try{
-            if(typeof window.__DIST_applyTotalOverride === 'function'){
-              const meta = { source: 'external' };
-              if(opts && typeof opts === 'object'){
-                Object.keys(opts).forEach((key)=>{ meta[key] = opts[key]; });
+            const skipOverride = !!(meta && meta.skipOverride);
+            if(!skipOverride && typeof window.__DIST_applyTotalOverride === 'function'){
+              const overrideMeta = { source: 'external' };
+              if(meta && typeof meta === 'object'){
+                Object.keys(meta).forEach((key)=>{ overrideMeta[key] = meta[key]; });
               }
-              window.__DIST_applyTotalOverride(normalized, meta);
+              window.__DIST_applyTotalOverride(normalized, overrideMeta);
               handled = true;
             }
           }catch{}
@@ -1784,6 +1855,90 @@
       // Selecionar o cabeçalho do grupo (vale) para refletir no card Entradas
       // (não atualiza mais por cabeçalho de vale; somente linhas de itens)
 
+      // Entrada: helper centralizado para controlar atualizações do Valor Total
+      (function(){
+        const parseNumber = (value)=>{
+          if(typeof value === 'number' && Number.isFinite(value)) return value;
+          if(typeof value === 'string'){
+            const trimmed = value.trim();
+            if(!trimmed) return null;
+            const cleaned = trimmed
+              .replace(/[^0-9,\.\-]/g,'')
+              .replace(/\.(?=\d{3}(\D|$))/g,'')
+              .replace(',','.');
+            const parsed = Number(cleaned);
+            if(Number.isFinite(parsed)) return parsed;
+          }
+          try{
+            const coerced = Number(value);
+            return Number.isFinite(coerced) ? coerced : null;
+          }catch{}
+          return null;
+        };
+        const fmtBRL = (n)=>{
+          const num = (typeof n === 'number' && Number.isFinite(n)) ? n : 0;
+          return new Intl.NumberFormat('pt-BR',{ minimumFractionDigits:2, maximumFractionDigits:2 }).format(num);
+        };
+        let guardTimers = [];
+        const clearGuardTimers = ()=>{
+          guardTimers.forEach((id)=>{ try{ clearTimeout(id); }catch{} });
+          guardTimers = [];
+        };
+        const enforce = ()=>{
+          try{
+            const el = document.getElementById('entTotalIn');
+            const st = window.__ENTRADA_TOTAL_STATE;
+            if(!el || !st) return;
+            const current = (el.textContent || '').trim();
+            if(st.source === 'vlrtot' && current !== st.formatted){
+              el.textContent = st.formatted;
+            }
+          }catch{}
+        };
+        const scheduleGuard = ()=>{
+          clearGuardTimers();
+          enforce();
+          guardTimers.push(setTimeout(enforce, 16));
+          guardTimers.push(setTimeout(enforce, 64));
+          guardTimers.push(setTimeout(enforce, 250));
+        };
+        window.__setEntradaTotal = (valueNumber, opts)=>{
+          const el = document.getElementById('entTotalIn');
+          if(!el) return;
+          const parsed = parseNumber(valueNumber);
+          const previous = (window.__ENTRADA_TOTAL_STATE && typeof window.__ENTRADA_TOTAL_STATE.raw === 'number' && Number.isFinite(window.__ENTRADA_TOTAL_STATE.raw)) ? window.__ENTRADA_TOTAL_STATE.raw : 0;
+          const safe = parsed != null ? parsed : previous;
+          const meta = (opts && typeof opts === 'object') ? opts : {};
+          const formatted = fmtBRL(safe);
+          try{
+            console.debug('[Entrada] __setEntradaTotal', {
+              input: valueNumber,
+              parsed,
+              previous,
+              safe,
+              source: meta.source || '',
+              reason: meta.reason || ''
+            });
+          }catch{}
+          el.textContent = formatted;
+          window.__ENTRADA_TOTAL_STATE = {
+            raw: safe,
+            formatted,
+            source: meta.source || '',
+            meta
+          };
+          if(meta.source === 'vlrtot'){
+            scheduleGuard();
+          }else{
+            clearGuardTimers();
+          }
+        };
+        window.__getEntradaTotal = ()=>{
+          const st = window.__ENTRADA_TOTAL_STATE;
+          return st ? st.raw : 0;
+        };
+      })();
+
       function applyValeToEntrada(nunota){
         try{
           const pool = (window.__COM_LIST_ROWS || []).filter(r=> String(r.nunota||'') === String(nunota||''));
@@ -1792,6 +1947,8 @@
           const dt = pool[0]?.dtneg || '';
           // Somas por unidade
           let sumCx = 0, sumKg = 0;
+          let sumVlrtot = 0;
+          let hasAnyVlrtot = false;
           let weightedPesoNum = 0, weightedCx = 0; // média ponderada de peso (tgfite.peso) por CX
           // Preço Inicial agregado (média ponderada por CX, quando disponível)
           let weightedPrecoNum = 0, weightedPrecoCx = 0;
@@ -1804,6 +1961,11 @@
               if(peso > 0 && q > 0){ weightedPesoNum += (peso * q); weightedCx += q; }
               const pb = Number(r.preco_inicial || 0) || 0;
               if(pb > 0 && q > 0){ weightedPrecoNum += (pb * q); weightedPrecoCx += q; }
+            }
+            const itemVlrtot = Number(r.vlrtot || 0) || 0;
+            if(itemVlrtot > 0){
+              sumVlrtot += itemVlrtot;
+              hasAnyVlrtot = true;
             }
           }
           // Atualizar AppBar supplier
@@ -1841,6 +2003,7 @@
             try{
               const totalTxt = document.getElementById('entTotalIn')?.textContent || '0';
               const totalNum = Number((totalTxt||'0').replace(/\./g,'').replace(',','.')) || 0;
+              const totalEl = document.getElementById('entTotalIn');
               const precoKgEl = document.getElementById('entPrecoKg');
               const fmtMoney = (n)=> new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n||0);
               const precoKgNum = (total>0)? (totalNum / total) : 0;
@@ -1860,24 +2023,58 @@
           // Preço Inicial agregado (se houver): mostrar no campo e calcular total e R$/kg
           try{
             const precoDisp = document.getElementById('entPrecoCxDisplay');
-            const totalEl = document.getElementById('entTotalIn');
             const precoKgEl = document.getElementById('entPrecoKg');
             const fmtMoney = (n)=> new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n||0);
             let precoAgg = 0;
             if(weightedPrecoCx > 0){ precoAgg = weightedPrecoNum / weightedPrecoCx; }
             if(precoDisp){ precoDisp.textContent = precoAgg>0 ? fmtMoney(precoAgg) : '-'; }
-            if(precoAgg>0 && (sumCx||0) > 0){
-              const totalVal = (sumCx||0) * precoAgg;
-              if(totalEl) totalEl.textContent = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(totalVal);
+            let aggregatedTotal = 0;
+            let totalSource = '';
+            if(hasAnyVlrtot && sumVlrtot > 0){
+              aggregatedTotal = sumVlrtot;
+              totalSource = 'vlrtot';
+              try{
+                if(typeof window.__setEntradaTotal === 'function'){
+                  window.__setEntradaTotal(sumVlrtot, { source: 'vlrtot', reason: 'vale-aggregate' });
+                }
+              }catch{}
+            }else if(precoAgg>0 && (sumCx||0) > 0){
+              aggregatedTotal = (sumCx||0) * precoAgg;
+              totalSource = 'precobase';
+              try{
+                if(typeof window.__setEntradaTotal === 'function'){
+                  window.__setEntradaTotal(aggregatedTotal, { source: 'precobase', reason: 'vale-aggregate' });
+                }
+              }catch{}
+            }
+            if(aggregatedTotal > 0){
+              try{
+                if(typeof window.__setDistribTotal === 'function'){
+                  const meta = {
+                    source: totalSource || 'precobase',
+                    reason: 'vale-aggregate',
+                    syncInput: true
+                  };
+                  if(totalSource !== 'vlrtot'){ meta.skipOverride = true; }
+                  window.__setDistribTotal(aggregatedTotal, meta);
+                }
+              }catch{}
               try{
                 const totKgTxt = pesoTotalApproxEl?.textContent || '0';
                 const totKg = Number(totKgTxt.replace(/\./g,'').replace(',','.')) || 0;
-                const precoKgNum = totKg>0 ? (totalVal / totKg) : 0;
+                const precoKgNum = totKg>0 ? (aggregatedTotal / totKg) : 0;
                 if(precoKgEl) precoKgEl.textContent = fmtMoney(precoKgNum);
                 if(precoKgNum > 0 && typeof window.__DIST_seedExtraCustoKg === 'function'){
                   window.__DIST_seedExtraCustoKg(precoKgNum, true);
                   if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh();
                 }
+              }catch{}
+              try{
+                console.debug('[Entrada] vale aggregate total applied', {
+                  aggregatedTotal,
+                  source: totalSource,
+                  hasVlrtot: hasAnyVlrtot
+                });
               }catch{}
             }
           }catch{}
@@ -1886,9 +2083,20 @@
         }catch{}
       }
 
-      function applyItemToEntrada(item){
+      function applyItemToEntrada(item, options){
         try{
           if(!item) return;
+          const opts = (options && typeof options === 'object') ? options : {};
+          try{ window.__LAST_ENTRADA_ITEM = item; }catch{}
+          try{
+            console.log('[Entrada] applyItemToEntrada start', {
+              nunota: item?.nunota,
+              seq: item?.sequencia,
+              precoInicial: item?.preco_inicial,
+              vlrtot: item?.vlrtot,
+              reapply: !!opts.reapply
+            });
+          }catch{}
           const parceiro = item.parceiro || '';
           const produto = item.produto || '';
           const nunota = item.nunota || '';
@@ -1896,6 +2104,11 @@
           const dt = item.dtneg || '';
           const unit = String(item.codvol||'').trim().toUpperCase();
           const qtd = Number(item.qtdneg||0) || 0;
+          const qtyNormalized = Number.isFinite(qtd) ? qtd : 0;
+          const vlrtotRaw = item.vlrtot;
+          let vlrtotNum = Number(vlrtotRaw == null ? 0 : vlrtotRaw);
+          if(!isFinite(vlrtotNum)) vlrtotNum = 0;
+          const hasVlrtot = vlrtotNum > 0;
           // Guardar contexto atual (nunota/seq) para persistência do Preço Inicial
           try{
             const card = document.getElementById('quantidadeInnCard');
@@ -1919,6 +2132,9 @@
           const pesoTotalApproxEl = document.getElementById('totalInn');
           const toIntBR = (n)=> isNaN(n)?'-':Math.round(n).toLocaleString('pt-BR');
           const peso = Number(item.peso || 0) || 0; // tgfite.peso (por CX)
+          let latestDistribTotal = hasVlrtot ? vlrtotNum : 0;
+          let latestPrecoCx = 0;
+          let latestPesoCapture = 0;
           if(unit === 'CX'){
             if(cxEl) cxEl.textContent = toIntBR(qtd);
             const perBox = (peso>0 ? peso : 0);
@@ -1948,7 +2164,6 @@
             precoCxDisp.textContent = fmtMoney(v0);
             // Se houver valor inicial e unidade em CX, calcular Valor Total e R$/kg
             try{
-              const totalEl = document.getElementById('entTotalIn');
               const precoKgEl = document.getElementById('entPrecoKg');
               const pesoTotalApproxEl = document.getElementById('totalInn');
               const getPesoTotal = ()=>{
@@ -1956,20 +2171,235 @@
                 const n = Number(t); return isFinite(n)?n:0;
               };
               if(unit==='CX' && totalEl){
-                const totalVal = (qtd||0) * v0;
-                totalEl.textContent = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(totalVal);
-                const pesoTot = getPesoTotal();
-                const precoKgNum = pesoTot>0 ? (totalVal / pesoTot) : 0;
-                if(precoKgEl) precoKgEl.textContent = fmtMoney(precoKgNum);
-                if(precoKgNum > 0 && typeof window.__DIST_seedExtraCustoKg === 'function'){
-                  window.__DIST_seedExtraCustoKg(precoKgNum, true);
-                  if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh();
+                const updatePrecoKg = (totalNumber)=>{
+                  const pesoTot = getPesoTotal();
+                  const precoKgNum = pesoTot>0 ? (totalNumber / pesoTot) : 0;
+                  if(precoKgEl) precoKgEl.textContent = fmtMoney(precoKgNum);
+                  let triggered = false;
+                  if(hasVlrtot && precoKgNum > 0 && typeof window.__DIST_seedExtraCustoKg === 'function'){
+                    window.__DIST_seedExtraCustoKg(precoKgNum, true);
+                    if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh();
+                    triggered = true;
+                  }
+                  return triggered;
+                };
+                const qtyForTotal = Number.isFinite(qtd) ? qtd : 0;
+                const precoForTotal = Number.isFinite(v0) ? v0 : 0;
+                const totalValRaw = qtyForTotal * precoForTotal;
+                const totalVal = Number.isFinite(totalValRaw) ? totalValRaw : 0;
+                const distribTotal = hasVlrtot ? vlrtotNum : totalVal;
+                const displayTotal = hasVlrtot ? vlrtotNum : totalVal;
+                try{
+                  if(typeof window.__setEntradaTotal === 'function'){
+                    window.__setEntradaTotal(displayTotal, { source: hasVlrtot ? 'vlrtot' : 'precobase', reason: 'item-select' });
+                  }else{
+                    totalEl.textContent = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(displayTotal);
+                  }
+                }catch{}
+                if(!hasVlrtot){ try{ console.log('[Entrada] total exibido via precobase', { total: totalVal }); }catch{} }
+                const precoKgRefreshed = updatePrecoKg(distribTotal);
+                const pushTotalToDistrib = (valueNumber) => {
+                  const safeTotal = Number.isFinite(valueNumber) ? valueNumber : 0;
+                  let handled = false;
+                  try{
+                    if(typeof window.__setDistribTotal === 'function'){
+                      const reason = hasVlrtot ? 'vlrtot' : 'precobase';
+                      const meta = { source: reason, reason: 'item-select', syncInput: true };
+                      if(!hasVlrtot){
+                        meta.skipOverride = true;
+                      }
+                      window.__setDistribTotal(safeTotal, meta);
+                      try{
+                        console.log('[Entrada] setDistribTotal via helper', {
+                          total: safeTotal,
+                          reason,
+                          skipOverride: !!meta.skipOverride,
+                          reapply: !!opts.reapply
+                        });
+                      }catch{}
+                      handled = true;
+                    }
+                  }catch{}
+                  if(handled){
+                    try{
+                      if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh();
+                    }catch{}
+                    try{ console.log('[Entrada] distrib refresh triggered (handled path)', { total: safeTotal }); }catch{}
+                    return;
+                  }
+                  try{
+                    const st = window.__DIST_STATE;
+                    if(st){
+                      if(!st.custo) st.custo = { total: 0, porKg: 0, porCx: 0 };
+                      st.custo.total = Math.max(0, safeTotal);
+                      const totKg = Number(st?.totais?.kg) || 0;
+                      const totCxEq = Number(st?.totais?.cxEq) || 0;
+                      st.custo.porKg = (totKg > 0 && st.custo.total > 0) ? (st.custo.total / totKg) : 0;
+                      st.custo.porCx = (totCxEq > 0 && st.custo.total > 0) ? (st.custo.total / totCxEq) : 0;
+                      st.hydrated = st.custo.total > 0;
+                    }
+                    if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh();
+                    try{ console.log('[Entrada] distrib refresh triggered (fallback path)', { total: safeTotal }); }catch{}
+                  }catch{}
+                };
+                if(v0 > 0 || hasVlrtot){
+                  try{
+                    const st = window.__DIST_STATE;
+                    if(st){
+                      if(!st.categorias) st.categorias = {};
+                      const normalizeBucket = (bucket)=>{
+                        if(bucket && typeof bucket === 'object') return bucket;
+                        return { kg:0, cxEq:0, custoKg:0, custoCx:0, custoTotal:0 };
+                      };
+                      const extra = st.categorias.extra = normalizeBucket(st.categorias.extra);
+                      const medio = st.categorias.medio = normalizeBucket(st.categorias.medio);
+                      let extraKg = Number(extra.kg) || 0;
+                      let extraCx = Number(extra.cxEq) || 0;
+                      if(!hasVlrtot){
+                        if(unit === 'CX'){
+                          if(!(extra.cxEq > 0) && qtyForTotal > 0) extra.cxEq = qtyForTotal;
+                          const pesoFallback = getPesoTotal();
+                          if(!(extra.kg > 0) && pesoFallback > 0) extra.kg = pesoFallback;
+                          if(!(st.totais.cxEq > 0)){
+                            st.totais.cxEq = (extra.cxEq||0) + (Number(medio.cxEq)||0);
+                          }
+                          if(!(st.totais.kg > 0)){
+                            st.totais.kg = (extra.kg||0) + (Number(medio.kg)||0);
+                          }
+                        }
+                        extraKg = Number(extra.kg) || 0;
+                        extraCx = Number(extra.cxEq) || 0;
+                        extra.custoCx = v0;
+                        if(extraKg > 0 && extraCx > 0){
+                          extra.custoKg = (v0 * extraCx) / extraKg;
+                        }else if(extraKg > 0){
+                          extra.custoKg = v0;
+                        }else if(!(extra.custoKg > 0)){
+                          extra.custoKg = v0;
+                        }
+                        if(extraKg > 0 && isFinite(extra.custoKg)){
+                          extra.custoTotal = extra.custoKg * extraKg;
+                        }else if(extraCx > 0){
+                          extra.custoTotal = v0 * extraCx;
+                        }else{
+                          extra.custoTotal = 0;
+                        }
+                        medio.custoKg = (isFinite(extra.custoKg) ? extra.custoKg : 0) / 2;
+                        medio.custoCx = v0 / 2;
+                        const medioKg = Number(medio.kg) || 0;
+                        const medioCx = Number(medio.cxEq) || 0;
+                        if(medioCx > 0){
+                          medio.custoTotal = medio.custoCx * medioCx;
+                        }else if(medioKg > 0){
+                          medio.custoTotal = medio.custoKg * medioKg;
+                        }else{
+                          medio.custoTotal = (extra.custoTotal || 0) / 2;
+                        }
+                      }else{
+                        const extraTotalBase = Math.max(0, Number(extra.custoTotal)||0);
+                        const medioTotalBase = Math.max(0, Number(medio.custoTotal)||0);
+                        const baseCombined = extraTotalBase + medioTotalBase;
+                        let extraTarget = extraTotalBase;
+                        let medioTarget = medioTotalBase;
+                        if(baseCombined > 0){
+                          const scale = vlrtotNum / baseCombined;
+                          extraTarget = extraTotalBase * scale;
+                          medioTarget = medioTotalBase * scale;
+                        }else{
+                          extraTarget = vlrtotNum;
+                          medioTarget = 0;
+                        }
+                        extra.custoTotal = extraTarget;
+                        medio.custoTotal = medioTarget;
+                        if(extra.cxEq > 0){
+                          extra.custoCx = extraTarget / extra.cxEq;
+                        }
+                        if(extra.kg > 0){
+                          extra.custoKg = extraTarget / extra.kg;
+                        }
+                        if(medio.cxEq > 0){
+                          medio.custoCx = medioTarget / medio.cxEq;
+                        }
+                        if(medio.kg > 0){
+                          medio.custoKg = medioTarget / medio.kg;
+                        }
+                      }
+                      if(!st.custo) st.custo = { total: 0, porKg: 0, porCx: 0 };
+                      const combined = Math.max(0, (Number(extra.custoTotal)||0) + (Number(medio.custoTotal)||0));
+                      if(hasVlrtot){
+                        st.custo.total = vlrtotNum;
+                      }else{
+                        st.custo.total = combined > 0 ? combined : Math.max(0, distribTotal);
+                      }
+                      const totKg = Number(st?.totais?.kg) || 0;
+                      const totCxEq = Number(st?.totais?.cxEq) || 0;
+                      st.custo.porKg = (totKg > 0 && st.custo.total > 0) ? (st.custo.total / totKg) : 0;
+                      st.custo.porCx = (totCxEq > 0 && st.custo.total > 0) ? (st.custo.total / totCxEq) : 0;
+                      st.hydrated = true;
+                    }
+                  }catch{}
+                  pushTotalToDistrib(distribTotal);
+                  latestDistribTotal = distribTotal;
+                  latestPrecoCx = v0;
+                  latestPesoCapture = getPesoTotal();
+                  try{
+                    console.log('[Entrada] seeded entrada state', {
+                      distribTotal,
+                      precoCx: v0,
+                      qty: qtyForTotal,
+                      hasVlrtot,
+                      reapply: !!opts.reapply
+                    });
+                  }catch{}
+                }else{
+                  try{
+                    const st = window.__DIST_STATE;
+                    if(st && st.categorias){
+                      if(st.categorias.extra && typeof st.categorias.extra === 'object'){
+                        st.categorias.extra.custoTotal = 0;
+                      }
+                      if(st.categorias.medio && typeof st.categorias.medio === 'object'){
+                        st.categorias.medio.custoTotal = 0;
+                      }
+                    }
+                  }catch{}
+                  pushTotalToDistrib(distribTotal);
+                  try{
+                    console.log('[Entrada] distribTotal com VLRTOT', {
+                      distribTotal,
+                      vlrtot: vlrtotNum,
+                      precoCx: v0,
+                      reapply: !!opts.reapply
+                    });
+                  }catch{}
                 }
-                // Sincronizar Distribuição Valor Total quando a Entrada é aplicada
-                try{ if(typeof window.__setDistribTotal === 'function') window.__setDistribTotal(totalVal||0); }catch{}
               }
             }catch{}
           }
+          try{
+            const metaDistrib = {
+              precoCx: latestPrecoCx,
+              vlrtot: vlrtotNum,
+              hasVlrtot,
+              unit,
+              qtd: qtyNormalized,
+              pesoTotal: latestPesoCapture,
+              distribTotal: hasVlrtot ? vlrtotNum : (latestDistribTotal || (latestPrecoCx * qtyNormalized))
+            };
+            window.__DIST_lastEntradaMeta = metaDistrib;
+          }catch{}
+          try{
+            if(hasVlrtot){
+              if(typeof window.__setEntradaTotal === 'function'){
+                window.__setEntradaTotal(vlrtotNum, { source: 'vlrtot', reason: 'post-meta' });
+              }else{
+                const enforceEl = document.getElementById('entTotalIn');
+                if(enforceEl){
+                  enforceEl.textContent = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}).format(vlrtotNum);
+                }
+              }
+            }
+          }catch{}
           // Mantém os valores calculados acima; sem reset para '-'
         }catch{}
       }
@@ -2369,6 +2799,74 @@
         return isFinite(n) ? n : NaN;
       };
 
+      const getDistState = () => {
+        try{ return window.__DIST_STATE; }catch(_){ return null; }
+      };
+      const computeKgPerCx = () => {
+        const st = getDistState();
+        if(!st) return 0;
+        const totais = st.totais || {};
+        const totCx = Number(totais.cxEq) || 0;
+        const totKg = Number(totais.kg) || 0;
+        if(totCx > 0 && totKg > 0) return totKg / totCx;
+        const categorias = st.categorias || {};
+        const extra = categorias.extra || {};
+        const medio = categorias.medio || {};
+        const sumCx = (Number(extra.cxEq)||0) + (Number(medio.cxEq)||0);
+        const sumKg = (Number(extra.kg)||0) + (Number(medio.kg)||0);
+        if(sumCx > 0 && sumKg > 0) return sumKg / sumCx;
+        return 0;
+      };
+      const applyCostOverride = (mode, value) => {
+        let applied = false;
+        try{
+          const st = getDistState();
+          if(!st) return false;
+          const val = Number(value);
+          if(!isFinite(val)) return false;
+          const totais = st.totais || {};
+          const totKg = Number(totais.kg) || 0;
+          const totCx = Number(totais.cxEq) || 0;
+          const categorias = st.categorias || {};
+          const extra = categorias.extra || {};
+          const medio = categorias.medio || {};
+          const sumKg = (Number(extra.kg)||0) + (Number(medio.kg)||0);
+          const sumCx = (Number(extra.cxEq)||0) + (Number(medio.cxEq)||0);
+          let ratio = computeKgPerCx();
+          if(!(ratio > 0)) ratio = (sumCx > 0 && sumKg > 0) ? (sumKg / sumCx) : 0;
+          if(!(ratio > 0)) ratio = 22;
+
+          const effKg = totKg > 0 ? totKg : (totCx > 0 ? totCx * ratio : sumKg);
+          const effCx = totCx > 0 ? totCx : (totKg > 0 && ratio > 0 ? totKg / ratio : sumCx);
+          let total = 0;
+          if(mode === 'kg'){
+            if(!(effKg > 0)) return false;
+            total = val * effKg;
+            st.custo.porKg = val;
+            st.custo.porCx = effCx > 0 ? (total / effCx) : (ratio > 0 ? val * ratio : st.custo.porCx);
+          }else{
+            if(!(effCx > 0)) return false;
+            total = val * effCx;
+            st.custo.porCx = val;
+            st.custo.porKg = effKg > 0 ? (total / effKg) : (ratio > 0 ? val / ratio : st.custo.porKg);
+          }
+          if(total < 0) total = 0;
+          applied = true;
+          if(typeof window.__DIST_applyTotalOverride === 'function'){
+            window.__DIST_applyTotalOverride(total);
+          }else{
+            st.custo.total = total;
+            if(total > 0) st.hydrated = true;
+            if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh();
+          }
+            console.log('[Entrada] meta armazenada', metaDistrib);
+        }catch{
+          applied = false;
+        }
+          try{ console.log('[Entrada] erro applyItemToEntrada', e); }catch{}
+        return applied;
+      };
+
       let prevCx = cxDisplay?.textContent || '';
       let prevKg = kgDisplay?.textContent || '';
 
@@ -2383,7 +2881,18 @@
       const exitEditCx = (commit) => {
         if(commit && cxDisplay && cxInput){
           const n = parsePT(cxInput.value);
-          if(!isNaN(n)) cxDisplay.textContent = formatDecimal(n);
+          if(!isNaN(n)){
+            const ok = applyCostOverride('cx', n);
+            if(ok){
+              prevCx = cxDisplay.textContent || formatDecimal(n);
+            }else{
+              cxDisplay.textContent = prevCx;
+            }
+          }else{
+            cxDisplay.textContent = prevCx;
+          }
+        }else if(cxDisplay){
+          cxDisplay.textContent = prevCx;
         }
         card.classList.remove('editing-cx');
       };
@@ -2399,7 +2908,18 @@
       const exitEditKg = (commit) => {
         if(commit && kgDisplay && kgInput){
           const n = parsePT(kgInput.value);
-          if(!isNaN(n)) kgDisplay.textContent = formatDecimal(n);
+          if(!isNaN(n)){
+            const ok = applyCostOverride('kg', n);
+            if(ok){
+              prevKg = kgDisplay.textContent || formatDecimal(n);
+            }else{
+              kgDisplay.textContent = prevKg;
+            }
+          }else{
+            kgDisplay.textContent = prevKg;
+          }
+        }else if(kgDisplay){
+          kgDisplay.textContent = prevKg;
         }
         card.classList.remove('editing-kg');
       };
@@ -2832,6 +3352,10 @@
           extra.custoTotal = extra.custoCx * extraCx;
         }else if(!(extra.custoTotal > 0)){
           extra.custoTotal = 0;
+        }
+
+        if(!(extraKg > 0) && !(extraCx > 0)){
+          extra.custoTotal = 0; // sem quantidade extra; custo total não deve persistir
         }
 
         if(medioKg > 0 && medio.custoKg > 0){
@@ -3289,14 +3813,114 @@
       recalcAllocation();
       updateResumoFinanceiro();
 
+      let __DIST_reapplyFlag = false;
       window.addEventListener('classificacao:updated', ()=>{
+        if(__DIST_reapplyFlag) return;
+        try{ console.log('[Classificacao] updated event recebido'); }catch{}
         syncFromClass();
         recalcAllocation();
+        try{
+          const lastItem = window.__LAST_ENTRADA_ITEM;
+          if(lastItem){
+            __DIST_reapplyFlag = true;
+            try{ console.log('[Classificacao] reapply agendado', { nunota: lastItem?.nunota, seq: lastItem?.sequencia }); }catch{}
+            setTimeout(()=>{
+              try{ applyItemToEntrada(lastItem, { reapply: true }); }catch{}
+              finally{ __DIST_reapplyFlag = false; }
+            }, 0);
+          }
+        }catch{}
       });
 
       window.__DIST_refresh = function(){
         recalcAllocation();
       };
+    })();
+
+    // Distribuição: ações (zerar, imprimir, salvar valores no banco)
+    (function(){
+      const bar = document.getElementById('distActionBar');
+      if(!bar) return;
+      const btnSave = document.getElementById('dist-btn-save');
+      const btnReset = document.getElementById('dist-btn-reset');
+      const btnPrint = document.getElementById('dist-btn-print');
+
+      const getState = () => {
+        try { return window.__DIST_STATE || {}; } catch(_){ return {}; }
+      };
+
+      async function handleSave(){
+        try { if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh(); } catch(_){ }
+        const st = getState();
+        const card = document.getElementById('quantidadeInnCard');
+        const nunota = card ? Number(card.getAttribute('data-nunota') || '0') : 0;
+        const sequencia = card ? Number(card.getAttribute('data-seq') || '0') : 0;
+        if(!(nunota > 0) || !(sequencia > 0)){
+          alert('Selecione um vale da lista antes de salvar os valores.');
+          return;
+        }
+
+        const totalRaw = Number(st?.custo?.total);
+        const custoKgRaw = Number(st?.custo?.porKg);
+        if(!Number.isFinite(totalRaw)){
+          alert('Valor total indisponível para salvar no momento.');
+          return;
+        }
+        if(!Number.isFinite(custoKgRaw)){
+          alert('Custo por kg indisponível para salvar.');
+          return;
+        }
+
+        const extraTotalRaw = Number(st?.categorias?.extra?.custoTotal ?? NaN);
+        const medioTotalRaw = Number(st?.categorias?.medio?.custoTotal ?? NaN);
+        const extraKgRaw = Number(st?.categorias?.extra?.custoKg ?? NaN);
+        const medioKgRaw = Number(st?.categorias?.medio?.custoKg ?? NaN);
+
+        const payload = {
+          nunota,
+          sequencia,
+          valor_total: Number(totalRaw.toFixed(2)),
+          custo_kg: Number(custoKgRaw.toFixed(6)),
+          custo_extra_total: Number.isFinite(extraTotalRaw) ? Number(extraTotalRaw.toFixed(2)) : null,
+          custo_medio_total: Number.isFinite(medioTotalRaw) ? Number(medioTotalRaw.toFixed(2)) : null,
+          custo_extra_kg: Number.isFinite(extraKgRaw) ? Number(extraKgRaw.toFixed(6)) : null,
+          custo_medio_kg: Number.isFinite(medioKgRaw) ? Number(medioKgRaw.toFixed(6)) : null,
+        };
+
+        let originalLabel = '';
+        if(btnSave){
+          originalLabel = btnSave.textContent || 'Salvar';
+          btnSave.disabled = true;
+          btnSave.textContent = 'Salvando…';
+        }
+
+        try{
+          const res = await window.__postJSON('/sankhya/comercial/dist/save/', payload);
+          if(res.ok){
+            alert('Distribuição salva com sucesso.');
+            window.dispatchEvent(new CustomEvent('dist:salvo', { detail: { nunota, sequencia, payload, response: res.body } }));
+          }else{
+            const errMsg = res.body?.error || (Array.isArray(res.body?.errors) ? res.body.errors.join('; ') : '') || 'Falha ao salvar os valores.';
+            alert(errMsg);
+          }
+        }catch(err){
+          console.error('dist save failed', err);
+          alert('Erro ao salvar a distribuição. Verifique a conexão e tente novamente.');
+        }finally{
+          if(btnSave){
+            btnSave.disabled = false;
+            btnSave.textContent = originalLabel || 'Salvar';
+          }
+        }
+      }
+
+      if(btnSave) btnSave.addEventListener('click', handleSave);
+      if(btnReset) btnReset.addEventListener('click', ()=>{
+        window.dispatchEvent(new CustomEvent('dist:reset'));
+      });
+      if(btnPrint) btnPrint.addEventListener('click', ()=>{
+        window.dispatchEvent(new CustomEvent('dist:print'));
+      });
     })();
 
     // Tooltip: Resumo Financeiro ao passar mouse sobre a Margem
@@ -3631,9 +4255,23 @@
           try{ return Number(txt.replace(/\./g,'').replace(',','.')); }catch{ return 0; }
         })();
     let totalInicial = !isNaN(precoCx) && precoCx>0 ? calcTotalFromCx(cx, precoCx) : ((kgIn||0) * (precoKg||0));
-  if(totalInEl) totalInEl.textContent = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}).format(totalInicial || 0);
+  try{
+    if(typeof window.__setEntradaTotal === 'function'){
+      window.__setEntradaTotal(totalInicial || 0, { source: 'precobase', reason: 'initial-card' });
+    }else if(totalInEl){
+      totalInEl.textContent = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}).format(totalInicial || 0);
+    }
+  }catch{}
     // Sincronizar painel de Distribuição com Valor Total inicial da Entrada
-    try{ if(typeof window.__setDistribTotal === 'function') window.__setDistribTotal(totalInicial || 0); }catch{}
+    try{
+      if(typeof window.__setDistribTotal === 'function'){
+        window.__setDistribTotal(totalInicial || 0, {
+          source: 'precobase',
+          reason: 'initial-card',
+          allowZeroOverride: !(totalInicial > 0)
+        });
+      }
+    }catch{}
         const precoKgInicial = calcPrecoKgFromTotal(totalInicial, pesoTotalApproxNum);
         if(precoKgEl) precoKgEl.textContent = fmtMoney(precoKgInicial);
         if(precoKgInicial > 0 && typeof window.__DIST_seedExtraCustoKg === 'function'){
@@ -3692,7 +4330,13 @@
             if(!isNaN(n)){
               precoCxDisplay.textContent = n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
               const total = (getCx()||0) * n;
-              totalEl.textContent = (new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(total));
+              try{
+                if(typeof window.__setEntradaTotal === 'function'){
+                  window.__setEntradaTotal(total, { source: 'manual', reason: 'preco-edit' });
+                }else{
+                  totalEl.textContent = (new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(total));
+                }
+              }catch{}
               const precoKg = (getPesoTotal()>0) ? total / getPesoTotal() : 0;
               precoKgEl.textContent = fmtMoney(precoKg);
               if(precoKg > 0 && typeof window.__DIST_seedExtraCustoKg === 'function'){
@@ -3700,7 +4344,7 @@
                 if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh();
               }
               // Sincronizar Distribuição Valor Total após edição de preço
-              try{ if(typeof window.__setDistribTotal === 'function') window.__setDistribTotal(total||0); }catch{}
+              try{ if(typeof window.__setDistribTotal === 'function') window.__setDistribTotal(total||0, { source: 'manual', reason: 'preco-edit', allowZeroOverride: total <= 0 }); }catch{}
               // Persistir PRECOBASE no backend, se houver contexto (nunota/seq)
               try{
                 const nun = card.getAttribute('data-nunota');
@@ -3758,7 +4402,7 @@
           if(!entradaTotalEl) return;
           const val = parsePT(entradaTotalEl.textContent || '');
           if(val > 0){
-            window.__setDistribTotal(val);
+            window.__setDistribTotal(val, { source: 'entrada-sync', reason: 'entrada-watch', syncInput: true });
           }
         }catch{}
       };
