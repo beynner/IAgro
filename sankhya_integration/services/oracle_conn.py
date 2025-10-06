@@ -1815,6 +1815,22 @@ def calcular_agregados_lote(controle: str) -> dict:
     """Calcula agregados principais do lote pesquisando TGFCAB/TGFITE usando TOPs reais."""
     p = get_params()
     TOP_ENTRADA = p['TOP_ENTRADA']
+    TOP_CLASS = p.get('TOP_CLASS', 26)
+    TOP_CLASS = p.get('TOP_CLASS', 26)
+    # Also need TOP_CLASS (e.g., 26) for classification status lookup below
+    TOP_CLASS = p.get('TOP_CLASS', 26)
+    TOP_CLASS = p['TOP_CLASS']
+    TOP_CLASS = p['TOP_CLASS']
+    TOP_CLASS = p['TOP_CLASS']
+    TOP_CLASS = p['TOP_CLASS']
+    TOP_CLASS = p['TOP_CLASS']
+    TOP_CLASS = p['TOP_CLASS']
+    TOP_CLASS = p['TOP_CLASS']
+    TOP_CLASS = p['TOP_CLASS']
+    TOP_CLASS = p['TOP_CLASS']
+    TOP_CLASS = p['TOP_CLASS']
+    TOP_CLASS = p['TOP_CLASS']
+    TOP_CLASS = p['TOP_CLASS']
     TOP_CLASS = p['TOP_CLASS']
     TOP_PED_VENDA = p['TOP_PED_VENDA']
     TOP_VENDAS = p['TOP_VENDAS']
@@ -1990,7 +2006,7 @@ def consultar_lote(controle: str) -> dict:
         t_e0 = time.perf_counter()
         cur.execute(
             """
-            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.VLRUNIT, i.VLRTOT, pr.NOMEPARC
+            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.PESO, i.VLRUNIT, i.VLRTOT, pr.NOMEPARC
               FROM TGFITE i
               JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
               LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
@@ -2003,11 +2019,11 @@ def consultar_lote(controle: str) -> dict:
         resultado['entradas'] = cur.fetchall()
         t_e1 = time.perf_counter()
 
-                # Itens classificáveis (entrada TOP_ENTRADA com GERAPRODUCAO = 'S' apenas)
+        # Itens classificáveis (entrada TOP_ENTRADA com GERAPRODUCAO = 'S' apenas)
         t_cv0 = time.perf_counter()
         cur.execute(
             """
-            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.VLRUNIT, i.VLRTOT
+            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.PESO, i.VLRUNIT, i.VLRTOT
               FROM TGFITE i
               JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
               LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
@@ -2024,7 +2040,7 @@ def consultar_lote(controle: str) -> dict:
         t_cl0 = time.perf_counter()
         cur.execute(
             """
-            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.VLRUNIT, i.VLRTOT
+            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.PESO, i.VLRUNIT, i.VLRTOT
               FROM TGFITE i
               JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
               LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
@@ -2168,7 +2184,7 @@ def consultar_lote_light(controle: str) -> dict:
         t_e0 = time.perf_counter()
         cur.execute(
             """
-            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.VLRUNIT, i.VLRTOT, pr.NOMEPARC
+            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.PESO, i.VLRUNIT, i.VLRTOT, pr.NOMEPARC
               FROM TGFITE i
               JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
               LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
@@ -2185,7 +2201,7 @@ def consultar_lote_light(controle: str) -> dict:
         t_cv0 = time.perf_counter()
         cur.execute(
             """
-            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.VLRUNIT, i.VLRTOT
+            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.PESO, i.VLRUNIT, i.VLRTOT
               FROM TGFITE i
               JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
               LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
@@ -2202,7 +2218,7 @@ def consultar_lote_light(controle: str) -> dict:
         t_cl0 = time.perf_counter()
         cur.execute(
             """
-            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.VLRUNIT, i.VLRTOT
+            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.PESO, i.VLRUNIT, i.VLRTOT
               FROM TGFITE i
               JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
               LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
@@ -2214,40 +2230,40 @@ def consultar_lote_light(controle: str) -> dict:
         resultado['classificacoes'] = cur.fetchall()
         t_cl1 = time.perf_counter()
 
-        # NUNOTA TOP_CLASS mais recente (se existir)
+        # Status TOP_CLASS agregado por controle (preferir 'L' se qualquer nota TOP 26 do controle estiver liberada)
         t_nc0 = time.perf_counter()
         try:
             cur.execute(
                 """
-                SELECT i.NUNOTA FROM (
-                  SELECT DISTINCT i.NUNOTA
-                    FROM TGFITE i
-                    JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-                   WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top
-                   ORDER BY i.NUNOTA DESC
-                ) WHERE ROWNUM = 1
+                SELECT MAX(CASE WHEN c.STATUSNOTA='L' THEN 1 ELSE 0 END) AS has_l,
+                       MAX(c.NUNOTA) AS nunota_any,
+                       MAX(c.STATUSNOTA) AS status_any
+                  FROM TGFITE i
+                  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                 WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top
                 """,
                 c=controle, top=TOP_CLASS
             )
             row_nc = cur.fetchone()
-            if row_nc and row_nc[0] is not None:
+            if row_nc:
+                has_l, nun_any, status_any = row_nc
                 try:
-                    resultado['nunota_class'] = int(row_nc[0])
+                    resultado['nunota_class'] = int(nun_any) if nun_any is not None else None
                 except Exception:
-                    resultado['nunota_class'] = row_nc[0]
-                # STATUSNOTA do cabeçalho TOP_CLASS
+                    resultado['nunota_class'] = nun_any
                 try:
-                    cur.execute("SELECT STATUSNOTA FROM TGFCAB WHERE NUNOTA=:n", n=resultado['nunota_class'])
-                    row_st = cur.fetchone()
-                    if row_st and row_st[0] is not None:
-                        try:
-                            resultado['statusnota_class'] = str(row_st[0]).strip()
-                        except Exception:
-                            resultado['statusnota_class'] = row_st[0]
+                    hl = int(has_l or 0)
                 except Exception:
-                    resultado['statusnota_class'] = None
+                    hl = 0
+                if hl > 0:
+                    resultado['statusnota_class'] = 'L'
+                else:
+                    try:
+                        resultado['statusnota_class'] = (status_any or '').strip()
+                    except Exception:
+                        resultado['statusnota_class'] = status_any
         except Exception:
-            resultado['nunota_class'] = None
+            pass
         t_nc1 = time.perf_counter()
 
     t1 = time.perf_counter()
@@ -2506,7 +2522,7 @@ def consultar_lotes_sumario(controles: list[str]) -> dict[str, dict]:
         )
     except Exception:
         pass
-    return out
+        return out
 
 
 def listar_lotes_recentes(
@@ -2661,119 +2677,212 @@ def listar_lotes_entradas_classificaveis(
 
 
 def consultar_lotes_sumario_top11_classificaveis(controles: list[str]) -> dict[str, dict]:
-        """Resumo leve para múltiplos controles baseado SOMENTE em entradas TOP 11
-        classificáveis (GERAPRODUCAO='S') para uso na página de Classificação.
-        Retorna por controle: parceiro/codparc, qtd_cx, qtd_kg e lista de produtos classificáveis.
-        """
-        if not controles:
-            return {}
-        keys = [str(c) for c in controles if c]
-        if not keys:
-            return {}
+    """Resumo leve para múltiplos controles baseado SOMENTE em entradas TOP 11
+    classificáveis (GERAPRODUCAO='S') para uso na página de Classificação.
+    Retorna por controle: parceiro/codparc, qtd_cx, qtd_kg e lista de produtos classificáveis.
+    """
+    if not controles:
+        return {}
+    keys = [str(c) for c in controles if c]
+    if not keys:
+        return {}
 
-        # Build IN clause
-        placeholders = []
-        binds: dict[str, object] = {}
-        for idx, c in enumerate(keys):
-            ph = f"c{idx}"
-            placeholders.append(f":{ph}")
-            binds[ph] = c
-        in_clause = ",".join(placeholders)
+    # Build IN clause
+    placeholders = []
+    binds: dict[str, object] = {}
+    for idx, c in enumerate(keys):
+        ph = f"c{idx}"
+        placeholders.append(f":{ph}")
+        binds[ph] = c
+    in_clause = ",".join(placeholders)
 
-        p = get_params()
-        TOP_ENTRADA = p['TOP_ENTRADA']
+    p = get_params()
+    TOP_ENTRADA = p['TOP_ENTRADA']
+    TOP_CLASS = p.get('TOP_CLASS', 26)
 
-        out: dict[str, dict] = {c: {
-            'parceiro': '',
-            'codparc': None,
-            'qtd_cx': 0.0,
-            'qtd_kg': 0.0,
-            'produtos_entrada': [],  # classifiable products only
-        } for c in keys}
-
-        with get_connection() as conn:
-            cur = conn.cursor()
-            # Partner + quantities by volume
-            sql_q = f"""
+    out: dict[str, dict] = {c: {
+        'parceiro': '',
+        'codparc': None,
+        'qtd_cx': 0.0,
+        'qtd_kg': 0.0,
+        'peso_inn': None,
+        'nunota_class': None,
+        'statusnota_class': None,
+        'produtos_entrada': [],  # classifiable products only
+    } for c in keys}
+    with get_connection() as conn:
+        cur = conn.cursor()
+        # Partner + quantities by volume
+        # Qtde cx: normaliza QTDNEG da unidade do item para CX usando fatores do TGFVOA.
+        # Regra:
+        # - Se o item já estiver em CX, usa QTDNEG direto.
+        # - Caso contrário, converte a QTDNEG para a unidade base (via TGFVOA do CODVOL do item) e depois divide pelo fator da CX.
+        sql_q = f"""
                 SELECT i.CODAGREGACAO AS CTRL,
-                       MAX(UPPER(NVL(pr.RAZAOSOCIAL, pr.NOMEPARC))) AS PARCEIRO,
-                                             MAX(c.CODPARC) AS CODPARC,
-                                             -- Qtde de caixas convertida pela unidade alternativa (CX)
-                                             SUM(CASE 
-                                                         WHEN UPPER(NVL(i.CODVOL,''))='CX' 
-                                                            AND (
-                                                                     CASE 
-                                                                         WHEN voa.FATOR IS NOT NULL AND voa.FATOR > 0 THEN voa.FATOR
-                                                                         WHEN voa.QUANTIDADE IS NOT NULL AND UPPER(NVL(voa.DIVIDEMULTIPLICA,'M')) = 'M' THEN voa.QUANTIDADE
-                                                                         WHEN voa.QUANTIDADE IS NOT NULL AND UPPER(NVL(voa.DIVIDEMULTIPLICA,'M')) = 'D' AND voa.QUANTIDADE <> 0 THEN (1/voa.QUANTIDADE)
+                         MAX(UPPER(NVL(pr.RAZAOSOCIAL, pr.NOMEPARC))) AS PARCEIRO,
+                         MAX(c.CODPARC) AS CODPARC,
+                         SUM(
+                                 CASE WHEN UPPER(NVL(i.CODVOL,''))='CX' THEN i.QTDNEG
+                                            ELSE
+                                                CASE
+                                                    -- Fator base por CX (kg/caixa, un/caixa, etc)
+                                                    WHEN (
+                                                             CASE
+                                                                 WHEN vcx.FATOR IS NOT NULL AND vcx.FATOR > 0 THEN vcx.FATOR
+                                                                 WHEN vcx.QUANTIDADE IS NOT NULL AND UPPER(NVL(vcx.DIVIDEMULTIPLICA,'M'))='M' THEN vcx.QUANTIDADE
+                                                                 WHEN vcx.QUANTIDADE IS NOT NULL AND UPPER(NVL(vcx.DIVIDEMULTIPLICA,'M'))='D' AND vcx.QUANTIDADE<>0 THEN (1/vcx.QUANTIDADE)
+                                                                 ELSE NULL
+                                                             END
+                                                    ) > 0
+                                                    THEN (
+                                                      -- Quantidade em unidade base do produto
+                                                      (
+                                                        CASE
+                                                          WHEN UPPER(NVL(pp.CODVOL,'')) = UPPER(NVL(i.CODVOL,'')) THEN i.QTDNEG
+                                                          ELSE
+                                                            CASE
+                                                              WHEN (
+                                                                       CASE
+                                                                         WHEN vio.FATOR IS NOT NULL AND vio.FATOR > 0 THEN vio.FATOR
+                                                                         WHEN vio.QUANTIDADE IS NOT NULL AND UPPER(NVL(vio.DIVIDEMULTIPLICA,'M'))='M' THEN vio.QUANTIDADE
+                                                                         WHEN vio.QUANTIDADE IS NOT NULL AND UPPER(NVL(vio.DIVIDEMULTIPLICA,'M'))='D' AND vio.QUANTIDADE<>0 THEN (1/vio.QUANTIDADE)
                                                                          ELSE NULL
-                                                                     END
-                                                                    ) > 0
-                                                         THEN i.QTDNEG / (
-                                                                     CASE 
-                                                                         WHEN voa.FATOR IS NOT NULL AND voa.FATOR > 0 THEN voa.FATOR
-                                                                         WHEN voa.QUANTIDADE IS NOT NULL AND UPPER(NVL(voa.DIVIDEMULTIPLICA,'M')) = 'M' THEN voa.QUANTIDADE
-                                                                         WHEN voa.QUANTIDADE IS NOT NULL AND UPPER(NVL(voa.DIVIDEMULTIPLICA,'M')) = 'D' AND voa.QUANTIDADE <> 0 THEN (1/voa.QUANTIDADE)
+                                                                       END
+                                                              ) > 0 THEN i.QTDNEG * (
+                                                                       CASE
+                                                                         WHEN vio.FATOR IS NOT NULL AND vio.FATOR > 0 THEN vio.FATOR
+                                                                         WHEN vio.QUANTIDADE IS NOT NULL AND UPPER(NVL(vio.DIVIDEMULTIPLICA,'M'))='M' THEN vio.QUANTIDADE
+                                                                         WHEN vio.QUANTIDADE IS NOT NULL AND UPPER(NVL(vio.DIVIDEMULTIPLICA,'M'))='D' AND vio.QUANTIDADE<>0 THEN (1/vio.QUANTIDADE)
                                                                          ELSE NULL
-                                                                     END
-                                                         )
-                                                         ELSE 0 
-                                                     END) AS QTD_CX,
-                                             -- Qtde em KG baseada na unidade base do produto
-                                             SUM(CASE WHEN UPPER(NVL(pp.CODVOL,''))='KG' THEN i.QTDNEG ELSE 0 END) AS QTD_KG
-                                    FROM TGFITE i
-                                    JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-                                    LEFT JOIN TGFPAR pr ON pr.CODPARC = c.CODPARC
-                                    LEFT JOIN TGFPRO pp ON pp.CODPROD = i.CODPROD
-                                    LEFT JOIN TGFVOA voa ON voa.CODPROD = i.CODPROD AND UPPER(voa.CODVOL) = UPPER(NVL(i.CODVOL,''))
-                                 WHERE i.CODAGREGACAO IN ({in_clause})
-                                     AND c.CODTIPOPER = :top_ent
-                                     AND NVL(i.GERAPRODUCAO,'N') = 'S'
-                                 GROUP BY i.CODAGREGACAO
-            """
-            cur.execute(sql_q, {**binds, 'top_ent': TOP_ENTRADA})
-            for ctrl, parceiro, codparc, qcx, qkg in cur.fetchall():
-                d = out.get(ctrl)
-                if not d:
-                    continue
-                d['parceiro'] = parceiro or ''
-                try:
-                    d['codparc'] = int(codparc) if codparc is not None else None
-                except Exception:
-                    d['codparc'] = codparc
-                try:
-                    d['qtd_cx'] = float(qcx or 0)
-                except Exception:
-                    d['qtd_cx'] = 0.0
-                try:
-                    d['qtd_kg'] = float(qkg or 0)
-                except Exception:
-                    d['qtd_kg'] = 0.0
-            # Classifiable product list — return manufacturer (FABRICANTE)
-            sql_p = (
-                f"""
-                SELECT i.CODAGREGACAO AS CTRL, i.CODPROD, MAX(UPPER(NVL(p.FABRICANTE,''))) AS FABRICANTE
-                  FROM TGFITE i
-                  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-                  LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
+                                                                       END
+                                                              )
+                                                              ELSE NULL
+                                                            END
+                                                        END
+                                                      ) / (
+                                                         CASE
+                                                           WHEN vcx.FATOR IS NOT NULL AND vcx.FATOR > 0 THEN vcx.FATOR
+                                                           WHEN vcx.QUANTIDADE IS NOT NULL AND UPPER(NVL(vcx.DIVIDEMULTIPLICA,'M'))='M' THEN vcx.QUANTIDADE
+                                                           WHEN vcx.QUANTIDADE IS NOT NULL AND UPPER(NVL(vcx.DIVIDEMULTIPLICA,'M'))='D' AND vcx.QUANTIDADE<>0 THEN (1/vcx.QUANTIDADE)
+                                                           ELSE NULL
+                                                         END
+                                                      )
+                                                    )
+                                                    ELSE 0
+                                                END
+                                 END
+                         ) AS QTD_CX,
+                         -- Qtde em KG (somar quando base for KG)
+                         SUM(CASE WHEN UPPER(NVL(pp.CODVOL,''))='KG' THEN i.QTDNEG ELSE 0 END) AS QTD_KG
+                    FROM TGFITE i
+                    JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                    LEFT JOIN TGFPAR pr ON pr.CODPARC = c.CODPARC
+                    LEFT JOIN TGFPRO pp ON pp.CODPROD = i.CODPROD
+                    LEFT JOIN TGFVOA vcx ON vcx.CODPROD = i.CODPROD AND UPPER(vcx.CODVOL)='CX'
+                    LEFT JOIN TGFVOA vio ON vio.CODPROD = i.CODPROD AND UPPER(vio.CODVOL) = UPPER(NVL(i.CODVOL,''))
                  WHERE i.CODAGREGACAO IN ({in_clause})
-                   AND c.CODTIPOPER = :top_ent
-                 GROUP BY i.CODAGREGACAO, i.CODPROD
-                """
-            )
-            cur.execute(sql_p, {**binds, 'top_ent': TOP_ENTRADA})
-            for ctrl, cod, fabricante in cur.fetchall():
-                d = out.get(ctrl)
-                if not d:
-                    continue
-                lst = d.setdefault('produtos_entrada', [])
-                try:
-                    cod_i = int(cod) if cod is not None else None
-                except Exception:
-                    cod_i = cod
-                lst.append({'cod': cod_i, 'fabricante': fabricante or ''})
+                     AND c.CODTIPOPER = :top_ent
+                 GROUP BY i.CODAGREGACAO
+        """
+        cur.execute(sql_q, {**binds, 'top_ent': TOP_ENTRADA})
+        for ctrl, parceiro, codparc, qcx, qkg in cur.fetchall():
+            d = out.get(ctrl)
+            if not d:
+                continue
+            d['parceiro'] = parceiro or ''
+            try:
+                d['codparc'] = int(codparc) if codparc is not None else None
+            except Exception:
+                d['codparc'] = codparc
+            try:
+                d['qtd_cx'] = float(qcx or 0)
+            except Exception:
+                d['qtd_cx'] = 0.0
+            try:
+                d['qtd_kg'] = float(qkg or 0)
+            except Exception:
+                d['qtd_kg'] = 0.0
 
-        return out
+        # Classifiable product list — return manufacturer (FABRICANTE)
+        sql_p = (
+            f"""
+            SELECT i.CODAGREGACAO AS CTRL, i.CODPROD, MAX(UPPER(NVL(p.FABRICANTE,''))) AS FABRICANTE
+              FROM TGFITE i
+              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+              LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
+             WHERE i.CODAGREGACAO IN ({in_clause})
+               AND c.CODTIPOPER = :top_ent
+             GROUP BY i.CODAGREGACAO, i.CODPROD
+            """
+        )
+        cur.execute(sql_p, {**binds, 'top_ent': TOP_ENTRADA})
+        for ctrl, cod, fabricante in cur.fetchall():
+            d = out.get(ctrl)
+            if not d:
+                continue
+            lst = d.setdefault('produtos_entrada', [])
+            try:
+                cod_i = int(cod) if cod is not None else None
+            except Exception:
+                cod_i = cod
+            lst.append({'cod': cod_i, 'fabricante': fabricante or ''})
+
+        # PESO do item de entrada (qualquer produto) para cada controle: usa qualquer PESO não nulo
+        sql_pw = (
+            f"""
+            SELECT i.CODAGREGACAO AS CTRL, MAX(i.PESO) AS PESO
+              FROM TGFITE i
+              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+             WHERE i.CODAGREGACAO IN ({in_clause})
+               AND c.CODTIPOPER = :top_ent
+               AND i.PESO IS NOT NULL
+             GROUP BY i.CODAGREGACAO
+            """
+        )
+        cur.execute(sql_pw, {**binds, 'top_ent': TOP_ENTRADA})
+        for ctrl, peso in cur.fetchall():
+            d = out.get(ctrl)
+            if not d:
+                continue
+            try:
+                d['peso_inn'] = float(peso) if peso is not None else None
+            except Exception:
+                d['peso_inn'] = peso
+
+        # TOP 26 (Classificação) status per controle:
+        # Prefer 'L' if ANY classification note for that control is liberated; otherwise use any status available.
+        sql_nc = (
+            f"""
+            SELECT i.CODAGREGACAO AS ctrl,
+                   MAX(CASE WHEN c.STATUSNOTA = 'L' THEN 1 ELSE 0 END) AS has_l,
+                   MAX(c.NUNOTA) AS nunota_any,
+                   MAX(c.STATUSNOTA) AS status_any
+              FROM TGFITE i
+              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+             WHERE i.CODAGREGACAO IN ({in_clause})
+               AND c.CODTIPOPER = :top_class
+             GROUP BY i.CODAGREGACAO
+            """
+        )
+        cur.execute(sql_nc, {**binds, 'top_class': TOP_CLASS})
+        for ctrl, has_l, nun_any, status_any in cur.fetchall():
+            d = out.get(ctrl)
+            if not d:
+                continue
+            d['nunota_class'] = nun_any
+            try:
+                hl = int(has_l or 0)
+            except Exception:
+                hl = 0
+            if hl > 0:
+                d['statusnota_class'] = 'L'
+            else:
+                try:
+                    d['statusnota_class'] = (status_any or '').strip()
+                except Exception:
+                    d['statusnota_class'] = status_any
+
+    return out
 
 
 def listar_itens_sem_controle(limit: int = 50):

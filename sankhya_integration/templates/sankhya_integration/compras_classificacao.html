@@ -96,7 +96,6 @@
     <div class="ph-spinner" aria-label="Carregando" role="status" style="width:56px;height:56px;border-radius:50%;border:4px solid #e5e7eb;border-top-color:#2563eb;"></div>
   </div>
 
-  <header>
     <h1 style="display:flex; align-items:center; gap:10px;">
       Classificação
       {% if timings %}
@@ -104,23 +103,17 @@
           {{ timings.total_ms }} ms (list {{ timings.list_ms }}, sum {{ timings.sum_ms }})
         </span>
       {% endif %}
-    </h1>
     {% if db_error %}
       <div style="margin-top:8px; padding:8px 10px; border:1px solid #fecaca; background:#fef2f2; color:#991b1b; border-radius:6px; font-size:12px;">
         Não foi possível conectar ao banco Oracle no momento. Detalhes: {{ db_error }}
       </div>
     {% endif %}
-  </header>
+    </h1>
 
   <main>
     <!-- Sidebar filtros (esquerda) -->
     <aside class="panel">
       <header>Filtros rápidos</header>
-      <div class="content">
-        <div class="filters-actions" style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:8px;">
-          <button type="button" id="btnClear">Limpar</button>
-          <button type="submit" form="filtersForm">Aplicar</button>
-        </div>
         <form id="filtersForm" class="filters-grid">
           <div>
             <label>Últimos dias (fallback)</label>
@@ -208,28 +201,54 @@
         </button>
       </div>
       <div class="panel panel--results">
-        <header>LOTES</header>
+        <header>
+          LOTES
+          <span id="lotesLegend" style="font-weight:normal; margin-left:12px; font-size:12px;">
+            <a href="#" data-filter="all" style="margin-right:8px; text-decoration:underline;">Todos</a>
+            <a href="#" data-filter="green" style="color:#10b981; margin-right:8px;">Classificação Finalizada</a>
+            <a href="#" data-filter="yellow" style="color:#f59e0b; margin-right:8px;">Classificando</a>
+            <a href="#" data-filter="red" style="color:#ef4444;">A Classificar</a>
+          </span>
+        </header>
         <div class="list" id="notasList" tabindex="0">
+          <style>
+            .status-dot{display:inline-block;width:10px;height:10px;border-radius:9999px;background:#ef4444}
+            .status--red{background:#ef4444}
+            .status--yellow{background:#f59e0b}
+            .status--green{background:#10b981}
+          </style>
           <table id="notasTable" class="ph-selectable-table">
             <thead>
               <tr>
+                <th>Status</th>
                 <th>Lote / CODAGREGACAO</th>
                 <th>Parceiro</th>
                 <th>Produtos (TOP 11 - Entradas)</th>
                 <th>Qtde cx</th>
-                <th>Qtde kg</th>
-                <th>Qtde Classificado</th>
-                <th>Qtde Estoque</th>
+                <th>Peso<br>InNatura</th>
+                <th>Qtde Kg<br>InNatura</th>
+                <th>Qtde<br>Classificado</th>
               </tr>
             </thead>
             <tbody>
-              {% for controle, parceiro, produto_descr, qtd_cx, qtd_kg, qtd_class, qtd_estoque, exemplo_nunota, exemplo_seq, produtos_entrada, codparc in lotes %}
+              {% for controle, parceiro, produto_descr, qtd_cx, peso, qtd_kg, qtd_class, statusnota, exemplo_nunota, exemplo_seq, produtos_entrada, codparc in lotes %}
               {% with is_sel=sel|default:0 %}
         <tr class="row--click{% if controle == is_sel %} row--active{% endif %}"
           data-nunota="{{ controle }}"
           data-seq="{{ exemplo_seq }}"
           data-codparc="{{ codparc|default:'' }}"
           data-central-url="/sankhya/packing/central/?nunota={{ exemplo_nunota }}">
+                <td>
+                  {% with st=statusnota|stringformat:'s' %}
+                    {% if st and st|upper == 'L' %}
+                      <span class="status-dot status--green"></span>
+                    {% elif qtd_class and qtd_class|floatformat:1 != '0.0' %}
+                      <span class="status-dot status--yellow"></span>
+                    {% else %}
+                      <span class="status-dot status--red"></span>
+                    {% endif %}
+                  {% endwith %}
+                </td>
                 <td>{{ controle }}</td>
                 <td>{{ parceiro }}</td>
                 <td>
@@ -251,16 +270,45 @@
                   {% endif %}
                 </td>
                 <td>{{ qtd_cx }}</td>
+                <td>{{ peso }}</td>
                 <td>{{ qtd_kg }}</td>
                 <td>{{ qtd_class }}</td>
-                <td>{{ qtd_estoque }}</td>
               </tr>
               {% endwith %}
               {% empty %}
-              <tr><td colspan="6">Nenhum lote encontrado.</td></tr>
+              <tr><td colspan="8">Nenhum lote encontrado.</td></tr>
               {% endfor %}
             </tbody>
           </table>
+          <script>
+            (function(){
+              const legend = document.getElementById('lotesLegend');
+              const tblEl = document.getElementById('notasTable');
+              if(!legend || !tblEl) return;
+              function applyLegendFilter(kind){
+                const rows = Array.from(tblEl.querySelectorAll('tbody tr.row--click'));
+                rows.forEach(r=>{
+                  const dot = r.querySelector('.status-dot');
+                  const isGreen = dot && dot.classList.contains('status--green');
+                  const isYellow = dot && dot.classList.contains('status--yellow');
+                  const isRed = dot && dot.classList.contains('status--red');
+                  let show = true;
+                  if(kind==='green') show = !!isGreen;
+                  else if(kind==='yellow') show = !!isYellow;
+                  else if(kind==='red') show = !!isRed;
+                  else show = true; // all
+                  r.style.display = show ? '' : 'none';
+                });
+              }
+              legend.addEventListener('click', function(e){
+                const a = e.target.closest('a[data-filter]');
+                if(!a) return;
+                e.preventDefault();
+                const kind = a.getAttribute('data-filter')||'all';
+                applyLegendFilter(kind);
+              });
+            })();
+          </script>
         </div>
       </div>
 
@@ -283,10 +331,9 @@
                 <th>Seq</th>
                 <th>Produto</th>
                 <th>Descrição</th>
-                <th>Qtd</th>
-                <th>Vlr Unit</th>
-                <th>Total</th>
-                <th>Obs</th>
+                <th>Qtd<br>Classificado</th>
+                <th>Peso<br>Classificado</th>
+                <th>Total Kg<br>Classificado</th>
               </tr>
             </thead>
             <tbody id="prodClassBody">
@@ -299,13 +346,11 @@
                     <td>{{ it.3 }}</td>
                     <td>{{ it.4 }}</td>
                     <td>{{ it.5 }}</td>
-                    <td>{{ it.6 }}</td>
-                    <td></td>
                     <td></td>
                   </tr>
                 {% endfor %}
               {% else %}
-                <tr><td colspan="9">Carregando...</td></tr>
+                <tr><td colspan="7">Carregando...</td></tr>
               {% endif %}
             </tbody>
           </table>
@@ -345,6 +390,48 @@
   // Some browsers fire pagehide instead
   window.addEventListener('pagehide', function(){ try{ show(); }catch(_){} });
     })();
+    // Auto-open support: if URL has ?sel=<lote>&open=cab|items, open the respective modals on load
+    (function(){
+      function ready(fn){ if(document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
+      ready(function(){
+        try{
+          const url = new URL(window.location.href);
+          const openWhat = (url.searchParams.get('open')||'').toLowerCase();
+          const sel = url.searchParams.get('sel') || '';
+          if(!openWhat || !sel) return;
+          const tbl = document.getElementById('notasTable');
+          const row = tbl ? tbl.querySelector(`tbody tr.row--click[data-nunota="${CSS.escape(String(sel))}"]`) : null;
+          if(row){
+            try{ Array.from(tbl.querySelectorAll('tbody tr.row--click')).forEach(r=>r.classList.remove('row--active')); row.classList.add('row--active'); }catch(_){ }
+            try{ if(typeof loadClassifiedFor === 'function') loadClassifiedFor(sel); }catch(_){ }
+          }
+          function tryOpen(){
+            const canCab = (typeof window.showCabModal === 'function');
+            const canItems = (typeof window.showItemsModal === 'function');
+            if(openWhat === 'cab' && canCab){ window.showCabModal(); return true; }
+            if(openWhat === 'items' && canCab && canItems){
+              window.showCabModal();
+              (async function(){
+                try{
+                  const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(sel), { credentials: 'same-origin' });
+                  const j = await r.json();
+                  let nun = null;
+                  if(j && j.ok){ nun = j.nunota_class || (Array.isArray(j.classificacoes) && j.classificacoes[0]?.nunota) || null; }
+                  window.showItemsModal(nun);
+                  if(nun && typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(nun);
+                }catch(_){ try{ window.showItemsModal(null); }catch(__){} }
+              })();
+              return true;
+            }
+            return false;
+          }
+          if(!tryOpen()){
+            // Retry briefly until functions are available (up to ~1.5s)
+            let tries = 0; const h = setInterval(()=>{ tries++; if(tryOpen() || tries>15){ clearInterval(h); } }, 100);
+          }
+        }catch(_){ }
+      });
+    })();
   </script>
   <!-- Seed initial lote cache to avoid first AJAX fetch -->
   <script>
@@ -363,7 +450,7 @@
   <div id="modalItemEdit" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); align-items:center; justify-content:center; z-index:70;">
     <div style="background:#fff; border-radius:8px; width:640px; max-width:95%; padding:14px;">
   <h3 id="itemModalTitle">Editar Item</h3>
-      <div style="display:grid; grid-template-columns: 1fr 120px; gap:8px;">
+  <div style="display:grid; grid-template-columns: 1fr 120px; gap:8px;">
         <div style="position:relative;">
           <label>Produto (código)</label>
           <input type="hidden" id="itemProdHidden" />
@@ -383,6 +470,10 @@
         <div>
           <label>Vlr Unit</label>
           <input type="number" id="itemVlr" step="0.01" value="0" disabled title="Definido na página Comercial (TOP 26 não usa preço)" />
+        </div>
+        <div>
+          <label>Peso</label>
+          <input type="number" id="itemPeso" step="0.001" readonly />
         </div>
         <div style="grid-column:1 / -1;">
           <label>Obs</label>
@@ -637,9 +728,131 @@
       const listEl = document.getElementById('notasList');
       let clickTimer = null;
       const CLICK_DELAY = 250;
+    // Formatter for LOTES numeric columns: 1 decimal with thousand separator (pt-BR)
+    function formatNum1BR(val){ const n = typeof val === 'number' ? val : parseFloat(val); return (Number.isFinite(n) ? n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : (val==null? '' : String(val))); }
+  function formatLotesRow(row){ try{ if(!row || !row.cells || row.cells.length < 8) return; for(let i=4;i<=7;i++){ const c = row.cells[i]; if(!c) continue; const raw = (c.textContent||'').toString().replace(/\./g,'').replace(',','.'); const num = parseFloat(raw); if(Number.isFinite(num)) c.textContent = formatNum1BR(num); } }catch(_){ }
+      }
       // Prefetch controls for lotes cache
       const LOTES_PREFETCH = { inflight: Object.create(null), scheduled: Object.create(null) };
       function hasLoteInCache(ctrl){ try{ return !!(window.__LOTES_CACHE && window.__LOTES_CACHE[String(ctrl)] && window.__LOTES_CACHE[String(ctrl)].ok); }catch(_){ return false; } }
+      function computePesoFromEntradas(j){
+        try{
+          const entradas = Array.isArray(j.entradas) ? j.entradas : [];
+          if (!entradas.length) return NaN;
+          const pin = j && j.prod_in_natura != null ? String(j.prod_in_natura) : '';
+          let pesoVal = NaN;
+          if (pin) {
+            const match = entradas.find(e => String(e.codprod || e.CODPROD || '') === pin);
+            if (match) {
+              const p = parseFloat(match.peso || match.PESO || NaN);
+              if (isFinite(p)) pesoVal = p;
+            }
+          }
+          if (!isFinite(pesoVal)) {
+            // fallback: first entrada with valid PESO
+            const found = entradas.find(e => isFinite(parseFloat(e.peso || e.PESO)) );
+            if (found) {
+              const p = parseFloat(found.peso || found.PESO || NaN);
+              if (isFinite(p)) pesoVal = p;
+            }
+          }
+          return pesoVal;
+        }catch(_){ return NaN; }
+      }
+      function computeQcxFromEntradas(j){
+        try{
+          const entradas = Array.isArray(j.entradas) ? j.entradas : [];
+          if (!entradas.length) return 0;
+          const sum = entradas.reduce((s,e)=>{
+            const vol = (e.codvol || e.CODVOL || '').toString().trim().toUpperCase();
+            const qtd = parseFloat(e.qtd || e.QTDNEG || 0) || 0;
+            return s + (vol === 'CX' ? qtd : 0);
+          }, 0);
+          return sum;
+        }catch(_){ return 0; }
+      }
+      function computeQkgFromEntradas(j){
+        try{
+          const entradas = Array.isArray(j.entradas) ? j.entradas : [];
+          if (!entradas.length) return 0;
+          const pin = j && j.prod_in_natura != null ? String(j.prod_in_natura) : '';
+          if (pin) {
+            const it = entradas.find(e => String(e.codprod || e.CODPROD || '') === pin);
+            if (it) {
+              const q = parseFloat(it.qtd || it.QTDNEG || NaN);
+              const p = parseFloat(it.peso || it.PESO || NaN);
+              const v = (isFinite(q) && isFinite(p)) ? (q * p) : NaN;
+              if (isFinite(v)) return v;
+            }
+          }
+          // fallback: somatório qtd*peso de todas as entradas
+          const sum = entradas.reduce((s,e)=>{
+            const q = parseFloat(e.qtd || e.QTDNEG || NaN);
+            const p = parseFloat(e.peso || e.PESO || NaN);
+            return s + ((isFinite(q) && isFinite(p)) ? (q * p) : 0);
+          }, 0);
+          return sum;
+        }catch(_){ return 0; }
+      }
+      function computeClassificadoFromClassificacoes(j){
+        try{
+          const rows = Array.isArray(j.classificacoes) ? j.classificacoes : [];
+          if (!rows.length) return 0;
+          let sum = 0;
+          for (const it of rows){
+            const q = parseFloat(it && it.qtd != null ? it.qtd : NaN);
+            const p = parseFloat(it && it.peso != null ? it.peso : NaN);
+            if (isFinite(q) && isFinite(p)) sum += (q * p);
+          }
+          return sum;
+        }catch(_){ return 0; }
+      }
+      function setPesoCellForControle(ctrl, pesoVal){
+        try{
+          const row = document.querySelector(`#notasTable tbody tr.row--click[data-nunota="${CSS.escape(String(ctrl))}"]`);
+          if(!row || !row.cells || row.cells.length < 8) return;
+          if (isFinite(pesoVal)) {
+            row.cells[5].textContent = formatNum1BR(pesoVal);
+          }
+        }catch(_){ }
+      }
+      function setQcxCellForControle(ctrl, qcxVal){
+        try{
+          const row = document.querySelector(`#notasTable tbody tr.row--click[data-nunota="${CSS.escape(String(ctrl))}"]`);
+          if(!row || !row.cells || row.cells.length < 8) return;
+          if (isFinite(qcxVal)) {
+            row.cells[4].textContent = formatNum1BR(qcxVal);
+          }
+        }catch(_){ }
+      }
+      function setQkgCellForControle(ctrl, qkgVal){
+        try{
+          const row = document.querySelector(`#notasTable tbody tr.row--click[data-nunota="${CSS.escape(String(ctrl))}"]`);
+          if(!row || !row.cells || row.cells.length < 8) return;
+          if (isFinite(qkgVal)) row.cells[6].textContent = formatNum1BR(qkgVal);
+        }catch(_){ }
+      }
+      function setQClassCellForControle(ctrl, qClassVal){
+        try{
+          const row = document.querySelector(`#notasTable tbody tr.row--click[data-nunota="${CSS.escape(String(ctrl))}"]`);
+          if(!row || !row.cells || row.cells.length < 8) return;
+          if (isFinite(qClassVal)) row.cells[7].textContent = formatNum1BR(qClassVal);
+        }catch(_){ }
+      }
+      function setStatusForControle(ctrl, state){
+        try{
+          const row = document.querySelector(`#notasTable tbody tr.row--click[data-nunota="${CSS.escape(String(ctrl))}"]`);
+          if(!row || !row.cells || row.cells.length < 8) return;
+          const cell = row.cells[0];
+          if(!cell) return;
+          let el = cell.querySelector('.status-dot');
+          if(!el){ el = document.createElement('span'); el.className='status-dot'; cell.innerHTML=''; cell.appendChild(el); }
+          el.classList.remove('status--red','status--yellow','status--green');
+          if(state==='green') el.classList.add('status--green');
+          else if(state==='yellow') el.classList.add('status--yellow');
+          else el.classList.add('status--red');
+        }catch(_){ }
+      }
       async function prefetchLote(ctrl){
         const c = (ctrl||'').toString().trim(); if(!c) return;
         if (hasLoteInCache(c)) return;
@@ -649,6 +862,28 @@
           const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(c), { credentials: 'same-origin' });
           let j={}; try{ j = await r.json(); }catch(_){ j = {}; }
           if(j && j.ok){ try{ window.__LOTES_CACHE = window.__LOTES_CACHE || {}; window.__LOTES_CACHE[String(c)] = j; }catch(_){ } }
+          // Opportunistically fill cells from entradas/classificacoes for this controle
+          try{
+            if (j && j.ok) {
+              const pesoVal = computePesoFromEntradas(j);
+              if (isFinite(pesoVal)) setPesoCellForControle(c, pesoVal);
+              // Also fill Qtde cx based on entradas (vol='CX')
+              const qcxVal = computeQcxFromEntradas(j);
+              if (isFinite(qcxVal)) setQcxCellForControle(c, qcxVal);
+              // Also fill Qtde kg using In Natura rule (qtd * peso)
+              const qkgVal = computeQkgFromEntradas(j);
+              if (isFinite(qkgVal)) setQkgCellForControle(c, qkgVal);
+              // Also fill Qtde Classificado (sum(qtd * peso) dos classificados)
+              const qClassVal = computeClassificadoFromClassificacoes(j);
+              if (isFinite(qClassVal)) setQClassCellForControle(c, qClassVal);
+              // Set status dot color (TOP 26 only): Verde se STATUSNOTA == 'L'; caso contrário, amarelo se classificado>0, senão vermelho.
+              try{
+                const st = (j.statusnota_class||'').toString().toUpperCase();
+                const state = st==='L' ? 'green' : ((qClassVal>0)?'yellow':'red');
+                setStatusForControle(c, state);
+              }catch(_){ }
+            }
+          }catch(_){ }
         }catch(_){ } finally { delete LOTES_PREFETCH.inflight[c]; }
       }
       function schedulePrefetch(ctrl, delay){
@@ -741,6 +976,32 @@
         // Fallback: navigate to central
         window.location.href = tr.dataset.centralUrl;
       });
+
+      // On initial load, if a row is already active (server-selected), load its classified data
+      try{
+        const initRow = tbl.querySelector('tbody tr.row--click.row--active');
+        if(initRow){
+          updateDeleteBtn();
+          updateAddClassifyBtn();
+          const ctrl = initRow.dataset.nunota;
+          try{ loadClassifiedFor(ctrl); }catch(_){ }
+          try{ schedulePrefetch(ctrl, 60); }catch(_){ }
+          // If cached initial lote data exists (seeded from server), use it to prefill Peso and Qtde cx immediately
+          try{
+            if (window.__LOTES_CACHE && window.__LOTES_CACHE[ctrl] && window.__LOTES_CACHE[ctrl].ok){
+              const j = window.__LOTES_CACHE[ctrl];
+              const pesoVal = computePesoFromEntradas(j);
+              if (isFinite(pesoVal)) setPesoCellForControle(ctrl, pesoVal);
+              const qcxVal = computeQcxFromEntradas(j);
+              if (isFinite(qcxVal)) setQcxCellForControle(ctrl, qcxVal);
+              const qkgVal = computeQkgFromEntradas(j);
+              if (isFinite(qkgVal)) setQkgCellForControle(ctrl, qkgVal);
+              const qClassVal = computeClassificadoFromClassificacoes(j);
+              if (isFinite(qClassVal)) setQClassCellForControle(ctrl, qClassVal);
+            }
+          }catch(_){ }
+        }
+      }catch(_){ }
       function getRows(){ return Array.from(tbl.querySelectorAll('tbody tr.row--click')); }
       function currentIndex(){ const rows = getRows(); if (!rows.length) return -1; const idx = rows.findIndex(r => r.classList.contains('row--active')); return idx >= 0 ? idx : 0; }
       function setActive(newIdx, triggerApply){
@@ -761,6 +1022,7 @@
         try{ const url = new URL(window.location.href); url.searchParams.set('sel', ctrl); window.history.replaceState({}, '', url.pathname + '?' + url.searchParams.toString()); }catch(_){ }
         try{ loadClassifiedFor(ctrl); }catch(err){ console.error('applySelection load classified error', err); }
         try{ updateAddClassifyBtn(); }catch(_){ }
+        try{ formatLotesRow(row); }catch(_){ }
       }
       // Hover-based prefetch para antecipar escolha
       tbl.addEventListener('mouseover', (e)=>{
@@ -768,11 +1030,13 @@
         const ctrl = tr.dataset && tr.dataset.nunota; if(!ctrl) return;
         schedulePrefetch(ctrl, 120);
       });
-      // Prefetch inicial para primeiras linhas
-      try{ const first = getRows().slice(0,4); first.forEach((r,i)=>{ const c = r && r.dataset && r.dataset.nunota; if(c) schedulePrefetch(c, 200 + i*140); }); }catch(_){ }
+  // Prefetch inicial para primeiras linhas (amplia para 12 para preencher PESO mais cedo)
+  try{ const first = getRows().slice(0,12); first.forEach((r,i)=>{ const c = r && r.dataset && r.dataset.nunota; if(c) schedulePrefetch(c, 150 + i*120); }); }catch(_){ }
       function isTypingTarget(el){ const t = (el && el.tagName) ? el.tagName.toLowerCase() : ''; return t === 'input' || t === 'textarea' || el.isContentEditable; }
       (listEl || document).addEventListener('keydown', (e) => { if (isTypingTarget(e.target)) return; if (e.key === 'ArrowDown'){ e.preventDefault(); setActive(currentIndex()+1, true); } else if (e.key === 'ArrowUp'){ e.preventDefault(); setActive(currentIndex()-1, true); } else if (e.key === 'Enter'){ e.preventDefault(); applySelection(); } });
-      try{ listEl && listEl.focus(); }catch(_){}
+  try{ listEl && listEl.focus(); }catch(_){}
+  // Initial formatting for LOTES numeric columns on page load
+  try{ Array.from(tbl.querySelectorAll('tbody tr.row--click')).forEach(tr=> formatLotesRow(tr)); }catch(_){ }
     updateDeleteBtn();
   updateClassifyBtn();
   updateAddClassifyBtn();
@@ -802,7 +1066,10 @@
         });
       })();
       // Load classified products for selected lote via AJAX
-  async function loadClassifiedFor(controle){ const bodyEl = document.getElementById('prodClassBody'); if(!bodyEl) return; bodyEl.innerHTML = '<tr><td colspan="9">Carregando...</td></tr>'; try{ let j = null; try{ if(window.__LOTES_CACHE && window.__LOTES_CACHE[controle]){ j = window.__LOTES_CACHE[controle]; } }catch(_){ } if(!j){ const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' }); j = await r.json(); try{ window.__LOTES_CACHE = window.__LOTES_CACHE || {}; if(j && j.ok){ window.__LOTES_CACHE[controle] = j; } }catch(_){ } } if(!j || !j.ok){ bodyEl.innerHTML = `<tr><td colspan="9">Erro: ${(j&&j.error)||'falha'}</td></tr>`; return; } const rows = j.classificacoes || []; // update nunota TOP 26 badge
+  async function loadClassifiedFor(controle){ const bodyEl = document.getElementById('prodClassBody'); if(!bodyEl) return; bodyEl.innerHTML = '<tr><td colspan="7">Carregando...</td></tr>'; try{ let j = null; try{ if(window.__LOTES_CACHE && window.__LOTES_CACHE[controle]){ j = window.__LOTES_CACHE[controle]; } }catch(_){ } if(!j){ const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' }); j = await r.json(); try{ window.__LOTES_CACHE = window.__LOTES_CACHE || {}; if(j && j.ok){ window.__LOTES_CACHE[controle] = j; } }catch(_){ } } if(!j || !j.ok){ bodyEl.innerHTML = `<tr><td colspan="7">Erro: ${(j&&j.error)||'falha'}</td></tr>`; return; } const rows = j.classificacoes || []; // update nunota TOP 26 badge
+    // helpers for number formatting and total calculation
+  function formatNum(val){ const n = parseFloat(val); return (isFinite(n) ? n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : ''); }
+  function totalKgValue(item){ try{ const q = parseFloat(item && item.qtd != null ? item.qtd : NaN); const p = parseFloat(item && item.peso != null ? item.peso : NaN); const v = q * p; return (isFinite(v) ? v : NaN); }catch(_){ return NaN; } }
         try{
           const entradas = Array.isArray(j.entradas) ? j.entradas : [];
           const pin = j.prod_in_natura || null;
@@ -831,19 +1098,78 @@
             const qtd = parseFloat(e.qtd || e.QTDNEG || 0) || 0;
             return s + (vol === 'CX' ? qtd : 0);
           }, 0);
-          const qKg = entradas.reduce((s,e)=>{
-            const vol = (e.codvol || e.CODVOL || '').toString().trim().toUpperCase();
-            const qtd = parseFloat(e.qtd || e.QTDNEG || 0) || 0;
-            return s + (vol === 'KG' ? qtd : 0);
-          }, 0);
+          // Qtde kg (LOTES) must show total de kg In Natura: QTDNEG do item cuja TOP = 11.
+          // Backend exposes prod_in_natura (código do produto In Natura). Prefer that entry's QTDNEG.
+          let qKg = 0;
+          try{
+            const pin = j.prod_in_natura != null ? String(j.prod_in_natura) : '';
+            if (pin) {
+              const match = entradas.find(e => String(e.codprod || e.CODPROD || '') === pin);
+              if (match) {
+                const q = parseFloat(match.qtd || match.QTDNEG || NaN);
+                const p = parseFloat(match.peso || match.PESO || NaN);
+                qKg = (isFinite(q) && isFinite(p)) ? (q * p) : 0;
+              } else {
+                // Fallback: sum qtd * peso across entradas when specific In Natura not found
+                qKg = entradas.reduce((s,e)=>{
+                  const q = parseFloat(e.qtd || e.QTDNEG || NaN);
+                  const p = parseFloat(e.peso || e.PESO || NaN);
+                  return s + ((isFinite(q) && isFinite(p)) ? (q * p) : 0);
+                }, 0);
+              }
+            } else {
+              // No prod_in_natura from backend: fallback to sum qtd * peso across entradas
+              qKg = entradas.reduce((s,e)=>{
+                const q = parseFloat(e.qtd || e.QTDNEG || NaN);
+                const p = parseFloat(e.peso || e.PESO || NaN);
+                return s + ((isFinite(q) && isFinite(p)) ? (q * p) : 0);
+              }, 0);
+            }
+          }catch(_){ qKg = 0; }
           const activeRow = document.querySelector('#notasTable tbody tr.row--active');
-          // Columns: 0 ctrl, 1 parceiro, 2 produto, 3 qtde cx, 4 qtde kg, 5 classificado, 6 estoque
-          if(activeRow && activeRow.cells && activeRow.cells.length >= 7){
-            activeRow.cells[3].textContent = (qCx || 0).toFixed(3);
-            activeRow.cells[4].textContent = (qKg || 0).toFixed(3);
+          // Columns: 0 status, 1 ctrl, 2 parceiro, 3 produto, 4 qtde cx, 5 peso, 6 qtde kg, 7 classificado
+          if(activeRow && activeRow.cells && activeRow.cells.length >= 8){
+            activeRow.cells[4].textContent = formatNum1BR(qCx || 0);
+            // Peso (col 4): recompute from entradas but DO NOT blank if not found
+            try {
+              const pin = j.prod_in_natura != null ? String(j.prod_in_natura) : '';
+              let pesoVal = NaN;
+              if (pin) {
+                const match = entradas.find(e => String(e.codprod || e.CODPROD || '') === pin);
+                if (match) pesoVal = parseFloat(match.peso || match.PESO || NaN);
+              }
+              if (!Number.isFinite(pesoVal)) {
+                const found = entradas.find(e => Number.isFinite(parseFloat(e.peso || e.PESO)) );
+                if (found) pesoVal = parseFloat(found.peso || found.PESO || NaN);
+              }
+              if (Number.isFinite(pesoVal)) {
+                activeRow.cells[5].textContent = formatNum1BR(pesoVal);
+              }
+            } catch(_) { /* keep existing */ }
+            activeRow.cells[6].textContent = formatNum1BR(qKg || 0);
           }
     }catch(_){ }
-  if(rows.length===0){ bodyEl.innerHTML = '<tr><td colspan="9">Nenhum produto classificado para a seleção.</td></tr>'; return; } bodyEl.innerHTML = ''; for(const it of rows){ const tr = document.createElement('tr'); tr.innerHTML = `<td>${it.nunota||''}</td><td>${it.sequencia||''}</td><td>${it.cod||''}</td><td>${it.descr||''}</td><td>${it.qtd!=null?it.qtd:''}</td><td>${it.vlu||''}</td><td>${it.vlt||''}</td><td>${it.codvol||''}</td><td></td>`; bodyEl.appendChild(tr); } }catch(err){ bodyEl.innerHTML = '<tr><td colspan="9">Erro ao carregar.</td></tr>'; } finally { try { if (window.__PH_INITIAL_LOADING) { window.__PH_INITIAL_LOADING = false; window.PHOverlay && window.PHOverlay.hide && window.PHOverlay.hide(); } } catch(_) {} } }
+        // Update 'Qtde Classificado' (sum of Total kg = qtd * peso across all classificados)
+        try{
+          let sumClassKg = 0;
+          for (const it of rows) {
+            const q = parseFloat(it && it.qtd != null ? it.qtd : NaN);
+            const p = parseFloat(it && it.peso != null ? it.peso : NaN);
+            if (isFinite(q) && isFinite(p)) sumClassKg += (q * p);
+          }
+          const activeRow = document.querySelector('#notasTable tbody tr.row--active');
+          if(activeRow && activeRow.cells && activeRow.cells.length >= 8){
+            activeRow.cells[7].textContent = formatNum1BR(sumClassKg || 0);
+            // Update status dot
+            try{
+              const st = (j.statusnota_class||'').toString().toUpperCase();
+              const state = st==='L' ? 'green' : ((sumClassKg>0)?'yellow':'red');
+              const ctrl = activeRow.dataset.nunota; if(ctrl) setStatusForControle(ctrl, state);
+            }catch(_){ }
+            try{ formatLotesRow(activeRow); }catch(_){ }
+          }
+        }catch(_){ }
+  if(rows.length===0){ bodyEl.innerHTML = '<tr><td colspan="7">Nenhum produto classificado para a seleção.</td></tr>'; return; } bodyEl.innerHTML = ''; for(const it of rows){ const tr = document.createElement('tr'); const qtdDisp = formatNum(it.qtd); const pesoDisp = formatNum(it.peso); const totalVal = totalKgValue(it); const totalDisp = isFinite(totalVal) ? totalVal.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : ''; tr.innerHTML = `<td>${it.nunota||''}</td><td>${it.sequencia||''}</td><td>${it.cod||''}</td><td>${it.descr||''}</td><td>${qtdDisp}</td><td>${pesoDisp}</td><td>${totalDisp}</td>`; bodyEl.appendChild(tr); } }catch(err){ bodyEl.innerHTML = '<tr><td colspan="7">Erro ao carregar.</td></tr>'; } finally { try { if (window.__PH_INITIAL_LOADING) { window.__PH_INITIAL_LOADING = false; window.PHOverlay && window.PHOverlay.hide && window.PHOverlay.hide(); } } catch(_) {} } }
 
       // Removed obsolete in-card header action buttons (Add/Edit/Delete) and their handlers
 
@@ -893,7 +1219,13 @@
         itemModal.style.display = 'flex';
       }
 
-      itemModalCancel.addEventListener('click', ()=>{ itemModal.style.display='none'; currentEditing = null; });
+  function refreshActiveLoteAndProducts(){ try{ const activeRow = document.querySelector('#notasTable tbody tr.row--active'); if(activeRow){ const ctrl = activeRow.dataset.nunota; if(ctrl){ loadClassifiedFor(ctrl); } } }catch(_){ } }
+  try{ window.PH_refreshActiveLoteAndProducts = refreshActiveLoteAndProducts; }catch(_){ }
+  // Close modal -> refresh LOTES row and Produtos Classificados
+  itemModalCancel.addEventListener('click', ()=>{ itemModal.style.display='none'; currentEditing = null; refreshActiveLoteAndProducts(); });
+  // Also listen to custom events fired by external Items modal (if any)
+  try{ window.addEventListener('ph:itemsModalClosed', refreshActiveLoteAndProducts); }catch(_){ }
+  try{ window.addEventListener('ph:itemsModalSaved', refreshActiveLoteAndProducts); }catch(_){ }
 
   // Typeahead for item modal: product
   (function(){ const prodInput = document.getElementById('itemProdCod'); const prodHidden = document.getElementById('itemProdHidden'); const prodSuggest = document.getElementById('itemProdSuggest'); let tprod = null; prodInput.addEventListener('input', function(){ const q = prodInput.value.trim(); if(tprod) clearTimeout(tprod); if(!q){ prodSuggest.style.display='none'; prodHidden.value=''; return; } tprod = setTimeout(()=>{ const inn = (window.PH_INNATURA_CODPROD||''); const url = '/sankhya/produtos/search/?q=' + encodeURIComponent(q) + '&limit=8' + (inn?('&cod_innatura='+encodeURIComponent(inn)):''); fetch(url,{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ const items = j.results||[]; prodSuggest.innerHTML = items.map(it=>`<div class="sugg-item" data-cod="${it.cod}" data-descr="${(it.descr||'').replace(/"/g,'&quot;')}">${it.cod} - ${it.descr}</div>`).join(''); prodSuggest.style.display = items.length ? 'block' : 'none'; Array.from(prodSuggest.querySelectorAll('.sugg-item')).forEach(el=> el.addEventListener('click', ()=>{ prodHidden.value = el.dataset.cod; prodInput.value = el.textContent || el.dataset.cod; prodSuggest.style.display='none'; try{ document.getElementById('itemVol').focus(); }catch(_){ } })); }).catch(()=>{ prodSuggest.style.display='none'; }); }, 200); });
@@ -956,6 +1288,8 @@
       function onSelectionChanged(){ const row = tbl.querySelector('tbody tr.row--active'); if(!row) return; updateClassifyBtn(); const controle = row.dataset.nunota; loadClassifiedFor(controle); }
   // Bind selection change observer
   tbl.addEventListener('click', onSelectionChanged);
+  // On double click a LOTES row: focus/show the Produtos Classificados card
+  tbl.addEventListener('dblclick', function(){ try{ document.getElementById('prodClassBody')?.closest('.panel')?.scrollIntoView({behavior:'smooth', block:'start'}); }catch(_){ } });
   tbl.addEventListener('keydown', ()=> setTimeout(onSelectionChanged, 50));
   // If a row is already active on page load, load its classified products
   try{ onSelectionChanged(); }catch(_){ }
@@ -1632,6 +1966,25 @@
           tr.dataset.gp = it.geraproducao != null ? String(it.geraproducao) : (typeof it.classifica !== 'undefined' ? (it.classifica ? 'S' : 'N') : '');
           if (it.nunota != null) tr.dataset.nunota = String(it.nunota);
         }catch(_){ }
+        // dblclick to open the inline Item modal with fields prefilled including Peso
+        tr.addEventListener('dblclick', function(){
+          try{
+            const nun = tr.dataset.nunota ? parseInt(tr.dataset.nunota,10) : null;
+            const seq = tr.dataset.seq ? parseInt(tr.dataset.seq,10) : null;
+            if(!nun || !seq) return;
+            // Open simple inline modal
+            const inline = document.getElementById('modalItemEdit'); if(!inline) return;
+            // Fill fields we control in this simple modal
+            document.getElementById('itemProdHidden') && (document.getElementById('itemProdHidden').value = tr.dataset.cod || '');
+            document.getElementById('itemProdCod') && (document.getElementById('itemProdCod').value = tr.dataset.cod ? `${tr.dataset.cod} - ${tr.dataset.descr||''}` : '');
+            document.getElementById('itemVolHidden') && (document.getElementById('itemVolHidden').value = tr.dataset.codvol || '');
+            document.getElementById('itemVol') && (document.getElementById('itemVol').value = tr.dataset.codvol || '');
+            document.getElementById('itemQtd') && (document.getElementById('itemQtd').value = tr.dataset.qtd || '');
+            document.getElementById('itemPeso') && (document.getElementById('itemPeso').value = tr.dataset.peso || '');
+            document.getElementById('itemObs') && (document.getElementById('itemObs').value = tr.dataset.obs || '');
+            inline.style.display = 'flex';
+          }catch(e){ console.error('inline dblclick open failed', e); }
+        });
   tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunFromRow = tr.dataset.nunota ? parseInt(tr.dataset.nunota,10) : null; if(!nunFromRow || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: nunFromRow, sequencias: [ parseInt(seq,10) ] }); if(res.ok){ alert('Item excluído'); try{ refreshItemsList(); }catch(_){ } try{ resetItemForm(); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
   tr.addEventListener('dblclick', function(){ try{ const seq = tr.dataset.seq; if(!seq) return; const seqInp = document.getElementById('item_seq_edit'); if(seqInp) seqInp.value = seq; const prodH = document.getElementById('item_prod_hidden'); const prodV = document.getElementById('item_prod_vis'); if(prodH) prodH.value = tr.dataset.cod || ''; if(prodV) prodV.value = tr.dataset.cod ? `${tr.dataset.cod} — ${tr.dataset.descr||''}` : ''; const volH = document.getElementById('item_vol_hidden'); const volV = document.getElementById('item_vol'); if(volH) volH.value = tr.dataset.codvol || ''; if(volV) volV.value = tr.dataset.codvol || ''; const qtd = document.getElementById('item_qtd'); if(qtd) qtd.value = tr.dataset.qtd || ''; const peso = document.getElementById('item_peso'); if(peso) peso.value = tr.dataset.peso || ''; const obs = document.getElementById('item_obs'); if(obs) obs.value = tr.dataset.obs || ''; const chk = document.getElementById('item_classifica'); if(chk) chk.checked = (String(tr.dataset.gp||'S').toUpperCase() !== 'N'); const addBtn = document.getElementById('itemAddBtn'); if(addBtn){ addBtn.setAttribute('title','Atualizar'); addBtn.dataset.mode = 'edit'; try{ const icon = addBtn.querySelector('svg'); if(icon){ icon.innerHTML = '<path d="M20 6L9 17l-5-5" />'; icon.setAttribute('viewBox','0 0 24 24'); } addBtn.classList.add('success'); }catch(_){ } } try{ recalcItemTotal(); }catch(_){ } try{ prodV && prodV.focus(); }catch(_){ } }catch(e){ console.error('editLoad failed', e); } });
       }
@@ -1675,7 +2028,7 @@
           if(!rows.length){ clearItemsList(); return; }
           itemsListBody.innerHTML = '';
           for(const row of rows){
-            addItemRowToList({ nunota: row.nunota, sequencia: row.sequencia, cod: row.cod, descr: row.descr, codvol: row.codvol, qtd: row.qtd, peso: null, total: row.vlt || null, lote: ctrl, geraproducao: null });
+            addItemRowToList({ nunota: row.nunota, sequencia: row.sequencia, cod: row.cod, descr: row.descr, codvol: row.codvol, qtd: row.qtd, peso: (typeof row.peso !== 'undefined' ? row.peso : null), total: row.vlt || null, lote: ctrl, geraproducao: null });
           }
         }catch(err){ if(err && err.name === 'AbortError'){ return; } itemsListBody.innerHTML = '<tr><td colspan="8">Erro ao carregar.</td></tr>'; }
       }
@@ -1970,6 +2323,22 @@
             // revert UI state
             tgl.checked = !tgl.checked;
           }
+              // Reflect immediately on LOTES status dot for the active row
+              try{
+                const activeRow = document.querySelector('#notasTable tbody tr.row--active');
+                const ctrl = activeRow ? activeRow.dataset.nunota : null;
+                if(ctrl){
+                  let state = 'red';
+                  if (tgl.checked) state = 'green';
+                  else {
+                    // derive yellow/red from current Qtde Classificado cell (index 7)
+                    const txt = (activeRow.cells && activeRow.cells[7] ? activeRow.cells[7].textContent||'' : '').toString();
+                    const num = parseFloat(txt.replace(/\./g,'').replace(',','.'));
+                    state = (Number.isFinite(num) && num > 0) ? 'yellow' : 'red';
+                  }
+                  setStatusForControle(ctrl, state);
+                }
+              }catch(_){ }
         }catch(e){ console.error('toggle STATUSNOTA failed', e); }
       }
       tgl.addEventListener('change', saveStatus);

@@ -89,6 +89,8 @@ except Exception as exc:  # pragma: no cover - make views importable when Oracle
     listar_lotes_recentes = _missing('listar_lotes_recentes')
     listar_lotes_portal = _missing('listar_lotes_portal')
     listar_lotes_classificacao = _missing('listar_lotes_classificacao')
+    listar_lotes_entradas_classificaveis = _missing('listar_lotes_entradas_classificaveis')
+    consultar_lotes_sumario_top11_classificaveis = _missing('consultar_lotes_sumario_top11_classificaveis')
     duplicate_to_classification = _missing('duplicate_to_classification')
     get_duplicate_status = _missing('get_duplicate_status')
     is_auto_duplicate_enabled = _missing('is_auto_duplicate_enabled')
@@ -543,14 +545,36 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
                 produto_descr = '\n'.join([f"{k}" + (f" ({v})" if v>1 else '') for k, v in mans.items()])
         except Exception:
             produto_descr = ''
+        # Compute displayed qCx: use backend value unless it's zero or clearly the same as qKg; then derive from qKg/peso
+        try:
+            _qcx_raw = float(info.get('qtd_cx') or 0.0)
+        except Exception:
+            _qcx_raw = 0.0
+        try:
+            _qkg_raw = float(info.get('qtd_kg') or 0.0)
+        except Exception:
+            _qkg_raw = 0.0
+        _peso_raw = None
+        try:
+            _peso_raw = float(info.get('peso_inn')) if info.get('peso_inn') is not None else None
+        except Exception:
+            _peso_raw = None
+        _qcx_disp = _qcx_raw
+        try:
+            if (_qcx_raw <= 0.0 or abs(_qcx_raw - _qkg_raw) < 1e-6) and (_peso_raw is not None) and (_peso_raw > 0):
+                _qcx_disp = _qkg_raw / _peso_raw
+        except Exception:
+            _qcx_disp = _qcx_raw
+
         lotes.append((
             ctrl,
             info.get('parceiro') or '',
             produto_descr,
-            float(info.get('qtd_cx') or 0.0),
+            float(_qcx_disp or 0.0),
+            (float(info.get('peso_inn')) if info.get('peso_inn') is not None else 0.0),
             float(info.get('qtd_kg') or 0.0),
             0.0,  # qtde classificado (adiado/mix down)
-            0.0,  # qtde estoque (adiado/mix down)
+            (info.get('statusnota_class') or ''),  # reutiliza o slot para STATUSNOTA (TOP 26)
             None,  # exemplo_nunota (não necessário por enquanto)
             None,  # exemplo_seq
             produtos_list,
@@ -2139,10 +2163,10 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
             except Exception:
                 return q
 
-        # Convert rows to simple dicts for JSON
+        # Convert rows to simple dicts for JSON (include raw PESO from TGFITE)
         results = []
         for row in classific:
-            # row: (NUNOTA, SEQUENCIA, CODPROD, DESCRPROD, CODVOL, QTDNEG, VLRUNIT, VLRTOT)
+            # row: (NUNOTA, SEQUENCIA, CODPROD, DESCRPROD, CODVOL, QTDNEG, PESO, VLRUNIT, VLRTOT)
             results.append({
                 'nunota': int(row[0]) if row[0] is not None else None,
                 'sequencia': int(row[1]) if row[1] is not None else None,
@@ -2150,13 +2174,14 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
                 'descr': row[3] or '',
                 'codvol': row[4] or '',
                 'qtd': _disp_qty(row[2], row[4], row[5]),
-                'vlu': float(row[6] or 0),
-                'vlt': float(row[7] or 0),
+                'peso': (float(row[6]) if (len(row) > 6 and row[6] is not None) else None),
+                'vlu': float(row[7] or 0),
+                'vlt': float(row[8] or 0),
             })
         # convert entradas to lightweight objects for origin selection
         entradas_out = []
         for e in entradas:
-            # expected tuple: (NUNOTA, SEQUENCIA, CODPROD, DESCRPROD, CODVOL, QTDNEG, VLRUNIT, VLRTOT, NOMEPARC)
+            # expected tuple: (NUNOTA, SEQUENCIA, CODPROD, DESCRPROD, CODVOL, QTDNEG, PESO, VLRUNIT, VLRTOT, NOMEPARC)
             entradas_out.append({
                 'nunota': int(e[0]) if e and e[0] is not None else None,
                 'sequencia': int(e[1]) if e and e[1] is not None else None,
@@ -2164,9 +2189,10 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
                 'descr': e[3] if e and len(e) > 3 else '',
                 'codvol': e[4] if e and len(e) > 4 else '',
                 'qtd': _disp_qty(e[2] if len(e) > 2 else None, e[4] if len(e) > 4 else '', e[5] if len(e) > 5 else None),
-                'vlu': float(e[6] or 0),
-                'vlt': float(e[7] or 0),
-                'parceiro': e[8] if e and len(e) > 8 else '',
+                'peso': (float(e[6]) if (len(e) > 6 and e[6] is not None) else None),
+                'vlu': float(e[7] or 0),
+                'vlt': float(e[8] or 0),
+                'parceiro': e[9] if e and len(e) > 9 else '',
             })
 
         # convert classificaveis to lightweight objects (same shape as classificacoes)
@@ -2179,8 +2205,9 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
                 'descr': row[3] or '',
                 'codvol': row[4] or '',
                 'qtd': _disp_qty(row[2], row[4], row[5]),
-                'vlu': float(row[6] or 0),
-                'vlt': float(row[7] or 0),
+                'peso': (float(row[6]) if (len(row) > 6 and row[6] is not None) else None),
+                'vlu': float(row[7] or 0),
+                'vlt': float(row[8] or 0),
             })
 
         # expose product code for In Natura so the UI can default to that origin
@@ -2198,6 +2225,7 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
             "classificaveis": classif_out,
             "entradas": entradas_out,
             "nunota_class": info.get('nunota_class'),
+            "statusnota_class": info.get('statusnota_class'),
             "prod_in_natura": _prod_inn,
             "timings": timings,
         })
