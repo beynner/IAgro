@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Painel Comercial — Layout Reiniciado</title>
+  <title>Painel Comercial â€” Layout Reiniciado</title>
   {% load static %}
   <link rel="stylesheet" href="{% static 'sankhya_integration/style.css' %}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -40,7 +40,7 @@
     /* main z area (flex column so a top bar can sit above the grid) */
     /* right area should fill remaining viewport height so bottom cards can stretch */
     .zarea{display:flex;flex-direction:column;height:100%;min-height:0}
-  /* Bottom row: widen Classificação (left) and shrink Entrada (right) */
+  /* Bottom row: widen ClassificaÃ§Ã£o (left) and shrink Entrada (right) */
   .zgrid{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr);grid-template-rows:minmax(220px,0.55fr) minmax(260px,0.45fr);gap:var(--gap);flex:1 1 auto;min-height:0}
   .zcell{min-height:180px; min-width:0;min-height:0}
 
@@ -53,7 +53,7 @@
     h3{margin:0 0 12px 0}
 
   /* specific regions - tuned to match screenshot */
-  /* Filtros: altura automática para comportar o formulário */
+  /* Filtros: altura automÃ¡tica para comportar o formulÃ¡rio */
   #filtersCard{height:auto}
   #filtersCard .filtros-form{display:grid;grid-template-columns:1fr;gap:8px}
   #filtersCard fieldset{border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;background:var(--card);margin:0}
@@ -69,7 +69,7 @@
   /* make tableCard grow to fill remaining height in the sidebar */
   #tableCard{flex:1 1 auto;min-height:0;margin-top:8px;display:flex;flex-direction:column}
 
-   /* Distribuição area will contain simPanel aligned to the right */
+   /* DistribuiÃ§Ã£o area will contain simPanel aligned to the right */
    /* distWrapper: flex container; distMain grows, distSim is a fixed-width panel */
   #distWrapper{display:flex; gap:16px; align-items:stretch;height:100%}
   #distMain{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
@@ -94,16 +94,16 @@
   .rf-tooltip .sep{border-top:1px solid #e5e7eb;margin:6px 0}
   .rf-tooltip .list{margin-top:2px;display:flex;flex-direction:column;gap:2px}
   .rf-tooltip .list-item{display:flex;align-items:center;justify-content:space-between;gap:10px}
-  /* rótulo suave rotacionado a 90º e centralizado na faixa esquerda */
-  /* rótulo em faixa fixa à esquerda, centralizado e rotacionado +90º */
+  /* rÃ³tulo suave rotacionado a 90Âº e centralizado na faixa esquerda */
+  /* rÃ³tulo em faixa fixa Ã  esquerda, centralizado e rotacionado +90Âº */
   .dist-label{position:absolute;left:calc(var(--mini-label-w) / 2);top:50%;transform:translate(-50%, -50%) rotate(-90deg);transform-origin:center;text-align:center;font-size:.75rem;font-weight:500;color:var(--muted);letter-spacing:.03em;white-space:nowrap}
-  /* número destacado */
+  /* nÃºmero destacado */
   .dist-value{margin-top:4px;font-size:clamp(20px,1.8vw,22px);font-weight:800;line-height:1.1;color:#0a3392;text-align:center;align-self:stretch;width:100%}
-  /* aumentar o espaço entre os dois números do card Custo (somente o segundo valor) */
+  /* aumentar o espaÃ§o entre os dois nÃºmeros do card Custo (somente o segundo valor) */
   #distMini2 .dist-value + .dist-value{margin-top:12px}
-  /* sufixo de unidade para valores (mesma fonte do rótulo, sem rotação) */
+  /* sufixo de unidade para valores (mesma fonte do rÃ³tulo, sem rotaÃ§Ã£o) */
   .dist-suffix{font-size:.75rem;font-weight:500;color:var(--muted);margin-left:6px}
-  /* espaço entre os dois valores do card Qtde Total */
+  /* espaÃ§o entre os dois valores do card Qtde Total */
   #distMini3 .dist-value + .dist-value{margin-top:12px}
   
   /* Custo e Qtde Total: layout em coluna, valores alinhados verticalmente */
@@ -116,22 +116,22 @@
   #distMini2.cost-split .dist-value::before{content:'R$';font-size:.68rem;font-weight:600;color:rgba(71,85,105,0.55);margin-right:4px;vertical-align:middle;letter-spacing:.05em}
   #distMini2.cost-split .dist-value:empty::before{content:''}
   
-  /* ----- CUSTO (#distMini2): edição inline para CX e KG ----- */
+  /* ----- CUSTO (#distMini2): ediÃ§Ã£o inline para CX e KG ----- */
   #distMini2 .editable{cursor:text}
   #distMini2 .value-input{display:none;font-weight:800;color:#0a3392;text-align:center;background:transparent;border:1px solid #cbd5e1;border-radius:6px;padding:4px 8px;width:auto;max-width:calc(100% - 24px);margin:0 auto;outline:none;font-size:clamp(18px,1.8vw,20px);line-height:1.1;box-sizing:border-box}
-  /* alternância por campo */
+  /* alternÃ¢ncia por campo */
   #distMini2.editing-cx .cost-top .dist-value{display:none}
   #distMini2.editing-cx .cost-top .value-input{display:block}
   #distMini2.editing-kg .cost-bottom .dist-value{display:none}
   #distMini2.editing-kg .cost-bottom .value-input{display:block}
   
-  /* ----- VALOR TOTAL (#distMini4): edição inline com campo compacto ----- */
+  /* ----- VALOR TOTAL (#distMini4): ediÃ§Ã£o inline com campo compacto ----- */
   #distMini4 .editable{cursor:text}
   #distMini4 .value-input{display:none;font-weight:800;color:#0a3392;text-align:center;background:transparent;border:1px solid #cbd5e1;border-radius:6px;padding:4px 8px;width:auto;max-width:calc(100% - 24px);margin:0 auto;outline:none;font-size:clamp(20px,1.8vw,22px);line-height:1.1;box-sizing:border-box}
   #distMini4.editing .dist-value{display:none}
   #distMini4.editing .value-input{display:block}
   
-  /* ----- BLOCO 5: painéis EXTRA e MÉDIO independentes ----- */
+  /* ----- BLOCO 5: painÃ©is EXTRA e MÃ‰DIO independentes ----- */
   .dist-class-card{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;justify-content:flex-start;gap:8px;box-shadow:0 6px 14px -12px rgba(15,23,42,0.2)}
   .dist-class-card .class-header{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:.76rem;font-weight:700;color:#0f172a;letter-spacing:.05em;text-transform:uppercase}
   .dist-class-card .class-share{font-size:.75rem;font-weight:600;color:var(--muted)}
@@ -172,7 +172,7 @@
   .dist-actions .btn-primary{border-color:#0ea5e9;color:#0ea5e9}
   .dist-actions .btn-primary:hover{background:#eff6ff}
     
-  /* posições: 1 ocupa duas linhas à esquerda; 2/3/4 na 1ª linha; 5 preenche a 2ª linha sob 2-4 */
+  /* posiÃ§Ãµes: 1 ocupa duas linhas Ã  esquerda; 2/3/4 na 1Âª linha; 5 preenche a 2Âª linha sob 2-4 */
   #distMini1{grid-column:1;grid-row:1}
   #distMini2{grid-column:3;grid-row:1}
   #distMini3{grid-column:2;grid-row:1}
@@ -184,11 +184,11 @@
      - margins: 8px top/bottom, 12px right
      - use box-sizing:border-box so padding is included
    */
-  /* simulation inset panel on the right of Distribuição */
+  /* simulation inset panel on the right of DistribuiÃ§Ã£o */
   #distSim{width:260px; margin:4px 4px 4px 0; box-sizing:border-box; padding:var(--card-padding)}
 
-   /* Make Distribuição fill the available horizontal space (stretch to grid cell) */
-  /* Distribuição: no fixed height; it takes the height of the first grid row */
+   /* Make DistribuiÃ§Ã£o fill the available horizontal space (stretch to grid cell) */
+  /* DistribuiÃ§Ã£o: no fixed height; it takes the height of the first grid row */
   #distCard{overflow:hidden; justify-self:stretch; width:100%;display:flex}
   #distCard > #distWrapper{flex:1}
 
@@ -200,7 +200,7 @@
   /* distSim should stretch to match distCard height minus margins */
   #distCard > #distWrapper > #distSim{height:calc(100% - 8px);align-self:stretch}
 
-  /* ----- SIMULAÇÃO (T1 - tabelas compactas) ----- */
+  /* ----- SIMULAÃ‡ÃƒO (T1 - tabelas compactas) ----- */
   #distSim .sim-wrap{display:flex;flex-direction:column;gap:6px}
   #distSim .sim-sec{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px}
   #distSim .sim-title{font-size:.72rem;font-weight:700;color:#334155;margin:0 0 4px 0}
@@ -234,7 +234,7 @@
 
     /* (media rules above handle the small-screen case) */
 
-    /* ----- CLASSIFICAÇÃO: tabela compacta + KPIs ----- */
+    /* ----- CLASSIFICAÃ‡ÃƒO: tabela compacta + KPIs ----- */
     #classCard{display:flex;flex-direction:column}
   #classCard .class-wrap{display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr;gap:12px;min-height:0;height:100%}
   #classCard .class-table{border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;min-height:0;height:auto;grid-column:1;grid-row:1}
@@ -301,22 +301,22 @@
   #classCard .kpi.kpi--muted .kpi-value{color:#94a3b8}
   #classCard .kpi.kpi--muted .kpi-label{color:#94a3b8}
   #classCard .kpi.kpi--muted .kpi-sub{color:#9ca3af}
-  /* Gauge (semicírculo) para progresso de classificação */
+  /* Gauge (semicÃ­rculo) para progresso de classificaÃ§Ã£o */
   #classCard .gauge{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;margin-top:0;flex:1 1 auto;width:100%}
   /* Make the gauge fully responsive and expand to container width while keeping its aspect ratio */
   #classCard .gauge svg{width:100%;max-width:100%;height:auto;aspect-ratio:200/110;display:block}
   /* Ensure the first KPI (gauge) has a comfortable minimum height and grows to fill space */
   #classCard .summary .kpi:first-child{min-height:220px; flex:1 1 auto}
-  /* reduzir espaço abaixo do título apenas neste card */
+  /* reduzir espaÃ§o abaixo do tÃ­tulo apenas neste card */
   #classCard > h3{margin-bottom:0; color: var(--g-class)}
-  /* Classificação header layout to show full product name inline */
-  /* Classificação header with left title, centered product, right link */
+  /* ClassificaÃ§Ã£o header layout to show full product name inline */
+  /* ClassificaÃ§Ã£o header with left title, centered product, right link */
   #classCard h3.class-header{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:8px; position:relative}
   #classCard h3.class-header .class-left{justify-self:start}
   #classCard h3.class-header .prod-name{justify-self:center; font-weight:800; font-size:1.05rem; line-height:1.1; color:#0a3392; text-align:center; white-space:normal; overflow:visible; text-overflow:clip}
   #classCard h3.class-header .class-open-link{justify-self:end}
   #entradaCard > h3{color: var(--g-entrada)}
-  /* Título principal do card Distribuição fica dentro de #distMain */
+  /* TÃ­tulo principal do card DistribuiÃ§Ã£o fica dentro de #distMain */
   #distMain > h3{color: var(--g-dist)}
   #classCard .gauge #gArc,#classCard .gauge #gTrack{stroke-width:14px}
   #classCard .gauge #gArc{transition:stroke-dasharray 900ms ease-in-out, stroke 900ms linear}
@@ -327,7 +327,7 @@
   #classCard .kpi.kpi--estoque .kpi-value{display:flex; align-items:baseline; justify-content:center; gap:10px; flex-wrap:nowrap; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   #classCard .gauge .gauge-label{font-size:.7rem;font-weight:400;color:#94a3b8;fill:currentColor}
   #classCard .gauge .gauge-val{font-weight:800;color:#0a3392;font-size:22px}
-  /* Mostrar somente o gráfico (com legenda) no card Aproveitamento */
+  /* Mostrar somente o grÃ¡fico (com legenda) no card Aproveitamento */
   #classCard .summary .kpi:nth-child(1) .kpi-label,
   #classCard .summary .kpi:nth-child(1) .kpi-value,
   #classCard .summary .kpi:nth-child(1) .kpi-sub{display:none}
@@ -335,7 +335,7 @@
   /* (supplier name now sits in .appbar at the right) */
 
 
-    /* ----- ENTRADA: cabeçalho compacto + métricas ----- */
+    /* ----- ENTRADA: cabeÃ§alho compacto + mÃ©tricas ----- */
     #entradaCard{display:flex;flex-direction:column}
   #entradaCard .entrada-title{display:flex;align-items:center;justify-content:space-between}
   #entradaCard .entrada-title .title-right{display:flex;gap:8px;margin-left:auto}
@@ -347,13 +347,13 @@
     #entradaCard .entrada-head .doc-meta{font-size:.8rem;color:#64748b}
   #entradaCard .badges{display:flex;gap:8px;flex-wrap:wrap}
   #entradaCard .badge{background:#eef2ff;color:#1d4ed8;border:1px solid #dbeafe;border-radius:999px;padding:3px 8px;font-size:.72rem;font-weight:700}
-  /* Entrada: usar layout de uma coluna (sem divisão) para o card unificado ocupar toda a largura */
+  /* Entrada: usar layout de uma coluna (sem divisÃ£o) para o card unificado ocupar toda a largura */
   #entradaCard .grid{display:grid;grid-template-columns:1fr;gap:12px;align-items:stretch;min-height:0}
-  /* garantir que o card unificado ocupe a coluna única */
+  /* garantir que o card unificado ocupe a coluna Ãºnica */
   #quantidadeInnCard{grid-column:1;grid-row:auto}
   #entradaCard .card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:4px}
   #entradaCard .divider{border-top:1px solid #e5e7eb;margin:6px 0}
-  /* Divider within the unified quantidade/preço card: 50% width and centered */
+  /* Divider within the unified quantidade/preÃ§o card: 50% width and centered */
   #quantidadeInnCard .divider{width:50%;margin:6px auto}
   #entradaCard .headline{display:flex;align-items:baseline;justify-content:center;flex-direction:row}
   #entradaCard .headline .metric-label{display:none}
@@ -373,15 +373,15 @@
     #entradaCard .kpi-row .currency{font-size:.9rem;font-weight:600;color:#64748b;margin-right:4px}
     @media (max-width:1000px){
       #entradaCard .grid{grid-template-columns:1fr;}
-      /* em telas estreitas, voltar para uma única coluna */
+      /* em telas estreitas, voltar para uma Ãºnica coluna */
       #quantidadeInnCard{grid-column:1;grid-row:auto}
     }
 
-  /* Preço inline edit within unified card without layout shift */
+  /* PreÃ§o inline edit within unified card without layout shift */
   #quantidadeInnCard .kpi-row .value{position:relative;display:flex;align-items:baseline;gap:4px}
   #quantidadeInnCard .editable{cursor:text;display:inline-block}
   #quantidadeInnCard .preco-input{display:none;position:absolute;left:0;top:50%;transform:translateY(-50%);font-weight:800;color:#334155;text-align:right;background:transparent;border:1px solid #cbd5e1;border-radius:6px;padding:4px 8px;width:auto;min-width:80px;max-width:100%;z-index:1}
-  /* ao editar preço, esconda somente o display dentro das linhas de preço */
+  /* ao editar preÃ§o, esconda somente o display dentro das linhas de preÃ§o */
   #quantidadeInnCard.editing-cx .kpi-row .editable{visibility:hidden}
   #quantidadeInnCard.editing-cx .preco-input{display:inline-block}
 
@@ -390,7 +390,7 @@
   #quantidadeInnCard .editable{font-weight:400}
   #quantidadeInnCard .peso-input, #quantidadeInnCard .preco-input{font-weight:400}
 
-  /* Lista: comportamento clicável e destaque */
+  /* Lista: comportamento clicÃ¡vel e destaque */
   #listaTable tbody tr{cursor:pointer}
   #listaTable tbody tr:hover{background:#f3f4f6}
   /* Lista: prevent horizontal scroll */
@@ -502,7 +502,7 @@
                 </svg>
               </button>
             </span>
-            <div class="lista-view-toggle" role="tablist" aria-label="Modo de visualização da lista">
+            <div class="lista-view-toggle" role="tablist" aria-label="Modo de visualizaÃ§Ã£o da lista">
               <label class="seg" role="tab" aria-selected="true">
                 <input type="radio" name="listaViewMode" value="vale" checked />
                 <span class="seg-btn">Por Vale</span>
@@ -523,7 +523,7 @@
                 <col style="width:72px" />
               </colgroup>
               <tbody id="listaBody">
-                <tr><td colspan="5" style="padding:8px; color:#64748b;">Carregando…</td></tr>
+                <tr><td colspan="5" style="padding:8px; color:#64748b;">Carregandoâ€¦</td></tr>
               </tbody>
             </table>
           </div>
@@ -532,12 +532,12 @@
         <div id="valeResumoModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:1000; align-items:center; justify-content:center;">
           <div style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; width:min(600px, 60vw); max-height:88vh; display:flex; flex-direction:column;">
             <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #e5e7eb;">
-              <div id="valeResumoTitle" style="font-weight:800; color:#0a3392;">Vale —</div>
+              <div id="valeResumoTitle" style="font-weight:800; color:#0a3392;">Vale â€”</div>
               <button id="valeResumoClose" class="btn" style="border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:6px 10px; cursor:pointer;">Fechar</button>
             </div>
             <div style="padding:10px 12px; overflow:auto; display:flex; flex-direction:column; gap:14px;">
               <div>
-                <div style="font-weight:700; color:#334155; margin-bottom:6px;">Classificáveis</div>
+                <div style="font-weight:700; color:#334155; margin-bottom:6px;">ClassificÃ¡veis</div>
                 <table style="width:100%; border-collapse:collapse; table-layout:fixed;">
                   <colgroup>
                     <col />
@@ -550,16 +550,16 @@
                       <th style="text-align:left; padding:6px 8px; font-size:.85rem; color:#334155;">Produto</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Qtde</th>
                       <th style="text-align:left; padding:6px 8px; font-size:.85rem; color:#334155;">Status</th>
-                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Ação</th>
+                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">AÃ§Ã£o</th>
                     </tr>
                   </thead>
                   <tbody id="valeClassBody">
-                    <tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>
+                    <tr><td colspan="4" style="padding:8px; color:#64748b;">â€”</td></tr>
                   </tbody>
                 </table>
               </div>
               <div>
-                <div style="font-weight:700; color:#334155; margin-bottom:6px;">Não Classificáveis</div>
+                <div style="font-weight:700; color:#334155; margin-bottom:6px;">NÃ£o ClassificÃ¡veis</div>
                 <table style="width:100%; border-collapse:collapse; table-layout:fixed;" class="vale-outros-table">
                   <colgroup>
                     <col />
@@ -571,12 +571,12 @@
                     <tr style="background:#f8fafb; border-bottom:1px solid #e5e7eb;">
                       <th style="text-align:left; padding:6px 8px; font-size:.85rem; color:#334155;">Produto</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Qtde</th>
-                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Preço</th>
+                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">PreÃ§o</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Total</th>
                     </tr>
                   </thead>
                   <tbody id="valeOutrosBody">
-                    <tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>
+                    <tr><td colspan="4" style="padding:8px; color:#64748b;">â€”</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -598,12 +598,12 @@
         <div id="parceiroResumoModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:1000; align-items:center; justify-content:center;">
           <div style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; width:min(700px, 70vw); max-height:88vh; display:flex; flex-direction:column;">
             <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #e5e7eb;">
-              <div id="parceiroResumoTitle" style="font-weight:800; color:#0a3392;">Parceiro —</div>
+              <div id="parceiroResumoTitle" style="font-weight:800; color:#0a3392;">Parceiro â€”</div>
               <button id="parceiroResumoClose" class="btn" style="border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:6px 10px; cursor:pointer;">Fechar</button>
             </div>
             <div style="padding:10px 12px; overflow:auto; display:flex; flex-direction:column; gap:14px;">
               <div>
-                <div style="font-weight:700; color:#334155; margin-bottom:6px;">Classificáveis</div>
+                <div style="font-weight:700; color:#334155; margin-bottom:6px;">ClassificÃ¡veis</div>
                 <table style="width:100%; border-collapse:collapse; table-layout:fixed;">
                   <colgroup>
                     <col />
@@ -616,16 +616,16 @@
                       <th style="text-align:left; padding:6px 8px; font-size:.85rem; color:#334155;">Produto</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Qtde</th>
                       <th style="text-align:left; padding:6px 8px; font-size:.85rem; color:#334155;">Status</th>
-                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Ação</th>
+                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">AÃ§Ã£o</th>
                     </tr>
                   </thead>
                   <tbody id="parceiroClassBody">
-                    <tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>
+                    <tr><td colspan="4" style="padding:8px; color:#64748b;">â€”</td></tr>
                   </tbody>
                 </table>
               </div>
               <div>
-                <div style="font-weight:700; color:#334155; margin-bottom:6px;">Não Classificáveis</div>
+                <div style="font-weight:700; color:#334155; margin-bottom:6px;">NÃ£o ClassificÃ¡veis</div>
                 <table style="width:100%; border-collapse:collapse; table-layout:fixed;" class="parceiro-outros-table">
                   <colgroup>
                     <col />
@@ -637,12 +637,12 @@
                     <tr style="background:#f8fafb; border-bottom:1px solid #e5e7eb;">
                       <th style="text-align:left; padding:6px 8px; font-size:.85rem; color:#334155;">Produto</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Qtde</th>
-                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Preço</th>
+                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">PreÃ§o</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Total</th>
                     </tr>
                   </thead>
                   <tbody id="parceiroOutrosBody">
-                    <tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>
+                    <tr><td colspan="4" style="padding:8px; color:#64748b;">â€”</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -659,18 +659,18 @@
         </div>
         
         <div class="zgrid">
-          <!-- TL: Distribuição (com Simulação alinhada a direita) -->
+          <!-- TL: DistribuiÃ§Ã£o (com SimulaÃ§Ã£o alinhada a direita) -->
           <div class="zcell z-tl panel group group--dist" id="distCard" style="grid-column:1 / -1">
             <div id="distWrapper">
               <div id="distMain">
                 <h3 style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-                  <span>Distribuição</span>
+                  <span>DistribuiÃ§Ã£o</span>
                 </h3>
-                <!-- grade interna de mini-cards: KPIs superiores, histórico e cards Extra/Médio -->
+                <!-- grade interna de mini-cards: KPIs superiores, histÃ³rico e cards Extra/MÃ©dio -->
                 <div id="distGrid">
-                    <div id="distHistory" aria-label="Histórico de margens">
+                    <div id="distHistory" aria-label="HistÃ³rico de margens">
                       <div class="hist-head">
-                        <span class="hist-title">Histórico</span>
+                        <span class="hist-title">HistÃ³rico</span>
                         <span class="hist-meta" id="histMarginMeta"></span>
                       </div>
                       <div class="hist-chart">
@@ -713,7 +713,7 @@
                       <span id="totalValueDisplay" class="dist-value editable" role="button" tabindex="0" aria-label="Editar valor total" aria-live="polite"></span>
                       <input id="totalValueInput" class="value-input" type="text" inputmode="decimal" aria-label="Valor total" />
                     </div>
-                  <div id="distMiniExtra" class="dist-mini dist-class-card class-row" data-cat="extra" aria-label="Distribuição Extra">
+                  <div id="distMiniExtra" class="dist-mini dist-class-card class-row" data-cat="extra" aria-label="DistribuiÃ§Ã£o Extra">
                     <div class="class-header">
                       <span class="class-tag">EXTRA</span>
                       <span class="class-share" aria-live="polite"></span>
@@ -753,9 +753,9 @@
                       </div>
                     </div>
                   </div>
-                  <div id="distMiniMedio" class="dist-mini dist-class-card class-row" data-cat="medio" aria-label="Distribuição Médio">
+                  <div id="distMiniMedio" class="dist-mini dist-class-card class-row" data-cat="medio" aria-label="DistribuiÃ§Ã£o MÃ©dio">
                     <div class="class-header">
-                      <span class="class-tag">MÉDIO</span>
+                      <span class="class-tag">MÃ‰DIO</span>
                       <span class="class-share" aria-live="polite"></span>
                     </div>
                     <div class="bar-track" role="presentation">
@@ -792,15 +792,15 @@
                       </div>
                     </div>
                   </div>
-                  <div id="distActionBar" class="dist-actions" aria-label="Ações da negociação">
-                    <button type="button" id="dist-btn-reset" class="btn-warn">Zerar negociação</button>
+                  <div id="distActionBar" class="dist-actions" aria-label="AÃ§Ãµes da negociaÃ§Ã£o">
+                    <button type="button" id="dist-btn-reset" class="btn-warn">Zerar negociaÃ§Ã£o</button>
                     <button type="button" id="dist-btn-print" class="btn-print">Imprimir</button>
                     <button type="button" id="dist-btn-save" class="btn-primary">Salvar</button>
                   </div>
                 </div>
               </div>
               <div id="distSim" class="panel">
-                <h3>Simulação</h3>
+                <h3>SimulaÃ§Ã£o</h3>
                 <div id="simWrap" class="sim-wrap">
                   <div class="sim-sec" data-sec="extra">
                     <div class="sim-title">EXTRA</div>
@@ -826,7 +826,7 @@
                     </div>
                   </div>
                   <div class="sim-sec" data-sec="medio">
-                    <div class="sim-title">MÉDIO</div>
+                    <div class="sim-title">MÃ‰DIO</div>
                     <div class="sim-table">
                       <div class="sim-row" data-field="qty">
                         <div class="sim-label">Qtde CX</div>
@@ -863,14 +863,14 @@
               </div>
             </div>
           </div>
-          <!-- removed TR placeholder so Distribuição spans full top row -->
+          <!-- removed TR placeholder so DistribuiÃ§Ã£o spans full top row -->
 
-          <!-- BL: Classificação -->
+          <!-- BL: ClassificaÃ§Ã£o -->
           <div class="zcell z-bl panel group group--class" id="classCard" data-classified="100" data-target="100" data-current-lote="">
             <h3 class="class-header">
-              <span class="class-left">Classificação</span>
+              <span class="class-left">ClassificaÃ§Ã£o</span>
               <span id="classFabricanteName" class="prod-name"></span>
-              <a id="classOpenLink" href="#" target="_blank" rel="noopener" class="class-open-link" style="font-size:.78rem; font-weight:700; color:#0ea5e9; text-decoration:none; display:none">Abrir Classificação</a>
+              <a id="classOpenLink" href="#" target="_blank" rel="noopener" class="class-open-link" style="font-size:.78rem; font-weight:700; color:#0ea5e9; text-decoration:none; display:none">Abrir ClassificaÃ§Ã£o</a>
             </h3>
             <div class="class-wrap">
               <div class="class-table">
@@ -881,7 +881,7 @@
                   <div class="kpi" aria-live="polite">
                   <div class="kpi-label">Aproveitamento</div>
                       <div class="kpi-value" id="kpiAproveitamento"></div>
-                  <div class="kpi-sub">% útil após padronização</div>
+                  <div class="kpi-sub">% Ãºtil apÃ³s padronizaÃ§Ã£o</div>
                   <div class="gauge" id="gaugeProgress" aria-hidden="true">
                     <svg viewBox="0 0 200 110" preserveAspectRatio="xMidYMid meet">
                       <defs>
@@ -973,13 +973,13 @@
                     <div class="metric-label">Peso Total Aproximado</div>
                     <div class="value"><span id="totalInn"></span> <span class="unit">kg</span></div>
                   </div>
-                  <!-- Divisor para separar seção de preço -->
+                  <!-- Divisor para separar seÃ§Ã£o de preÃ§o -->
                   <div class="divider" role="separator" aria-hidden="true"></div>
                   <div class="kpi-row">
-                    <div class="metric-label">Preço Inicial</div>
+                    <div class="metric-label">PreÃ§o Inicial</div>
                     <div class="value">
-                      <span id="entPrecoCxDisplay" class="editable" role="button" tabindex="0" aria-label="Editar preço por caixa"></span>
-                      <input id="entPrecoCxInput" class="preco-input" type="text" inputmode="decimal" aria-label="Preço por caixa" />
+                      <span id="entPrecoCxDisplay" class="editable" role="button" tabindex="0" aria-label="Editar preÃ§o por caixa"></span>
+                      <input id="entPrecoCxInput" class="preco-input" type="text" inputmode="decimal" aria-label="PreÃ§o por caixa" />
                       <span class="unit">/cx</span>
                     </div>
                   </div>
@@ -1027,7 +1027,7 @@
       };
     })();
 
-    // Histórico de Margens (mini gráfico linha)
+    // HistÃ³rico de Margens (mini grÃ¡fico linha)
     (function(){
       const canvas = document.getElementById('histMarginChart');
       const emptyEl = document.getElementById('histMarginEmpty');
@@ -1134,12 +1134,12 @@
           const last = data[data.length - 1];
           const prev = data.length > 1 ? data[data.length - 2] : null;
           if(prev == null){
-            metaEl.textContent = `Última: ${fmtMoney(last || 0)}`;
+            metaEl.textContent = `Ãšltima: ${fmtMoney(last || 0)}`;
           }else{
             const diff = last - prev;
             const sign = diff >= 0 ? '+' : '-';
             const magnitude = Math.abs(diff);
-            metaEl.textContent = `Última: ${fmtMoney(last)} (${sign}${fmtMoney(magnitude)})`;
+            metaEl.textContent = `Ãšltima: ${fmtMoney(last)} (${sign}${fmtMoney(magnitude)})`;
           }
         }
       }
@@ -1160,7 +1160,7 @@
       });
     })();
 
-      // Estado inicial: limpar conteúdos para exibir apenas títulos e contornos
+      // Estado inicial: limpar conteÃºdos para exibir apenas tÃ­tulos e contornos
       (function(){
         const setText = (selector, value='') => {
           const el = document.querySelector(selector);
@@ -1263,7 +1263,7 @@
         }
       };
 
-      // helpers para números pt-BR (quantidades e custos)
+      // helpers para nÃºmeros pt-BR (quantidades e custos)
       const parsePT = (text) => {
         if(!text) return NaN;
         const cleaned = text.toString().trim()
@@ -1276,26 +1276,26 @@
       const formatDecimal = (n) => isNaN(n) ? '' : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
       const recalcCostsFromTotal = (_totalNumber) => {
-        // Sincronização automática do custo temporariamente desativada (pedido do usuário).
+        // SincronizaÃ§Ã£o automÃ¡tica do custo temporariamente desativada (pedido do usuÃ¡rio).
       };
 
       const parseBRL = (text) => {
         if(!text) return NaN;
-        // remove tudo que não for dígito, vírgula ou ponto
+        // remove tudo que nÃ£o for dÃ­gito, vÃ­rgula ou ponto
         const cleaned = text.replace(/[^0-9,\.]/g, '')
                             .replace(/\.(?=\d{3}(\D|$))/g, '') // remove separadores de milhar com ponto
-                            .replace(',', '.'); // vírgula para decimal
+                            .replace(',', '.'); // vÃ­rgula para decimal
         const n = Number(cleaned);
         return isFinite(n) ? n : NaN;
       };
 
       const enterEdit = () => {
         previousText = display.textContent || previousText;
-        // Preenche input com número sem símbolo
+        // Preenche input com nÃºmero sem sÃ­mbolo
         const currentNumber = parseBRL(previousText);
         input.value = isNaN(currentNumber) ? '' : (currentNumber.toString().replace('.', ','));
         card.classList.add('editing');
-        // foco após pequeno atraso para garantir visibilidade
+        // foco apÃ³s pequeno atraso para garantir visibilidade
         setTimeout(()=>{
           input.focus();
           input.select();
@@ -1313,7 +1313,7 @@
             
             console.log('[EDIT] Valor Total editado manualmente para:', normalized);
             
-            // Integra com sistema de sincronização
+            // Integra com sistema de sincronizaÃ§Ã£o
             if (typeof window.__syncDistValues === 'function') {
               window.__syncDistValues('valorTotal', normalized);
             }
@@ -1339,7 +1339,7 @@
                 }
               }catch{}
             }
-          } // se NaN, mantém o valor anterior
+          } // se NaN, mantÃ©m o valor anterior
         }
         card.classList.remove('editing');
       };
@@ -1389,7 +1389,7 @@
         recalcCostsFromTotal(normalized);
       };
 
-      // Expose a global setter to initialize/sync Valor Total da Distribuição
+      // Expose a global setter to initialize/sync Valor Total da DistribuiÃ§Ã£o
       try{
         window.__setDistribTotal = (valueNumber, opts) => {
           const n = Number(valueNumber);
@@ -1398,7 +1398,7 @@
           
           console.log('[DIST] __setDistribTotal chamado com:', normalized, 'opts:', opts);
           
-          // Integra com o sistema de sincronização (se não vier da própria sync)
+          // Integra com o sistema de sincronizaÃ§Ã£o (se nÃ£o vier da prÃ³pria sync)
           const skipSync = opts && opts.skipCallbacks;
           if (!skipSync && typeof window.__syncDistValues === 'function') {
             console.log('[DIST] Chamando __syncDistValues');
@@ -1441,7 +1441,7 @@
       }catch{}
     })();
 
-    // Comercial: carregar tabela 'Lista' (Parceiro, Produto, Qtde, Data) e suportar seleção + agrupamento de não-classificáveis
+    // Comercial: carregar tabela 'Lista' (Parceiro, Produto, Qtde, Data) e suportar seleÃ§Ã£o + agrupamento de nÃ£o-classificÃ¡veis
     (function(){
       const bodyEl = document.getElementById('listaBody');
       if(!bodyEl) return;
@@ -1591,7 +1591,7 @@
           for(const [parc, arr] of byParc.entries()){
             if(!arr.length) continue;
             const dates = Array.from(new Set(arr.map(x=> fmtDate(x.dtneg)))).filter(Boolean);
-            const dtCell = dates.length === 1 ? dates[0] : '—';
+            const dtCell = dates.length === 1 ? dates[0] : 'â€”';
             const classif = arr.filter(x=> x.classificavel !== false);
             const nclass = arr.filter(x=> x.classificavel === false);
             const icoParc = `<span class="lista-parc-ico" role="button" tabindex="0" data-parceiro="${parc.replace(/\"/g,'&quot;')}" aria-label="Resumo do Parceiro" title="Resumo do Parceiro" style="cursor:pointer; color:inherit; display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;">
@@ -1616,7 +1616,7 @@
               const prod = r.produto||'';
               const qtd = fmtQty(r.qtdneg);
               const unit = ((r.codvol||'')+'').toUpperCase();
-              const dt = fmtDate(r.dtneg) || '—';
+              const dt = fmtDate(r.dtneg) || 'â€”';
               htmlParts.push(`
                 <tr data-classificavel="1" data-idx="${r._i}">
                   <td style="padding:6px 4px; border-bottom:1px solid #e5e7eb;"></td>
@@ -1635,7 +1635,7 @@
               const prod = r.produto||'';
               const qtd = fmtQty(r.qtdneg);
               const unit = ((r.codvol||'')+'').toUpperCase();
-              const dt = fmtDate(r.dtneg) || '—';
+              const dt = fmtDate(r.dtneg) || 'â€”';
               htmlParts.push(`
                 <tr data-classificavel="0" data-idx="${r._i}">
                   <td style="padding:6px 4px; border-bottom:1px solid #e5e7eb;"></td>
@@ -1657,7 +1657,7 @@
 
       async function loadLista(ev){
         try{
-          bodyEl.innerHTML = '<tr><td colspan="5" style="padding:8px; color:#64748b;">Carregando…</td></tr>';
+          bodyEl.innerHTML = '<tr><td colspan="5" style="padding:8px; color:#64748b;">Carregandoâ€¦</td></tr>';
           const qs = parseFilters(ev);
           const url = '/sankhya/comercial/lista/' + (qs ? ('?' + qs) : '');
           const r = await fetch(url, { credentials: 'same-origin' });
@@ -1689,9 +1689,9 @@
           const rows = window.__COM_LIST_ROWS || [];
           const item = rows.find(r=> String(r._i) === String(idx));
           if(item) applyItemToEntrada(item);
-          // Buscar e renderizar Classificação com base no lote (CODAGREGACAO)
+          // Buscar e renderizar ClassificaÃ§Ã£o com base no lote (CODAGREGACAO)
           try{
-            // Precisamos do lote (CODAGREGACAO); se não vier no item, buscamos via nunota/seq
+            // Precisamos do lote (CODAGREGACAO); se nÃ£o vier no item, buscamos via nunota/seq
             const nun = Number(item.nunota||0);
             const seq = Number(item.sequencia||0);
             const getLote = async ()=>{
@@ -1761,7 +1761,7 @@
         if(!btn) return;
         const nun = btn.getAttribute('data-nunota');
         openValeResumo(nun);
-        // não atualiza mais o card Entrada pelo agrupamento; atualização é por item selecionado
+        // nÃ£o atualiza mais o card Entrada pelo agrupamento; atualizaÃ§Ã£o Ã© por item selecionado
         ev.stopPropagation();
       });
       // Keyboard support for the icon (Enter/Space)
@@ -1791,8 +1791,8 @@
           openParceiroResumo(parceiro);
         }
       });
-      // Selecionar o cabeçalho do grupo (vale) para refletir no card Entradas
-      // (não atualiza mais por cabeçalho de vale; somente linhas de itens)
+      // Selecionar o cabeÃ§alho do grupo (vale) para refletir no card Entradas
+      // (nÃ£o atualiza mais por cabeÃ§alho de vale; somente linhas de itens)
 
       function applyValeToEntrada(nunota){
         try{
@@ -1802,8 +1802,8 @@
           const dt = pool[0]?.dtneg || '';
           // Somas por unidade
           let sumCx = 0, sumKg = 0;
-          let weightedPesoNum = 0, weightedCx = 0; // média ponderada de peso (tgfite.peso) por CX
-          // Preço Inicial agregado (média ponderada por CX, quando disponível)
+          let weightedPesoNum = 0, weightedCx = 0; // mÃ©dia ponderada de peso (tgfite.peso) por CX
+          // PreÃ§o Inicial agregado (mÃ©dia ponderada por CX, quando disponÃ­vel)
           let weightedPrecoNum = 0, weightedPrecoCx = 0;
           for(const r of pool){
             const unit = String(r.codvol||'').trim().toUpperCase();
@@ -1828,8 +1828,8 @@
           const tipoEl = document.getElementById('entBadgeTipo');
           const loteEl = document.getElementById('entBadgeLote');
           if(loteEl) loteEl.textContent = `Vale ${nunota}`;
-          if(tipoEl) tipoEl.textContent = dt || '—';
-          // Cabeçalho do card (produto, doc/serie/data)
+          if(tipoEl) tipoEl.textContent = dt || 'â€”';
+          // CabeÃ§alho do card (produto, doc/serie/data)
           const productEl = document.getElementById('entProduct');
           if(productEl) productEl.textContent = 'Diversos';
           const docEl = document.getElementById('entDocId');
@@ -1861,13 +1861,13 @@
                 }
             }catch{}
           };
-          // Peso In Natura por caixa (tgfite.peso): média ponderada por CX; fallback sumKg/sumCx
+          // Peso In Natura por caixa (tgfite.peso): mÃ©dia ponderada por CX; fallback sumKg/sumCx
           let perBox = 0;
           if(weightedCx > 0){ perBox = weightedPesoNum / weightedCx; }
           else if((sumCx||0) > 0 && (sumKg||0) > 0){ perBox = sumKg / sumCx; }
           if(pesoDisp) pesoDisp.textContent = (perBox>0? perBox.toLocaleString('pt-BR',{minimumFractionDigits:1, maximumFractionDigits:1}) : '-');
           
-          // Preço Inicial agregado (se houver): mostrar no campo e calcular total e R$/kg
+          // PreÃ§o Inicial agregado (se houver): mostrar no campo e calcular total e R$/kg
           try{
             const precoDisp = document.getElementById('entPrecoCxDisplay');
             const totalEl = document.getElementById('entTotalIn');
@@ -1899,6 +1899,11 @@
       function applyItemToEntrada(item){
         try{
           if(!item) return;
+          
+          // Limpa flag de sync quando novo item Ã© selecionado
+          window.__DIST_SYNC_CALCULATED = false;
+          console.log('[ITEM] Flag __DIST_SYNC_CALCULATED resetada para false');
+          
           const parceiro = item.parceiro || '';
           const produto = item.produto || '';
           const nunota = item.nunota || '';
@@ -1906,21 +1911,21 @@
           const dt = item.dtneg || '';
           const unit = String(item.codvol||'').trim().toUpperCase();
           const qtd = Number(item.qtdneg||0) || 0;
-          // Guardar contexto atual (nunota/seq) para persistência do Preço Inicial
+          // Guardar contexto atual (nunota/seq) para persistÃªncia do PreÃ§o Inicial
           try{
             const card = document.getElementById('quantidadeInnCard');
             if(card){ card.setAttribute('data-nunota', String(nunota||'')); card.setAttribute('data-seq', String(sequencia||'')); }
           }catch{}
-          // Atualizar linha de produto no cabeçalho da Classificação: usar o nome COMPLETO
+          // Atualizar linha de produto no cabeÃ§alho da ClassificaÃ§Ã£o: usar o nome COMPLETO
           const prodFull = String(produto||'').trim();
           const fabEl = document.getElementById('classFabricanteName');
-          if(fabEl){ fabEl.textContent = prodFull || '—'; fabEl.title = prodFull || ''; }
+          if(fabEl){ fabEl.textContent = prodFull || 'â€”'; fabEl.title = prodFull || ''; }
           // Badges
           const tipoEl = document.getElementById('entBadgeTipo');
           const loteEl = document.getElementById('entBadgeLote');
           if(loteEl) loteEl.textContent = `Vale ${nunota}`;
-          if(tipoEl) tipoEl.textContent = dt || '—';
-          // Cabeçalho do card
+          if(tipoEl) tipoEl.textContent = dt || 'â€”';
+          // CabeÃ§alho do card
           const productEl = document.getElementById('entProduct'); if(productEl) productEl.textContent = produto || '-';
           const partnerEl = document.getElementById('entPartner'); if(partnerEl) partnerEl.textContent = parceiro || '-';
           // Quantidades
@@ -1940,7 +1945,7 @@
             if(cxEl) cxEl.textContent = '-';
             if(pesoDisp) pesoDisp.textContent = (peso>0? peso.toLocaleString('pt-BR',{minimumFractionDigits:1, maximumFractionDigits:1}) : '-');
             
-            // Para itens em KG, não multiplicamos; manter total aproximado como '-'
+            // Para itens em KG, nÃ£o multiplicamos; manter total aproximado como '-'
             if(pesoTotalApproxEl) pesoTotalApproxEl.textContent = '-';
           }else{
             if(cxEl) cxEl.textContent = '-';
@@ -1948,7 +1953,7 @@
             
             if(pesoTotalApproxEl) pesoTotalApproxEl.textContent = '-';
           }
-          // Preços: usar PRECOBASE (preco_inicial) quando fornecido pela lista; senão '-' até edição
+          // PreÃ§os: usar PRECOBASE (preco_inicial) quando fornecido pela lista; senÃ£o '-' atÃ© ediÃ§Ã£o
           const precoCxDisp = document.getElementById('entPrecoCxDisplay');
           if(precoCxDisp){
             const raw = (item.preco_inicial == null ? null : item.preco_inicial);
@@ -1993,25 +1998,69 @@
               }
             }catch{}
           }
-          // Atualizar o Valor Total da Distribuição conforme regra (usar VLRTOT quando disponível)
+          // Atualizar o Valor Total da DistribuiÃ§Ã£o conforme regra (usar VLRTOT quando disponÃ­vel)
           let distTotalForCards = 0;
           try{
             if(typeof window.__setDistribTotal === 'function'){
               const rawVlrtot = Number(item?.vlrtot);
               const hasVlrtot = isFinite(rawVlrtot) && Math.abs(rawVlrtot) > 1e-6;
-              const qtyCx = (unit === 'CX' && Number.isFinite(qtd)) ? qtd : 0;
+              
+              // Extrai PRECOBASE para usar como base dos cÃ¡lculos
               const precoBaseVal = (() => {
                 const base = Number(item?.precobase);
                 if(isFinite(base) && base > 0) return base;
                 const precoInicial = Number(item?.preco_inicial);
                 return isFinite(precoInicial) ? precoInicial : 0;
               })();
-              const distTotal = hasVlrtot ? rawVlrtot : ((qtyCx > 0 && precoBaseVal > 0) ? (qtyCx * precoBaseVal) : 0);
-              distTotalForCards = distTotal;
-              window.__setDistribTotal(distTotal, { source: 'item-select', allowUI: true, syncInput: true });
+              
+              // LÃ“GICA DE VALOR TOTAL:
+              // 1. Se tem VLRTOT salvo, usa ele
+              // 2. Se nÃ£o tem VLRTOT mas tem qtd e PRECOBASE, calcula qtd * PRECOBASE
+              // 3. SerÃ¡ sobrescrito quando houver classificaÃ§Ã£o (Extra + MÃ©dio)
+              if (hasVlrtot) {
+                const distTotal = rawVlrtot;
+                distTotalForCards = distTotal;
+                window.__setDistribTotal(distTotal, { source: 'item-select', allowUI: true, syncInput: true });
+                console.log('[ITEM] Usando VLRTOT salvo:', distTotal);
+              } else if (precoBaseVal > 0 && qtd > 0) {
+                const distTotal = qtd * precoBaseVal;
+                distTotalForCards = distTotal;
+                window.__setDistribTotal(distTotal, { source: 'item-select', allowUI: true, syncInput: true });
+                console.log('[ITEM] Calculando Valor Total: qtd * PRECOBASE =', qtd, '*', precoBaseVal, '=', distTotal);
+              } else {
+                console.log('[ITEM] VLRTOT nÃ£o disponÃ­vel e sem dados para calcular (qtd:', qtd, ', PRECOBASE:', precoBaseVal, ')');
+              }
+              
+              // Inicializa custo/cx do Extra com PRECOBASE
+              if (precoBaseVal > 0) {
+                console.log('[ITEM] Inicializando Extra com PRECOBASE:', precoBaseVal);
+                
+                // Salva no estado primeiro
+                try {
+                  const st = window.__DIST_STATE;
+                  if (st && st.categorias) {
+                    if (!st.categorias.extra) st.categorias.extra = {};
+                    st.categorias.extra.custoCx = precoBaseVal;
+                    
+                    // TambÃ©m atualiza o display do Extra Custo/cx
+                    const extraCustoCxDisplay = document.getElementById('extraCustoCxDisplay');
+                    if (extraCustoCxDisplay) {
+                      const formatDecimal = (n) => isNaN(n) ? '' : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                      extraCustoCxDisplay.textContent = formatDecimal(precoBaseVal);
+                    }
+                  }
+                } catch(e) {
+                  console.log('[ITEM] Erro ao salvar PRECOBASE no estado:', e);
+                }
+                
+                // REMOVIDO: setTimeout que causava conflito com classificaÃ§Ã£o
+                // A sincronizaÃ§Ã£o serÃ¡ feita pela classificaÃ§Ã£o (linha 4172) ou
+                // se nÃ£o houver classificaÃ§Ã£o, pelo valor inicial jÃ¡ estÃ¡ no estado
+                console.log('[ITEM] PRECOBASE salvo no estado. Sync serÃ¡ feito pela classificaÃ§Ã£o.');
+              }
             }
           }catch{}
-          // Mantém os valores calculados acima; sem reset para '-'
+          // MantÃ©m os valores calculados acima; sem reset para '-'
         }catch{}
       }
   function renderClassificacaoCard(linhas, lote){
@@ -2027,9 +2076,9 @@
           card.setAttribute('data-current-lote', String(lote||''));
           const rows = Array.isArray(linhas) ? linhas : [];
           // Montar linhas: produto, cx, kg e barra % (baseada em KG total)
-          // Conversão visual para Classificação: 20 kg por caixa
+          // ConversÃ£o visual para ClassificaÃ§Ã£o: 20 kg por caixa
           const KG_PER_CX = 20;
-          // Total KG base para porcentagem: usar KG quando presente; se ausente e só houver CX, interpretar CX como KG (dados inconsistentes)
+          // Total KG base para porcentagem: usar KG quando presente; se ausente e sÃ³ houver CX, interpretar CX como KG (dados inconsistentes)
           const totalKg = rows.reduce((s,r)=> {
             const cx0 = Number(r.cx||0)||0; const kg0 = Number(r.kg||0)||0;
             const kgDisp = kg0>0 ? kg0 : (cx0>0 ? cx0 : 0);
@@ -2037,7 +2086,7 @@
           }, 0);
           const fmtInt = (n)=> Number(n||0).toLocaleString('pt-BR');
           const pct = (kg)=> totalKg>0 ? (kg/totalKg*100) : 0;
-          // Ordenar por KG (desc), considerando fallback (quando só CX vier)
+          // Ordenar por KG (desc), considerando fallback (quando sÃ³ CX vier)
           const rowsSorted = rows.slice().sort((a,b)=>{
             const aCx0 = Number(a.cx||0)||0, aKg0 = Number(a.kg||0)||0;
             const bCx0 = Number(b.cx||0)||0, bKg0 = Number(b.kg||0)||0;
@@ -2050,9 +2099,9 @@
           if(body){
             body.innerHTML = rowsSorted.map(r=>{
               const cx0 = Number(r.cx||0)||0, kg0 = Number(r.kg||0)||0;
-              // Se há KG, usamos ele; se não houver e só houver CX, assumimos que CX representa KG (dados vieram trocados)
+              // Se hÃ¡ KG, usamos ele; se nÃ£o houver e sÃ³ houver CX, assumimos que CX representa KG (dados vieram trocados)
               const kg = kg0>0 ? kg0 : (cx0>0 ? cx0 : 0);
-              // CX exibe caixas: quando não informado, derivar de KG
+              // CX exibe caixas: quando nÃ£o informado, derivar de KG
               const cx = cx0>0 && kg0>0 ? cx0 : (kg>0 ? (kg / KG_PER_CX) : 0);
               const p = Math.max(0, Math.min(100, pct(kg)));
               const prodFull = (r.produto||'');
@@ -2105,21 +2154,21 @@
               window.__DIST_renderClassCardsFromClassification(cardAggregate);
             }
           }catch{}
-          // Recalcular KPIs e gauge aproveitando script existente da seção Classificação
+          // Recalcular KPIs e gauge aproveitando script existente da seÃ§Ã£o ClassificaÃ§Ã£o
           try{
-            // Forçar reexecução do bloco de cálculo de KPIs redefinindo data-attributes
-            // Totais para base 22kg/cx e percentuais já são recalculados no script Classificação
+            // ForÃ§ar reexecuÃ§Ã£o do bloco de cÃ¡lculo de KPIs redefinindo data-attributes
+            // Totais para base 22kg/cx e percentuais jÃ¡ sÃ£o recalculados no script ClassificaÃ§Ã£o
             const totalCx = rows.reduce((s,r)=> s + (Number(r.cx||0)||0), 0);
-            // Atualiza atributos somente informativos (não usados diretamente no cálculo do bloco existente)
+            // Atualiza atributos somente informativos (nÃ£o usados diretamente no cÃ¡lculo do bloco existente)
             card.setAttribute('data-classified', String(totalKg));
-            // target será recalculado fora com base em Entrada (kg_in + cx_in * peso)
+            // target serÃ¡ recalculado fora com base em Entrada (kg_in + cx_in * peso)
           }catch{}
-          // Disparar pequena rotina para reprocessar percentuais/KPIs (reutilizando função já carregada)
+          // Disparar pequena rotina para reprocessar percentuais/KPIs (reutilizando funÃ§Ã£o jÃ¡ carregada)
           try{
-            // Simplesmente dispara um microtask para o bloco Classificação ler o DOM atualizado
+            // Simplesmente dispara um microtask para o bloco ClassificaÃ§Ã£o ler o DOM atualizado
             setTimeout(()=>{
-              // O bloco Classificação atual já recalcula com base no DOM renderizado no load.
-              // Para reusar sem duplicar lógica, podemos reexecutar o trecho essencial criando um evento customizado.
+              // O bloco ClassificaÃ§Ã£o atual jÃ¡ recalcula com base no DOM renderizado no load.
+              // Para reusar sem duplicar lÃ³gica, podemos reexecutar o trecho essencial criando um evento customizado.
               const ev = new Event('classificacao:updated');
               window.dispatchEvent(ev);
             },0);
@@ -2127,14 +2176,14 @@
         }catch{}
       }
 
-      // Cache de resumo por lote + carregamento/erros + cálculo de alvo/estoque
+      // Cache de resumo por lote + carregamento/erros + cÃ¡lculo de alvo/estoque
       const __classResumoCache = new Map();
       async function loadAndRenderClassificacao(lote, itemCtx){
         const card = document.getElementById('classCard');
         const body = document.getElementById('classBody');
         if(!card || !body) return;
         // Loader
-        body.innerHTML = '<div class="placeholder">Carregando…</div>';
+        body.innerHTML = '<div class="placeholder">Carregandoâ€¦</div>';
         try{
           let data = __classResumoCache.get(lote);
           if(!data){
@@ -2144,7 +2193,7 @@
             data = j; __classResumoCache.set(lote, data);
           }
           const linhas = Array.isArray(data.linhas) ? data.linhas : [];
-          if(!linhas.length){ body.innerHTML = '<div class="placeholder">Sem classificações para este lote.</div>'; }
+          if(!linhas.length){ body.innerHTML = '<div class="placeholder">Sem classificaÃ§Ãµes para este lote.</div>'; }
           renderClassificacaoCard(linhas, lote);
           // Calcular alvo (targetKg) a partir do card Entrada
           try{
@@ -2153,20 +2202,20 @@
             const toNum = (t)=> Number(String(t).replace(/\./g,'').replace(',','.')) || 0;
             const cx = toNum(cxTxt);
             const pesoPorCx = toNum(perBoxTxt);
-            // total kg de entrada aproximado: se já exibido, preferir; senão calcular
+            // total kg de entrada aproximado: se jÃ¡ exibido, preferir; senÃ£o calcular
             let totalKgEntrada = toNum(document.getElementById('totalInn')?.textContent || '0');
             if(!(totalKgEntrada>0) && (cx>0 && pesoPorCx>0)) totalKgEntrada = Math.floor(cx * pesoPorCx);
-            // classifiedKg = soma(kg das linhas); se kg=0 e cx>0, converter pela base de exibição (20 kg/cx visual)
+            // classifiedKg = soma(kg das linhas); se kg=0 e cx>0, converter pela base de exibiÃ§Ã£o (20 kg/cx visual)
             const classifiedKg = linhas.reduce((s,r)=>{
               const kg0 = Number(r.kg||0)||0; const cx0 = Number(r.cx||0)||0; return s + (kg0>0?kg0: (cx0>0? cx0: 0));
             },0);
             const targetKg = totalKgEntrada;
             card.setAttribute('data-target', String(targetKg||0));
             card.setAttribute('data-classified', String(classifiedKg||0));
-            // Atualiza gauge/estoque recalculando métricas
+            // Atualiza gauge/estoque recalculando mÃ©tricas
             if(typeof window.recalcClassificacaoMetrics === 'function') window.recalcClassificacaoMetrics();
 
-            // Ajuste para Qtde Total (cx, kg) com base na classificação
+            // Ajuste para Qtde Total (cx, kg) com base na classificaÃ§Ã£o
             try {
               const qtyCard = document.getElementById('distMini3');
               if (qtyCard) {
@@ -2182,7 +2231,7 @@
                   cxEl.textContent = fmtInt(cxVal);
                 }
                 
-                // Marcar que os valores vieram da classificação
+                // Marcar que os valores vieram da classificaÃ§Ã£o
                 window.__DIST_QTY_FROM_CLASS = {
                   kg: classifiedKg,
                   cx: cxVal,
@@ -2191,16 +2240,16 @@
                   updatedAt: Date.now()
                 };
 
-                // Atualiza o sistema de sincronização com as novas quantidades
+                // Atualiza o sistema de sincronizaÃ§Ã£o com as novas quantidades
                 if (typeof window.__updateQtysFromClass === 'function') {
                   window.__updateQtysFromClass(cxVal, classifiedKg);
                 }
               }
             } catch(err) {
-              try { console.debug('Falha ao ajustar Qtde Total a partir da classificação', err); } catch {}
+              try { console.debug('Falha ao ajustar Qtde Total a partir da classificaÃ§Ã£o', err); } catch {}
             }
 
-            // Preenche Resumo (In Natura / Classificados / Inservível) + CX totals
+            // Preenche Resumo (In Natura / Classificados / InservÃ­vel) + CX totals
             try{
               const setInt = (el, n)=>{ if(el) el.textContent = (Number(n)||0).toLocaleString('pt-BR'); };
               setInt(document.getElementById('resInnKg'), targetKg);
@@ -2210,7 +2259,7 @@
               const toNum = (t)=> Number(String(t).replace(/\./g,'').replace(',','.')) || 0;
               const innCx = toNum(innCxTxt);
               setInt(document.getElementById('resInnCx'), innCx);
-              // Total de CX classificados: preferir somatório de qtd em /lote/consultar (classificacoes)
+              // Total de CX classificados: preferir somatÃ³rio de qtd em /lote/consultar (classificacoes)
               let classCx = 0;
               try{
                 const rdet = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(lote), { credentials: 'same-origin' });
@@ -2222,25 +2271,25 @@
                     const vol = String(it && (it.codvol || it.CODVOL || '')).trim().toUpperCase();
                     if(!isNaN(q)){
                       if(vol === 'CX'){
-                        return s + q; // quantidade já em caixas
+                        return s + q; // quantidade jÃ¡ em caixas
                       }
                       if(vol === 'KG'){
-                        // quantidade em kg: converter para caixas usando peso por caixa quando disponível
+                        // quantidade em kg: converter para caixas usando peso por caixa quando disponÃ­vel
                         if(isFinite(p) && p > 0) return s + (q / p);
-                        return s; // sem peso, não há como converter com segurança
+                        return s; // sem peso, nÃ£o hÃ¡ como converter com seguranÃ§a
                       }
-                      // Vol indefinido: se peso existe, assume q é caixas (consistente com uso de qtd*peso para kg)
+                      // Vol indefinido: se peso existe, assume q Ã© caixas (consistente com uso de qtd*peso para kg)
                       if(isFinite(p) && p > 0) return s + q;
-                      return s + q; // último recurso: somar qtd
+                      return s + q; // Ãºltimo recurso: somar qtd
                     }
                     return s;
                   }, 0);
                 }
               }catch(_){ }
-              // Fallback: usar linhas.cx quando detalhe não disponível
+              // Fallback: usar linhas.cx quando detalhe nÃ£o disponÃ­vel
               if(!(classCx>0)) classCx = linhas.reduce((s,r)=> s + (Number(r.cx||0)||0), 0);
               setInt(document.getElementById('resClassCx'), Math.round(classCx));
-              // Inservível p/ comércio (kg): tentar identificar por linha cujo nome contenha DESCARTE/AVARIA/INservível; fallback: target - classificado quando negativo não conta
+              // InservÃ­vel p/ comÃ©rcio (kg): tentar identificar por linha cujo nome contenha DESCARTE/AVARIA/INservÃ­vel; fallback: target - classificado quando negativo nÃ£o conta
               let inservKg = 0;
               const nameHas = (s, sub)=> s && s.toUpperCase().includes(sub);
               for(const r of (linhas||[])){
@@ -2251,7 +2300,7 @@
               }
               if(!(inservKg>0)){
                 const rem = targetKg - classifiedKg;
-                inservKg = rem>0 ? 0 : 0; // por padrão não deduz do alvo; manter 0 quando não há linha explícita
+                inservKg = rem>0 ? 0 : 0; // por padrÃ£o nÃ£o deduz do alvo; manter 0 quando nÃ£o hÃ¡ linha explÃ­cita
               }
               setInt(document.getElementById('resInservKg'), inservKg);
             }catch{}
@@ -2261,9 +2310,9 @@
         }
       }
 
-      // (removido) Função antiga openOutrosModal
+      // (removido) FunÃ§Ã£o antiga openOutrosModal
 
-      // Modal: Resumo do Vale (Classificáveis + Não Classificáveis)
+      // Modal: Resumo do Vale (ClassificÃ¡veis + NÃ£o ClassificÃ¡veis)
       function openValeResumo(nunota){
         try{
           const modal = document.getElementById('valeResumoModal');
@@ -2274,12 +2323,12 @@
           if(!modal || !title || !classBody || !outrosBody || !totalEl) return;
           const rows = (window.__COM_LIST_ROWS||[]).filter(r=> String(r.nunota||'') === String(nunota||''));
           const parc = rows[0]?.parceiro || '';
-          title.textContent = `Vale ${nunota} — ${parc}`;
+          title.textContent = `Vale ${nunota} â€” ${parc}`;
           const fmtMoney = (n)=> isNaN(n) ? 'R$\u00A00,00' : new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n);
           const fmtQty = (n)=> isNaN(n) ? '0' : Number(n||0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
           const classifs = rows.filter(r=> r.classificavel !== false);
           const nclass = rows.filter(r=> r.classificavel === false);
-          // Classificáveis: somente leitura
+          // ClassificÃ¡veis: somente leitura
           if(classifs.length){
             classBody.innerHTML = classifs.map(r=>{
               const prod = r.produto||'';
@@ -2294,9 +2343,9 @@
               </tr>`;
             }).join('');
           }else{
-            classBody.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>';
+            classBody.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#64748b;">â€”</td></tr>';
           }
-          // Não Classificáveis: com preço
+          // NÃ£o ClassificÃ¡veis: com preÃ§o
           if(nclass.length){
             outrosBody.innerHTML = nclass.map((r, idx)=>{
               const prod = r.produto||'';
@@ -2311,10 +2360,10 @@
               </tr>`;
             }).join('');
           }else{
-            outrosBody.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>';
+            outrosBody.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#64748b;">â€”</td></tr>';
           }
           modal.style.display = 'flex';
-          // cálculo total
+          // cÃ¡lculo total
           const parsePT = (text) => {
             if(!text) return NaN;
             const cleaned = text.toString().trim().replace(/[^0-9,\.]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.');
@@ -2366,12 +2415,12 @@
           const totalEl = document.getElementById('parceiroResumoTotal');
           if(!modal || !title || !classBody || !outrosBody || !totalEl) return;
           const rows = (window.__COM_LIST_ROWS||[]).filter(r=> String(r.parceiro||'') === String(parceiro||''));
-          title.textContent = `Parceiro — ${parceiro}`;
+          title.textContent = `Parceiro â€” ${parceiro}`;
           const fmtMoney = (n)=> isNaN(n) ? 'R$\u00A00,00' : new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n);
           const fmtQty = (n)=> isNaN(n) ? '0' : Number(n||0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
           const classifs = rows.filter(r=> r.classificavel !== false);
           const nclass = rows.filter(r=> r.classificavel === false);
-          // Classificáveis
+          // ClassificÃ¡veis
           if(classifs.length){
             classBody.innerHTML = classifs.map(r=>{
               const prod = r.produto||'';
@@ -2386,9 +2435,9 @@
               </tr>`;
             }).join('');
           }else{
-            classBody.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>';
+            classBody.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#64748b;">â€”</td></tr>';
           }
-          // Não Classificáveis
+          // NÃ£o ClassificÃ¡veis
           if(nclass.length){
             outrosBody.innerHTML = nclass.map((r, idx)=>{
               const prod = r.produto||'';
@@ -2403,10 +2452,10 @@
               </tr>`;
             }).join('');
           }else{
-            outrosBody.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>';
+            outrosBody.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#64748b;">â€”</td></tr>';
           }
           modal.style.display = 'flex';
-          // cálculo total
+          // cÃ¡lculo total
           const parsePT = (text) => {
             if(!text) return NaN;
             const cleaned = text.toString().trim().replace(/[^0-9,\.]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.');
@@ -2448,7 +2497,7 @@
         }catch{}
       }
 
-      // Guardar os últimos rows carregados para uso no modal
+      // Guardar os Ãºltimos rows carregados para uso no modal
       (function(){
         const orig = window.addEventListener;
         // monkey-patch not necessary; instead hook into loadLista completion by overriding fetch then revert? Simpler: store in loadLista directly after success
@@ -2535,7 +2584,7 @@
               cxDisplay.textContent = formatted;
               prevCx = formatted;
               
-              // Integra com sistema de sincronização
+              // Integra com sistema de sincronizaÃ§Ã£o
               if (typeof window.__syncDistValues === 'function') {
                 window.__syncDistValues('custoCx', n);
               }
@@ -2569,7 +2618,7 @@
               kgDisplay.textContent = formatted;
               prevKg = formatted;
               
-              // Integra com sistema de sincronização
+              // Integra com sistema de sincronizaÃ§Ã£o
               if (typeof window.__syncDistValues === 'function') {
                 window.__syncDistValues('custoKg', n);
               }
@@ -2695,6 +2744,24 @@
             display.textContent = formatDecimal(n);
             prev = display.textContent;
             applyToState(n);
+            
+            console.log('[EDIT] Extra Custo/cx editado para:', n);
+            
+            // Integra com sistema de sincronizaÃ§Ã£o
+            if (typeof window.__syncDistValues === 'function') {
+              // Busca quantidades do Extra do estado
+              try {
+                const st = window.__DIST_STATE;
+                const extraKg = Number(st?.categorias?.extra?.kg) || 0;
+                const extraCx = Number(st?.categorias?.extra?.cxEq) || 0;
+                if (extraKg > 0 && extraCx > 0) {
+                  window.__syncDistValues('extraCustoCx', n);
+                }
+              } catch(e) {
+                console.log('[EDIT] Erro ao buscar quantidades do Extra:', e);
+              }
+            }
+            
             shouldRefresh = true;
           }else{
             input.value = prev;
@@ -2722,7 +2789,7 @@
       input.addEventListener('blur', ()=> exitEdit(true));
     })();
 
-    // Simulação T1 - lógica 2-de-3 (Qtde, Valor/CX, Valor Total) para EXTRA e MÉDIO
+    // SimulaÃ§Ã£o T1 - lÃ³gica 2-de-3 (Qtde, Valor/CX, Valor Total) para EXTRA e MÃ‰DIO
     (function(){
       const $ = (s) => document.querySelector(s);
       const els = {
@@ -2799,7 +2866,7 @@
         const t1 = parsePT(els.extra.total.value), t2 = parsePT(els.medio.total.value);
         const sumCx = (isNaN(q1)?0:q1) + (isNaN(q2)?0:q2);
         const sumTotal = (isNaN(t1)?0:t1) + (isNaN(t2)?0:t2);
-        // Valor/CX agregado: média ponderada se possível, senão média simples dos informados
+        // Valor/CX agregado: mÃ©dia ponderada se possÃ­vel, senÃ£o mÃ©dia simples dos informados
         let aggUnit = 0;
         if(sumCx > 0){ aggUnit = sumTotal / sumCx; }
         else{
@@ -2828,7 +2895,7 @@
         total.addEventListener('blur', ()=>{ const v = parsePT(total.value); total.value = isNaN(v)?'':fmtMoney(v); solveSection(sec); updateSummary(); });
       });
 
-      // Hint inicial: usar Custo CX (EXTRA) se disponível
+      // Hint inicial: usar Custo CX (EXTRA) se disponÃ­vel
       const extraCxHint = document.getElementById('extraCustoCxDisplay');
       if(extraCxHint && els.extra.unit && !els.extra.unit.value){
         const n = parsePT(extraCxHint.textContent||'');
@@ -2852,7 +2919,7 @@
         updateSummary();
       });
 
-      // Aplicar: dispara evento com os valores atuais (para integração futura)
+      // Aplicar: dispara evento com os valores atuais (para integraÃ§Ã£o futura)
       els.applyBtn?.addEventListener('click', ()=>{
         const payload = {
           extra: {
@@ -2871,7 +2938,7 @@
       });
     })();
 
-    // Select-all on click/focus for inputs (Simulação + editores inline)
+    // Select-all on click/focus for inputs (SimulaÃ§Ã£o + editores inline)
     (function(){
       const attachSelectAll = (input) => {
         if(!input) return;
@@ -2897,9 +2964,9 @@
         .forEach(attachSelectAll);
     })();
 
-    // Distribuição: estado e atualização dos mini-cards (sem seletor de rateio)
+    // DistribuiÃ§Ã£o: estado e atualizaÃ§Ã£o dos mini-cards (sem seletor de rateio)
     (function(){
-      const KG_PER_CX_EQ = 22; // base única inicial
+      const KG_PER_CX_EQ = 22; // base Ãºnica inicial
       const state = (window.__DIST_STATE = window.__DIST_STATE || {
         totais: { cxFis: 0, kg: 0, cxEq: 0 },
         categorias: {
@@ -2963,6 +3030,36 @@
       function ensureCostCoherence(opts){
         const options = (opts && typeof opts === 'object') ? opts : {};
         const preserveExisting = options.preserveExisting !== false;
+        
+        // IMPORTANTE: Se o sistema de sync jÃ¡ calculou os valores,
+        // nÃ£o recalcular aqui para evitar sobrescrever valores corretos do MÃ©dio
+        const syncCalculated = window.__DIST_SYNC_CALCULATED === true;
+        const syncTimestamp = window.__DIST_SYNC_TIMESTAMP || 0;
+        const timeSinceSync = Date.now() - syncTimestamp;
+        
+        console.log('[COHERENCE] Verificando proteÃ§Ã£o - syncCalculated:', syncCalculated, 'timeSinceSync:', timeSinceSync);
+        
+        if (syncCalculated && timeSinceSync < 5000) { // Protege por 5 segundos
+          console.log('[COHERENCE] *** BLOQUEADO *** - sync calculou hÃ¡', timeSinceSync, 'ms');
+          console.log('[COHERENCE] *** NÃƒO VAI SOBRESCREVER VALORES DO MÃ‰DIO ***');
+          
+          // Apenas atualiza o total combinado sem recalcular categorias
+          const extra = ensureBucket('extra');
+          const medio = ensureBucket('medio');
+          const combined = Math.max(0, (Number(extra.custoTotal)||0) + (Number(medio.custoTotal)||0));
+          state.custo.total = combined;
+          
+          const totKg = state.totais.kg || 0;
+          const totCxEq = state.totais.cxEq || 0;
+          state.custo.porKg = (totKg > 0 && combined > 0) ? (combined / totKg) : 0;
+          state.custo.porCx = (totCxEq > 0 && combined > 0) ? (combined / totCxEq) : 0;
+          
+          console.log('[COHERENCE] Total combinado:', combined, '| Extra:', extra.custoTotal, '| MÃ©dio:', medio.custoTotal);
+          console.log('[COHERENCE] Custos MÃ©dio preservados - kg:', medio.custoKg, 'cx:', medio.custoCx);
+          return combined;
+        }
+        
+        console.log('[COHERENCE] Executando recÃ¡lculo normal');
         const extra = ensureBucket('extra');
         const medio = ensureBucket('medio');
         const extraKg = Number(extra.kg) || 0;
@@ -3041,7 +3138,7 @@
         if(combined > 0 || prevTotal > 0) state.hydrated = true;
 
         if(options.syncDisplay !== false){
-          // UI do card Distribuição permanece manual; não sincronizar automaticamente
+          // UI do card DistribuiÃ§Ã£o permanece manual; nÃ£o sincronizar automaticamente
         }
         return combined;
       }
@@ -3084,7 +3181,7 @@
         try{ seedExtraCustoKg(value, force); }catch{}
       };
 
-      // Sincroniza totais a partir da Classificação (uso pós-render)
+      // Sincroniza totais a partir da ClassificaÃ§Ã£o (uso pÃ³s-render)
       function syncFromClass(){
         const classCard = document.getElementById('classCard');
         if(!classCard) return false;
@@ -3125,7 +3222,7 @@
           if(prod.includes('EXTRA')){
             extraKg += safeKg;
             extraCx += safeCx;
-          }else if(prod.includes('MÉDIO') || prod.includes('MEDIO')){
+          }else if(prod.includes('MÃ‰DIO') || prod.includes('MEDIO')){
             medioKg += safeKg;
             medioCx += safeCx;
           }
@@ -3150,7 +3247,7 @@
 
       // Ler Valor Total e custos exibidos
       function updateCostDisplays(){
-        return; // UI automática desativada para o card Distribuição
+        return; // UI automÃ¡tica desativada para o card DistribuiÃ§Ã£o
       }
 
       // Calcula custo por kg e por cx eq com base no total atual e quantidades
@@ -3170,12 +3267,12 @@
         const mini = document.getElementById('distMini3');
         if(!mini) return;
         
-        // Se os valores vieram da classificação, não sobrescrever
+        // Se os valores vieram da classificaÃ§Ã£o, nÃ£o sobrescrever
         const classOverride = (()=>{
           try{ return window.__DIST_QTY_FROM_CLASS; }catch{ return null; }
         })();
         if(classOverride && classOverride.locked === true){
-          return; // Preservar valores da classificação
+          return; // Preservar valores da classificaÃ§Ã£o
         }
         
         const topVal = mini.querySelector('.qty-top .dist-value');
@@ -3255,10 +3352,11 @@
           const share = totalKg > 0 ? Math.max(0, Math.min(100, (kgVal / totalKg) * 100)) : 0;
           let custoKg = bucket.custoKg > 0 ? bucket.custoKg : 0;
           let custoCx = bucket.custoCx > 0 ? bucket.custoCx : 0;
-          if(cat === 'medio'){
-            if(extraBucket.custoKg > 0) custoKg = extraBucket.custoKg / 2;
-            if(extraBucket.custoCx > 0) custoCx = extraBucket.custoCx / 2;
-          }
+          
+          // IMPORTANTE: NÃ£o sobrescrever custos calculados pelo sistema de sync
+          // O sistema de sync (Fluxo 6) jÃ¡ calcula MÃ©dio = Extra/2 corretamente
+          // Esta funÃ§Ã£o apenas lÃª os valores, nÃ£o os recalcula
+          
           let custoTotal = bucket.custoTotal > 0 ? bucket.custoTotal : 0;
           if(custoTotal <= 0){
             if(kgVal > 0 && custoKg > 0){
@@ -3268,9 +3366,11 @@
             }
           }
 
-          bucket.custoKg = custoKg > 0 ? custoKg : 0;
-          bucket.custoCx = custoCx > 0 ? custoCx : 0;
-          bucket.custoTotal = custoTotal > 0 ? custoTotal : 0;
+          // REMOVIDO: NÃ£o sobrescrever valores do bucket - usar apenas para leitura
+          // Permite que o sistema de sync mantenha controle dos valores
+          // bucket.custoKg = custoKg > 0 ? custoKg : 0;
+          // bucket.custoCx = custoCx > 0 ? custoCx : 0;
+          // bucket.custoTotal = custoTotal > 0 ? custoTotal : 0;
 
           if(disableUI) return;
 
@@ -3306,7 +3406,7 @@
         }
       }
 
-      // Resumo Financeiro: Receita, Custo, Resultado e Margem (exibição numérica)
+      // Resumo Financeiro: Receita, Custo, Resultado e Margem (exibiÃ§Ã£o numÃ©rica)
       function updateResumoFinanceiro(){
         const elMar = document.getElementById('rfMargem');
         if(!elMar) return;
@@ -3463,7 +3563,7 @@
 
       window.__DIST_applyTotalOverride = applyTotalOverride;
 
-      // Reagir ao Aplicar da Simulação: captura valores e atualiza state
+      // Reagir ao Aplicar da SimulaÃ§Ã£o: captura valores e atualiza state
       window.addEventListener('simulacao:aplicar', (ev)=>{
         const d = ev.detail || {};
         const get = (o,k)=> (o && typeof o[k]==='number' && isFinite(o[k])) ? o[k] : 0;
@@ -3473,10 +3573,10 @@
         state.simulacao.medio.qty = get(d.medio,'qty');
         state.simulacao.medio.unit = get(d.medio,'unit');
         state.simulacao.medio.total = get(d.medio,'total');
-        // Se usuário informou qty como CX, interpretar como CX eq de venda
+        // Se usuÃ¡rio informou qty como CX, interpretar como CX eq de venda
         state.categorias.extra.cxEq = state.simulacao.extra.qty || state.categorias.extra.cxEq;
         state.categorias.medio.cxEq = state.simulacao.medio.qty || state.categorias.medio.cxEq;
-        // kg continuam originais; cxEq recalculado em seed já existe, mas preferimos o informado
+        // kg continuam originais; cxEq recalculado em seed jÃ¡ existe, mas preferimos o informado
         state.categorias.extra.kg = state.categorias.extra.kg || (state.categorias.extra.cxEq * KG_PER_CX_EQ);
         state.categorias.medio.kg = state.categorias.medio.kg || (state.categorias.medio.cxEq * KG_PER_CX_EQ);
         // totais
@@ -3485,9 +3585,9 @@
         recalcAllocation();
       });
 
-      // Seletor de rateio removido; mantemos cálculo simultâneo /kg e /cx
+      // Seletor de rateio removido; mantemos cÃ¡lculo simultÃ¢neo /kg e /cx
 
-      // Ao editar Valor Total manualmente, já temos handler que recalcula displays; aqui só atualizamos state e KPIs
+      // Ao editar Valor Total manualmente, jÃ¡ temos handler que recalcula displays; aqui sÃ³ atualizamos state e KPIs
       document.getElementById('totalValueInput')?.addEventListener('blur', ()=>{
         if(state.custo.total > 0) state.hydrated = true;
         recalcAllocation();
@@ -3508,7 +3608,7 @@
       };
     })();
 
-    // Distribuição: ações (zerar, imprimir, salvar valores no banco)
+    // DistribuiÃ§Ã£o: aÃ§Ãµes (zerar, imprimir, salvar valores no banco)
     (function(){
       const bar = document.getElementById('distActionBar');
       if(!bar) return;
@@ -3542,13 +3642,13 @@
       };
 
       // ============================================================================
-      // SISTEMA DE SINCRONIZAÇÃO DE VALORES (Valor Total ↔ Custo ↔ Extra/Médio)
+      // SISTEMA DE SINCRONIZAÃ‡ÃƒO DE VALORES (Valor Total â†” Custo â†” Extra/MÃ©dio)
       // ============================================================================
       
-      // Estado global para controle de propagação (evita loops infinitos)
+      // Estado global para controle de propagaÃ§Ã£o (evita loops infinitos)
       window.__DIST_SYNC_STATE = {
-        isUpdating: false,           // Flag para bloquear atualizações recursivas
-        lastSource: null,            // Último campo que disparou atualização
+        isUpdating: false,           // Flag para bloquear atualizaÃ§Ãµes recursivas
+        lastSource: null,            // Ãšltimo campo que disparou atualizaÃ§Ã£o
         values: {                    // Valores atuais
           valorTotal: 0,
           qtdeCx: 0,
@@ -3561,14 +3661,14 @@
       };
 
       /**
-       * Atualiza todos os campos relacionados com base na fonte da mudança
+       * Atualiza todos os campos relacionados com base na fonte da mudanÃ§a
        * @param {string} source - 'valorTotal' | 'custoCx' | 'custoKg' | 'extra' | 'medio'
        * @param {number} newValue - Novo valor do campo fonte
        */
       const syncDistributionValues = (source, newValue) => {
-        // Previne recursão infinita
+        // Previne recursÃ£o infinita
         if (window.__DIST_SYNC_STATE.isUpdating) {
-          console.log('[SYNC] Bloqueado - já está atualizando');
+          console.log('[SYNC] Bloqueado - jÃ¡ estÃ¡ atualizando');
           return;
         }
 
@@ -3581,7 +3681,7 @@
           const qtdeCx = state.qtdeCx || 0;
           const qtdeKg = state.qtdeKg || 0;
 
-          // Fluxo 1: VALOR TOTAL foi alterado → Recalcula CUSTO
+          // Fluxo 1: VALOR TOTAL foi alterado â†’ Recalcula CUSTO e Extra/MÃ©dio
           if (source === 'valorTotal') {
             state.valorTotal = Number(newValue) || 0;
             console.log('[SYNC] Fluxo 1: Valor Total alterado para', state.valorTotal);
@@ -3593,11 +3693,14 @@
 
             console.log('[SYNC] Custos calculados: cx=', state.custoCx, 'kg=', state.custoKg);
 
-            // Atualiza apenas os displays de CUSTO (não atualiza Valor Total)
+            // Atualiza apenas os displays de CUSTO (nÃ£o atualiza Valor Total)
             updateCostDisplays(state.custoCx, state.custoKg);
+            
+            // Recalcula Extra e MÃ©dio proporcionalmente ao novo Valor Total
+            recalcExtraMedioFromTotal(state.valorTotal);
           }
 
-          // Fluxo 2: CUSTO/CX foi alterado → Recalcula VALOR TOTAL
+          // Fluxo 2: CUSTO/CX foi alterado â†’ Recalcula VALOR TOTAL
           else if (source === 'custoCx') {
             state.custoCx = Number(newValue) || 0;
             console.log('[SYNC] Fluxo 2: Custo/cx alterado para', state.custoCx);
@@ -3617,14 +3720,14 @@
               updateValueTotalDisplay(state.valorTotal);
               updateCostDisplays(state.custoCx, state.custoKg);
               
-              // Recalcula Extra e Médio
+              // Recalcula Extra e MÃ©dio
               recalcExtraMedioFromTotal(state.valorTotal);
             } else {
-              console.log('[SYNC] AVISO: qtdeCx é zero, não pode calcular valor total');
+              console.log('[SYNC] AVISO: qtdeCx Ã© zero, nÃ£o pode calcular valor total');
             }
           }
 
-          // Fluxo 3: CUSTO/KG foi alterado → Recalcula VALOR TOTAL
+          // Fluxo 3: CUSTO/KG foi alterado â†’ Recalcula VALOR TOTAL
           else if (source === 'custoKg') {
             state.custoKg = Number(newValue) || 0;
             
@@ -3639,17 +3742,17 @@
               updateValueTotalDisplay(state.valorTotal);
               updateCostDisplays(state.custoCx, state.custoKg);
               
-              // Recalcula Extra e Médio
+              // Recalcula Extra e MÃ©dio
               recalcExtraMedioFromTotal(state.valorTotal);
             }
           }
 
-          // Fluxo 4: EXTRA foi alterado → Recalcula VALOR TOTAL → Recalcula CUSTO
+          // Fluxo 4: EXTRA foi alterado â†’ Recalcula VALOR TOTAL â†’ Recalcula CUSTO
           else if (source === 'extra') {
             state.valorExtra = Number(newValue) || 0;
             
-            // Recalcula valor total com base em Extra + Médio
-            // (assumindo que Valor Total = Extra + Médio ou outra lógica)
+            // Recalcula valor total com base em Extra + MÃ©dio
+            // (assumindo que Valor Total = Extra + MÃ©dio ou outra lÃ³gica)
             state.valorTotal = calculateTotalFromExtraMedio(state.valorExtra, state.valorMedio);
             
             // Recalcula custos
@@ -3661,11 +3764,11 @@
             updateCostDisplays(state.custoCx, state.custoKg);
           }
 
-          // Fluxo 5: MÉDIO foi alterado → Recalcula VALOR TOTAL → Recalcula CUSTO
+          // Fluxo 5: MÃ‰DIO foi alterado â†’ Recalcula VALOR TOTAL â†’ Recalcula CUSTO
           else if (source === 'medio') {
             state.valorMedio = Number(newValue) || 0;
             
-            // Recalcula valor total com base em Extra + Médio
+            // Recalcula valor total com base em Extra + MÃ©dio
             state.valorTotal = calculateTotalFromExtraMedio(state.valorExtra, state.valorMedio);
             
             // Recalcula custos
@@ -3677,8 +3780,181 @@
             updateCostDisplays(state.custoCx, state.custoKg);
           }
 
+          // Fluxo 6: EXTRA CUSTO/CX foi alterado â†’ Recalcula valor Extra â†’ Calcula MÃ©dio â†’ Recalcula Valor Total
+          else if (source === 'extraCustoCx') {
+            const extraCustoCx = Number(newValue) || 0;
+            console.log('[SYNC] Fluxo 6: Extra Custo/cx alterado para', extraCustoCx);
+            
+            // Busca quantidades do Extra
+            const st = window.__DIST_STATE;
+            const extraKg = Number(st?.categorias?.extra?.kg) || 0;
+            const extraCx = Number(st?.categorias?.extra?.cxEq) || 0;
+            const medioKg = Number(st?.categorias?.medio?.kg) || 0;
+            const medioCx = Number(st?.categorias?.medio?.cxEq) || 0;
+            
+            console.log('[SYNC] Quantidades - Extra: kg=', extraKg, 'cx=', extraCx, '| MÃ©dio: kg=', medioKg, 'cx=', medioCx);
+            
+            if (extraCx > 0) {
+              // Calcula valor total do Extra
+              const valorExtra = extraCustoCx * extraCx;
+              const extraCustoKg = extraKg > 0 ? valorExtra / extraKg : 0;
+              
+              console.log('[SYNC] Extra calculado - valorExtra:', valorExtra, 'extraCustoKg:', extraCustoKg, 'extraCustoCx:', extraCustoCx);
+              
+              // MÃ©dio Ã© sempre metade do Extra (regra de negÃ³cio)
+              const medioCustoCx = extraCustoCx / 2;
+              const medioCustoKg = extraCustoKg / 2;
+              
+              console.log('[SYNC] MÃ©dio ANTES de calcular valorMedio - medioCustoCx:', medioCustoCx, 'medioCustoKg:', medioCustoKg);
+              console.log('[SYNC] VerificaÃ§Ã£o: extraCustoCx =', extraCustoCx, '/ 2 =', extraCustoCx / 2);
+              console.log('[SYNC] VerificaÃ§Ã£o: extraCustoKg =', extraCustoKg, '/ 2 =', extraCustoKg / 2);
+              
+              // Calcula valor do MÃ©dio: sempre usa medioCustoCx * medioCx
+              const valorMedio = medioCx > 0 ? medioCustoCx * medioCx : 0;
+              
+              console.log('[SYNC] MÃ©dio DEPOIS de calcular - valorMedio:', valorMedio, 'usando medioCustoCx:', medioCustoCx, '* medioCx:', medioCx);
+              
+              // Valor Total = Extra + MÃ©dio
+              state.valorTotal = valorExtra + valorMedio;
+              state.valorExtra = valorExtra;
+              state.valorMedio = valorMedio;
+              
+              console.log('[SYNC] Valores calculados - Extra:', valorExtra, 'MÃ©dio:', valorMedio, 'Total:', state.valorTotal);
+              console.log('[SYNC] Custos - Extra kg:', extraCustoKg, 'cx:', extraCustoCx, '| MÃ©dio kg:', medioCustoKg, 'cx:', medioCustoCx);
+              
+              // Recalcula custos globais (do card Custo)
+              state.custoCx = (qtdeCx > 0) ? (state.valorTotal / qtdeCx) : 0;
+              state.custoKg = (qtdeKg > 0) ? (state.valorTotal / qtdeKg) : 0;
+              
+              // Atualiza displays
+              updateValueTotalDisplay(state.valorTotal);
+              updateCostDisplays(state.custoCx, state.custoKg);
+              
+              // Atualiza cards de Extra e MÃ©dio
+              const extraCard = document.getElementById('distMiniExtra');
+              const medioCard = document.getElementById('distMiniMedio');
+              
+              if (extraCard) {
+                const custoTotalEl = extraCard.querySelector('[data-field="custo"]');
+                const custoKgEl = extraCard.querySelector('[data-field="custoKg"]');
+                const custoCxEl = extraCard.querySelector('[data-field="custoCx"]');
+                const extraCustoCxDisplay = document.getElementById('extraCustoCxDisplay');
+                
+                if (custoTotalEl) custoTotalEl.textContent = formatMoney(valorExtra);
+                if (custoKgEl) custoKgEl.textContent = formatDecimal(extraCustoKg);
+                
+                // Atualiza o custo/cx do Extra (inclusive o editÃ¡vel)
+                if (extraCustoCxDisplay) {
+                  extraCustoCxDisplay.textContent = formatDecimal(extraCustoCx);
+                }
+                if (custoCxEl && custoCxEl.id !== 'extraCustoCxDisplay') {
+                  custoCxEl.textContent = formatDecimal(extraCustoCx);
+                }
+                
+                console.log('[SYNC] Extra atualizado - Total:', valorExtra, 'kg:', extraCustoKg, 'cx:', extraCustoCx);
+              }
+              
+              if (medioCard) {
+                const custoTotalEl = medioCard.querySelector('[data-field="custo"]');
+                const custoKgEl = medioCard.querySelector('[data-field="custoKg"]');
+                const custoCxEl = medioCard.querySelector('[data-field="custoCx"]');
+                const medioCustoCxDisplay = medioCard.querySelector('[data-edit="medioCustoCx"]');
+                
+                console.log('[SYNC] === ATUALIZANDO MÃ‰DIO NO DOM ===');
+                console.log('[SYNC] Valores que serÃ£o escritos - medioCustoKg:', medioCustoKg, 'medioCustoCx:', medioCustoCx);
+                console.log('[SYNC] formatDecimal(medioCustoKg):', formatDecimal(medioCustoKg));
+                console.log('[SYNC] formatDecimal(medioCustoCx):', formatDecimal(medioCustoCx));
+                console.log('[SYNC] Atualizando MÃ©dio - Elementos encontrados:', {
+                  custoTotalEl: !!custoTotalEl,
+                  custoKgEl: !!custoKgEl,
+                  custoCxEl: !!custoCxEl,
+                  medioCustoCxDisplay: !!medioCustoCxDisplay
+                });
+                console.log('[SYNC] Valores para MÃ©dio - Total:', valorMedio, 'kg:', medioCustoKg, 'cx:', medioCustoCx);
+                
+                if (custoTotalEl) {
+                  custoTotalEl.textContent = formatMoney(valorMedio);
+                  console.log('[SYNC] custoTotalEl.textContent AGORA =', custoTotalEl.textContent);
+                }
+                if (custoKgEl) {
+                  custoKgEl.textContent = formatDecimal(medioCustoKg);
+                  console.log('[SYNC] custoKgEl.textContent AGORA =', custoKgEl.textContent);
+                }
+                
+                // Atualiza TODOS os campos de custo/cx do MÃ©dio
+                if (medioCustoCxDisplay) {
+                  medioCustoCxDisplay.textContent = formatDecimal(medioCustoCx);
+                  console.log('[SYNC] medioCustoCxDisplay.textContent AGORA =', medioCustoCxDisplay.textContent);
+                }
+                if (custoCxEl && custoCxEl !== medioCustoCxDisplay) {
+                  custoCxEl.textContent = formatDecimal(medioCustoCx);
+                  console.log('[SYNC] custoCxEl.textContent AGORA =', custoCxEl.textContent);
+                }
+                
+                console.log('[SYNC] MÃ©dio atualizado - Total:', valorMedio, 'kg:', medioCustoKg, 'cx:', medioCustoCx);
+                console.log('[SYNC] === FIM ATUALIZAÃ‡ÃƒO MÃ‰DIO ===');
+              }
+              
+              // Atualiza estado
+              if (st?.categorias?.extra) {
+                st.categorias.extra.custoKg = extraCustoKg;
+                st.categorias.extra.custoCx = extraCustoCx;
+                st.categorias.extra.custoTotal = valorExtra;
+              }
+              if (st?.categorias?.medio) {
+                st.categorias.medio.custoKg = medioCustoKg;
+                st.categorias.medio.custoCx = medioCustoCx;
+                st.categorias.medio.custoTotal = valorMedio;
+              }
+              
+              // PROTEÃ‡ÃƒO ADICIONAL: Congela os valores do MÃ©dio no estado
+              // Isso garante que mesmo se ensureCostCoherence executar, nÃ£o vai sobrescrever
+              Object.defineProperty(st.categorias.medio, 'custoKg', {
+                value: medioCustoKg,
+                writable: false,
+                configurable: true
+              });
+              Object.defineProperty(st.categorias.medio, 'custoCx', {
+                value: medioCustoCx,
+                writable: false,
+                configurable: true
+              });
+              
+              console.log('[SYNC] *** ESTADO MÃ‰DIO CONGELADO ***');
+              console.log('[SYNC] medio.custoKg =', st.categorias.medio.custoKg, '(read-only)');
+              console.log('[SYNC] medio.custoCx =', st.categorias.medio.custoCx, '(read-only)');
+              
+              // Marca que o sync calculou valores - protege contra sobrescrita
+              // Define IMEDIATAMENTE e de forma sÃ­ncrona
+              window.__DIST_SYNC_CALCULATED = true;
+              console.log('[SYNC] *** FLAG __DIST_SYNC_CALCULATED = true ***');
+              console.log('[SYNC] *** VALORES PROTEGIDOS - NÃƒO RECALCULAR ***');
+              
+              // Impede que ensureCostCoherence seja chamado logo apÃ³s
+              // Cria uma proteÃ§Ã£o temporÃ¡ria adicional
+              window.__DIST_SYNC_TIMESTAMP = Date.now();
+              
+              // ApÃ³s 10 segundos, descongela os valores para permitir ediÃ§Ãµes futuras
+              setTimeout(() => {
+                Object.defineProperty(st.categorias.medio, 'custoKg', {
+                  value: st.categorias.medio.custoKg,
+                  writable: true,
+                  configurable: true
+                });
+                Object.defineProperty(st.categorias.medio, 'custoCx', {
+                  value: st.categorias.medio.custoCx,
+                  writable: true,
+                  configurable: true
+                });
+                console.log('[SYNC] Valores do MÃ©dio descongelados apÃ³s 10s');
+              }, 10000);
+            } else {
+              console.log('[SYNC] AVISO: extraCx Ã© zero, nÃ£o pode calcular');
+            }
+          }
+
         } finally {
-          // Libera flag após processamento completo
+          // Libera flag apÃ³s processamento completo
           window.__DIST_SYNC_STATE.isUpdating = false;
         }
       };
@@ -3696,14 +3972,14 @@
           custoCxEl.textContent = formatted;
           console.log('[SYNC] costCxDisplay atualizado para:', formatted);
         } else {
-          console.log('[SYNC] ERRO: costCxDisplay não encontrado!');
+          console.log('[SYNC] ERRO: costCxDisplay nÃ£o encontrado!');
         }
         if (custoKgEl) {
           const formatted = formatDecimal(custoKg || 0);
           custoKgEl.textContent = formatted;
           console.log('[SYNC] costKgDisplay atualizado para:', formatted);
         } else {
-          console.log('[SYNC] ERRO: costKgDisplay não encontrado!');
+          console.log('[SYNC] ERRO: costKgDisplay nÃ£o encontrado!');
         }
       };
 
@@ -3718,10 +3994,10 @@
           valorTotalEl.textContent = formatted;
           console.log('[SYNC] totalValueDisplay atualizado para:', formatted);
         } else {
-          console.log('[SYNC] ERRO: totalValueDisplay não encontrado!');
+          console.log('[SYNC] ERRO: totalValueDisplay nÃ£o encontrado!');
         }
         
-        // Atualiza também o estado global se existir
+        // Atualiza tambÃ©m o estado global se existir
         try {
           if (typeof window.__setDistribTotal === 'function') {
             window.__setDistribTotal(valorTotal, { source: 'sync', skipCallbacks: true });
@@ -3732,59 +4008,125 @@
       };
 
       /**
-       * Recalcula Extra e Médio com base no novo Valor Total
+       * Recalcula Extra e MÃ©dio com base no novo Valor Total
+       * Busca quantidades do estado e recalcula custos
+       * IMPORTANTE: SÃ³ recalcula se houver classificaÃ§Ã£o (Extra ou MÃ©dio)
        */
       const recalcExtraMedioFromTotal = (valorTotal) => {
-        // Implementar lógica de distribuição do valor total entre Extra e Médio
-        // Por exemplo: manter proporção atual ou dividir igualmente
         try {
+          console.log('[SYNC] recalcExtraMedioFromTotal chamada com:', valorTotal);
+          
           const extraCard = document.getElementById('distMiniExtra');
           const medioCard = document.getElementById('distMiniMedio');
+          const st = window.__DIST_STATE;
           
-          // Lógica a ser definida conforme regra de negócio
-          // Exemplo simples: mantém proporção atual
-          const currentExtra = window.__DIST_SYNC_STATE.values.valorExtra || 0;
-          const currentMedio = window.__DIST_SYNC_STATE.values.valorMedio || 0;
-          const currentTotal = currentExtra + currentMedio;
+          if (!st || !st.categorias) {
+            console.log('[SYNC] Estado nÃ£o disponÃ­vel para recalcular Extra/MÃ©dio');
+            return;
+          }
           
-          if (currentTotal > 0) {
-            const ratioExtra = currentExtra / currentTotal;
-            const ratioMedio = currentMedio / currentTotal;
+          const extra = st.categorias.extra || {};
+          const medio = st.categorias.medio || {};
+          
+          const extraKg = Number(extra.kg) || 0;
+          const extraCx = Number(extra.cxEq) || 0;
+          const medioKg = Number(medio.kg) || 0;
+          const medioCx = Number(medio.cxEq) || 0;
+          
+          // Se nÃ£o hÃ¡ nenhuma classificaÃ§Ã£o, nÃ£o recalcula
+          if (extraKg === 0 && medioKg === 0) {
+            console.log('[SYNC] Sem classificaÃ§Ã£o - mantÃ©m Valor Total = qtdCx * PRECOBASE');
+            return;
+          }
+          
+          console.log('[SYNC] Quantidades - Extra: kg=', extraKg, 'cx=', extraCx, '| MÃ©dio: kg=', medioKg, 'cx=', medioCx);
+          
+          // Calcula valores totais proporcionais Ã s quantidades
+          const totalKg = extraKg + medioKg;
+          if (totalKg > 0) {
+            const valorExtra = (extraKg / totalKg) * valorTotal;
+            const valorMedio = (medioKg / totalKg) * valorTotal;
             
-            window.__DIST_SYNC_STATE.values.valorExtra = valorTotal * ratioExtra;
-            window.__DIST_SYNC_STATE.values.valorMedio = valorTotal * ratioMedio;
-          } else {
-            // Se não tem proporção, divide meio a meio
-            window.__DIST_SYNC_STATE.values.valorExtra = valorTotal / 2;
-            window.__DIST_SYNC_STATE.values.valorMedio = valorTotal / 2;
-          }
-
-          // Atualiza displays (se existirem)
-          if (extraCard) {
-            const valueEl = extraCard.querySelector('.dist-value');
-            if (valueEl) {
-              valueEl.textContent = formatMoney(window.__DIST_SYNC_STATE.values.valorExtra);
+            window.__DIST_SYNC_STATE.values.valorExtra = valorExtra;
+            window.__DIST_SYNC_STATE.values.valorMedio = valorMedio;
+            
+            console.log('[SYNC] Valores calculados - Extra:', valorExtra, 'MÃ©dio:', valorMedio);
+            
+            // Calcula custos
+            const extraCustoKg = extraKg > 0 ? valorExtra / extraKg : 0;
+            const extraCustoCx = extraCx > 0 ? valorExtra / extraCx : 0;
+            const medioCustoKg = medioKg > 0 ? valorMedio / medioKg : 0;
+            const medioCustoCx = medioCx > 0 ? valorMedio / medioCx : 0;
+            
+            console.log('[SYNC] Custos - Extra: kg=', extraCustoKg, 'cx=', extraCustoCx, '| MÃ©dio: kg=', medioCustoKg, 'cx=', medioCustoCx);
+            
+            // Atualiza displays de Extra
+            if (extraCard) {
+              const custoTotalEl = extraCard.querySelector('[data-field="custo"]');
+              const custoKgEl = extraCard.querySelector('[data-field="custoKg"]');
+              const custoCxEl = extraCard.querySelector('[data-field="custoCx"]');
+              const extraCustoCxDisplay = document.getElementById('extraCustoCxDisplay');
+              
+              if (custoTotalEl) custoTotalEl.textContent = formatMoney(valorExtra);
+              if (custoKgEl) custoKgEl.textContent = formatDecimal(extraCustoKg);
+              
+              // Atualiza TODOS os campos de custo/cx do Extra (inclusive o editÃ¡vel)
+              if (extraCustoCxDisplay) {
+                extraCustoCxDisplay.textContent = formatDecimal(extraCustoCx);
+                console.log('[SYNC] extraCustoCxDisplay atualizado para:', formatDecimal(extraCustoCx));
+              }
+              if (custoCxEl && custoCxEl.id !== 'extraCustoCxDisplay') {
+                custoCxEl.textContent = formatDecimal(extraCustoCx);
+              }
+            }
+            
+            // Atualiza displays de MÃ©dio
+            if (medioCard) {
+              const custoTotalEl = medioCard.querySelector('[data-field="custo"]');
+              const custoKgEl = medioCard.querySelector('[data-field="custoKg"]');
+              const custoCxEl = medioCard.querySelector('[data-field="custoCx"]');
+              const medioCustoCxDisplay = medioCard.querySelector('[data-edit="medioCustoCx"]');
+              
+              if (custoTotalEl) custoTotalEl.textContent = formatMoney(valorMedio);
+              if (custoKgEl) custoKgEl.textContent = formatDecimal(medioCustoKg);
+              
+              // Atualiza TODOS os campos de custo/cx do MÃ©dio (inclusive o editÃ¡vel)
+              if (medioCustoCxDisplay) {
+                medioCustoCxDisplay.textContent = formatDecimal(medioCustoCx);
+                console.log('[SYNC] medioCustoCxDisplay atualizado para:', formatDecimal(medioCustoCx));
+              }
+              if (custoCxEl && custoCxEl !== medioCustoCxDisplay) {
+                custoCxEl.textContent = formatDecimal(medioCustoCx);
+              }
+            }
+            
+            // Atualiza estado
+            if (extra) {
+              extra.custoKg = extraCustoKg;
+              extra.custoCx = extraCustoCx;
+              extra.custoTotal = valorExtra;
+            }
+            if (medio) {
+              medio.custoKg = medioCustoKg;
+              medio.custoCx = medioCustoCx;
+              medio.custoTotal = valorMedio;
             }
           }
-          if (medioCard) {
-            const valueEl = medioCard.querySelector('.dist-value');
-            if (valueEl) {
-              valueEl.textContent = formatMoney(window.__DIST_SYNC_STATE.values.valorMedio);
-            }
-          }
-        } catch(e) {}
+        } catch(e) {
+          console.log('[SYNC] Erro em recalcExtraMedioFromTotal:', e);
+        }
       };
 
       /**
-       * Calcula Valor Total a partir de Extra + Médio
+       * Calcula Valor Total a partir de Extra + MÃ©dio
        */
       const calculateTotalFromExtraMedio = (valorExtra, valorMedio) => {
         return (Number(valorExtra) || 0) + (Number(valorMedio) || 0);
       };
 
       /**
-       * Atualiza as quantidades (cx e kg) vindas da classificação
-       * Esta função é chamada quando a classificação é carregada
+       * Atualiza as quantidades (cx e kg) vindas da classificaÃ§Ã£o
+       * Esta funÃ§Ã£o Ã© chamada quando a classificaÃ§Ã£o Ã© carregada
        */
       const updateQuantitiesFromClassification = (qtdeCx, qtdeKg) => {
         console.log('[SYNC] updateQuantitiesFromClassification chamada com cx=', qtdeCx, 'kg=', qtdeKg);
@@ -3799,7 +4141,7 @@
         }
       };
 
-      // Expõe funções globalmente para serem chamadas por eventos
+      // ExpÃµe funÃ§Ãµes globalmente para serem chamadas por eventos
       window.__syncDistValues = syncDistributionValues;
       window.__updateQtysFromClass = updateQuantitiesFromClassification;
 
@@ -3901,6 +4243,138 @@
           updateCard(extraCard, { kg: extraKg, cx: extraCx });
           updateCard(medioCard, { kg: medioKg, cx: medioCx });
           window.__DIST_CLASS_UI_OVERRIDE = true;
+          
+          // Atualiza quantidades no estado global para sincronizaÃ§Ã£o
+          try {
+            const st = window.__DIST_STATE;
+            if (st && st.categorias) {
+              if (!st.categorias.extra) st.categorias.extra = {};
+              if (!st.categorias.medio) st.categorias.medio = {};
+              
+              st.categorias.extra.kg = extraKg;
+              st.categorias.extra.cxEq = extraCx;
+              st.categorias.medio.kg = medioKg;
+              st.categorias.medio.cxEq = medioCx;
+              
+              console.log('[CLASS] Quantidades atualizadas - Extra: kg=', extraKg, 'cx=', extraCx, '| MÃ©dio: kg=', medioKg, 'cx=', medioCx);
+              
+              // IMPORTANTE: Quando hÃ¡ classificaÃ§Ã£o (Extra ou MÃ©dio), o Valor Total deve ser
+              // recalculado a partir de Extra + MÃ©dio, SOBRESCREVENDO o valor qtdCx * PRECOBASE
+              const temClassificacao = (extraKg > 0 || extraCx > 0 || medioKg > 0 || medioCx > 0);
+              
+              // LÃ³gica: Se tem Extra classNameificado, usa Extra. SenÃ£o, Medio assume metade do PRECOBASE
+              const extraCustoCx = st.categorias.extra.custoCx || 0;
+              const temExtra = extraKg > 0 || extraCx > 0;
+              
+              console.log('[CLASS] Tem classificaÃ§Ã£o?', temClassificacao, '| Tem Extra?', temExtra, '| Extra Custo/cx:', extraCustoCx);
+              
+              if (temExtra && extraCustoCx > 0 && typeof window.__syncDistValues === 'function') {
+                // Caso 1: Tem Extra classificado - calcula tudo a partir do Extra
+                // Isso vai sobrescrever o Valor Total (qtd * PRECOBASE) com Extra + MÃ©dio
+                console.log('[CLASS] Caso 1: Calculando com Extra - vai sobrescrever Valor Total');
+                window.__syncDistValues('extraCustoCx', extraCustoCx);
+              } else if (!temExtra && extraCustoCx > 0 && (medioKg > 0 || medioCx > 0) && typeof window.__syncDistValues === 'function') {
+                // Caso 2: SÃ³ tem MÃ©dio - usa metade do PRECOBASE
+                // Sobrescreve o Valor Total com apenas o valor do MÃ©dio
+                const medioCustoCx = extraCustoCx / 2;
+                console.log('[CLASS] Caso 2: SÃ³ tem MÃ©dio, usando PRECOBASE/2 =', medioCustoCx, '| MÃ©dio kg:', medioKg, 'cx:', medioCx);
+                
+                // Calcula valor do mÃ©dio
+                const valorMedio = medioCx > 0 ? (medioCustoCx * medioCx) : 0;
+                const medioCustoKg = medioKg > 0 ? valorMedio / medioKg : 0;
+                
+                console.log('[CLASS] Valor MÃ©dio calculado:', valorMedio);
+                
+                // Atualiza estado
+                st.categorias.medio.custoCx = medioCustoCx;
+                st.categorias.medio.custoKg = medioCustoKg;
+                st.categorias.medio.custoTotal = valorMedio;
+                
+                // Valor Total = sÃ³ o MÃ©dio (pois nÃ£o tem Extra)
+                window.__DIST_SYNC_STATE.values.valorTotal = valorMedio;
+                window.__DIST_SYNC_STATE.values.valorMedio = valorMedio;
+                window.__DIST_SYNC_STATE.values.valorExtra = 0;
+                
+                console.log('[CLASS] Atualizando Valor Total para:', valorMedio);
+                
+                // Atualiza Valor Total no display (allowUI: true para atualizar visualmente)
+                if (typeof window.__setDistribTotal === 'function') {
+                  window.__setDistribTotal(valorMedio, { source: 'medio-only', allowUI: true, syncInput: true });
+                  console.log('[CLASS] __setDistribTotal chamado com:', valorMedio);
+                }
+                
+                // Aguarda um pouco e verifica se foi atualizado
+                setTimeout(() => {
+                  const totalDisplay = document.getElementById('totalValueDisplay');
+                  if (totalDisplay) {
+                    console.log('[CLASS] Valor Total Display atual:', totalDisplay.textContent);
+                  }
+                }, 100);
+                
+                // Recalcula custos globais
+                const qtdeCx = window.__DIST_SYNC_STATE.values.qtdeCx || 0;
+                const qtdeKg = window.__DIST_SYNC_STATE.values.qtdeKg || 0;
+                const custoCx = qtdeCx > 0 ? valorMedio / qtdeCx : 0;
+                const custoKg = qtdeKg > 0 ? valorMedio / qtdeKg : 0;
+                
+                console.log('[CLASS] Custos globais calculados - cx:', custoCx, 'kg:', custoKg);
+                
+                window.__DIST_SYNC_STATE.values.custoCx = custoCx;
+                window.__DIST_SYNC_STATE.values.custoKg = custoKg;
+                
+                // Atualiza displays
+                const updateCostDisplays = (cx, kg) => {
+                  const custoCxEl = document.getElementById('costCxDisplay');
+                  const custoKgEl = document.getElementById('costKgDisplay');
+                  const formatDecimal = (n) => isNaN(n) ? '' : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  if (custoCxEl) custoCxEl.textContent = formatDecimal(cx);
+                  if (custoKgEl) custoKgEl.textContent = formatDecimal(kg);
+                };
+                updateCostDisplays(custoCx, custoKg);
+                
+                // Atualiza card do MÃ©dio
+                const custoTotalEl = medioCard.querySelector('[data-field="custo"]');
+                const custoKgEl = medioCard.querySelector('[data-field="custoKg"]');
+                const custoCxEl = medioCard.querySelector('[data-field="custoCx"]');
+                const formatMoney = (v) => {
+                  try { return new Intl.NumberFormat('pt-BR',{ style:'currency', currency:'BRL' }).format(v); }
+                  catch { return 'R$ ' + (Math.round((v||0)*100)/100).toFixed(2).replace('.', ','); }
+                };
+                const formatDecimal = (n) => isNaN(n) ? '' : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                if (custoTotalEl) custoTotalEl.textContent = formatMoney(valorMedio);
+                if (custoKgEl) custoKgEl.textContent = formatDecimal(medioCustoKg);
+                if (custoCxEl) custoCxEl.textContent = formatDecimal(medioCustoCx);
+                
+                console.log('[CLASS] MÃ©dio calculado - Valor:', valorMedio, 'Custo/kg:', medioCustoKg, 'Custo/cx:', medioCustoCx);
+              } else if (!temClassificacao && extraCustoCx > 0 && typeof window.__syncDistValues === 'function') {
+                // Caso 3: NÃ£o hÃ¡ classificaÃ§Ã£o, mas hÃ¡ PRECOBASE - garante sincronizaÃ§Ã£o inicial
+                // MantÃ©m o Valor Total = qtd * PRECOBASE (jÃ¡ calculado) e sincroniza custos
+                console.log('[CLASS] Caso 3: Sem classificaÃ§Ã£o, garantindo sync inicial com PRECOBASE');
+                
+                // SÃ³ executa o sync se ainda nÃ£o foi feito (evita loop na segunda chamada)
+                const valorTotalAtual = window.__DIST_SYNC_STATE?.values?.valorTotal || 0;
+                const qtdeCx = window.__DIST_SYNC_STATE?.values?.qtdeCx || 0;
+                const custoEsperado = qtdeCx > 0 ? extraCustoCx : 0;
+                
+                // Se o valor total ainda nÃ£o estÃ¡ correto, faz o sync
+                if (Math.abs(valorTotalAtual - (qtdeCx * extraCustoCx)) > 0.01) {
+                  console.log('[CLASS] Caso 3: Executando sync - Valor atual:', valorTotalAtual, 'Esperado:', qtdeCx * extraCustoCx);
+                  
+                  // Calcula e define o Valor Total correto
+                  const valorTotal = qtdeCx * extraCustoCx;
+                  if (typeof window.__setDistribTotal === 'function') {
+                    window.__setDistribTotal(valorTotal, { source: 'no-class-precobase', allowUI: true, syncInput: true });
+                  }
+                } else {
+                  console.log('[CLASS] Caso 3: Sync jÃ¡ foi feito, valor correto:', valorTotalAtual);
+                }
+              } else {
+                console.log('[CLASS] Nenhum caso aplicÃ¡vel - temClassificacao:', temClassificacao, 'extraCustoCx:', extraCustoCx);
+              }
+            }
+          } catch(e) {
+            console.log('[CLASS] Erro ao atualizar quantidades:', e);
+          }
         }catch(err){
           try{ console.debug('renderClassCardsFromClassification failed', err); }catch{}
         }
@@ -3923,11 +4397,11 @@
         const totalRaw = Number(st?.custo?.total);
         const custoKgRaw = Number(st?.custo?.porKg);
         if(!Number.isFinite(totalRaw)){
-          alert('Valor total indisponível para salvar no momento.');
+          alert('Valor total indisponÃ­vel para salvar no momento.');
           return;
         }
         if(!Number.isFinite(custoKgRaw)){
-          alert('Custo por kg indisponível para salvar.');
+          alert('Custo por kg indisponÃ­vel para salvar.');
           return;
         }
 
@@ -3951,13 +4425,13 @@
         if(btnSave){
           originalLabel = btnSave.textContent || 'Salvar';
           btnSave.disabled = true;
-          btnSave.textContent = 'Salvando…';
+          btnSave.textContent = 'Salvandoâ€¦';
         }
 
         try{
           const res = await window.__postJSON('/sankhya/comercial/dist/save/', payload);
           if(res.ok){
-            alert('Distribuição salva com sucesso.');
+            alert('DistribuiÃ§Ã£o salva com sucesso.');
             window.dispatchEvent(new CustomEvent('dist:salvo', { detail: { nunota, sequencia, payload, response: res.body } }));
             try{
               const savedTotal = Number(payload.valor_total);
@@ -3976,7 +4450,7 @@
           }
         }catch(err){
           console.error('dist save failed', err);
-          alert('Erro ao salvar a distribuição. Verifique a conexão e tente novamente.');
+          alert('Erro ao salvar a distribuiÃ§Ã£o. Verifique a conexÃ£o e tente novamente.');
         }finally{
           if(btnSave){
             btnSave.disabled = false;
@@ -3990,20 +4464,20 @@
         const nunota = card ? Number(card.getAttribute('data-nunota') || '0') : 0;
         const sequencia = card ? Number(card.getAttribute('data-seq') || '0') : 0;
         if(!(nunota > 0) || !(sequencia > 0)){
-          alert('Selecione um vale da lista antes de zerar a negociação.');
+          alert('Selecione um vale da lista antes de zerar a negociaÃ§Ã£o.');
           return;
         }
 
-        const confirmMsg = 'Deseja zerar a negociação? O valor total e o preço unitário serão definidos como R$ 0,00.';
+        const confirmMsg = 'Deseja zerar a negociaÃ§Ã£o? O valor total e o preÃ§o unitÃ¡rio serÃ£o definidos como R$ 0,00.';
         if(typeof window.confirm === 'function' && !window.confirm(confirmMsg)){
           return;
         }
 
         let originalLabel = '';
         if(btnReset){
-          originalLabel = btnReset.textContent || 'Zerar negociação';
+          originalLabel = btnReset.textContent || 'Zerar negociaÃ§Ã£o';
           btnReset.disabled = true;
-          btnReset.textContent = 'Zerando…';
+          btnReset.textContent = 'Zerandoâ€¦';
         }
 
         try{
@@ -4092,18 +4566,18 @@
               window.dispatchEvent(new CustomEvent('dist:reset', { detail: { nunota, sequencia, response: res.body } }));
             }catch{}
 
-            alert('Negociação zerada com sucesso.');
+            alert('NegociaÃ§Ã£o zerada com sucesso.');
           }else{
-            const errMsg = res.body?.error || (Array.isArray(res.body?.errors) ? res.body.errors.join('; ') : '') || 'Falha ao zerar a negociação.';
+            const errMsg = res.body?.error || (Array.isArray(res.body?.errors) ? res.body.errors.join('; ') : '') || 'Falha ao zerar a negociaÃ§Ã£o.';
             alert(errMsg);
           }
         }catch(err){
           console.error('dist reset failed', err);
-          alert('Erro ao zerar a negociação. Verifique a conexão e tente novamente.');
+          alert('Erro ao zerar a negociaÃ§Ã£o. Verifique a conexÃ£o e tente novamente.');
         }finally{
           if(btnReset){
             btnReset.disabled = false;
-            btnReset.textContent = originalLabel || 'Zerar negociação';
+            btnReset.textContent = originalLabel || 'Zerar negociaÃ§Ã£o';
           }
         }
       }
@@ -4127,7 +4601,7 @@
       function buildContent(){
         tip.innerHTML = `
           <div class="title">Resumo Financeiro</div>
-          <div class="row"><span class="muted">Dados</span><span>—</span></div>
+          <div class="row"><span class="muted">Dados</span><span>â€”</span></div>
         `;
       }
 
@@ -4146,7 +4620,7 @@
       target.addEventListener('focus', (e)=>{ buildContent(); const r=target.getBoundingClientRect(); showAt(r.right, r.top); });
       target.addEventListener('blur', hide);
 
-      // Atualizar conteúdo quando números mudarem
+      // Atualizar conteÃºdo quando nÃºmeros mudarem
       const origUpdate = window.updateResumoFinanceiro;
       try{
         window.updateResumoFinanceiro = function(){
@@ -4156,7 +4630,7 @@
       }catch{}
     })();
     
-    // Reminder: After applying Distribuição, prompt to revisit Classificação (gauge + estoque)
+    // Reminder: After applying DistribuiÃ§Ã£o, prompt to revisit ClassificaÃ§Ã£o (gauge + estoque)
     (function(){
       try{
         const classCard = document.getElementById('classCard');
@@ -4170,7 +4644,7 @@
           el.setAttribute('role','alert');
           el.style.cssText = 'display:none;margin:8px 0 10px 0;padding:8px 10px;border:1px solid #f59e0b;background:#fff7ed;color:#7c2d12;border-radius:8px;font-size:.85rem;display:flex;align-items:center;justify-content:space-between;gap:8px;';
           const msg = document.createElement('span');
-          msg.textContent = 'Pendente: ajustar o gauge e o estoque no card Classificação. Volte aqui após finalizar o card Distribuição.';
+          msg.textContent = 'Pendente: ajustar o gauge e o estoque no card ClassificaÃ§Ã£o. Volte aqui apÃ³s finalizar o card DistribuiÃ§Ã£o.';
           const btn = document.createElement('button');
           btn.type = 'button';
           btn.textContent = 'Dispensar';
@@ -4190,7 +4664,7 @@
       }catch{}
     })();
     
-    // Classificação: cálculo de % por item, Rendimento e Estoque InNatura (escopo apenas do card)
+    // ClassificaÃ§Ã£o: cÃ¡lculo de % por item, Rendimento e Estoque InNatura (escopo apenas do card)
     (function(){
       function recalc(){
         const card = document.getElementById('classCard');
@@ -4237,25 +4711,25 @@
           if(bar) bar.style.width = Math.max(0, Math.min(100, pct)).toFixed(1) + '%';
         });
 
-  const esperadoKg = totalCx * 22; // mantém para cálculo de Aproveitamento
+  const esperadoKg = totalCx * 22; // mantÃ©m para cÃ¡lculo de Aproveitamento
   // Rendimento: total de CX classificados / total de CX In Natura
   const cxInNatura = parsePT(document.getElementById('quantidadeInn')?.textContent || '0');
   const rendimentoPct = cxInNatura > 0 ? (totalCx / cxInNatura) * 100 : 0;
   if(kpiRend) kpiRend.textContent = fmtPct(rendimentoPct);
 
-  // Estoque InNatura (em KG) = Total In Natura (target kg) − total classificado (kg)
+  // Estoque InNatura (em KG) = Total In Natura (target kg) âˆ’ total classificado (kg)
   let targetKg = parsePT(card.getAttribute('data-target') || '0');
   if(!(targetKg>0)) targetKg = esperadoKg; // fallback
   const classifiedKg = totalKg; // soma das linhas
   const estoqueKg = Math.max(0, targetKg - classifiedKg);
   if(kpiEst){
     if(estoqueKg > 1){
-      kpiEst.innerHTML = '<span class="estoque-alert">⚠️</span>' + fmtKg(estoqueKg) + ' kg';
+      kpiEst.innerHTML = '<span class="estoque-alert">âš ï¸</span>' + fmtKg(estoqueKg) + ' kg';
     }else{
       kpiEst.textContent = fmtKg(estoqueKg) + ' kg';
     }
   }
-  // Destaque visual quando há estoque pendente (> 1 kg) e modo "muted" quando zerado
+  // Destaque visual quando hÃ¡ estoque pendente (> 1 kg) e modo "muted" quando zerado
   try{
     const estBox = kpiEst && kpiEst.closest ? kpiEst.closest('.kpi') : null;
     if(estBox){
@@ -4272,7 +4746,7 @@
       }
     }
   }catch{}
-  // Aproximação em caixas: usar peso In Natura por caixa (do card Entrada) quando disponível; fallback 22 kg/cx
+  // AproximaÃ§Ã£o em caixas: usar peso In Natura por caixa (do card Entrada) quando disponÃ­vel; fallback 22 kg/cx
   let pesoPorCx = NaN;
   try{
     const txt = document.getElementById('pesoInnDisplay')?.textContent || '';
@@ -4320,7 +4794,7 @@
           if(gLabel) gLabel.textContent = 'Classificado';
         }
       }
-      // expõe função global para reuso após atualização dinâmica
+      // expÃµe funÃ§Ã£o global para reuso apÃ³s atualizaÃ§Ã£o dinÃ¢mica
       window.recalcClassificacaoMetrics = recalc;
       // calcular na primeira carga
       try{ recalc(); }catch{}
@@ -4334,12 +4808,12 @@
       const name = entrada.getAttribute('data-supplier') || '';
       const prod = entrada.getAttribute('data-product') || '';
       const composed = [name, prod].filter(Boolean).join(' - ');
-      const finalText = composed || '—';
+      const finalText = composed || 'â€”';
       supEl.textContent = finalText;
       supEl.setAttribute('title', finalText);
     })();
 
-      // Entrada: popular cabeçalho e métricas a partir de data-attributes
+      // Entrada: popular cabeÃ§alho e mÃ©tricas a partir de data-attributes
       (function(){
         const card = document.getElementById('entradaCard');
         if(!card) return;
@@ -4370,7 +4844,7 @@
   // Peso card elements
   const pesoCard = document.getElementById('quantidadeInnCard');
   const pesoInDisp = document.getElementById('pesoInnDisplay');
-  // Peso In Natura é somente leitura (sem input)
+  // Peso In Natura Ã© somente leitura (sem input)
   const pesoTotalApproxEl = document.getElementById('totalInn');
   const precoKgEl = $('#entPrecoKg');
   const precoCxDisplay = document.getElementById('entPrecoCxDisplay');
@@ -4383,7 +4857,7 @@
   if(loteEl) loteEl.textContent = lote || '-';
 
   if(cxEl) cxEl.textContent = fmtInt(cx || 0);
-        // Peso In Natura por caixa (inicial): se fornecido por atributo data-preco-kg? não; calcular como kgIn / cx
+        // Peso In Natura por caixa (inicial): se fornecido por atributo data-preco-kg? nÃ£o; calcular como kgIn / cx
         const perBox = (cx>0 && kgIn>0) ? (kgIn / cx) : 0;
         const fmtOneDecimal = (n)=> isNaN(n) ? '0,0' : n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   if(pesoInDisp) pesoInDisp.textContent = fmtOneDecimal(perBox || 0);
@@ -4406,7 +4880,7 @@
         recomputeTotalApprox(perBox);
 
   if(precoCxDisplay) precoCxDisplay.textContent = fmtMoney(precoCx || 0);
-        // Total inicial: se preço por cx informado, calcula por cx; senão, por kg
+        // Total inicial: se preÃ§o por cx informado, calcula por cx; senÃ£o, por kg
         const calcTotalFromCx = (cxVal, precoCxVal)=> (cxVal||0) * (precoCxVal||0);
         const calcPrecoKgFromTotal = (totalVal, pesoTotal)=> (pesoTotal>0 ? totalVal / pesoTotal : 0);
         const pesoTotalApproxNum = (()=>{
@@ -4422,10 +4896,10 @@
           if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh();
         }
 
-        // Peso In Natura agora é somente leitura; valor é calculado automaticamente e não é editável.
+        // Peso In Natura agora Ã© somente leitura; valor Ã© calculado automaticamente e nÃ£o Ã© editÃ¡vel.
       })();
 
-    // Preço (no card unificado): editar R$ / CX, recalcular Valor Total e R$ / KG
+    // PreÃ§o (no card unificado): editar R$ / CX, recalcular Valor Total e R$ / KG
       (function(){
   const card = document.getElementById('quantidadeInnCard');
   const cxEl = document.getElementById('quantidadeInn');
@@ -4445,7 +4919,7 @@
           const n = Number(cleaned);
           return isFinite(n) ? n : NaN;
         };
-        const fmtMoney = (n) => isNaN(n) ? 'R$ 0,00' : new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n);
+        const fmtMoney = (n) => isNaN(n) ? 'R$Â 0,00' : new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n);
         const getCx = () => parsePT(cxEl.textContent);
         const getPesoTotal = () => {
           const t = pesoTotalApproxEl.textContent || '0';
@@ -4485,7 +4959,7 @@
                 const nun = card.getAttribute('data-nunota');
                 const seq = card.getAttribute('data-seq');
                 if(nun && seq){
-                  // n já é número; garantir número cru sem formatação
+                  // n jÃ¡ Ã© nÃºmero; garantir nÃºmero cru sem formataÃ§Ã£o
                   const payload = { nunota: Number(nun), sequencia: Number(seq), preco_inicial: Number(n) };
                   await window.__postJSON('/sankhya/item/save/', payload);
                 }
@@ -4519,23 +4993,23 @@
         });
       })();
 
-    // Comercial: carregar dados reais do lote (se ?controle= estiver presente) e salvar simulação ao aplicar
+    // Comercial: carregar dados reais do lote (se ?controle= estiver presente) e salvar simulaÃ§Ã£o ao aplicar
     (function(){
       function getQS(name){ try{ return new URL(window.location.href).searchParams.get(name); }catch(_){ return null; } }
       const controle = getQS('controle');
       if(controle){
-        // Buscar agregados do lote já existentes no backend (usado também pela página de Classificação)
+        // Buscar agregados do lote jÃ¡ existentes no backend (usado tambÃ©m pela pÃ¡gina de ClassificaÃ§Ã£o)
         fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' })
           .then(r=>r.json()).then(j=>{
             if(!j || !j.ok) return;
-            // Extrair fornecedor/produto básicos quando disponíveis (fallback mantém placeholders)
+            // Extrair fornecedor/produto bÃ¡sicos quando disponÃ­veis (fallback mantÃ©m placeholders)
             try{
               const supEl = document.getElementById('supplierName');
               if(supEl){
                 const entradas = Array.isArray(j.entradas)? j.entradas : [];
                 const parceiro = (entradas[0]?.parceiro || entradas[0]?.NOMEPARC || '') || '';
                 const prodDescr = (entradas[0]?.descr || entradas[0]?.DESCR || entradas[0]?.descrprod || entradas[0]?.DESCRPROD || '') || '';
-                const composed = [parceiro, prodDescr].filter(Boolean).join(' - ') || '—';
+                const composed = [parceiro, prodDescr].filter(Boolean).join(' - ') || 'â€”';
                 supEl.textContent = composed; supEl.title = composed;
               }
             }catch(_){ }
@@ -4553,7 +5027,7 @@
                 const qtd = parseFloat(e.qtd||e.QTDNEG||0) || 0; return s + (vol==='KG'? qtd: 0);
               }, 0);
               const cxEl = document.getElementById('quantidadeInn'); if(cxEl) cxEl.textContent = (sumCx||0).toLocaleString('pt-BR');
-              // Peso por caixa: se dispomos de ambas as grandezas, usar kg/cx; senão mantém o atual
+              // Peso por caixa: se dispomos de ambas as grandezas, usar kg/cx; senÃ£o mantÃ©m o atual
               const pesoDisp = document.getElementById('pesoInnDisplay');
               const totalInnEl = document.getElementById('totalInn');
               if((sumCx||0) > 0 && (sumKg||0) > 0){
@@ -4568,15 +5042,15 @@
           }).catch(()=>{});
       }
 
-      // Salvar simulação ao clicar em Aplicar (usa rota backend já disponível)
+      // Salvar simulaÃ§Ã£o ao clicar em Aplicar (usa rota backend jÃ¡ disponÃ­vel)
       window.addEventListener('simulacao:aplicar', async function(ev){
         try{
           const det = ev.detail || {};
           const total = (typeof det.totalGeral === 'number') ? det.totalGeral : null;
-          const payload = { name: 'Simulação Comercial', lote: controle || null, total, data: new Date().toISOString(), values: det };
+          const payload = { name: 'SimulaÃ§Ã£o Comercial', lote: controle || null, total, data: new Date().toISOString(), values: det };
           const res = await window.__postJSON('/sankhya/comercial/sim/save/', payload);
-          if(res.ok){ alert('Simulação salva' + (res.body?.id? (' (#'+res.body.id+')') : '')); }
-          else { alert('Falha ao salvar simulação: ' + (res.body?.error || ('status ' + res.status))); }
+          if(res.ok){ alert('SimulaÃ§Ã£o salva' + (res.body?.id? (' (#'+res.body.id+')') : '')); }
+          else { alert('Falha ao salvar simulaÃ§Ã£o: ' + (res.body?.error || ('status ' + res.status))); }
         }catch(e){ console.error('sim save failed', e); }
       });
     })();

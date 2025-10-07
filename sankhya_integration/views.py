@@ -140,6 +140,7 @@ def produtos_list(request: HttpRequest) -> HttpResponse:
     except ValueError:
         limit, offset = 50, 0
     rows = listar_produtos(limit=limit, offset=offset, nome=q)
+
     has_prev = offset > 0
     prev_offset = max(offset - limit, 0)
     has_next = len(rows) == limit
@@ -314,6 +315,7 @@ def compras_portal(request: HttpRequest) -> HttpResponse:
                     parc_display = f"{int(params['codparc'])} — {nome}" if nome else f"{int(params['codparc'])}"
                 except Exception:
                     parc_display = f"{int(params['codparc'])}"
+
             if params.get('codprod'):
                 try:
                     cur.execute("SELECT DESCRPROD FROM TGFPRO WHERE CODPROD = :k", k=int(params['codprod']))
@@ -2381,6 +2383,56 @@ def comercial_dist_save(request: HttpRequest) -> JsonResponse:
         'custo_medio_total': _to_float_or(payload.get('custo_medio_total')),
         'custo_extra_kg': _to_float_or(payload.get('custo_extra_kg')),
         'custo_medio_kg': _to_float_or(payload.get('custo_medio_kg')),
+    }
+    if not executed:
+        if 'error' not in plan:
+            err_msg = None
+            if isinstance(plan.get('db_error'), dict):
+                err_msg = plan['db_error'].get('message')
+            if not err_msg and plan.get('errors'):
+                err_msg = '; '.join(str(e) for e in plan['errors'] if e)
+            if err_msg:
+                plan['error'] = err_msg
+    plan['ok'] = executed
+    plan['write_enabled'] = is_write_enabled()
+    status_code = 200 if executed else 400
+    return JsonResponse(plan, status=status_code)
+
+
+def comercial_dist_reset(request: HttpRequest) -> JsonResponse:
+    """Zerar valores de VLRUNIT e VLRTOT do item selecionado na distribuição."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'Use POST'}, status=405)
+    try:
+        import json
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except Exception:
+        payload = {}
+
+    nunota = _to_int_or(payload.get('nunota'))
+    sequencia = _to_int_or(payload.get('sequencia') or payload.get('seq'))
+    if not nunota or not sequencia:
+        return JsonResponse({'ok': False, 'error': 'Informe nunota e sequencia válidos'}, status=400)
+
+    update_payload = {
+        'NUNOTA': nunota,
+        'SEQUENCIA': sequencia,
+        'VLRUNIT': 0,
+        'VLRTOT': 0,
+    }
+
+    try:
+        plan = update_item(update_payload, dry_run=False)
+    except Exception as e:
+        logger.exception('comercial_dist_reset update_item failed')
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+    executed = bool(plan.get('executed'))
+    plan_ok = bool(plan.get('ok'))
+    plan['plan_ok'] = plan_ok
+    plan['inputs'] = {
+        'nunota': nunota,
+        'sequencia': sequencia,
     }
     if not executed:
         if 'error' not in plan:
