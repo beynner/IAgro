@@ -404,32 +404,130 @@ T4: Interface estável
 
 ---
 
-## ⚠️ QUESTÕES A RESOLVER
+## ⚠️ QUESTÕES RESOLVIDAS
 
-### 1. **Qtde kg In Natura**
-Se item não tem classificação, de onde vem `qtdKg` para calcular `custoKg`?
+### 1. **Qtde kg In Natura** ✅
+**Resposta**: Já está funcionando! Vem de `qtdneg` (normalizado).
+**Ação**: Não mexer, manter como está.
 
-**Opções:**
-- A) Item tem campo `peso_total` ou `kg_total`
-- B) Calcula: `qtdKg = qtdCx × pesoMedioPorCx`
-- C) Não exibe custoKg se não houver classificação
+### 2. **Flash Temporário** 
+**Explicação do "Ocultar"**: 
+- **Opção A (Aceitar)**: Mostrar R$ 5.000 por 200ms, depois atualiza para R$ 4.000 (usuário vê mudança rápida)
+- **Opção B (Ocultar)**: Mostrar "Carregando..." até classificação retornar, depois mostra R$ 4.000 direto (usuário não vê valor temporário)
 
-### 2. **Flash de Valor Temporário**
-O usuário vê:
-1. Primeiro: R$ 5.000,00 (qtdCx × PRECOBASE)
-2. Depois: R$ 4.000,00 (Extra + Médio)
+**Decisão**: Aceitar o flash (mais simples, não precisa loader extra)
 
-**Soluções:**
-- A) Mostrar loader até classificação carregar
-- B) Aceitar o flash (é rápido)
-- C) Não mostrar Valor Total até classificação carregar
+### 3. **Salvar no Banco** ✅
+**Resposta**: Por enquanto NÃO implementar salvamento.
+**Ação**: Focar apenas no fluxo de cálculo e exibição (frontend).
 
-### 3. **Validação ao Salvar**
-Ao clicar em "Salvar", o que salva no banco?
-- Extra Custo/cx
-- Médio Custo/cx
-- Valor Total
-- Todos os custos calculados?
+---
+
+## 🎯 ESCOPO DA IMPLEMENTAÇÃO (FASE 1)
+
+### ✅ O QUE VAMOS FAZER:
+
+1. **Sistema de sincronização Extra/Médio**
+   - Criar estado global `window.__DIST_EXTRA_MEDIO_STATE`
+   - Implementar proteção anti-loop
+   - Calcular Médio sempre como metade do Extra
+
+2. **Edição de Extra Custo/cx**
+   - Listener no campo `#extraCustoCxDisplay`
+   - Input `#extraCustoCxInput` para edição
+   - Ao confirmar: recalcula Médio e Valor Total
+
+3. **Cálculos automáticos**
+   - Extra Total = Extra cx × Extra Custo/cx
+   - Médio Custo/cx = Extra Custo/cx ÷ 2
+   - Médio Total = Médio cx × Médio Custo/cx
+   - Valor Total = Extra Total + Médio Total
+   - Custo Global (cx e kg)
+
+4. **Atualização de displays**
+   - Cards Extra e Médio (todos os campos)
+   - Valor Total
+   - Custo Global (card Custo)
+
+5. **Integração com fluxo existente**
+   - Ao carregar item: inicializa Extra Custo/cx com PRECOBASE (ou valor salvo se existir)
+   - **✅ Carregar valores salvos do banco** (se existir negociação)
+   - Ao carregar classificação: recalcula tudo
+   - Ao editar Valor Total: distribui proporcionalmente
+
+### ❌ O QUE NÃO VAMOS FAZER (AGORA):
+
+1. ❌ **Alterar botão Salvar** (já funciona - salva VLRTOT e VLRUNIT no banco)
+2. ❌ **Alterar botão Zerar Negociação** (já funciona perfeitamente)
+3. ❌ Alterar lógica de qtd kg in natura (já funciona)
+4. ❌ Adicionar loaders ou "Carregando..."
+5. ❌ Validações complexas (vem depois)
+
+---
+
+## 💾 FUNCIONAMENTO ATUAL DOS BOTÕES (NÃO MEXER)
+
+### Botão "Salvar"
+```javascript
+// JÁ IMPLEMENTADO - NÃO ALTERAR
+Salva no banco:
+- VLRTOT (Valor Total)
+- VLRUNIT (Extra Custo/cx)
+```
+
+### Botão "Zerar Negociação"
+```javascript
+// JÁ IMPLEMENTADO - NÃO ALTERAR
+Zera os valores salvos no banco
+```
+
+### Carregamento de Valores Salvos
+```javascript
+// JÁ IMPLEMENTADO - VAMOS INTEGRAR
+Ao selecionar item:
+- Se tem VLRTOT salvo: carrega do banco
+- Se tem VLRUNIT salvo: usa como Extra Custo/cx
+- Se não tem: usa PRECOBASE
+```
+
+---
+
+## 📋 CHECKLIST DE IMPLEMENTAÇÃO
+
+### Fase 1: Estado e Proteção Anti-Loop
+- [ ] Criar `window.__DIST_EXTRA_MEDIO_STATE`
+- [ ] Implementar `syncExtraMedioValues(source, value)`
+- [ ] Adicionar flag `isUpdating` para evitar loops
+
+### Fase 2: Funções de Cálculo
+- [ ] `calcExtraFromCustoCx(custoCx, extraCx, extraKg)`
+- [ ] `calcMedioFromExtra(extraState)`
+- [ ] `calcValorTotal(extra, medio)`
+- [ ] `calcCustoGlobal(valorTotal, qtdCx, qtdKg)`
+
+### Fase 3: Atualização de Displays
+- [ ] `updateExtraCard(extraState)`
+- [ ] `updateMedioCard(medioState)`
+- [ ] `updateValorTotalDisplay(valorTotal)`
+- [ ] `updateCustoGlobalDisplays(custoCx, custoKg)`
+
+### Fase 4: Edição de Extra Custo/cx
+- [ ] Listener em `#extraCustoCxDisplay` (click)
+- [ ] Enter/Exit edit mode
+- [ ] Parse e validação do valor
+- [ ] Dispara sincronização
+
+### Fase 5: Integração
+- [ ] Hook na seleção de item (inicializa Extra com PRECOBASE)
+- [ ] Hook no carregamento de classificação (recalcula tudo)
+- [ ] Hook na edição de Valor Total (distribui proporção)
+
+### Fase 6: Testes
+- [ ] Selecionar item sem classificação
+- [ ] Selecionar item com classificação
+- [ ] Editar Extra Custo/cx
+- [ ] Editar Valor Total
+- [ ] Verificar que não há loops
 
 ---
 

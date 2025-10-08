@@ -1318,6 +1318,11 @@
               window.__syncDistValues('valorTotal', normalized);
             }
             
+            // Integra com sistema Extra/Médio
+            if (typeof window.__syncExtraMedio === 'function') {
+              window.__syncExtraMedio('valorTotal', normalized);
+            }
+            
             // Recalcular custos /cx e /kg
             recalcCostsFromTotal(normalized);
             let handled = false;
@@ -2009,6 +2014,39 @@
               const distTotal = hasVlrtot ? rawVlrtot : ((qtyCx > 0 && precoBaseVal > 0) ? (qtyCx * precoBaseVal) : 0);
               distTotalForCards = distTotal;
               window.__setDistribTotal(distTotal, { source: 'item-select', allowUI: true, syncInput: true });
+              
+              // Inicializa estado Extra/Médio
+              if (window.__DIST_EXTRA_MEDIO_STATE) {
+                const state = window.__DIST_EXTRA_MEDIO_STATE;
+                state.qtdCxInNatura = qtyCx;
+                state.precoBase = precoBaseVal;
+                
+                // Salva VLRUNIT e VLRTOT globalmente para uso posterior
+                const savedVlrunit = Number(item?.vlrunit);
+                window.__SAVED_VLRUNIT = savedVlrunit;
+                window.__SAVED_VLRTOT = rawVlrtot; // Salva VLRTOT para verificação no Cenário 1
+                
+                if (isFinite(savedVlrunit) && savedVlrunit > 0) {
+                  console.log('[ITEM SELECT] Usando VLRUNIT salvo:', savedVlrunit);
+                  state.extraCustoCx = savedVlrunit;
+                } else if (precoBaseVal > 0) {
+                  console.log('[ITEM SELECT] Inicializando Extra com PRECOBASE:', precoBaseVal);
+                  state.extraCustoCx = precoBaseVal;
+                } else {
+                  state.extraCustoCx = 0;
+                }
+                
+                // Por enquanto, sem classificação, assume tudo é Extra
+                state.extraCx = qtyCx;
+                state.extraKg = 0;
+                state.medioCx = 0;
+                state.medioKg = 0;
+                
+                // Dispara Cenário 1 (carga inicial)
+                if (typeof window.__syncExtraMedio === 'function') {
+                  window.__syncExtraMedio('initial');
+                }
+              }
             }
           }catch{}
           // Mantém os valores calculados acima; sem reset para '-'
@@ -2539,6 +2577,11 @@
               if (typeof window.__syncDistValues === 'function') {
                 window.__syncDistValues('custoCx', n);
               }
+              
+              // Integra com sistema Extra/Médio (Cenário 3)
+              if (typeof window.__syncExtraMedio === 'function') {
+                window.__syncExtraMedio('totalCustoCx', n);
+              }
             }else{
               cxDisplay.textContent = prevCx;
             }
@@ -2572,6 +2615,11 @@
               // Integra com sistema de sincronização
               if (typeof window.__syncDistValues === 'function') {
                 window.__syncDistValues('custoKg', n);
+              }
+              
+              // Integra com sistema Extra/Médio (Cenário 3B)
+              if (typeof window.__syncExtraMedio === 'function') {
+                window.__syncExtraMedio('totalCustoKg', n);
               }
             }else{
               kgDisplay.textContent = prevKg;
@@ -2642,41 +2690,16 @@
       let prev = display.textContent || '';
 
       const applyToState = (val) => {
-        const st = window.__DIST_STATE;
-        if(!st || !st.categorias || !st.categorias.extra) return;
-        const extra = st.categorias.extra;
-        const kgVal = Number(extra.kg) || 0;
-        const cxVal = Number(extra.cxEq) || 0;
+        // Aplica ao sistema Extra/Médio (Cenário 4)
         const num = Number(val);
-        if(!isFinite(num)) return;
-        extra.custoCx = num;
-        if(kgVal > 0 && cxVal > 0){
-          extra.custoKg = (num * cxVal) / kgVal;
-        }else if(kgVal > 0){
-          extra.custoKg = num;
-        }else if(!isFinite(extra.custoKg) || extra.custoKg <= 0){
-          extra.custoKg = num;
+        if (!isFinite(num) || num < 0) return;
+        
+        console.log('[EXTRA EDIT] Aplicando novo valor:', num);
+        
+        // Dispara Cenário 4
+        if (typeof window.__syncExtraMedio === 'function') {
+          window.__syncExtraMedio('extraCustoCx', num);
         }
-        if(kgVal > 0 && isFinite(extra.custoKg)){
-          extra.custoTotal = extra.custoKg * kgVal;
-        }else if(cxVal > 0){
-          extra.custoTotal = num * cxVal;
-        }else{
-          extra.custoTotal = 0;
-        }
-        const medio = st.categorias.medio || (st.categorias.medio = { kg:0, cxEq:0, custoKg:0, custoCx:0, custoTotal:0 });
-        medio.custoKg = (isFinite(extra.custoKg) ? extra.custoKg : 0) / 2;
-        medio.custoCx = num / 2;
-        const medioCxVal = Number(medio.cxEq) || 0;
-        const medioKgVal = Number(medio.kg) || 0;
-        if(medioCxVal > 0){
-          medio.custoTotal = medio.custoCx * medioCxVal;
-        }else if(medioKgVal > 0){
-          medio.custoTotal = medio.custoKg * medioKgVal;
-        }else{
-          medio.custoTotal = (extra.custoTotal || 0) / 2;
-        }
-        st.hydrated = true;
       };
 
       const enterEdit = () => {
@@ -2687,15 +2710,14 @@
         display.style.display = 'none';
         setTimeout(()=>{ input.focus(); input.select(); },0);
       };
+      
       const exitEdit = (commit) => {
-        let shouldRefresh = false;
         if(commit){
           const n = parsePT(input.value);
           if(!isNaN(n)){
             display.textContent = formatDecimal(n);
             prev = display.textContent;
             applyToState(n);
-            shouldRefresh = true;
           }else{
             input.value = prev;
             display.textContent = prev;
@@ -2705,12 +2727,6 @@
         }
         input.style.display = 'none';
         display.style.display = '';
-        if(shouldRefresh){
-          setTimeout(()=>{
-            try{ if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh(); }
-            catch{}
-          },0);
-        }
       };
 
       display.addEventListener('click', enterEdit);
@@ -2852,22 +2868,28 @@
         updateSummary();
       });
 
-      // Aplicar: dispara evento com os valores atuais (para integração futura)
+      // Aplicar: transfere Total Geral para Valor Total e redistribui (Cenário 2)
       els.applyBtn?.addEventListener('click', ()=>{
-        const payload = {
-          extra: {
-            qty: parsePT(els.extra.qty.value),
-            unit: parsePT(els.extra.unit.value),
-            total: parsePT(els.extra.total.value)
-          },
-          medio: {
-            qty: parsePT(els.medio.qty.value),
-            unit: parsePT(els.medio.unit.value),
-            total: parsePT(els.medio.total.value)
-          },
-          totalGeral: parsePT(els.geral.textContent)
-        };
-        window.dispatchEvent(new CustomEvent('simulacao:aplicar', { detail: payload }));
+        const totalGeral = parsePT(els.geral.textContent);
+        
+        console.log('[SIMULAÇÃO] Aplicar clicado - Total Geral:', totalGeral);
+        
+        if (!isFinite(totalGeral) || totalGeral <= 0) {
+          alert('Total Geral inválido. Por favor, preencha os valores da simulação.');
+          return;
+        }
+        
+        // 1. Atualiza o Valor Total da Distribuição
+        if (typeof window.__setDistribTotal === 'function') {
+          window.__setDistribTotal(totalGeral, { source: 'simulacao-aplicar', allowUI: true, syncInput: true });
+        }
+        
+        // 2. Aciona Cenário 2 para redistribuir entre Extra e Médio
+        if (typeof window.__syncExtraMedio === 'function') {
+          window.__syncExtraMedio('valorTotal', totalGeral);
+        }
+        
+        console.log('[SIMULAÇÃO] Valor Total atualizado e redistribuído com sucesso!');
       });
     })();
 
@@ -3463,27 +3485,8 @@
 
       window.__DIST_applyTotalOverride = applyTotalOverride;
 
-      // Reagir ao Aplicar da Simulação: captura valores e atualiza state
-      window.addEventListener('simulacao:aplicar', (ev)=>{
-        const d = ev.detail || {};
-        const get = (o,k)=> (o && typeof o[k]==='number' && isFinite(o[k])) ? o[k] : 0;
-        state.simulacao.extra.qty = get(d.extra,'qty');
-        state.simulacao.extra.unit = get(d.extra,'unit');
-        state.simulacao.extra.total = get(d.extra,'total');
-        state.simulacao.medio.qty = get(d.medio,'qty');
-        state.simulacao.medio.unit = get(d.medio,'unit');
-        state.simulacao.medio.total = get(d.medio,'total');
-        // Se usuário informou qty como CX, interpretar como CX eq de venda
-        state.categorias.extra.cxEq = state.simulacao.extra.qty || state.categorias.extra.cxEq;
-        state.categorias.medio.cxEq = state.simulacao.medio.qty || state.categorias.medio.cxEq;
-        // kg continuam originais; cxEq recalculado em seed já existe, mas preferimos o informado
-        state.categorias.extra.kg = state.categorias.extra.kg || (state.categorias.extra.cxEq * KG_PER_CX_EQ);
-        state.categorias.medio.kg = state.categorias.medio.kg || (state.categorias.medio.cxEq * KG_PER_CX_EQ);
-        // totais
-        state.totais.cxEq = (state.categorias.extra.cxEq||0) + (state.categorias.medio.cxEq||0);
-        state.totais.kg = (state.categorias.extra.kg||0) + (state.categorias.medio.kg||0);
-        recalcAllocation();
-      });
+      // REMOVIDO: Event listener 'simulacao:aplicar' antigo
+      // Agora o botão Aplicar trabalha diretamente com Valor Total e Cenário 2
 
       // Seletor de rateio removido; mantemos cálculo simultâneo /kg e /cx
 
@@ -3804,6 +3807,502 @@
       window.__updateQtysFromClass = updateQuantitiesFromClassification;
 
       // ============================================================================
+      // SISTEMA DE SINCRONIZAÇÃO EXTRA/MÉDIO
+      // ============================================================================
+      
+      // Estado global para Extra e Médio
+      window.__DIST_EXTRA_MEDIO_STATE = {
+        isUpdating: false,
+        
+        // Quantidades (vem da classificação)
+        extraCx: 0,
+        extraKg: 0,
+        medioCx: 0,
+        medioKg: 0,
+        
+        // Custos unitários
+        extraCustoCx: 0,
+        extraCustoKg: 0,
+        medioCustoCx: 0,
+        medioCustoKg: 0,
+        
+        // Custos totais
+        extraCustoTotal: 0,
+        medioCustoTotal: 0,
+        
+        // Dados auxiliares
+        qtdCxInNatura: 0,
+        precoBase: 0
+      };
+
+      /**
+       * Verifica se tem Extra
+       */
+      const hasExtra = () => {
+        const state = window.__DIST_EXTRA_MEDIO_STATE;
+        return state.extraCx > 0 || state.extraKg > 0;
+      };
+
+      /**
+       * Calcula Médio quando NÃO tem Extra
+       */
+      const calcMedioSemExtra = () => {
+        const state = window.__DIST_EXTRA_MEDIO_STATE;
+        
+        // Zera Extra
+        state.extraCustoCx = 0;
+        state.extraCustoTotal = 0;
+        state.extraCustoKg = 0;
+        
+        // Médio usa precoBase/2
+        if (state.precoBase > 0) {
+          state.medioCustoCx = state.precoBase / 2;
+        } else {
+          state.medioCustoCx = 0;
+        }
+        
+        state.medioCustoKg = state.medioCustoCx; // Assume cx = kg
+        
+        // Calcula total do Médio
+        if (state.medioCx > 0) {
+          state.medioCustoTotal = state.medioCx * state.medioCustoCx;
+        } else if (state.medioKg > 0) {
+          state.medioCustoTotal = state.medioKg * state.medioCustoKg;
+        } else {
+          state.medioCustoTotal = 0;
+        }
+        
+        console.log('[SEM EXTRA] Médio calculado:', {
+          custoCx: state.medioCustoCx,
+          custoKg: state.medioCustoKg,
+          custoTotal: state.medioCustoTotal
+        });
+      };
+
+      /**
+       * Atualiza displays do card Extra
+       */
+      const updateExtraCard = () => {
+        const state = window.__DIST_EXTRA_MEDIO_STATE;
+        const card = document.getElementById('distMiniExtra');
+        if (!card) return;
+        
+        const formatMoney = (v) => {
+          try {
+            return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+          } catch {
+            return 'R$ ' + (v || 0).toFixed(2).replace('.', ',');
+          }
+        };
+        
+        const formatDecimal = (v) => {
+          try {
+            return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          } catch {
+            return (v || 0).toFixed(2).replace('.', ',');
+          }
+        };
+        
+        // Atualiza custos
+        const custoKgEl = card.querySelector('[data-field="custoKg"]');
+        const custoCxEl = card.querySelector('[data-field="custoCx"]');
+        const custoEl = card.querySelector('[data-field="custo"]');
+        
+        if (custoKgEl) custoKgEl.textContent = formatDecimal(state.extraCustoKg);
+        if (custoCxEl) custoCxEl.textContent = formatDecimal(state.extraCustoCx);
+        if (custoEl) custoEl.textContent = formatMoney(state.extraCustoTotal);
+        
+        console.log('[EXTRA/MÉDIO] Card Extra atualizado');
+      };
+
+      /**
+       * Atualiza displays do card Médio
+       */
+      const updateMedioCard = () => {
+        const state = window.__DIST_EXTRA_MEDIO_STATE;
+        const card = document.getElementById('distMiniMedio');
+        if (!card) return;
+        
+        const formatMoney = (v) => {
+          try {
+            return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+          } catch {
+            return 'R$ ' + (v || 0).toFixed(2).replace('.', ',');
+          }
+        };
+        
+        const formatDecimal = (v) => {
+          try {
+            return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          } catch {
+            return (v || 0).toFixed(2).replace('.', ',');
+          }
+        };
+        
+        // Atualiza custos
+        const custoKgEl = card.querySelector('[data-field="custoKg"]');
+        const custoCxEl = card.querySelector('[data-field="custoCx"]');
+        const custoEl = card.querySelector('[data-field="custo"]');
+        
+        if (custoKgEl) custoKgEl.textContent = formatDecimal(state.medioCustoKg);
+        if (custoCxEl) custoCxEl.textContent = formatDecimal(state.medioCustoCx);
+        if (custoEl) custoEl.textContent = formatMoney(state.medioCustoTotal);
+        
+        console.log('[EXTRA/MÉDIO] Card Médio atualizado');
+      };
+
+      /**
+       * CENÁRIO 1: Carga Inicial / Reset
+       */
+      const cenario1_CargaInicial = () => {
+        const state = window.__DIST_EXTRA_MEDIO_STATE;
+        const precoBase = state.precoBase || 0;
+        
+        // Verifica se existe negociação salva (VLRTOT > 0)
+        const savedVlrtot = Number(window.__SAVED_VLRTOT);
+        const hasNegociacaoSalva = isFinite(savedVlrtot) && savedVlrtot > 0;
+        
+        console.log('[CENÁRIO 1] Carga Inicial - precoBase:', precoBase, 'VLRTOT salvo:', savedVlrtot);
+        
+        if (hasNegociacaoSalva) {
+          // ✅ TEM NEGOCIAÇÃO SALVA: Carrega VLRTOT e redistribui via Cenário 2
+          console.log('[CENÁRIO 1] Negociação salva detectada! VLRTOT:', savedVlrtot);
+          
+          // 1. Carrega valores iniciais básicos
+          if (hasExtra()) {
+            state.extraCustoCx = precoBase;
+            state.extraCustoTotal = state.extraCx * state.extraCustoCx;
+            state.extraCustoKg = state.extraKg > 0 ? (state.extraCustoTotal / state.extraKg) : 0;
+            
+            state.medioCustoKg = state.extraCustoKg / 2;
+            state.medioCustoTotal = state.medioKg * state.medioCustoKg;
+            state.medioCustoCx = state.extraCustoCx / 2;
+          } else {
+            calcMedioSemExtra();
+          }
+          
+          // 2. Atualiza Valor Total com VLRTOT salvo
+          if (typeof window.__setDistribTotal === 'function') {
+            window.__setDistribTotal(savedVlrtot, { source: 'cenario1-vlrtot', allowUI: true, syncInput: true });
+          }
+          
+          // 3. Aciona Cenário 2 para redistribuir proporcionalmente
+          cenario2_EditarValorTotal(savedVlrtot, { skipTotalCostRecalc: false });
+          
+          // 4. Atualiza cards
+          updateExtraCard();
+          updateMedioCard();
+          
+          console.log('[CENÁRIO 1] Redistribuído via Cenário 2 com VLRTOT:', savedVlrtot);
+          
+        } else {
+          // ❌ NÃO TEM NEGOCIAÇÃO: Fluxo normal
+          console.log('[CENÁRIO 1] Sem negociação salva, usando fluxo padrão');
+          
+          if (hasExtra()) {
+            // Fluxo COM Extra
+            state.extraCustoCx = precoBase;
+            state.extraCustoTotal = state.extraCx * state.extraCustoCx;
+            state.extraCustoKg = state.extraKg > 0 ? (state.extraCustoTotal / state.extraKg) : 0;
+            
+            state.medioCustoKg = state.extraCustoKg / 2;
+            state.medioCustoTotal = state.medioKg * state.medioCustoKg;
+            state.medioCustoCx = state.extraCustoCx / 2;
+          } else {
+            // Fluxo SEM Extra
+            calcMedioSemExtra();
+          }
+          
+          // Calcula Valor Total e Custo Global
+          const valorTotal = state.extraCustoTotal + state.medioCustoTotal;
+          const totalCx = state.extraCx + state.medioCx;
+          const totalKg = state.extraKg + state.medioKg;
+          
+          const totalCustoCx = totalCx > 0 ? (valorTotal / totalCx) : 0;
+          const totalCustoKg = totalKg > 0 ? (valorTotal / totalKg) : 0;
+          
+          console.log('[CENÁRIO 1] Resultado:', {
+            valorTotal,
+            totalCustoCx,
+            totalCustoKg,
+            extra: { cx: state.extraCustoCx, kg: state.extraCustoKg, total: state.extraCustoTotal },
+            medio: { cx: state.medioCustoCx, kg: state.medioCustoKg, total: state.medioCustoTotal }
+          });
+          
+          // Atualiza UI
+          updateExtraCard();
+          updateMedioCard();
+          
+          if (typeof window.__setDistribTotal === 'function') {
+            window.__setDistribTotal(valorTotal, { source: 'cenario1', skipCallbacks: true, allowUI: true });
+          }
+          
+          const custoCxEl = document.getElementById('costCxDisplay');
+          const custoKgEl = document.getElementById('costKgDisplay');
+          const formatDecimal = (v) => (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          
+          if (custoCxEl) custoCxEl.textContent = formatDecimal(totalCustoCx);
+          if (custoKgEl) custoKgEl.textContent = formatDecimal(totalCustoKg);
+        }
+      };
+
+      /**
+       * CENÁRIO 2: Editar Valor Total
+       */
+      const cenario2_EditarValorTotal = (valorTotal, options = {}) => {
+        const { skipTotalCostRecalc = false } = options;
+        const state = window.__DIST_EXTRA_MEDIO_STATE;
+        
+        console.log('[CENÁRIO 2] Editar Valor Total:', valorTotal, 'skipTotalCostRecalc:', skipTotalCostRecalc);
+        
+        const totalCx = state.extraCx + state.medioCx;
+        const totalKg = state.extraKg + state.medioKg;
+        
+        // Calcula Custo Global (se não for skipado)
+        if (!skipTotalCostRecalc) {
+          const totalCustoCx = totalCx > 0 ? (valorTotal / totalCx) : 0;
+          const totalCustoKg = totalKg > 0 ? (valorTotal / totalKg) : 0;
+          
+          const custoCxEl = document.getElementById('costCxDisplay');
+          const custoKgEl = document.getElementById('costKgDisplay');
+          const formatDecimal = (v) => (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          
+          if (custoCxEl) custoCxEl.textContent = formatDecimal(totalCustoCx);
+          if (custoKgEl) custoKgEl.textContent = formatDecimal(totalCustoKg);
+        }
+        
+        // Distribuição Proporcional
+        if (hasExtra()) {
+          // COM Extra: distribui proporcionalmente
+          const somaAtual = state.extraCustoTotal + state.medioCustoTotal;
+          
+          if (somaAtual > 0) {
+            const propExtra = state.extraCustoTotal / somaAtual;
+            const propMedio = state.medioCustoTotal / somaAtual;
+            
+            state.extraCustoTotal = valorTotal * propExtra;
+            state.medioCustoTotal = valorTotal * propMedio;
+            
+            console.log('[CENÁRIO 2] Proporção - Extra:', (propExtra*100).toFixed(1), '% Médio:', (propMedio*100).toFixed(1), '%');
+          } else {
+            // Se não tem proporção, assume 75% Extra, 25% Médio
+            state.extraCustoTotal = valorTotal * 0.75;
+            state.medioCustoTotal = valorTotal * 0.25;
+            console.log('[CENÁRIO 2] Sem proporção, usando padrão 75/25');
+          }
+          
+          // Recalcula custos unitários
+          state.extraCustoCx = state.extraCx > 0 ? (state.extraCustoTotal / state.extraCx) : 0;
+          state.extraCustoKg = state.extraKg > 0 ? (state.extraCustoTotal / state.extraKg) : 0;
+          state.medioCustoCx = state.medioCx > 0 ? (state.medioCustoTotal / state.medioCx) : 0;
+          state.medioCustoKg = state.medioKg > 0 ? (state.medioCustoTotal / state.medioKg) : 0;
+        } else {
+          // SEM Extra: todo valor vai para Médio
+          state.extraCustoTotal = 0;
+          state.extraCustoCx = 0;
+          state.extraCustoKg = 0;
+          
+          state.medioCustoTotal = valorTotal;
+          state.medioCustoCx = state.medioCx > 0 ? (valorTotal / state.medioCx) : 0;
+          state.medioCustoKg = state.medioKg > 0 ? (valorTotal / state.medioKg) : 0;
+          
+          console.log('[CENÁRIO 2] SEM Extra - todo valor para Médio');
+        }
+        
+        console.log('[CENÁRIO 2] Resultado:', {
+          extra: { cx: state.extraCustoCx, kg: state.extraCustoKg, total: state.extraCustoTotal },
+          medio: { cx: state.medioCustoCx, kg: state.medioCustoKg, total: state.medioCustoTotal }
+        });
+        
+        // Atualiza UI
+        updateExtraCard();
+        updateMedioCard();
+      };
+
+      /**
+       * CENÁRIO 3: Editar Custo/cx Global
+       */
+      const cenario3_EditarCustoCxGlobal = (totalCustoCx) => {
+        const state = window.__DIST_EXTRA_MEDIO_STATE;
+        const totalCx = state.extraCx + state.medioCx;
+        
+        console.log('[CENÁRIO 3] Editar Custo/cx Global:', totalCustoCx);
+        
+        // Calcula Valor Total
+        const valorTotal = totalCustoCx * totalCx;
+        const totalKg = state.extraKg + state.medioKg;
+        const totalCustoKg = totalKg > 0 ? (valorTotal / totalKg) : 0;
+        
+        // Atualiza Custo/kg Global
+        const custoKgEl = document.getElementById('costKgDisplay');
+        const formatDecimal = (v) => (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        if (custoKgEl) custoKgEl.textContent = formatDecimal(totalCustoKg);
+        
+        // Atualiza Valor Total
+        if (typeof window.__setDistribTotal === 'function') {
+          window.__setDistribTotal(valorTotal, { source: 'cenario3', skipCallbacks: true });
+        }
+        
+        // Chama Cenário 2 COM flag para não recalcular totalCustoCx (previne loop)
+        cenario2_EditarValorTotal(valorTotal, { skipTotalCostRecalc: true });
+        
+        console.log('[CENÁRIO 3] Valor Total calculado:', valorTotal);
+      };
+
+      /**
+       * CENÁRIO 3B: Editar Custo/kg Global
+       */
+      const cenario3B_EditarCustoKgGlobal = (totalCustoKg) => {
+        const state = window.__DIST_EXTRA_MEDIO_STATE;
+        const totalKg = state.extraKg + state.medioKg;
+        
+        console.log('[CENÁRIO 3B] Editar Custo/kg Global:', totalCustoKg);
+        
+        // Calcula Valor Total
+        const valorTotal = totalCustoKg * totalKg;
+        const totalCx = state.extraCx + state.medioCx;
+        const totalCustoCx = totalCx > 0 ? (valorTotal / totalCx) : 0;
+        
+        // Atualiza Custo/cx Global
+        const custoCxEl = document.getElementById('costCxDisplay');
+        const formatDecimal = (v) => (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        if (custoCxEl) custoCxEl.textContent = formatDecimal(totalCustoCx);
+        
+        // Atualiza Valor Total
+        if (typeof window.__setDistribTotal === 'function') {
+          window.__setDistribTotal(valorTotal, { source: 'cenario3B', skipCallbacks: true });
+        }
+        
+        // Chama Cenário 2 COM flag para não recalcular totalCustoCx/Kg (previne loop)
+        cenario2_EditarValorTotal(valorTotal, { skipTotalCostRecalc: true });
+        
+        console.log('[CENÁRIO 3B] Valor Total calculado:', valorTotal);
+      };
+
+      /**
+       * CENÁRIO 4: Editar Extra Custo/cx
+       */
+      const cenario4_EditarExtraCustoCx = (extraCustoCx) => {
+        const state = window.__DIST_EXTRA_MEDIO_STATE;
+        
+        // Só permite se tem Extra
+        if (!hasExtra()) {
+          console.warn('[CENÁRIO 4] Tentativa de editar Extra sem quantidade!');
+          return;
+        }
+        
+        console.log('[CENÁRIO 4] Editar Extra Custo/cx:', extraCustoCx);
+        
+        // Calcula Extra
+        state.extraCustoCx = extraCustoCx;
+        state.extraCustoTotal = state.extraCx * state.extraCustoCx;
+        state.extraCustoKg = state.extraKg > 0 ? (state.extraCustoTotal / state.extraKg) : 0;
+        
+        // Calcula Médio (sempre metade do Extra)
+        state.medioCustoKg = state.extraCustoKg / 2;
+        state.medioCustoTotal = state.medioKg * state.medioCustoKg;
+        state.medioCustoCx = state.medioCx > 0 ? (state.medioCustoTotal / state.medioCx) : 0;
+        
+        // Calcula Valor Total
+        const valorTotal = state.extraCustoTotal + state.medioCustoTotal;
+        
+        // Calcula Custo Global
+        const totalCx = state.extraCx + state.medioCx;
+        const totalKg = state.extraKg + state.medioKg;
+        const totalCustoCx = totalCx > 0 ? (valorTotal / totalCx) : 0;
+        const totalCustoKg = totalKg > 0 ? (valorTotal / totalKg) : 0;
+        
+        console.log('[CENÁRIO 4] Resultado:', {
+          valorTotal,
+          totalCustoCx,
+          totalCustoKg,
+          extra: { cx: state.extraCustoCx, kg: state.extraCustoKg, total: state.extraCustoTotal },
+          medio: { cx: state.medioCustoCx, kg: state.medioCustoKg, total: state.medioCustoTotal }
+        });
+        
+        // Atualiza UI
+        updateExtraCard();
+        updateMedioCard();
+        
+        // Atualiza Valor Total (DISPLAY)
+        if (typeof window.__setDistribTotal === 'function') {
+          window.__setDistribTotal(valorTotal, { source: 'cenario4', skipCallbacks: true });
+        }
+        
+        // Atualiza display de Valor Total manualmente também
+        const totalValueDisplay = document.getElementById('totalValueDisplay');
+        if (totalValueDisplay) {
+          const formatMoney = (v) => {
+            try {
+              return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+            } catch {
+              return 'R$ ' + (v || 0).toFixed(2).replace('.', ',');
+            }
+          };
+          totalValueDisplay.textContent = formatMoney(valorTotal);
+          console.log('[CENÁRIO 4] Valor Total DISPLAY atualizado:', valorTotal);
+        }
+        
+        const custoCxEl = document.getElementById('costCxDisplay');
+        const custoKgEl = document.getElementById('costKgDisplay');
+        const formatDecimal = (v) => (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        
+        if (custoCxEl) custoCxEl.textContent = formatDecimal(totalCustoCx);
+        if (custoKgEl) custoKgEl.textContent = formatDecimal(totalCustoKg);
+      };
+
+      /**
+       * Função principal de sincronização Extra/Médio
+       */
+      const syncExtraMedioValues = (source, newValue, options = {}) => {
+        if (window.__DIST_EXTRA_MEDIO_STATE.isUpdating) {
+          console.log('[EXTRA/MÉDIO] Bloqueado - já está atualizando');
+          return;
+        }
+        
+        try {
+          console.log('[EXTRA/MÉDIO] ========================================');
+          console.log('[EXTRA/MÉDIO] Sincronização iniciada:', source, '=', newValue);
+          window.__DIST_EXTRA_MEDIO_STATE.isUpdating = true;
+          
+          switch(source) {
+            case 'initial':
+            case 'reset':
+              cenario1_CargaInicial();
+              break;
+              
+            case 'valorTotal':
+              cenario2_EditarValorTotal(newValue, options);
+              break;
+              
+            case 'totalCustoCx':
+              cenario3_EditarCustoCxGlobal(newValue);
+              break;
+              
+            case 'totalCustoKg':
+              cenario3B_EditarCustoKgGlobal(newValue);
+              break;
+              
+            case 'extraCustoCx':
+              cenario4_EditarExtraCustoCx(newValue);
+              break;
+              
+            default:
+              console.warn('[EXTRA/MÉDIO] Fonte desconhecida:', source);
+          }
+          
+          console.log('[EXTRA/MÉDIO] Sincronização concluída');
+          console.log('[EXTRA/MÉDIO] ========================================');
+          
+        } finally {
+          window.__DIST_EXTRA_MEDIO_STATE.isUpdating = false;
+        }
+      };
+
+      // Expõe função globalmente
+      window.__syncExtraMedio = syncExtraMedioValues;
+
+      // ============================================================================
 
       const formatVolumeValue = (value) => {
         const num = Number(value);
@@ -3901,6 +4400,46 @@
           updateCard(extraCard, { kg: extraKg, cx: extraCx });
           updateCard(medioCard, { kg: medioKg, cx: medioCx });
           window.__DIST_CLASS_UI_OVERRIDE = true;
+          
+          // Atualiza estado Extra/Médio com quantidades da classificação
+          if (window.__DIST_EXTRA_MEDIO_STATE) {
+            const state = window.__DIST_EXTRA_MEDIO_STATE;
+            
+            console.log('[CLASSIFICAÇÃO] Atualizando quantidades - Extra:', { kg: extraKg, cx: extraCx }, 'Médio:', { kg: medioKg, cx: medioCx });
+            
+            state.extraKg = extraKg;
+            state.extraCx = extraCx;
+            state.medioKg = medioKg;
+            state.medioCx = medioCx;
+            
+            // Verifica se tem valores salvos (VLRUNIT do backend)
+            const savedVlrunit = window.__SAVED_VLRUNIT;
+            
+            if (savedVlrunit && isFinite(savedVlrunit) && savedVlrunit > 0) {
+              // Cenário 3: Usa VLRUNIT salvo
+              console.log('[CLASSIFICAÇÃO] Usando VLRUNIT salvo:', savedVlrunit);
+              state.extraCustoCx = savedVlrunit;
+            } else if (state.extraCustoCx <= 0) {
+              // Se não tem custo definido, inicializa com PRECOBASE
+              if (state.precoBase > 0) {
+                console.log('[CLASSIFICAÇÃO] Inicializando com PRECOBASE:', state.precoBase);
+                state.extraCustoCx = state.precoBase;
+              }
+            }
+            // Se já tem extraCustoCx > 0, mantém (caso tenha sido editado)
+            
+            // Recalcula tudo com as novas quantidades
+            if (typeof window.__syncExtraMedio === 'function') {
+              // Se tinha valor editado, mantém; senão usa Cenário 1
+              if (state.extraCustoCx > 0 && savedVlrunit > 0) {
+                // Mantém valor editado e recalcula
+                window.__syncExtraMedio('extraCustoCx', state.extraCustoCx);
+              } else {
+                // Recalcula do zero (Cenário 1)
+                window.__syncExtraMedio('initial');
+              }
+            }
+          }
         }catch(err){
           try{ console.debug('renderClassCardsFromClassification failed', err); }catch{}
         }
@@ -4087,9 +4626,23 @@
                 }
               }
             }catch{}
+            
+            // Zera VLRTOT salvo globalmente para Cenário 1 não detectar negociação
+            try{
+              window.__SAVED_VLRTOT = 0;
+              console.log('[ZERAR] VLRTOT global zerado');
+            }catch{}
 
             try{
               window.dispatchEvent(new CustomEvent('dist:reset', { detail: { nunota, sequencia, response: res.body } }));
+            }catch{}
+
+            // Dispara Cenário 1 para recalcular tudo com precoBase
+            try{
+              if(typeof window.__syncExtraMedio === 'function'){
+                console.log('[ZERAR] Recalculando Extra/Médio (Cenário 1)');
+                window.__syncExtraMedio('reset');
+              }
             }catch{}
 
             alert('Negociação zerada com sucesso.');
@@ -4568,17 +5121,8 @@
           }).catch(()=>{});
       }
 
-      // Salvar simulação ao clicar em Aplicar (usa rota backend já disponível)
-      window.addEventListener('simulacao:aplicar', async function(ev){
-        try{
-          const det = ev.detail || {};
-          const total = (typeof det.totalGeral === 'number') ? det.totalGeral : null;
-          const payload = { name: 'Simulação Comercial', lote: controle || null, total, data: new Date().toISOString(), values: det };
-          const res = await window.__postJSON('/sankhya/comercial/sim/save/', payload);
-          if(res.ok){ alert('Simulação salva' + (res.body?.id? (' (#'+res.body.id+')') : '')); }
-          else { alert('Falha ao salvar simulação: ' + (res.body?.error || ('status ' + res.status))); }
-        }catch(e){ console.error('sim save failed', e); }
-      });
+      // REMOVIDO: Event listener 'simulacao:aplicar' para salvar no banco
+      // Funcionalidade de salvar simulação removida (não mais necessária)
     })();
   </script>
 </body>
