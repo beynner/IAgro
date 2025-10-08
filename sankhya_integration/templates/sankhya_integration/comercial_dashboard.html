@@ -793,9 +793,9 @@
                     </div>
                   </div>
                   <div id="distActionBar" class="dist-actions" aria-label="Ações da negociação">
-                    <button type="button" id="dist-btn-reset" class="btn-warn">Zerar negociação</button>
-                    <button type="button" id="dist-btn-print" class="btn-print">Imprimir</button>
-                    <button type="button" id="dist-btn-save" class="btn-primary">Salvar</button>
+                    <button type="button" id="dist-btn-reset" class="btn-warn" style="font-size: 0.75rem; padding: 4px 12px; background: #e5e7eb; border: 1px solid #9ca3af; color: #6b7280; opacity: 0.8;">Zerar negociação</button>
+                    <button type="button" id="dist-btn-print" class="btn-print" style="font-size: 0.75rem; padding: 4px 12px; background: #e5e7eb; border: 1px solid #9ca3af; color: #6b7280; opacity: 0.8;">Imprimir</button>
+                    <button type="button" id="dist-btn-save" class="btn-primary" style="font-size: 0.75rem; padding: 4px 12px; background: #9ca3af; border: 1px solid #6b7280; color: #fff; opacity: 0.85;">Salvar</button>
                   </div>
                 </div>
               </div>
@@ -856,8 +856,8 @@
                     </div>
                   </div>
                   <div class="sim-actions">
-                    <button id="sim-btn-clear" class="btn btn-secondary" type="button">Limpar</button>
-                    <button id="sim-btn-apply" class="btn btn-primary" type="button">Aplicar</button>
+                    <button id="sim-btn-clear" class="btn btn-secondary" type="button" style="font-size: 0.75rem; padding: 4px 12px; background: #e5e7eb; border: 1px solid #d1d5db; color: #6b7280; opacity: 0.8;">Limpar</button>
+                    <button id="sim-btn-apply" class="btn btn-primary" type="button" style="font-size: 0.75rem; padding: 4px 12px; background: #9ca3af; border: 1px solid #6b7280; color: #fff; opacity: 0.85;">Aplicar</button>
                   </div>
                 </div>
               </div>
@@ -1911,11 +1911,106 @@
           const dt = item.dtneg || '';
           const unit = String(item.codvol||'').trim().toUpperCase();
           const qtd = Number(item.qtdneg||0) || 0;
+          // Load simulation fields from database: ad_simqtd1→extraCx, ad_simvlr1→extraCustoTotal, ad_simqtd2→medioCx, ad_simvlr2→medioCustoTotal
+          const simExtraCx = (item.ad_simqtd1 != null ? Number(item.ad_simqtd1) : null);
+          const simExtraTotal = (item.ad_simvlr1 != null ? Number(item.ad_simvlr1) : null);
+          const simMedioCx = (item.ad_simqtd2 != null ? Number(item.ad_simqtd2) : null);
+          const simMedioTotal = (item.ad_simvlr2 != null ? Number(item.ad_simvlr2) : null);
+          
+          console.log('[LOAD DEBUG] Valores carregados do banco:', {
+            ad_simqtd1: simExtraCx,
+            ad_simvlr1: simExtraTotal,
+            ad_simqtd2: simMedioCx,
+            ad_simvlr2: simMedioTotal
+          });
           // Guardar contexto atual (nunota/seq) para persistência do Preço Inicial
           try{
             const card = document.getElementById('quantidadeInnCard');
             if(card){ card.setAttribute('data-nunota', String(nunota||'')); card.setAttribute('data-seq', String(sequencia||'')); }
           }catch{}
+          
+          // Limpar campos da simulação ANTES de aplicar novos valores
+          const limparCamposSimulacao = () => {
+            const campos = ['#sim-extra-qty', '#sim-extra-unit', '#sim-extra-total', 
+                           '#sim-medio-qty', '#sim-medio-unit', '#sim-medio-total'];
+            campos.forEach(sel => {
+              const input = document.querySelector(sel);
+              if(input) input.value = '';
+            });
+          };
+          
+          // Apply simulation fields to state if loaded from database
+          if(typeof window.__DIST_EXTRA_MEDIO_STATE !== 'undefined' && window.__DIST_EXTRA_MEDIO_STATE){
+            try{
+              console.log('[LOAD DEBUG] Aplicando ao estado global...');
+              
+              // Resetar estado
+              window.__DIST_EXTRA_MEDIO_STATE.extraCx = 0;
+              window.__DIST_EXTRA_MEDIO_STATE.extraCustoTotal = 0;
+              window.__DIST_EXTRA_MEDIO_STATE.medioCx = 0;
+              window.__DIST_EXTRA_MEDIO_STATE.medioCustoTotal = 0;
+              
+              // Limpar campos visuais primeiro
+              limparCamposSimulacao();
+              
+              // Aplicar valores do banco (se existirem)
+              if(simExtraCx != null && Number.isFinite(simExtraCx)) window.__DIST_EXTRA_MEDIO_STATE.extraCx = simExtraCx;
+              if(simExtraTotal != null && Number.isFinite(simExtraTotal)) window.__DIST_EXTRA_MEDIO_STATE.extraCustoTotal = simExtraTotal;
+              if(simMedioCx != null && Number.isFinite(simMedioCx)) window.__DIST_EXTRA_MEDIO_STATE.medioCx = simMedioCx;
+              if(simMedioTotal != null && Number.isFinite(simMedioTotal)) window.__DIST_EXTRA_MEDIO_STATE.medioCustoTotal = simMedioTotal;
+              console.log('[LOAD DEBUG] Estado após aplicação:', {
+                extraCx: window.__DIST_EXTRA_MEDIO_STATE.extraCx,
+                extraCustoTotal: window.__DIST_EXTRA_MEDIO_STATE.extraCustoTotal,
+                medioCx: window.__DIST_EXTRA_MEDIO_STATE.medioCx,
+                medioCustoTotal: window.__DIST_EXTRA_MEDIO_STATE.medioCustoTotal
+              });
+              
+              // Preencher os campos visuais da simulação com os valores carregados do banco
+              const fmtMoney = (n) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
+              const fmtQty = (n) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+              
+              if(simExtraCx != null && Number.isFinite(simExtraCx)) {
+                const input = document.querySelector('#sim-extra-qty');
+                if(input) input.value = fmtQty(simExtraCx);
+              }
+              if(simExtraTotal != null && Number.isFinite(simExtraTotal)) {
+                const input = document.querySelector('#sim-extra-total');
+                if(input) input.value = fmtMoney(simExtraTotal);
+              }
+              if(simMedioCx != null && Number.isFinite(simMedioCx)) {
+                const input = document.querySelector('#sim-medio-qty');
+                if(input) input.value = fmtQty(simMedioCx);
+              }
+              if(simMedioTotal != null && Number.isFinite(simMedioTotal)) {
+                const input = document.querySelector('#sim-medio-total');
+                if(input) input.value = fmtMoney(simMedioTotal);
+              }
+              
+              // Calcular Valor/CX do Extra (se tiver Qtd e Total)
+              if(simExtraCx != null && Number.isFinite(simExtraCx) && simExtraCx > 0 &&
+                 simExtraTotal != null && Number.isFinite(simExtraTotal)) {
+                const valorCxExtra = simExtraTotal / simExtraCx;
+                const inputExtraUnit = document.querySelector('#sim-extra-unit');
+                if(inputExtraUnit) inputExtraUnit.value = fmtMoney(valorCxExtra);
+              }
+              
+              // Calcular Valor/CX do Médio (se tiver Qtd e Total)
+              if(simMedioCx != null && Number.isFinite(simMedioCx) && simMedioCx > 0 &&
+                 simMedioTotal != null && Number.isFinite(simMedioTotal)) {
+                const valorCxMedio = simMedioTotal / simMedioCx;
+                const inputMedioUnit = document.querySelector('#sim-medio-unit');
+                if(inputMedioUnit) inputMedioUnit.value = fmtMoney(valorCxMedio);
+              }
+              
+              // Acionar evento de atualização dos campos para recalcular resumo
+              const updateSimEvent = new Event('input', { bubbles: true });
+              document.querySelector('#sim-extra-qty')?.dispatchEvent(updateSimEvent);
+              
+              console.log('[LOAD DEBUG] Campos visuais da simulação preenchidos!');
+            }catch(err){ 
+              console.error('[LOAD DEBUG] Erro ao aplicar ao estado:', err);
+            }
+          }
           // Atualizar linha de produto no cabeçalho da Classificação: usar o nome COMPLETO
           const prodFull = String(produto||'').trim();
           const fabEl = document.getElementById('classFabricanteName');
@@ -2856,8 +2951,13 @@
   solveSection('medio');
   updateSummary();
 
-      // Limpar: zera todos os campos e total
-      els.clearBtn?.addEventListener('click', ()=>{
+      // Limpar: zera todos os campos e total + limpa as 4 colunas no banco
+      els.clearBtn?.addEventListener('click', async ()=>{
+        // Confirmação antes de limpar
+        if (!confirm('Tem certeza que quer limpar a simulação com esse fornecedor?')) {
+          return;
+        }
+        
         ['extra','medio'].forEach(sec=>{
           const { qty, unit, total } = els[sec];
           qty.value = '';
@@ -2866,6 +2966,43 @@
           markAuto(qty,false); markAuto(unit,false); markAuto(total,false);
         });
         updateSummary();
+        
+        // Limpar as 4 colunas de simulação no banco de dados (AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2)
+        try {
+          const card = document.getElementById('quantidadeInnCard');
+          const nunota = card ? Number(card.getAttribute('data-nunota') || '0') : 0;
+          const sequencia = card ? Number(card.getAttribute('data-seq') || '0') : 0;
+          
+          if (nunota > 0 && sequencia > 0) {
+            console.log('[LIMPAR] Zerando campos de simulação no banco para nunota:', nunota, 'sequencia:', sequencia);
+            
+            // Obter valor_total e custo_kg atuais do estado (campos obrigatórios)
+            const getState = window.__getDistribState || (() => ({}));
+            const st = getState();
+            const valorTotal = Number(st?.custo?.total) || 0;
+            const custoKg = Number(st?.custo?.porKg) || 0;
+            
+            const payload = {
+              nunota,
+              sequencia,
+              valor_total: valorTotal,
+              custo_kg: custoKg,
+              sim_qtd1: 0,
+              sim_vlr1: 0,
+              sim_qtd2: 0,
+              sim_vlr2: 0,
+            };
+            
+            const res = await window.__postJSON('/sankhya/comercial/dist/save/', payload);
+            if (res.ok) {
+              console.log('[LIMPAR] Campos de simulação zerados no banco com sucesso!');
+            } else {
+              console.warn('[LIMPAR] Falha ao zerar campos de simulação:', res.body?.error);
+            }
+          }
+        } catch (err) {
+          console.error('[LIMPAR] Erro ao zerar campos de simulação no banco:', err);
+        }
       });
 
       // Aplicar: transfere Total Geral para Valor Total e redistribui (Cenário 2)
@@ -4475,6 +4612,37 @@
         const extraKgRaw = Number(st?.categorias?.extra?.custoKg ?? NaN);
         const medioKgRaw = Number(st?.categorias?.medio?.custoKg ?? NaN);
 
+        // Simulation fields: Pegar valores DIRETOS dos campos de input (não usar valores calculados!)
+        const parsePT = (text) => {
+          if(!text) return NaN;
+          const cleaned = text.toString().trim()
+            .replace(/[^0-9,\.-]/g, '')
+            .replace(/\.(?=\d{3}(\D|$))/g, '')
+            .replace(',', '.');
+          const n = Number(cleaned);
+          return isFinite(n) ? n : NaN;
+        };
+        
+        // Ler valores REAIS dos campos da simulação (não do estado calculado)
+        const simExtraQtyInput = document.querySelector('#sim-extra-qty');
+        const simExtraTotalInput = document.querySelector('#sim-extra-total');
+        const simMedioQtyInput = document.querySelector('#sim-medio-qty');
+        const simMedioTotalInput = document.querySelector('#sim-medio-total');
+        
+        const extraCxRaw = simExtraQtyInput ? parsePT(simExtraQtyInput.value) : NaN;
+        const extraTotalFromInput = simExtraTotalInput ? parsePT(simExtraTotalInput.value) : NaN;
+        const medioCxRaw = simMedioQtyInput ? parsePT(simMedioQtyInput.value) : NaN;
+        const medioTotalFromInput = simMedioTotalInput ? parsePT(simMedioTotalInput.value) : NaN;
+
+        // DEBUG: Log dos valores que serão enviados
+        console.log('[SAVE DEBUG] Valores DIRETOS dos inputs:', {
+          extraCx: extraCxRaw,
+          extraTotal: extraTotalFromInput,
+          medioCx: medioCxRaw,
+          medioTotal: medioTotalFromInput
+        });
+        console.log('[SAVE DEBUG] Estado completo (NÃO usar para save):', st);
+
         const payload = {
           nunota,
           sequencia,
@@ -4484,7 +4652,14 @@
           custo_medio_total: Number.isFinite(medioTotalRaw) ? Number(medioTotalRaw.toFixed(2)) : null,
           custo_extra_kg: Number.isFinite(extraKgRaw) ? Number(extraKgRaw.toFixed(6)) : null,
           custo_medio_kg: Number.isFinite(medioKgRaw) ? Number(medioKgRaw.toFixed(6)) : null,
+          // Usar valores DIRETOS dos inputs (não calculados)
+          sim_qtd1: Number.isFinite(extraCxRaw) ? Number(extraCxRaw.toFixed(2)) : null,
+          sim_vlr1: Number.isFinite(extraTotalFromInput) ? Number(extraTotalFromInput.toFixed(2)) : null,
+          sim_qtd2: Number.isFinite(medioCxRaw) ? Number(medioCxRaw.toFixed(2)) : null,
+          sim_vlr2: Number.isFinite(medioTotalFromInput) ? Number(medioTotalFromInput.toFixed(2)) : null,
         };
+        
+        console.log('[SAVE DEBUG] Payload montado:', payload);
 
         let originalLabel = '';
         if(btnSave){

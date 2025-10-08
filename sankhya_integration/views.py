@@ -2360,11 +2360,21 @@ def comercial_dist_save(request: HttpRequest) -> JsonResponse:
     if total is None or custo_kg is None:
         return JsonResponse({'ok': False, 'error': 'Informe valor_total e custo_kg válidos'}, status=400)
 
+    # Extract simulation fields: sim_qtd1→extraCx, sim_vlr1→extraCustoTotal, sim_qtd2→medioCx, sim_vlr2→medioCustoTotal
+    sim_qtd1 = _to_float_or(payload.get('sim_qtd1'))
+    sim_vlr1 = _to_float_or(payload.get('sim_vlr1'))
+    sim_qtd2 = _to_float_or(payload.get('sim_qtd2'))
+    sim_vlr2 = _to_float_or(payload.get('sim_vlr2'))
+
     update_payload = {
         'NUNOTA': nunota,
         'SEQUENCIA': sequencia,
         'VLRUNIT': custo_kg,
         'VLRTOT': total,
+        'AD_SIMQTD1': sim_qtd1,
+        'AD_SIMVLR1': sim_vlr1,
+        'AD_SIMQTD2': sim_qtd2,
+        'AD_SIMVLR2': sim_vlr2,
     }
 
     try:
@@ -2488,7 +2498,7 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
         )
         out = []
         for r in rows:
-            # (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT)
+            # (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2)
             parc = r[0] if len(r) > 0 else ''
             prod = r[1] if len(r) > 1 else ''
             qtd = r[2] if len(r) > 2 else 0
@@ -2502,6 +2512,10 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
             precobase_val = (r[10] if len(r) > 10 else None)
             vlrunit_val = (r[11] if len(r) > 11 else None)
             vlrtot_val = (r[12] if len(r) > 12 else None)
+            ad_simqtd1_val = (r[13] if len(r) > 13 else None)
+            ad_simqtd2_val = (r[14] if len(r) > 14 else None)
+            ad_simvlr1_val = (r[15] if len(r) > 15 else None)
+            ad_simvlr2_val = (r[16] if len(r) > 16 else None)
             try:
                 # compact date for UI: send DD/MM
                 if hasattr(dt, 'strftime'):
@@ -2539,7 +2553,12 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                 ),
                 'vlrtot': (
                     float(vlrtot_val) if vlrtot_val not in (None, '') and float(vlrtot_val or 0) != 0 else 0.0
-                )
+                ),
+                # Simulation fields: AD_SIMQTD1→extraCx, AD_SIMVLR1→extraCustoTotal, AD_SIMQTD2→medioCx, AD_SIMVLR2→medioCustoTotal
+                'ad_simqtd1': (float(ad_simqtd1_val) if ad_simqtd1_val not in (None, '') else None),
+                'ad_simqtd2': (float(ad_simqtd2_val) if ad_simqtd2_val not in (None, '') else None),
+                'ad_simvlr1': (float(ad_simvlr1_val) if ad_simvlr1_val not in (None, '') else None),
+                'ad_simvlr2': (float(ad_simvlr2_val) if ad_simvlr2_val not in (None, '') else None),
             })
         return JsonResponse({ 'ok': True, 'rows': out, 'limit': limit, 'offset': offset })
     except Exception as e:

@@ -1597,7 +1597,7 @@ def insert_item(d: dict, dry_run: bool = True) -> dict:
 
 def plan_update_item(d: dict) -> dict:
     """Planeja UPDATE em TGFITE para um item existente identificado por NUNOTA+SEQUENCIA.
-    Campos aceitos para atualização: CODPROD, QTDNEG, VLRUNIT, CODVOL, CODLOCALORIG, CONTROLE, OBSERVACAO.
+    Campos aceitos para atualização: CODPROD, QTDNEG, VLRUNIT, CODVOL, CODLOCALORIG, CONTROLE, OBSERVACAO, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2.
     Requer: NUNOTA e SEQUENCIA.
     """
     data = d.copy()
@@ -1762,6 +1762,28 @@ def plan_update_item(d: dict) -> dict:
             sets.append('GERAPRODUCAO=:GERAPRODUCAO'); binds['GERAPRODUCAO'] = sval
         else:
             # valor inválido é ignorado, sem erro
+            pass
+    
+    # Permitir salvar campos de simulação Extra/Médio (AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2)
+    if data.get('AD_SIMQTD1') is not None:
+        try:
+            sets.append('AD_SIMQTD1=:AD_SIMQTD1'); binds['AD_SIMQTD1'] = float(data['AD_SIMQTD1'])
+        except Exception:
+            pass
+    if data.get('AD_SIMQTD2') is not None:
+        try:
+            sets.append('AD_SIMQTD2=:AD_SIMQTD2'); binds['AD_SIMQTD2'] = float(data['AD_SIMQTD2'])
+        except Exception:
+            pass
+    if data.get('AD_SIMVLR1') is not None:
+        try:
+            sets.append('AD_SIMVLR1=:AD_SIMVLR1'); binds['AD_SIMVLR1'] = float(data['AD_SIMVLR1'])
+        except Exception:
+            pass
+    if data.get('AD_SIMVLR2') is not None:
+        try:
+            sets.append('AD_SIMVLR2=:AD_SIMVLR2'); binds['AD_SIMVLR2'] = float(data['AD_SIMVLR2'])
+        except Exception:
             pass
 
     if not sets:
@@ -3154,7 +3176,7 @@ def listar_itens_portal_basico(
     offset: int = 0,
 ):
     """Lista itens de TOP 11 (Portal) com colunas básicas para o painel Comercial.
-    Retorna tuplas: (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT)
+    Retorna tuplas: (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2)
     Suporta filtros por data, parceiro e produto, com paginação segura via ROW_NUMBER.
     """
     from datetime import datetime, date as _date
@@ -3201,7 +3223,7 @@ def listar_itens_portal_basico(
         binds["codprod"] = int(codprod)
 
     inner = (
-        "SELECT p.NOMEPARC, NVL(pr.FABRICANTE, pr.DESCRPROD) AS PRODNAME, i.QTDNEG, c.DTNEG, i.CODVOL, i.CODPROD, c.NUNOTA, i.SEQUENCIA, NVL(i.GERAPRODUCAO, 'S') AS GP, i.PESO AS PESO, i.PRECOBASE AS PRECOBASE, i.VLRUNIT AS VLRUNIT, i.VLRTOT AS VLRTOT "
+        "SELECT p.NOMEPARC, NVL(pr.FABRICANTE, pr.DESCRPROD) AS PRODNAME, i.QTDNEG, c.DTNEG, i.CODVOL, i.CODPROD, c.NUNOTA, i.SEQUENCIA, NVL(i.GERAPRODUCAO, 'S') AS GP, i.PESO AS PESO, i.PRECOBASE AS PRECOBASE, i.VLRUNIT AS VLRUNIT, i.VLRTOT AS VLRTOT, i.AD_SIMQTD1, i.AD_SIMQTD2, i.AD_SIMVLR1, i.AD_SIMVLR2 "
         "  FROM TGFITE i "
         "  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA "
         "  LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC "
@@ -3210,7 +3232,7 @@ def listar_itens_portal_basico(
         "  ORDER BY c.DTNEG DESC, c.NUNOTA DESC, i.SEQUENCIA ASC"
     )
     sql = (
-        "SELECT NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT FROM ("
+        "SELECT NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2 FROM ("
         "  SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.DTNEG DESC, t.NUNOTA DESC, t.SEQUENCIA ASC) rn FROM (" + inner + ") t"
         ") WHERE rn BETWEEN :start_row AND :end_row ORDER BY rn"
     )
