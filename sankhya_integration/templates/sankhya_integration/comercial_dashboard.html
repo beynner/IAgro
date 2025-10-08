@@ -25,9 +25,93 @@
   .section--pesquisa{border-left:3px solid var(--g-pesquisa)}
   .group.panel{border-top:0}
   /* Thick, colored borders on main cards (no top, only sides and bottom) */
-  #distCard{border-color:var(--g-dist);border-style:solid;border-width:0 3px 3px 3px}
-  #classCard{border-color:var(--g-class);border-style:solid;border-width:0 3px 3px 3px}
-  #entradaCard{border-color:var(--g-entrada);border-style:solid;border-width:0 3px 3px 3px}
+  #distCard{
+    border:none;
+    background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 25%, #ffffff 50%, #e8e8e8 75%, #f5f5f5 100%);
+    box-shadow: 
+      inset 0 2px 4px rgba(0, 0, 0, 0.15),
+      inset 0 -2px 4px rgba(255, 255, 255, 0.8),
+      inset 2px 0 4px rgba(0, 0, 0, 0.12),
+      inset -2px 0 4px rgba(255, 255, 255, 0.7),
+      0 1px 2px rgba(0, 0, 0, 0.05);
+    position: relative;
+    overflow: visible;
+  }
+  #distCard::before{
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 8px;
+    background: 
+      repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0, 0, 0, 0.015) 2px, rgba(0, 0, 0, 0.015) 4px),
+      repeating-linear-gradient(-45deg, transparent, transparent 3px, rgba(255, 255, 255, 0.02) 3px, rgba(255, 255, 255, 0.02) 6px),
+      radial-gradient(ellipse at 20% 30%, rgba(200, 200, 200, 0.08) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 70%, rgba(220, 220, 220, 0.06) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  #distCard > *{
+    position: relative;
+    z-index: 1;
+  }
+  #classCard{
+    border:none;
+    background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 25%, #ffffff 50%, #e8e8e8 75%, #f5f5f5 100%);
+    box-shadow: 
+      inset 0 2px 4px rgba(0, 0, 0, 0.15),
+      inset 0 -2px 4px rgba(255, 255, 255, 0.8),
+      inset 2px 0 4px rgba(0, 0, 0, 0.12),
+      inset -2px 0 4px rgba(255, 255, 255, 0.7),
+      0 1px 2px rgba(0, 0, 0, 0.05);
+    position: relative;
+    overflow: visible;
+  }
+  #classCard::before{
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 8px;
+    background: 
+      repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0, 0, 0, 0.015) 2px, rgba(0, 0, 0, 0.015) 4px),
+      repeating-linear-gradient(-45deg, transparent, transparent 3px, rgba(255, 255, 255, 0.02) 3px, rgba(255, 255, 255, 0.02) 6px),
+      radial-gradient(ellipse at 20% 30%, rgba(200, 200, 200, 0.08) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 70%, rgba(220, 220, 220, 0.06) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  #classCard > *{
+    position: relative;
+    z-index: 1;
+  }
+  #entradaCard{
+    border:none;
+    background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 25%, #ffffff 50%, #e8e8e8 75%, #f5f5f5 100%);
+    box-shadow: 
+      inset 0 2px 4px rgba(0, 0, 0, 0.15),
+      inset 0 -2px 4px rgba(255, 255, 255, 0.8),
+      inset 2px 0 4px rgba(0, 0, 0, 0.12),
+      inset -2px 0 4px rgba(255, 255, 255, 0.7),
+      0 1px 2px rgba(0, 0, 0, 0.05);
+    position: relative;
+    overflow: visible;
+  }
+  #entradaCard::before{
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 8px;
+    background: 
+      repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0, 0, 0, 0.015) 2px, rgba(0, 0, 0, 0.015) 4px),
+      repeating-linear-gradient(-45deg, transparent, transparent 3px, rgba(255, 255, 255, 0.02) 3px, rgba(255, 255, 255, 0.02) 6px),
+      radial-gradient(ellipse at 20% 30%, rgba(200, 200, 200, 0.08) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 70%, rgba(220, 220, 220, 0.06) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  #entradaCard > *{
+    position: relative;
+    z-index: 1;
+  }
   /* Sidebar panels: Filtros e Lista com borda cinza mais escura (laterais e inferior) */
   #filtersCard{border-style:solid;border-color:#cbd5e1;border-width:0 3px 3px 3px}
   #tableCard{border-style:solid;border-color:#cbd5e1;border-width:0 3px 3px 3px}
@@ -75,8 +159,8 @@
   #distMain{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
   /* grid de mini-cards dentro do distMain */
   #distGrid{flex:1 1 auto;min-height:0;height:100%;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:104px auto auto;gap:8px;align-content:start;align-items:stretch}
-  .dist-mini{background:var(--card);border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px 8px calc(var(--mini-label-w) + 6px);display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden}
-  #distHistory{grid-column:1/3;grid-row:2 / 4;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:12px;box-shadow:0 6px 18px -14px rgba(15,23,42,0.25);min-height:220px}
+  .dist-mini{background:var(--card);border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px 8px calc(var(--mini-label-w) + 6px);display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.04)}
+  #distHistory{grid-column:1/3;grid-row:2 / 4;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.04), 0 6px 18px -14px rgba(15,23,42,0.25);min-height:220px}
   #distHistory .hist-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
   #distHistory .hist-title{font-size:.82rem;font-weight:700;color:#0f172a;letter-spacing:.05em;text-transform:uppercase}
   #distHistory .hist-meta{font-size:.7rem;color:var(--muted)}
@@ -132,7 +216,7 @@
   #distMini4.editing .value-input{display:block}
   
   /* ----- BLOCO 5: painéis EXTRA e MÉDIO independentes ----- */
-  .dist-class-card{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;justify-content:flex-start;gap:8px;box-shadow:0 6px 14px -12px rgba(15,23,42,0.2)}
+  .dist-class-card{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;justify-content:flex-start;gap:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.04), 0 6px 14px -12px rgba(15,23,42,0.2)}
   .dist-class-card .class-header{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:.76rem;font-weight:700;color:#0f172a;letter-spacing:.05em;text-transform:uppercase}
   .dist-class-card .class-share{font-size:.75rem;font-weight:600;color:var(--muted)}
   .dist-class-card .bar-track{height:8px;border-radius:999px;background:#e2e8f0;overflow:hidden}
@@ -162,8 +246,8 @@
   .dist-class-card input.value-input{display:none;font-weight:700;color:#0a3392;background:transparent;border:1px solid #cbd5e1;border-radius:6px;padding:4px 6px;min-width:6ch;max-width:10ch;text-align:right;margin-left:auto}
   @media (max-width:900px){.dist-class-card .class-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(68px,1fr)}}
   .dist-actions{grid-column:3 / 5;grid-row:4;display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:4px}
-  .dist-actions button{appearance:none;-webkit-appearance:none;border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:8px 14px;font-size:.78rem;font-weight:700;color:#334155;cursor:pointer;line-height:1.1;transition:background-color .2s ease,color .2s ease,border-color .2s ease;box-shadow:0 1px 0 rgba(15,23,42,0.05)}
-  .dist-actions button:hover{background:#f1f5f9}
+  .dist-actions button{appearance:none;-webkit-appearance:none;border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:8px 14px;font-size:.78rem;font-weight:700;color:#334155;cursor:pointer;line-height:1.1;transition:background-color .2s ease,color .2s ease,border-color .2s ease,box-shadow .2s ease;box-shadow:0 2px 4px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)}
+  .dist-actions button:hover{background:#f1f5f9;box-shadow:0 4px 8px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.08)}
   .dist-actions button:focus-visible{outline:2px solid #0ea5e9;outline-offset:2px}
   .dist-actions .btn-warn{border-color:#f59e0b;color:#b45309}
   .dist-actions .btn-warn:hover{background:#fff7ed}
@@ -185,7 +269,7 @@
      - use box-sizing:border-box so padding is included
    */
   /* simulation inset panel on the right of Distribuição */
-  #distSim{width:260px; margin:4px 4px 4px 0; box-sizing:border-box; padding:var(--card-padding)}
+  #distSim{width:260px; margin:4px 4px 4px 0; box-sizing:border-box; padding:var(--card-padding); box-shadow:0 2px 8px rgba(0,0,0,0.1), 0 4px 16px rgba(0,0,0,0.06)}
 
    /* Make Distribuição fill the available horizontal space (stretch to grid cell) */
   /* Distribuição: no fixed height; it takes the height of the first grid row */
@@ -202,7 +286,7 @@
 
   /* ----- SIMULAÇÃO (T1 - tabelas compactas) ----- */
   #distSim .sim-wrap{display:flex;flex-direction:column;gap:6px}
-  #distSim .sim-sec{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px}
+  #distSim .sim-sec{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px;box-shadow:0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)}
   #distSim .sim-title{font-size:.72rem;font-weight:700;color:#334155;margin:0 0 4px 0}
   #distSim .sim-table{display:flex;flex-direction:column;gap:4px}
   #distSim .sim-row{display:flex;align-items:center;justify-content:space-between;gap:6px}
@@ -216,13 +300,13 @@
   #distSim .sim-total-row:first-child{border-top:none;padding-top:0}
   #distSim .sim-total-row span:first-child{font-weight:400;color:#334155}
   #distSim .sim-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px;margin-bottom:8px}
-  #distSim .btn{appearance:none;-webkit-appearance:none;border-radius:6px;padding:5px 10px;font-size:.8rem;font-weight:600;cursor:pointer;line-height:1;border:1px solid transparent;background:#fff}
+  #distSim .btn{appearance:none;-webkit-appearance:none;border-radius:6px;padding:5px 10px;font-size:.8rem;font-weight:600;cursor:pointer;line-height:1;border:1px solid transparent;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);transition:box-shadow .2s ease,background-color .2s ease}
   /* Limpar: borda laranja, fundo branco */
   #distSim .btn-secondary{border-color:#f59e0b;color:#b45309;background:#fff}
-  #distSim .btn-secondary:hover{background:#fff7ed}
+  #distSim .btn-secondary:hover{background:#fff7ed;box-shadow:0 4px 8px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.08)}
   /* Aplicar: fundo branco, borda azul */
   #distSim .btn-primary{border-color:#0ea5e9;color:#0ea5e9;background:#fff}
-  #distSim .btn-primary:hover{background:#eff6ff}
+  #distSim .btn-primary:hover{background:#eff6ff;box-shadow:0 4px 8px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.08)}
 
     /* keep a comfortable layout on narrow desktops/mobile via media queries */
     @media (max-width:900px){
@@ -260,7 +344,7 @@
     #classCard .percent-bar>span{display:block;height:100%;background:linear-gradient(90deg,#0ea5e9,#3b82f6);width:0%}
   #classCard .summary{grid-column:2;grid-row:1;display:flex;flex-direction:column;gap:12px;align-content:flex-start;min-height:0;height:100%;overflow:visible}
   /* Extra card (direita) */
-  #classCard .extra{grid-column:3;grid-row:1;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-height:0;height:100%}
+  #classCard .extra{grid-column:3;grid-row:1;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-height:0;height:100%;box-shadow:0 2px 6px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06)}
   #classCard .extra .extra-title{font-size:.85rem;font-weight:700;color:#334155}
   #classCard .extra .extra-body{flex:1;min-height:0;color:#475569;font-size:.85rem}
   @media (max-width:900px){
@@ -268,7 +352,7 @@
     #classCard .class-table,#classCard .summary,#classCard .extra{grid-column:1;grid-row:auto}
   }
   #classCard .summary .kpi:first-child{grid-column:1 / -1;grid-row:1}
-  #classCard .kpi{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+  #classCard .kpi{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px;box-shadow:0 2px 6px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06)}
     #classCard .kpi-label{font-size:.8rem;color:#475569}
   #classCard .kpi-value{font-size:1.1rem;font-weight:800;color:#0a3392}
     #classCard .kpi-sub{font-size:.75rem;color:#64748b}
@@ -308,16 +392,16 @@
   /* Ensure the first KPI (gauge) has a comfortable minimum height and grows to fill space */
   #classCard .summary .kpi:first-child{min-height:220px; flex:1 1 auto}
   /* reduzir espaço abaixo do título apenas neste card */
-  #classCard > h3{margin-bottom:0; color: var(--g-class)}
+  #classCard > h3{margin-bottom:0; color: #334155; text-transform: uppercase; font-size: 1.3rem; font-weight: 800}
   /* Classificação header layout to show full product name inline */
   /* Classificação header with left title, centered product, right link */
   #classCard h3.class-header{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:8px; position:relative}
   #classCard h3.class-header .class-left{justify-self:start}
   #classCard h3.class-header .prod-name{justify-self:center; font-weight:800; font-size:1.05rem; line-height:1.1; color:#0a3392; text-align:center; white-space:normal; overflow:visible; text-overflow:clip}
   #classCard h3.class-header .class-open-link{justify-self:end}
-  #entradaCard > h3{color: var(--g-entrada)}
+  #entradaCard > h3{color: #334155; text-transform: uppercase; font-size: 1.3rem; font-weight: 800}
   /* Título principal do card Distribuição fica dentro de #distMain */
-  #distMain > h3{color: var(--g-dist)}
+  #distMain > h3{color: #334155; text-transform: uppercase; font-size: 1.3rem; font-weight: 800}
   #classCard .gauge #gArc,#classCard .gauge #gTrack{stroke-width:14px}
   #classCard .gauge #gArc{transition:stroke-dasharray 900ms ease-in-out, stroke 900ms linear}
   #classCard .summary .kpi:first-child{padding:0;background:transparent;border:0;box-shadow:none;gap:0}
@@ -351,7 +435,7 @@
   #entradaCard .grid{display:grid;grid-template-columns:1fr;gap:12px;align-items:stretch;min-height:0}
   /* garantir que o card unificado ocupe a coluna única */
   #quantidadeInnCard{grid-column:1;grid-row:auto}
-  #entradaCard .card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:4px}
+  #entradaCard .card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:4px;box-shadow:0 2px 6px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06)}
   #entradaCard .divider{border-top:1px solid #e5e7eb;margin:6px 0}
   /* Divider within the unified quantidade/preço card: 50% width and centered */
   #quantidadeInnCard .divider{width:50%;margin:6px auto}
@@ -1969,20 +2053,26 @@
               const fmtMoney = (n) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
               const fmtQty = (n) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
               
+              console.log('[LOAD DEBUG] Preenchendo campos visuais...');
+              
               if(simExtraCx != null && Number.isFinite(simExtraCx)) {
                 const input = document.querySelector('#sim-extra-qty');
+                console.log('[LOAD DEBUG] sim-extra-qty:', input, 'valor:', fmtQty(simExtraCx));
                 if(input) input.value = fmtQty(simExtraCx);
               }
               if(simExtraTotal != null && Number.isFinite(simExtraTotal)) {
                 const input = document.querySelector('#sim-extra-total');
+                console.log('[LOAD DEBUG] sim-extra-total:', input, 'valor:', fmtMoney(simExtraTotal));
                 if(input) input.value = fmtMoney(simExtraTotal);
               }
               if(simMedioCx != null && Number.isFinite(simMedioCx)) {
                 const input = document.querySelector('#sim-medio-qty');
+                console.log('[LOAD DEBUG] sim-medio-qty:', input, 'valor:', fmtQty(simMedioCx));
                 if(input) input.value = fmtQty(simMedioCx);
               }
               if(simMedioTotal != null && Number.isFinite(simMedioTotal)) {
                 const input = document.querySelector('#sim-medio-total');
+                console.log('[LOAD DEBUG] sim-medio-total:', input, 'valor:', fmtMoney(simMedioTotal));
                 if(input) input.value = fmtMoney(simMedioTotal);
               }
               
@@ -4208,31 +4298,38 @@
           if (custoKgEl) custoKgEl.textContent = formatDecimal(totalCustoKg);
         }
         
-        // Distribuição Proporcional
+        // Distribuição Proporcional BASEADA EM QUANTIDADE DE CAIXAS
         if (hasExtra()) {
-          // COM Extra: distribui proporcionalmente
-          const somaAtual = state.extraCustoTotal + state.medioCustoTotal;
+          // COM Extra: distribui proporcionalmente às caixas
+          const totalCx = state.extraCx + state.medioCx;
           
-          if (somaAtual > 0) {
-            const propExtra = state.extraCustoTotal / somaAtual;
-            const propMedio = state.medioCustoTotal / somaAtual;
+          console.log('[CENÁRIO 2] DEBUG - valorTotal:', valorTotal, 'extraCx:', state.extraCx, 'medioCx:', state.medioCx, 'totalCx:', totalCx);
+          
+          if (totalCx > 0) {
+            const propExtra = state.extraCx / totalCx;
+            const propMedio = state.medioCx / totalCx;
             
             state.extraCustoTotal = valorTotal * propExtra;
             state.medioCustoTotal = valorTotal * propMedio;
             
-            console.log('[CENÁRIO 2] Proporção - Extra:', (propExtra*100).toFixed(1), '% Médio:', (propMedio*100).toFixed(1), '%');
+            console.log('[CENÁRIO 2] Proporção por caixas - Extra:', (propExtra*100).toFixed(1), '% (', state.extraCx, 'cx) =', state.extraCustoTotal.toFixed(2), 'Médio:', (propMedio*100).toFixed(1), '% (', state.medioCx, 'cx) =', state.medioCustoTotal.toFixed(2));
+            console.log('[CENÁRIO 2] Soma conferência:', (state.extraCustoTotal + state.medioCustoTotal).toFixed(2), 'vs valorTotal:', valorTotal.toFixed(2));
           } else {
-            // Se não tem proporção, assume 75% Extra, 25% Médio
-            state.extraCustoTotal = valorTotal * 0.75;
-            state.medioCustoTotal = valorTotal * 0.25;
-            console.log('[CENÁRIO 2] Sem proporção, usando padrão 75/25');
+            // Sem caixas, não distribui
+            state.extraCustoTotal = 0;
+            state.medioCustoTotal = 0;
+            console.log('[CENÁRIO 2] Sem caixas para distribuir');
           }
           
           // Recalcula custos unitários
           state.extraCustoCx = state.extraCx > 0 ? (state.extraCustoTotal / state.extraCx) : 0;
           state.extraCustoKg = state.extraKg > 0 ? (state.extraCustoTotal / state.extraKg) : 0;
-          state.medioCustoCx = state.medioCx > 0 ? (state.medioCustoTotal / state.medioCx) : 0;
-          state.medioCustoKg = state.medioKg > 0 ? (state.medioCustoTotal / state.medioKg) : 0;
+          
+          // MÉDIO: Custo sempre METADE do Extra
+          state.medioCustoCx = state.extraCustoCx / 2;
+          state.medioCustoKg = state.extraCustoKg / 2;
+          
+          console.log('[CENÁRIO 2] Custos unitários - Extra Cx:', state.extraCustoCx.toFixed(2), 'Kg:', state.extraCustoKg.toFixed(2), '| Médio Cx:', state.medioCustoCx.toFixed(2), '(metade) Kg:', state.medioCustoKg.toFixed(2), '(metade)');
         } else {
           // SEM Extra: todo valor vai para Médio
           state.extraCustoTotal = 0;
@@ -4258,62 +4355,72 @@
 
       /**
        * CENÁRIO 3: Editar Custo/cx Global
+       * IMPORTANTE: NÃO recalcula Valor Total, apenas redistribui proporcionalmente
        */
       const cenario3_EditarCustoCxGlobal = (totalCustoCx) => {
         const state = window.__DIST_EXTRA_MEDIO_STATE;
-        const totalCx = state.extraCx + state.medioCx;
         
-        console.log('[CENÁRIO 3] Editar Custo/cx Global:', totalCustoCx);
+        console.log('[CENÁRIO 3] Editar Custo/cx Global:', totalCustoCx, '(NÃO recalcula Valor Total, apenas redistribui)');
         
-        // Calcula Valor Total
-        const valorTotal = totalCustoCx * totalCx;
+        // Busca o Valor Total ATUAL do window.__DIST_STATE (não recalcula!)
+        const distState = window.__DIST_STATE || {};
+        const valorTotalAtual = Number(distState?.custo?.total) || 0;
+        
+        console.log('[CENÁRIO 3] Valor Total MANTIDO:', valorTotalAtual, 'de window.__DIST_STATE.custo.total');
+        
+        if (valorTotalAtual <= 0) {
+          console.warn('[CENÁRIO 3] Valor Total é zero, abortando redistribuição');
+          return;
+        }
+        
+        // Calcula Custo/kg baseado no Valor Total atual
         const totalKg = state.extraKg + state.medioKg;
-        const totalCustoKg = totalKg > 0 ? (valorTotal / totalKg) : 0;
+        const totalCustoKg = totalKg > 0 ? (valorTotalAtual / totalKg) : 0;
         
-        // Atualiza Custo/kg Global
+        // Atualiza Custo/kg Global (sem alterar Custo/cx - ele vem do input do usuário)
         const custoKgEl = document.getElementById('costKgDisplay');
         const formatDecimal = (v) => (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         if (custoKgEl) custoKgEl.textContent = formatDecimal(totalCustoKg);
         
-        // Atualiza Valor Total
-        if (typeof window.__setDistribTotal === 'function') {
-          window.__setDistribTotal(valorTotal, { source: 'cenario3', skipCallbacks: true });
-        }
+        // Chama Cenário 2 para redistribuir COM O VALOR TOTAL ATUAL (não recalculado)
+        cenario2_EditarValorTotal(valorTotalAtual, { skipTotalCostRecalc: true });
         
-        // Chama Cenário 2 COM flag para não recalcular totalCustoCx (previne loop)
-        cenario2_EditarValorTotal(valorTotal, { skipTotalCostRecalc: true });
-        
-        console.log('[CENÁRIO 3] Valor Total calculado:', valorTotal);
+        console.log('[CENÁRIO 3] Redistribuído mantendo Valor Total:', valorTotalAtual);
       };
 
       /**
        * CENÁRIO 3B: Editar Custo/kg Global
+       * IMPORTANTE: NÃO recalcula Valor Total, apenas redistribui proporcionalmente
        */
       const cenario3B_EditarCustoKgGlobal = (totalCustoKg) => {
         const state = window.__DIST_EXTRA_MEDIO_STATE;
-        const totalKg = state.extraKg + state.medioKg;
         
-        console.log('[CENÁRIO 3B] Editar Custo/kg Global:', totalCustoKg);
+        console.log('[CENÁRIO 3B] Editar Custo/kg Global:', totalCustoKg, '(NÃO recalcula Valor Total, apenas redistribui)');
         
-        // Calcula Valor Total
-        const valorTotal = totalCustoKg * totalKg;
+        // Busca o Valor Total ATUAL do window.__DIST_STATE (não recalcula!)
+        const distState = window.__DIST_STATE || {};
+        const valorTotalAtual = Number(distState?.custo?.total) || 0;
+        
+        console.log('[CENÁRIO 3B] Valor Total MANTIDO:', valorTotalAtual, 'de window.__DIST_STATE.custo.total');
+        
+        if (valorTotalAtual <= 0) {
+          console.warn('[CENÁRIO 3B] Valor Total é zero, abortando redistribuição');
+          return;
+        }
+        
+        // Calcula Custo/cx baseado no Valor Total atual
         const totalCx = state.extraCx + state.medioCx;
-        const totalCustoCx = totalCx > 0 ? (valorTotal / totalCx) : 0;
+        const totalCustoCx = totalCx > 0 ? (valorTotalAtual / totalCx) : 0;
         
-        // Atualiza Custo/cx Global
+        // Atualiza Custo/cx Global (sem alterar Custo/kg - ele vem do input do usuário)
         const custoCxEl = document.getElementById('costCxDisplay');
         const formatDecimal = (v) => (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         if (custoCxEl) custoCxEl.textContent = formatDecimal(totalCustoCx);
         
-        // Atualiza Valor Total
-        if (typeof window.__setDistribTotal === 'function') {
-          window.__setDistribTotal(valorTotal, { source: 'cenario3B', skipCallbacks: true });
-        }
+        // Chama Cenário 2 para redistribuir COM O VALOR TOTAL ATUAL (não recalculado)
+        cenario2_EditarValorTotal(valorTotalAtual, { skipTotalCostRecalc: true });
         
-        // Chama Cenário 2 COM flag para não recalcular totalCustoCx/Kg (previne loop)
-        cenario2_EditarValorTotal(valorTotal, { skipTotalCostRecalc: true });
-        
-        console.log('[CENÁRIO 3B] Valor Total calculado:', valorTotal);
+        console.log('[CENÁRIO 3B] Redistribuído mantendo Valor Total:', valorTotalAtual);
       };
 
       /**
