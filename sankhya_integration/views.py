@@ -1107,11 +1107,37 @@ def cencus_search(request: HttpRequest) -> JsonResponse:
 def produtos_search(request: HttpRequest) -> JsonResponse:
     q = (request.GET.get("q", "").strip() or "")
     lim = int(request.GET.get("limit", 10))
+    fabricante_mode = (request.GET.get("fabricante") or "").strip() not in ("", "0", "false", "False")
     cod_inn_raw = (request.GET.get("cod_innatura") or request.GET.get("cod_inn") or "").strip()
     fabricante_flt = None
     token_flt = None
     with get_connection() as conn:
         cur = conn.cursor()
+        if fabricante_mode:
+            # Auto-complete por FABRICANTE (distinto), ignorando códigos; LIKE no fabricante.
+            try:
+                cur.execute("ALTER SESSION SET NLS_COMP=LINGUISTIC")
+                cur.execute("ALTER SESSION SET NLS_SORT=BINARY_AI")
+            except Exception:
+                pass
+            if q:
+                cur.execute(
+                    "SELECT fabricante FROM ("
+                    "  SELECT DISTINCT UPPER(NVL(FABRICANTE,'')) AS fabricante"
+                    "    FROM TGFPRO WHERE UPPER(NVL(FABRICANTE,'')) LIKE :p AND TO_CHAR(CODGRUPOPROD) LIKE '1%'"
+                    ") WHERE ROWNUM <= :lim",
+                    p=f"%{q.upper()}%", lim=lim,
+                )
+            else:
+                cur.execute(
+                    "SELECT fabricante FROM ("
+                    "  SELECT DISTINCT UPPER(NVL(FABRICANTE,'')) AS fabricante"
+                    "    FROM TGFPRO WHERE TO_CHAR(CODGRUPOPROD) LIKE '1%'"
+                    ") WHERE ROWNUM <= :lim",
+                    lim=lim,
+                )
+            rows = [r[0] for r in cur.fetchall() if (r[0] or '').strip()]
+            return JsonResponse({"results": [{"fabricante": f} for f in rows]})
         # Ensure accent-insensitive, case-insensitive comparisons for LIKE
         # Using linguistic comparisons makes 'MÉDIO' match 'medio', 'médio', etc.
         try:
@@ -2484,6 +2510,7 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
         date_end = request.GET.get('end') or None
         codparc = _to_int(request.GET.get('codparc'))
         codprod = _to_int(request.GET.get('codprod'))
+        fabricante = (request.GET.get('fabricante') or '').strip()
         limit = _to_int(request.GET.get('limit'), 50)
         offset = _to_int(request.GET.get('offset'), 0)
 
@@ -2496,6 +2523,16 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
             limit=limit,
             offset=offset,
         )
+        # Filtrar por FABRICANTE em memória, se solicitado (para evitar alterar a SQL base)
+        if fabricante:
+            f = fabricante.upper()
+            def _ok(r):
+                try:
+                    prodname = (r[1] or '')
+                    return f in str(prodname).upper()
+                except Exception:
+                    return False
+            rows = [r for r in rows if _ok(r)]
         out = []
         for r in rows:
             # (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2)

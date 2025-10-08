@@ -17,6 +17,9 @@
   html,body{height:100%}
   .wrap{padding:var(--wrap-pad);min-height:100%;height:100%}
   .appbar{height:var(--appbar-h);display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--gap)}
+  .appbar .home-btn{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;background:#fff;border:1px solid #e5e7eb;color:#334155;text-decoration:none;transition:all .2s ease;box-shadow:0 2px 4px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)}
+  .appbar .home-btn:hover{background:#f8fafb;color:#0a3392;box-shadow:0 4px 8px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.08);transform:translateY(-1px)}
+  .appbar .home-btn svg{width:20px;height:20px}
   .appbar h1{margin:0;font-size:1.1rem;line-height:1.2}
   .appbar .sup-name{font-family:"Courgette", cursive;font-size:.9rem;font-weight:400;color:#0a3392;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0;max-width:45%}
 
@@ -150,6 +153,9 @@
   #filtersCard .btn{appearance:none;-webkit-appearance:none;border-radius:6px;padding:5px 10px;font-size:.8rem;font-weight:600;cursor:pointer;line-height:1;border:1px solid transparent;background:#fff}
   #filtersCard .btn-clear{border-color:#f59e0b;color:#b45309;background:#fff}
   #filtersCard .btn-clear:hover{background:#fff7ed}
+  /* Autocomplete dropdown highlight for active row */
+  .ac-dropdown .ac-item.active{background:#e5e7eb}
+  .ac-dropdown .ac-item:hover{background:#f3f4f6}
   /* make tableCard grow to fill remaining height in the sidebar */
   #tableCard{flex:1 1 auto;min-height:0;margin-top:8px;display:flex;flex-direction:column}
 
@@ -537,7 +543,15 @@
 </head>
 <body>
   <div class="wrap">
-  
+    <div class="appbar">
+      <a href="/sankhya/" class="home-btn" title="Voltar para Home" aria-label="Voltar para página inicial">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+          <polyline points="9 22 9 12 15 12 15 22"></polyline>
+        </svg>
+      </a>
+      <h1><span class="sup-name" id="supplierName"></span></h1>
+    </div>
 
     <div class="layout">
       <aside class="sidebar group group--pesquisa">
@@ -545,27 +559,26 @@
           <h3>Filtros</h3>
           <form id="filtrosForm" class="filtros-form">
             <div class="row">
-              <div class="stack">
-                <label for="fltFornecedor">Fornecedor</label>
-                <select id="fltFornecedor">
-                  <option value="">Todos</option>
-                </select>
+              <div class="stack" style="position:relative">
+                <label for="fltFornecedor">Parceiro</label>
+                <input type="text" id="fltFornecedor" placeholder="Digite código ou nome…" autocomplete="off" tabindex="1" />
+                <input type="hidden" id="fltFornecedorCode" value="" />
+                <div id="fltFornecedorDropdown" class="ac-dropdown" style="position:absolute; z-index:50; inset-inline:0; top:100%; margin-top:2px; display:none; background:#fff; border:1px solid #e5e7eb; border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,.08); max-height:220px; overflow:auto;"></div>
               </div>
-              <div class="stack">
-                <label for="fltProduto">Produto</label>
-                <select id="fltProduto">
-                  <option value="">Todos</option>
-                </select>
+              <div class="stack" style="position:relative">
+                <label for="fltProduto">Produto (Fabricante)</label>
+                <input type="text" id="fltProduto" placeholder="Digite fabricante…" autocomplete="off" tabindex="2" />
+                <div id="fltProdutoDropdown" class="ac-dropdown" style="position:absolute; z-index:50; inset-inline:0; top:100%; margin-top:2px; display:none; background:#fff; border:1px solid #e5e7eb; border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,.08); max-height:220px; overflow:auto;"></div>
               </div>
             </div>
             <div class="row">
               <div class="stack" style="grid-column:1 / -1">
                 <label for="fltDataCompra">Data</label>
-                <input type="date" id="fltDataCompra" />
+                <input type="date" id="fltDataCompra" tabindex="3" />
               </div>
             </div>
             <div class="actions">
-              <button type="button" id="btnLimparFiltros" class="btn btn-clear">Limpar filtros</button>
+              <button type="button" id="btnLimparFiltros" class="btn btn-clear" style="font-size: 0.75rem; padding: 4px 12px; background: #e5e7eb; border: 1px solid #9ca3af; color: #6b7280; opacity: 0.8;" tabindex="4">Limpar filtros</button>
             </div>
           </form>
         </div>
@@ -1299,6 +1312,12 @@
     (function(){
       const form = document.getElementById('filtrosForm');
       if(!form) return;
+      const parceiroInput = form.querySelector('#fltFornecedor');
+      const parceiroCode  = form.querySelector('#fltFornecedorCode');
+      const parceiroDrop  = form.querySelector('#fltFornecedorDropdown');
+      const produtoInput  = form.querySelector('#fltProduto');
+      const produtoDrop   = form.querySelector('#fltProdutoDropdown');
+
       const toPayload = () => {
         const data = new FormData(form);
         const payload = {
@@ -1310,9 +1329,11 @@
           faturado: data.get('fat') || '',
           cracha: (form.querySelector('#fltCracha')?.value || '').trim(),
           dataCompra: form.querySelector('#fltDataCompra')?.value || '',
-          fornecedor: form.querySelector('#fltFornecedor')?.value || '',
+          // fornecedor/codparc vai pelo hidden code
+          fornecedor: parceiroCode?.value || '',
           produtos: Array.from(form.querySelectorAll('input[name="produtoTipo"]:checked')).map(i=>i.value),
-          produto: form.querySelector('#fltProduto')?.value || ''
+          // produto será pesquisado por FABRICANTE (texto)
+          produto: produtoInput?.value || ''
         };
         return payload;
       };
@@ -1323,10 +1344,130 @@
       form.addEventListener('change', emit);
       document.getElementById('btnLimparFiltros')?.addEventListener('click', ()=>{
         form.reset();
+        if(parceiroCode) parceiroCode.value = '';
+        if(parceiroDrop) parceiroDrop.style.display = 'none';
+        if(produtoDrop) produtoDrop.style.display = 'none';
         emit();
       });
       // On page load, fire once so 'Lista' can load
       setTimeout(emit, 0);
+
+      // Helpers: debounce
+      const debounce = (fn, ms=250) => { let t; return (...args)=>{ clearTimeout(t); t = setTimeout(()=>fn(...args), ms); }; };
+      const buildList = (items, render) => {
+        const frag = document.createDocumentFragment();
+        items.forEach((it, idx)=>{
+          const div = document.createElement('div');
+          div.className = 'ac-item';
+          div.setAttribute('role','option');
+          div.setAttribute('data-idx', String(idx));
+          div.style.padding = '6px 8px';
+          div.style.cursor = 'pointer';
+          div.addEventListener('mouseenter', ()=> setActive(div));
+          div.addEventListener('mousedown', (e)=>{ e.preventDefault(); selectActive(div); });
+          div.innerHTML = render(it);
+          frag.appendChild(div);
+        });
+        return frag;
+      };
+      function setActive(el){
+        const cont = el?.parentElement; if(!cont) return;
+        cont.querySelectorAll('.ac-item.active').forEach(n=> n.classList.remove('active'));
+        el.classList.add('active');
+      }
+      function selectActive(el){
+        if(!el) return; const cont = el.parentElement; if(!cont) return;
+        const idx = Number(el.getAttribute('data-idx')) || 0;
+        const arr = cont._items || [];
+        const it = arr[idx];
+        if(cont.id === 'fltFornecedorDropdown'){
+          if(parceiroInput) parceiroInput.value = `${it.codparc} — ${it.nomeparc}`;
+          if(parceiroCode) parceiroCode.value = String(it.codparc);
+          cont.style.display = 'none';
+          // focus próximo campo
+          produtoInput?.focus();
+        }else if(cont.id === 'fltProdutoDropdown'){
+          if(produtoInput) produtoInput.value = it.fabricante || '';
+          cont.style.display = 'none';
+          // dispara filtro imediatamente
+        }
+        emit();
+      }
+      function moveActive(cont, dir){
+        const items = Array.from(cont.querySelectorAll('.ac-item'));
+        if(!items.length) return;
+        let i = items.findIndex(n=> n.classList.contains('active'));
+        i = i < 0 ? 0 : i;
+        i = (i + dir + items.length) % items.length;
+        setActive(items[i]);
+        items[i].scrollIntoView({ block:'nearest' });
+      }
+
+      // Autocomplete Parceiro (TGFPAR) — começa no 3º caractere
+      const fetchParceiros = debounce(async ()=>{
+        const q = (parceiroInput?.value || '').trim();
+        if(q.length < 3){ parceiroDrop.style.display='none'; return; }
+        const url = `/sankhya/parceiros/search/?q=${encodeURIComponent(q)}&limit=20`;
+        const res = await fetch(url, { credentials:'same-origin' });
+        const js = await res.json().catch(()=>({results:[]}));
+        const arr = js.results || [];
+        parceiroDrop.innerHTML = '';
+        parceiroDrop._items = arr;
+        parceiroDrop.appendChild(buildList(arr, it=> `<div><strong>${it.codparc}</strong> — ${it.nomeparc||''}</div>`));
+        const first = parceiroDrop.querySelector('.ac-item');
+        if(first) first.classList.add('active');
+        parceiroDrop.style.display = arr.length ? 'block' : 'none';
+      }, 250);
+      parceiroInput?.addEventListener('input', ()=>{ if(parceiroCode) parceiroCode.value=''; fetchParceiros(); });
+      parceiroInput?.addEventListener('keydown', (e)=>{
+        if(parceiroDrop.style.display!=='block') return;
+        if(e.key==='ArrowDown'){ e.preventDefault(); moveActive(parceiroDrop, +1); }
+        else if(e.key==='ArrowUp'){ e.preventDefault(); moveActive(parceiroDrop, -1); }
+        else if(e.key==='Enter' || e.key==='Tab'){
+          e.preventDefault();
+          const act = parceiroDrop.querySelector('.ac-item.active');
+          selectActive(act);
+          // foco no próximo campo (Produto)
+          setTimeout(()=> produtoInput?.focus(), 0);
+        }
+        else if(e.key==='Escape'){ parceiroDrop.style.display='none'; }
+      });
+      parceiroInput?.addEventListener('blur', ()=> setTimeout(()=> parceiroDrop.style.display='none', 150));
+
+      // Autocomplete Produto por FABRICANTE — começa no 3º caractere (usa produtos_search, mas envia q como fabricante)
+      const fetchFabricantes = debounce(async ()=>{
+        const q = (produtoInput?.value || '').trim();
+        if(q.length < 3){ produtoDrop.style.display='none'; return; }
+        // Endpoint existente retorna por DESCR, mas vamos filtrar por FABRICANTE no backend se detectar &fabricante=1
+        const url = `/sankhya/produtos/search/?q=${encodeURIComponent(q)}&limit=20&fabricante=1`;
+        const res = await fetch(url, { credentials:'same-origin' });
+        const js = await res.json().catch(()=>({results:[]}));
+        // Esperado: results: [{fabricante: 'TOMATE'}, ...] ou fallback por descr
+        const arr = (js.results || []).map(r=> ({ fabricante: r.fabricante || r.descr || '' }))
+                                      .filter(x=> x.fabricante)
+                                      .reduce((acc, cur)=>{ if(!acc.find(a=> a.fabricante===cur.fabricante)) acc.push(cur); return acc; }, []);
+        produtoDrop.innerHTML = '';
+        produtoDrop._items = arr;
+        produtoDrop.appendChild(buildList(arr, it=> `<div>${it.fabricante}</div>`));
+        const first = produtoDrop.querySelector('.ac-item');
+        if(first) first.classList.add('active');
+        produtoDrop.style.display = arr.length ? 'block' : 'none';
+      }, 250);
+      produtoInput?.addEventListener('input', fetchFabricantes);
+      produtoInput?.addEventListener('keydown', (e)=>{
+        if(produtoDrop.style.display!=='block') return;
+        if(e.key==='ArrowDown'){ e.preventDefault(); moveActive(produtoDrop, +1); }
+        else if(e.key==='ArrowUp'){ e.preventDefault(); moveActive(produtoDrop, -1); }
+        else if(e.key==='Enter' || e.key==='Tab'){
+          e.preventDefault();
+          const act = produtoDrop.querySelector('.ac-item.active');
+          selectActive(act);
+          // foco no próximo campo (Data)
+          setTimeout(()=> form.querySelector('#fltDataCompra')?.focus(), 0);
+        }
+        else if(e.key==='Escape'){ produtoDrop.style.display='none'; }
+      });
+      produtoInput?.addEventListener('blur', ()=> setTimeout(()=> produtoDrop.style.display='none', 150));
     })();
 
     // Inline edit for Valor Total (card #distMini4)
@@ -1576,7 +1717,11 @@
         if(d.historico && d.historico !== 'all') qs.set('days', d.historico);
         if(d.dataCompra) { qs.set('start', d.dataCompra); qs.set('end', d.dataCompra); }
         if(d.fornecedor) qs.set('codparc', d.fornecedor);
-        if(d.produto) qs.set('codprod', d.produto);
+        // Produto: enviar como fabricante, backend ainda usa codprod; manter compat anterior se valor for número
+        if(d.produto){
+          if(/^\d+$/.test(String(d.produto))) qs.set('codprod', d.produto);
+          else qs.set('fabricante', d.produto);
+        }
         return qs.toString();
       }
       function fmtDate(s){
@@ -2053,26 +2198,20 @@
               const fmtMoney = (n) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
               const fmtQty = (n) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
               
-              console.log('[LOAD DEBUG] Preenchendo campos visuais...');
-              
               if(simExtraCx != null && Number.isFinite(simExtraCx)) {
                 const input = document.querySelector('#sim-extra-qty');
-                console.log('[LOAD DEBUG] sim-extra-qty:', input, 'valor:', fmtQty(simExtraCx));
                 if(input) input.value = fmtQty(simExtraCx);
               }
               if(simExtraTotal != null && Number.isFinite(simExtraTotal)) {
                 const input = document.querySelector('#sim-extra-total');
-                console.log('[LOAD DEBUG] sim-extra-total:', input, 'valor:', fmtMoney(simExtraTotal));
                 if(input) input.value = fmtMoney(simExtraTotal);
               }
               if(simMedioCx != null && Number.isFinite(simMedioCx)) {
                 const input = document.querySelector('#sim-medio-qty');
-                console.log('[LOAD DEBUG] sim-medio-qty:', input, 'valor:', fmtQty(simMedioCx));
                 if(input) input.value = fmtQty(simMedioCx);
               }
               if(simMedioTotal != null && Number.isFinite(simMedioTotal)) {
                 const input = document.querySelector('#sim-medio-total');
-                console.log('[LOAD DEBUG] sim-medio-total:', input, 'valor:', fmtMoney(simMedioTotal));
                 if(input) input.value = fmtMoney(simMedioTotal);
               }
               
@@ -4298,38 +4437,31 @@
           if (custoKgEl) custoKgEl.textContent = formatDecimal(totalCustoKg);
         }
         
-        // Distribuição Proporcional BASEADA EM QUANTIDADE DE CAIXAS
+        // Distribuição Proporcional
         if (hasExtra()) {
-          // COM Extra: distribui proporcionalmente às caixas
-          const totalCx = state.extraCx + state.medioCx;
+          // COM Extra: distribui proporcionalmente
+          const somaAtual = state.extraCustoTotal + state.medioCustoTotal;
           
-          console.log('[CENÁRIO 2] DEBUG - valorTotal:', valorTotal, 'extraCx:', state.extraCx, 'medioCx:', state.medioCx, 'totalCx:', totalCx);
-          
-          if (totalCx > 0) {
-            const propExtra = state.extraCx / totalCx;
-            const propMedio = state.medioCx / totalCx;
+          if (somaAtual > 0) {
+            const propExtra = state.extraCustoTotal / somaAtual;
+            const propMedio = state.medioCustoTotal / somaAtual;
             
             state.extraCustoTotal = valorTotal * propExtra;
             state.medioCustoTotal = valorTotal * propMedio;
             
-            console.log('[CENÁRIO 2] Proporção por caixas - Extra:', (propExtra*100).toFixed(1), '% (', state.extraCx, 'cx) =', state.extraCustoTotal.toFixed(2), 'Médio:', (propMedio*100).toFixed(1), '% (', state.medioCx, 'cx) =', state.medioCustoTotal.toFixed(2));
-            console.log('[CENÁRIO 2] Soma conferência:', (state.extraCustoTotal + state.medioCustoTotal).toFixed(2), 'vs valorTotal:', valorTotal.toFixed(2));
+            console.log('[CENÁRIO 2] Proporção - Extra:', (propExtra*100).toFixed(1), '% Médio:', (propMedio*100).toFixed(1), '%');
           } else {
-            // Sem caixas, não distribui
-            state.extraCustoTotal = 0;
-            state.medioCustoTotal = 0;
-            console.log('[CENÁRIO 2] Sem caixas para distribuir');
+            // Se não tem proporção, assume 75% Extra, 25% Médio
+            state.extraCustoTotal = valorTotal * 0.75;
+            state.medioCustoTotal = valorTotal * 0.25;
+            console.log('[CENÁRIO 2] Sem proporção, usando padrão 75/25');
           }
           
           // Recalcula custos unitários
           state.extraCustoCx = state.extraCx > 0 ? (state.extraCustoTotal / state.extraCx) : 0;
           state.extraCustoKg = state.extraKg > 0 ? (state.extraCustoTotal / state.extraKg) : 0;
-          
-          // MÉDIO: Custo sempre METADE do Extra
-          state.medioCustoCx = state.extraCustoCx / 2;
-          state.medioCustoKg = state.extraCustoKg / 2;
-          
-          console.log('[CENÁRIO 2] Custos unitários - Extra Cx:', state.extraCustoCx.toFixed(2), 'Kg:', state.extraCustoKg.toFixed(2), '| Médio Cx:', state.medioCustoCx.toFixed(2), '(metade) Kg:', state.medioCustoKg.toFixed(2), '(metade)');
+          state.medioCustoCx = state.medioCx > 0 ? (state.medioCustoTotal / state.medioCx) : 0;
+          state.medioCustoKg = state.medioKg > 0 ? (state.medioCustoTotal / state.medioKg) : 0;
         } else {
           // SEM Extra: todo valor vai para Médio
           state.extraCustoTotal = 0;
@@ -4355,72 +4487,62 @@
 
       /**
        * CENÁRIO 3: Editar Custo/cx Global
-       * IMPORTANTE: NÃO recalcula Valor Total, apenas redistribui proporcionalmente
        */
       const cenario3_EditarCustoCxGlobal = (totalCustoCx) => {
         const state = window.__DIST_EXTRA_MEDIO_STATE;
+        const totalCx = state.extraCx + state.medioCx;
         
-        console.log('[CENÁRIO 3] Editar Custo/cx Global:', totalCustoCx, '(NÃO recalcula Valor Total, apenas redistribui)');
+        console.log('[CENÁRIO 3] Editar Custo/cx Global:', totalCustoCx);
         
-        // Busca o Valor Total ATUAL do window.__DIST_STATE (não recalcula!)
-        const distState = window.__DIST_STATE || {};
-        const valorTotalAtual = Number(distState?.custo?.total) || 0;
-        
-        console.log('[CENÁRIO 3] Valor Total MANTIDO:', valorTotalAtual, 'de window.__DIST_STATE.custo.total');
-        
-        if (valorTotalAtual <= 0) {
-          console.warn('[CENÁRIO 3] Valor Total é zero, abortando redistribuição');
-          return;
-        }
-        
-        // Calcula Custo/kg baseado no Valor Total atual
+        // Calcula Valor Total
+        const valorTotal = totalCustoCx * totalCx;
         const totalKg = state.extraKg + state.medioKg;
-        const totalCustoKg = totalKg > 0 ? (valorTotalAtual / totalKg) : 0;
+        const totalCustoKg = totalKg > 0 ? (valorTotal / totalKg) : 0;
         
-        // Atualiza Custo/kg Global (sem alterar Custo/cx - ele vem do input do usuário)
+        // Atualiza Custo/kg Global
         const custoKgEl = document.getElementById('costKgDisplay');
         const formatDecimal = (v) => (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         if (custoKgEl) custoKgEl.textContent = formatDecimal(totalCustoKg);
         
-        // Chama Cenário 2 para redistribuir COM O VALOR TOTAL ATUAL (não recalculado)
-        cenario2_EditarValorTotal(valorTotalAtual, { skipTotalCostRecalc: true });
+        // Atualiza Valor Total
+        if (typeof window.__setDistribTotal === 'function') {
+          window.__setDistribTotal(valorTotal, { source: 'cenario3', skipCallbacks: true });
+        }
         
-        console.log('[CENÁRIO 3] Redistribuído mantendo Valor Total:', valorTotalAtual);
+        // Chama Cenário 2 COM flag para não recalcular totalCustoCx (previne loop)
+        cenario2_EditarValorTotal(valorTotal, { skipTotalCostRecalc: true });
+        
+        console.log('[CENÁRIO 3] Valor Total calculado:', valorTotal);
       };
 
       /**
        * CENÁRIO 3B: Editar Custo/kg Global
-       * IMPORTANTE: NÃO recalcula Valor Total, apenas redistribui proporcionalmente
        */
       const cenario3B_EditarCustoKgGlobal = (totalCustoKg) => {
         const state = window.__DIST_EXTRA_MEDIO_STATE;
+        const totalKg = state.extraKg + state.medioKg;
         
-        console.log('[CENÁRIO 3B] Editar Custo/kg Global:', totalCustoKg, '(NÃO recalcula Valor Total, apenas redistribui)');
+        console.log('[CENÁRIO 3B] Editar Custo/kg Global:', totalCustoKg);
         
-        // Busca o Valor Total ATUAL do window.__DIST_STATE (não recalcula!)
-        const distState = window.__DIST_STATE || {};
-        const valorTotalAtual = Number(distState?.custo?.total) || 0;
-        
-        console.log('[CENÁRIO 3B] Valor Total MANTIDO:', valorTotalAtual, 'de window.__DIST_STATE.custo.total');
-        
-        if (valorTotalAtual <= 0) {
-          console.warn('[CENÁRIO 3B] Valor Total é zero, abortando redistribuição');
-          return;
-        }
-        
-        // Calcula Custo/cx baseado no Valor Total atual
+        // Calcula Valor Total
+        const valorTotal = totalCustoKg * totalKg;
         const totalCx = state.extraCx + state.medioCx;
-        const totalCustoCx = totalCx > 0 ? (valorTotalAtual / totalCx) : 0;
+        const totalCustoCx = totalCx > 0 ? (valorTotal / totalCx) : 0;
         
-        // Atualiza Custo/cx Global (sem alterar Custo/kg - ele vem do input do usuário)
+        // Atualiza Custo/cx Global
         const custoCxEl = document.getElementById('costCxDisplay');
         const formatDecimal = (v) => (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         if (custoCxEl) custoCxEl.textContent = formatDecimal(totalCustoCx);
         
-        // Chama Cenário 2 para redistribuir COM O VALOR TOTAL ATUAL (não recalculado)
-        cenario2_EditarValorTotal(valorTotalAtual, { skipTotalCostRecalc: true });
+        // Atualiza Valor Total
+        if (typeof window.__setDistribTotal === 'function') {
+          window.__setDistribTotal(valorTotal, { source: 'cenario3B', skipCallbacks: true });
+        }
         
-        console.log('[CENÁRIO 3B] Redistribuído mantendo Valor Total:', valorTotalAtual);
+        // Chama Cenário 2 COM flag para não recalcular totalCustoCx/Kg (previne loop)
+        cenario2_EditarValorTotal(valorTotal, { skipTotalCostRecalc: true });
+        
+        console.log('[CENÁRIO 3B] Valor Total calculado:', valorTotal);
       };
 
       /**
