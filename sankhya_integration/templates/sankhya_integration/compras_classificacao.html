@@ -128,20 +128,16 @@
             </div>
           </div>
           <div>
-            <label>Nota</label>
-            <div class="filters-range">
-              <input type="text" name="nronota_ini" value="{{ params.nronota_ini|default:'' }}" />
-              <div class="sep">a</div>
-              <input type="text" name="nronota_fim" value="{{ params.nronota_fim|default:'' }}" />
-            </div>
-          </div>
-          <div>
             <label>Nº Único</label>
-            <input type="number" name="nunota_ini" value="{{ params.nunota_ini|default:'' }}" />
+            <input type="number" name="nunota" value="{{ params.nunota|default:'' }}" />
           </div>
           <div>
-            <label>Produto</label>
-            <input type="number" name="codprod" value="{{ params.codprod|default:'' }}" />
+            <label>Produto (Fabricante)</label>
+            <div style="position:relative;">
+              <input type="hidden" name="fabricante" id="fabricanteHidden" value="{{ params.fabricante|default:'' }}" />
+              <input type="text" id="fabricanteSearch" placeholder="Digite o fabricante" autocomplete="off" style="width:100%;" value="{{ params.fabricante|default:'' }}" />
+              <div id="fabricanteDropdown" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:6px; max-height:200px; overflow:auto; display:none; z-index:10;"></div>
+            </div>
           </div>
           <div>
             <label>Lote / CODAGREGACAO</label>
@@ -151,7 +147,7 @@
             <label>Parceiro</label>
             <div style="position:relative;">
               <input type="hidden" name="codparc" id="codparc" value="{{ params.codparc|default:'' }}" />
-              <input type="text" id="parcSearch" placeholder="Código ou nome do parceiro" autocomplete="off" style="width:100%;" value="{% if params.codparc %}{{ params.codparc }}{% endif %}" />
+              <input type="text" id="parcSearch" placeholder="Código ou nome do parceiro" autocomplete="off" style="width:100%;" value="{% if parc_display %}{{ parc_display }}{% elif params.codparc %}{{ params.codparc }}{% endif %}" />
               <div id="parcDropdown" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:6px; max-height:200px; overflow:auto; display:none; z-index:10;"></div>
             </div>
           </div>
@@ -159,9 +155,6 @@
         </form>
         <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
           <button type="button" id="btnPrev" class="icon-btn" title="Anterior" data-page="{{ prev_page }}" {% if not has_prev %}disabled{% endif %}>&lt;</button>
-          <div style="font-size:12px; color:var(--muted);">Página {{ page }}</div>
-          <button type="button" id="btnNext" class="icon-btn" title="Próxima" data-page="{{ next_page }}" {% if not has_next %}disabled{% endif %}>&gt;</button>
-        </div>
       </div>
     </aside>
 
@@ -1587,6 +1580,145 @@
   const btnPrev = document.getElementById('btnPrev'); if(btnPrev && !btnPrev.disabled){ btnPrev.addEventListener('click', ()=>{ try{ window.PHOverlay && window.PHOverlay.show && window.PHOverlay.show(); }catch(_){ } goToPage(btnPrev.dataset.page); }); }
   const btnNext = document.getElementById('btnNext'); if(btnNext && !btnNext.disabled){ btnNext.addEventListener('click', ()=>{ try{ window.PHOverlay && window.PHOverlay.show && window.PHOverlay.show(); }catch(_){ } goToPage(btnNext.dataset.page); }); }
     })();
+    // Auto-submit filters for days/date/nunota on Enter or change
+    (function(){
+      const form = document.getElementById('filtersForm'); if(!form) return;
+      function submitResetPage(){ try{ let pg=form.querySelector('input[name="page"]'); if(!pg){ pg=document.createElement('input'); pg.type='hidden'; pg.name='page'; form.appendChild(pg);} pg.value='1'; form.submit(); }catch(_){}}
+      const days = form.querySelector('input[name="days"]');
+      const d1 = form.querySelector('input[name="start"]');
+      const d2 = form.querySelector('input[name="end"]');
+      const nun = form.querySelector('input[name="nunota"]');
+      [d1,d2].forEach(el=> el && el.addEventListener('change', submitResetPage));
+      if(days){ days.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitResetPage(); }}); }
+      if(nun){ nun.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitResetPage(); }}); nun.addEventListener('blur', ()=>{ if(nun.value && nun.value.trim()!==''){ submitResetPage(); }}); }
+    })();
+    // --- Produto (Fabricante) autocomplete ---
+    (function(){
+      const inp = document.getElementById('fabricanteSearch');
+      const hid = document.getElementById('fabricanteHidden');
+      const dd  = document.getElementById('fabricanteDropdown');
+      const form = document.getElementById('filtersForm');
+      if(!inp || !hid || !dd || !form) return;
+      let t = null;
+      function hide(){ dd.style.display='none'; dd.innerHTML=''; }
+      function build(items){
+        dd.innerHTML = items.map((it, idx)=>{
+          const fab = (it.fabricante||'').toString().toUpperCase();
+          return `<div class="ac-item${idx===0?' active':''}" data-fab="${fab}">${fab}</div>`;
+        }).join('');
+        dd.style.display = items.length ? 'block' : 'none';
+      }
+      function fetchQ(q){
+        const url = `/sankhya/produtos/search/?fabricante=1&q=${encodeURIComponent(q)}&limit=10`;
+        fetch(url, { credentials:'same-origin' }).then(r=>r.json()).then(j=> build(j.results||[])).catch(hide);
+      }
+      function selectActive(){
+        const el = dd.querySelector('.ac-item.active') || dd.querySelector('.ac-item');
+        if(!el) return false;
+        const fab = el.getAttribute('data-fab')||'';
+        hid.value = fab; inp.value = fab; hide();
+        try{
+          let pg = form.querySelector('input[name="page"]');
+          if(!pg){ pg = document.createElement('input'); pg.type='hidden'; pg.name='page'; form.appendChild(pg); }
+          pg.value = '1'; form.submit();
+        }catch(_){ }
+        return true;
+      }
+      inp.addEventListener('input', (e)=>{
+        const q = (e.target.value||'').trim();
+        if(t) clearTimeout(t);
+        if(!q){ hide(); hid.value=''; return; }
+        const ok = q.length >= 3;
+        t = setTimeout(()=> ok ? fetchQ(q) : hide(), 200);
+      });
+      inp.addEventListener('keydown', (e)=>{
+        if(dd.style.display === 'none') return;
+        const items = Array.from(dd.querySelectorAll('.ac-item'));
+        if(!items.length) return;
+        const cur = items.findIndex(x=>x.classList.contains('active'));
+        if(e.key === 'ArrowDown'){
+          e.preventDefault(); const nxt = (cur+1+items.length)%items.length; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'});
+        } else if(e.key === 'ArrowUp'){
+          e.preventDefault(); const nxt = (cur-1+items.length)%items.length; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'});
+        } else if(e.key === 'Enter' || e.key === 'Tab'){
+          if(selectActive()) e.preventDefault();
+        } else if(e.key === 'Escape'){
+          hide();
+        }
+      });
+      dd.addEventListener('click', (ev)=>{
+        const el = ev.target.closest('.ac-item'); if(!el) return; dd.querySelectorAll('.ac-item').forEach(x=>x.classList.remove('active')); el.classList.add('active'); selectActive();
+      });
+      document.addEventListener('click', (ev)=>{ if(ev.target!==inp && !dd.contains(ev.target)) hide(); });
+    })();
+    // --- Parceiro autocomplete (codparc) ---
+    (function(){
+      const inp = document.getElementById('parcSearch');
+      const hid = document.getElementById('codparc');
+      const dd  = document.getElementById('parcDropdown');
+      const form = document.getElementById('filtersForm');
+      if(!inp || !hid || !dd || !form) return;
+      let t = null;
+      function hide(){ dd.style.display='none'; dd.innerHTML=''; }
+      function build(items){
+        dd.innerHTML = items.map((it, idx)=>`<div class="ac-item${idx===0?' active':''}" data-cod="${it.codparc}" data-nome="${(it.nomeparc||'').replace(/\"/g,'&quot;')}">${it.codparc} — ${it.nomeparc}</div>`).join('');
+        dd.style.display = items.length ? 'block' : 'none';
+      }
+      function fetchQ(q){
+        const lim = 10;
+        fetch(`/sankhya/parceiros/search/?q=${encodeURIComponent(q)}&limit=${lim}`, { credentials:'same-origin' })
+          .then(r=>r.json()).then(j=> build(j.results||[])).catch(hide);
+      }
+      function selectActive(){
+        const el = dd.querySelector('.ac-item.active') || dd.querySelector('.ac-item');
+        if(!el) return false;
+        const cod = el.getAttribute('data-cod')||'';
+        const nome = el.getAttribute('data-nome')||'';
+        hid.value = cod; inp.value = `${cod} — ${nome}`;
+        hide();
+        // Submit filters resetting to page=1
+        try{
+          let pg = form.querySelector('input[name="page"]');
+          if(!pg){ pg = document.createElement('input'); pg.type='hidden'; pg.name='page'; form.appendChild(pg); }
+          pg.value = '1';
+          form.submit();
+        }catch(_){ }
+        return true;
+      }
+      inp.addEventListener('input', (e)=>{
+        const q = (e.target.value||'').trim();
+        if(t) clearTimeout(t);
+        if(!q){ hide(); hid.value=''; return; }
+        const isNum = /^\d+$/.test(q);
+        const ok = isNum ? q.length >= 1 : q.length >= 3;
+        t = setTimeout(()=> ok ? fetchQ(q) : hide(), 200);
+      });
+      inp.addEventListener('keydown', (e)=>{
+        if(dd.style.display === 'none') return;
+        const items = Array.from(dd.querySelectorAll('.ac-item'));
+        if(!items.length) return;
+        const cur = items.findIndex(x=>x.classList.contains('active'));
+        if(e.key === 'ArrowDown'){
+          e.preventDefault(); const nxt = (cur+1+items.length)%items.length; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'});
+        } else if(e.key === 'ArrowUp'){
+          e.preventDefault(); const nxt = (cur-1+items.length)%items.length; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'});
+        } else if(e.key === 'Enter' || e.key === 'Tab'){
+          if(selectActive()) e.preventDefault();
+        } else if(e.key === 'Escape'){
+          hide();
+        }
+      });
+      dd.addEventListener('click', (ev)=>{
+        const el = ev.target.closest('.ac-item'); if(!el) return; dd.querySelectorAll('.ac-item').forEach(x=>x.classList.remove('active')); el.classList.add('active'); selectActive();
+      });
+      document.addEventListener('click', (ev)=>{ if(ev.target!==inp && !dd.contains(ev.target)) hide(); });
+      // Style active row (light gray)
+      try{
+        const style = document.createElement('style');
+        style.textContent = '.ac-item{padding:6px 8px; cursor:pointer;} .ac-item:hover{background:#f3f4f6;} .ac-item.active{background:#e5e7eb;}';
+        document.head.appendChild(style);
+      }catch(_){ }
+    })();
     // --- Portal-like orchestration for Cabeçalho -> Itens -> Rodapé flow ---
     (function(){
       // re-use helper functions defined above: postJSON, getCookie exist in this scope
@@ -2235,51 +2367,13 @@
         }
         return;
       }
-      // Show SQL modal immediately (better perceived performance), then fetch plan and populate content
-      let userChoice = 'confirm';
+      // Plan silently and save directly (no SQL preview modal)
       try{
-        const sqlModal = document.getElementById('sqlPreviewModalGlobal') || document.getElementById('sqlPreviewModal');
-        const sqlContent = document.getElementById('sqlPreviewContentGlobal') || document.getElementById('sqlPreviewContent');
-        const sqlCancel = document.getElementById('sqlPreviewCancelGlobal') || document.getElementById('sqlPreviewCancel');
-        const sqlConfirm = document.getElementById('sqlPreviewConfirmGlobal') || document.getElementById('sqlPreviewConfirm');
-        if(sqlModal && sqlContent && sqlCancel && sqlConfirm){
-          // Initial loading state
-          sqlContent.textContent = 'Gerando preview SQL...';
-          sqlModal.style.display = 'flex';
-          sqlConfirm.setAttribute('disabled','disabled');
-          // Kick off plan request
-          const planResp = await postJSON('/sankhya/item/plan/', basePayload);
-          if(!planResp.ok){
-            try{
-              const b = planResp.body || {};
-              const errs = (Array.isArray(b.errors) && b.errors.length) ? b.errors.join('\n') : (b.error || (b.db_error && (b.db_error.message || b.db_error.msg)) || '');
-              sqlContent.textContent = errs ? ('Erro ao gerar plano:\n' + errs) : 'Erro ao gerar plano.';
-            }catch(_){
-              sqlContent.textContent = 'Erro ao gerar plano.';
-            }
-            sqlConfirm.removeAttribute('disabled');
-            const decision = await new Promise((resolve)=>{ sqlCancel.onclick = ()=>{ try{ sqlModal.style.display='none'; }catch(_){} resolve('cancel'); }; sqlConfirm.onclick = ()=>{ try{ sqlModal.style.display='none'; }catch(_){} resolve('confirm'); }; }); if(decision !== 'confirm'){ return; }
-          }
-          const body = (planResp.body || {});
-          // Build preview with compact binds (faster stringify and smaller text)
-          let preview = '';
-          if(body.sql){ preview += '-- SQL a ser executado\n' + (body.sql || '') + '\n\n'; }
-          if(body.binds){ preview += '-- Binds: ' + JSON.stringify(body.binds || {}) + '\n\n'; }
-          if(!preview) preview = '-- Nenhum SQL disponível para exibição.';
-          sqlContent.textContent = preview;
-          sqlConfirm.removeAttribute('disabled');
-          // Wait for user choice
-          userChoice = await new Promise((resolve)=>{
-            const onCancel = ()=>{ try{ sqlModal.style.display='none'; }catch(_){} resolve('cancel'); };
-            const onConfirm = ()=>{ try{ sqlModal.style.display='none'; }catch(_){} resolve('confirm'); };
-            sqlCancel.onclick = onCancel;
-            sqlConfirm.onclick = onConfirm;
-          });
-          if (userChoice !== 'confirm') { return; }
-        } else {
-          // Fallback: no modal, fetch plan then confirm via confirm()
-          const planResp = await postJSON('/sankhya/item/plan/', basePayload);
-          if(!planResp.ok){ const ok = confirm('Falha ao gerar plano. Deseja tentar salvar mesmo assim?'); if(!ok) return; }
+        const planResp = await postJSON('/sankhya/item/plan/', basePayload);
+        if(!planResp.ok){
+          const b = planResp.body || {};
+          const errs = (Array.isArray(b.errors) && b.errors.length) ? b.errors.join('\n') : (b.error || (b.db_error && (b.db_error.message || b.db_error.msg)) || '');
+          if (errs) { alert('Erro no plano: ' + errs); return; }
         }
       }catch(_){ }
       const saveResp = await postJSON('/sankhya/item/save/', basePayload);

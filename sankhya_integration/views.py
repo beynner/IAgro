@@ -401,12 +401,22 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
         except (ValueError, TypeError):
             return None
 
+    raw_controle = (request.GET.get("controle") or "").strip()
+    fabricante_q = (request.GET.get("fabricante") or "").strip()
+    nunota_req = request.GET.get("nunota")
+    try:
+        nunota_req = int(nunota_req) if nunota_req not in (None, "", "None", "none", "null") else None
+    except Exception:
+        nunota_req = None
     params = {
         "days": _to_int(request.GET.get("days")) or 7,
         "date_start": request.GET.get("start"),
         "date_end": request.GET.get("end"),
         "codparc": _to_int(request.GET.get("codparc")),
         "codprod": _to_int(request.GET.get("codprod")),
+        "fabricante": (fabricante_q if fabricante_q else None),
+        "nunota": nunota_req,
+        "controle": (raw_controle if raw_controle else None),
     }
     try:
         page = int(request.GET.get("page", 1))
@@ -420,14 +430,29 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
     t_list0 = time.perf_counter()
     db_error = None
     try:
-        lotes_class = listar_lotes_entradas_classificaveis(
-            days=params['days'],
-            limit=page_size,
-            codparc=params['codparc'],
-            codprod=params['codprod'],
-            date_start=params['date_start'],
-            date_end=params['date_end'],
-        )
+        # If a specific NUNOTA is provided, resolve its controle (CODAGREGACAO)
+        if params.get('nunota') and not params.get('controle'):
+            try:
+                with get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT MAX(CODAGREGACAO) FROM TGFITE WHERE NUNOTA=:n", n=int(params['nunota']))
+                    r = cur.fetchone()
+                    if r and r[0]:
+                        params['controle'] = str(r[0])
+            except Exception:
+                pass
+        if params.get('controle'):
+            # When filtering by specific controle, bypass list query and fix pagination to a single entry
+            lotes_class = [(params['controle'],)]
+        else:
+            lotes_class = listar_lotes_entradas_classificaveis(
+                days=params['days'],
+                limit=page_size,
+                codparc=params['codparc'],
+                codprod=params['codprod'],
+                date_start=params['date_start'],
+                date_end=params['date_end'],
+            )
     except Exception as e:
         # Gracefully handle Oracle connectivity errors so the page can render and surface a message
         lotes_class = []
@@ -531,8 +556,19 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
 
     for ctrl in controles:
         info = sum_map.get(ctrl, {})
-        # Produto: concatenar fabricantes (por produto) — solicitou usar TGFPRO.FABRICANTE
+        # Produto: concatenar fabricantes (por produto)
         produtos_list = info.get('produtos_entrada') or []
+        # Apply fabricante filter if provided
+        if params.get('fabricante'):
+            try:
+                fab_u = str(params['fabricante']).strip().upper()
+                if fab_u:
+                    produtos_list = [p for p in produtos_list if (str(p.get('fabricante') or '').strip().upper() == fab_u)]
+            except Exception:
+                pass
+        # If fabricante filter removed all products for this controle, skip lote
+        if params.get('fabricante') and not produtos_list:
+            continue
         produto_descr = ''
         try:
             if produtos_list:
@@ -599,10 +635,16 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
     nunota_class_sel = None
 
     # Paginador simples (baseado no tamanho do lote retornado)
-    has_prev = page > 1
-    has_next = len(lotes_class) == page_size
-    prev_page = page - 1 if has_prev else 1
-    next_page = page + 1 if has_next else page
+    if params.get('controle'):
+        has_prev = False
+        has_next = False
+        prev_page = 1
+        next_page = 1
+    else:
+        has_prev = page > 1
+        has_next = len(lotes_class) == page_size
+        prev_page = page - 1 if has_prev else 1
+        next_page = page + 1 if has_next else page
 
     # Perf breakdown (ms)
     t_end = time.perf_counter()
@@ -618,6 +660,22 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
         pass
     show_perf = str(request.GET.get('perf') or '').lower() in ('1','true','yes','on')
 
+    # Build display string for partner so the input shows "COD — NOME" after reload
+    parc_display = ''
+    try:
+        if params.get('codparc') is not None:
+            with get_connection() as conn:
+                cur = conn.cursor()
+                try:
+                    cur.execute("SELECT NOMEPARC FROM TGFPAR WHERE CODPARC = :k", k=int(params['codparc']))
+                    r = cur.fetchone()
+                    nome = (r[0] if r else '') or ''
+                    parc_display = f"{int(params['codparc'])} — {nome}" if nome else f"{int(params['codparc'])}"
+                except Exception:
+                    parc_display = f"{int(params['codparc'])}"
+    except Exception:
+        parc_display = ''
+
     ctx = {
         'lotes': lotes,
         'produtos_classificados': produtos_classificados,
@@ -625,6 +683,7 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
         'initial_lote_ctrl': sel_controle,
         'initial_lote_json': json.dumps(initial_lote) if initial_lote else None,
         'params': params,
+        'parc_display': parc_display,
         'page': page,
         'has_prev': has_prev,
         'has_next': has_next,
@@ -2484,6 +2543,108 @@ def comercial_dist_reset(request: HttpRequest) -> JsonResponse:
     status_code = 200 if executed else 400
     return JsonResponse(plan, status=status_code)
 
+
+def comercial_vale_save(request: HttpRequest) -> JsonResponse:
+    """Salvar preços para itens não classificáveis de um Vale e, opcionalmente, faturar.
+
+    POST JSON:
+    {
+      "nunota": int,                  # Vale (TOP 11)
+      "items": [
+        { "sequencia": int, "preco": number },   # atualiza VLRUNIT e VLRTOT = preco * qtd
+        ...
+      ],
+      "faturar": bool (optional)     # se true, tenta alterar STATUSNOTA para 'L'
+    }
+    Retorna { ok, updated, errors?, header? }.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'Use POST'}, status=405)
+    try:
+        import json
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except Exception:
+        payload = {}
+
+    nunota = _to_int_or(payload.get('nunota'))
+    items = payload.get('items') or []
+    faturar = bool(payload.get('faturar'))
+    if not nunota:
+        return JsonResponse({'ok': False, 'error': 'nunota obrigatório'}, status=400)
+    if not isinstance(items, list):
+        return JsonResponse({'ok': False, 'error': 'items deve ser uma lista'}, status=400)
+
+    updated = []
+    errors = []
+    try:
+        # Buscar QTDNEG por item para calcular VLRTOT corretamente
+        qtd_map = {}
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT SEQUENCIA, QTDNEG FROM TGFITE WHERE NUNOTA=:n", n=nunota)
+            for seq, qtd in cur.fetchall():
+                try:
+                    qtd_map[int(seq)] = float(qtd or 0)
+                except Exception:
+                    continue
+    except Exception:
+        # Falha em pré-carregar quantidades não impede updates (VLRTOT cairá como preco*qtd com qtd=0)
+        qtd_map = {}
+
+    for it in items:
+        try:
+            seq = _to_int_or(it.get('sequencia'))
+            preco = _to_float_or(it.get('preco'), None)
+            preco_inicial = _to_float_or(it.get('preco_inicial'), None)
+            if not seq:
+                errors.append(f"Item inválido (sequencia ausente): {it}")
+                continue
+            # Monta update flexível: permite atualizar apenas PRECOBASE, apenas preço (VLRUNIT/VLRTOT) ou ambos
+            upd = {
+                'NUNOTA': nunota,
+                'SEQUENCIA': seq,
+            }
+            if preco is not None:
+                qtd = float(qtd_map.get(seq, 0))
+                vlrtot = float(preco) * (qtd if qtd > 0 else 0)
+                upd['VLRUNIT'] = float(preco)
+                upd['VLRTOT'] = vlrtot
+            if preco_inicial is not None:
+                upd['PRECOBASE'] = float(preco_inicial)
+            # Se nenhum campo foi informado, reporta erro
+            if len(upd.keys()) <= 2:
+                errors.append(f"Nenhum campo para atualização no item seq {seq}")
+                continue
+            plan = update_item(upd, dry_run=False)
+            if not plan.get('executed'):
+                msg = None
+                if isinstance(plan.get('db_error'), dict):
+                    msg = plan['db_error'].get('message')
+                if not msg and plan.get('errors'):
+                    msg = '; '.join([str(e) for e in plan['errors'] if e])
+                errors.append(msg or f'Falha ao atualizar item seq {seq}')
+            else:
+                updated.append(seq)
+        except Exception as e:
+            errors.append(str(e))
+
+    header = None
+    if faturar:
+        try:
+            plan_h = update_cabecalho({'NUNOTA': nunota, 'STATUSNOTA': 'L'}, dry_run=False)
+            header = {'executed': bool(plan_h.get('executed')), 'status': 'L'}
+            if not plan_h.get('executed'):
+                msg = None
+                if isinstance(plan_h.get('db_error'), dict):
+                    msg = plan_h['db_error'].get('message')
+                if not msg and plan_h.get('errors'):
+                    msg = '; '.join([str(e) for e in plan_h['errors'] if e])
+                errors.append(msg or 'Falha ao faturar (alterar STATUSNOTA)')
+        except Exception as e:
+            errors.append(str(e))
+
+    ok = len(errors) == 0
+    return JsonResponse({'ok': ok, 'updated': updated, 'errors': errors or None, 'header': header}, status=200 if ok else 400)
 
 
 @ensure_csrf_cookie

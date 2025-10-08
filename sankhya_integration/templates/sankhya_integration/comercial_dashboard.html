@@ -640,12 +640,15 @@
                     <col />
                     <col style="width:90px" />
                     <col style="width:110px" />
+                    <col style="width:110px" />
                     <col style="width:80px" />
                   </colgroup>
                   <thead>
                     <tr style="background:#f8fafb; border-bottom:1px solid #e5e7eb;">
                       <th style="text-align:left; padding:6px 8px; font-size:.85rem; color:#334155;">Produto</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Qtde</th>
+                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Valor Inicial</th>
+                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Valor Total</th>
                       <th style="text-align:left; padding:6px 8px; font-size:.85rem; color:#334155;">Status</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Ação</th>
                     </tr>
@@ -662,12 +665,14 @@
                     <col />
                     <col style="width:90px" />
                     <col style="width:110px" />
+                    <col style="width:110px" />
                     <col style="width:120px" />
                   </colgroup>
                   <thead>
                     <tr style="background:#f8fafb; border-bottom:1px solid #e5e7eb;">
                       <th style="text-align:left; padding:6px 8px; font-size:.85rem; color:#334155;">Produto</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Qtde</th>
+                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Valor Inicial</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Preço</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Total</th>
                     </tr>
@@ -706,12 +711,15 @@
                     <col />
                     <col style="width:90px" />
                     <col style="width:110px" />
+                    <col style="width:110px" />
                     <col style="width:80px" />
                   </colgroup>
                   <thead>
                     <tr style="background:#f8fafb; border-bottom:1px solid #e5e7eb;">
                       <th style="text-align:left; padding:6px 8px; font-size:.85rem; color:#334155;">Produto</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Qtde</th>
+                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Valor Inicial</th>
+                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Valor Total</th>
                       <th style="text-align:left; padding:6px 8px; font-size:.85rem; color:#334155;">Status</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Ação</th>
                     </tr>
@@ -728,12 +736,14 @@
                     <col />
                     <col style="width:90px" />
                     <col style="width:110px" />
+                    <col style="width:110px" />
                     <col style="width:120px" />
                   </colgroup>
                   <thead>
                     <tr style="background:#f8fafb; border-bottom:1px solid #e5e7eb;">
                       <th style="text-align:left; padding:6px 8px; font-size:.85rem; color:#334155;">Produto</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Qtde</th>
+                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Valor Inicial</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Preço</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Total</th>
                     </tr>
@@ -1903,6 +1913,18 @@
           bodyEl.innerHTML = buildListaHTML(rows, currentViewMode);
           const table = document.getElementById('listaTable');
           if(table) table.setAttribute('data-view', String(currentViewMode));
+          // Notify others that the list loaded
+          try{ window.dispatchEvent(new CustomEvent('lista:loaded', { detail: { rows } })); }catch{}
+          // URL preselect support: ?sel_nunota=...&sel_seq=...
+          try{
+            const usp = new URLSearchParams(location.search);
+            const sn = Number(usp.get('sel_nunota')||0);
+            const ss = Number(usp.get('sel_seq')||0);
+            if(sn && ss){
+              const it = rows.find(r=> Number(r.nunota||0)===sn && Number(r.sequencia||0)===ss);
+              if(it){ applyItemToEntrada(it); }
+            }
+          }catch{}
           
         }catch(_){
           bodyEl.innerHTML = '<tr><td colspan="5" style="padding:8px; color:#b91c1c;">Erro ao carregar.</td></tr>';
@@ -2641,18 +2663,34 @@
           const fmtQty = (n)=> isNaN(n) ? '0' : Number(n||0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
           const classifs = rows.filter(r=> r.classificavel !== false);
           const nclass = rows.filter(r=> r.classificavel === false);
-          // Classificáveis: somente leitura
+          // Classificáveis: Valor Inicial editável + total (Valor Inicial * Qtde quando CX) + Abrir
           if(classifs.length){
             classBody.innerHTML = classifs.map(r=>{
               const prod = r.produto||'';
               const unit = ((r.codvol||'')+'').toUpperCase();
-              const q = fmtQty(Number(r.qtdneg||0));
-              const status = r.statusclass || '-';
-              return `<tr>
-                <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}${unit?` <span style='color:#64748b; font-size:.8rem; margin-left:6px;'>${unit}</span>`:''}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${q}</td>
+              const qnum = Number(r.qtdneg||0);
+              const q = fmtQty(qnum);
+              const precoIni = Number(r.preco_inicial||0) || 0;
+              const totalIni = (precoIni>0 && unit==='CX') ? precoIni*qnum : 0;
+              const vlrtot = Number(r.vlrtot||0) || 0;
+              const status = (vlrtot>0)
+                ? `<span title="OK: negociação salva" style="display:inline-block;width:8px;height:8px;border-radius:999px;background:#16a34a;opacity:.85"></span>`
+                : `<span title="Alerta: VLRTOT = 0 (não salvo)" style="display:inline-block;width:8px;height:8px;border-radius:999px;background:#f59e0b;opacity:.9"></span>`;
+              const nun = Number(r.nunota||0), seq = Number(r.sequencia||0);
+              const abrir = (nun && seq) ? `
+                <a class="eye-open" href="/sankhya/comercial/?sel_nunota=${nun}&sel_seq=${seq}" target="_blank" rel="noopener" data-nun="${nun}" data-seq="${seq}" style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;color:#94a3b8;text-decoration:none;">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </a>` : '';
+              return `<tr data-q="${qnum}" data-unit="${unit}" data-nun="${nun}" data-seq="${seq}">
+                <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${q}${unit?`<span style='color:#64748b; font-size:.72rem; margin-left:2px;'>${unit.toLowerCase()}</span>`:''}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;"><input class="vcl-preco-inicial" data-nun="${nun}" data-seq="${seq}" type="text" inputmode="decimal" style="width:90px; text-align:right; padding:0; border:none; background:transparent;" value="${precoIni?fmtMoney(precoIni):''}" placeholder="R$" /></td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${fmtMoney(totalIni)}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${status}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;"><button class="btn" style="border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:4px 6px;">Abrir</button></td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${abrir}</td>
               </tr>`;
             }).join('');
           }else{
@@ -2665,9 +2703,11 @@
               const unit = ((r.codvol||'')+'').toUpperCase();
               const q = Number(r.qtdneg||0);
               const id = `vop_${idx}_${Date.now()}`;
-              return `<tr data-idx="${idx}">
-                <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}${unit?` <span style='color:#64748b; font-size:.8rem; margin-left:6px;'>${unit}</span>`:''}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${fmtQty(q)}</td>
+              const precoIni = Number(r.preco_inicial||0) || 0;
+              return `<tr data-idx="${idx}" data-q="${q}" data-unit="${unit}" data-nun="${Number(r.nunota||0)}" data-seq="${Number(r.sequencia||0)}">
+                <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${fmtQty(q)}${unit?`<span style='color:#64748b; font-size:.72rem; margin-left:2px;'>${unit.toLowerCase()}</span>`:''}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;"><input class="vop-preco-inicial" data-nun="${Number(r.nunota||0)}" data-seq="${Number(r.sequencia||0)}" type="text" inputmode="decimal" style="width:90px; text-align:right; padding:0; border:none; background:transparent;" value="${precoIni?fmtMoney(precoIni):''}" placeholder="R$" /></td>
                 <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;"><input data-idx="${idx}" class="vop-price" id="${id}" type="text" inputmode="decimal" style="width:90px; text-align:right; padding:4px 6px; border:1px solid #cbd5e1; border-radius:6px;" placeholder="R$" /></td>
                 <td class="vop-total" style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">R$\u00A00,00</td>
               </tr>`;
@@ -2676,6 +2716,71 @@
             outrosBody.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>';
           }
           modal.style.display = 'flex';
+          // Tooltip de distribuição no ícone olho (usa estado corrente de distribuição)
+          const ensureDistTooltip = () => {
+            let tip = document.getElementById('distEyeTooltip');
+            if(!tip){
+              tip = document.createElement('div');
+              tip.id = 'distEyeTooltip';
+              tip.style.position = 'fixed';
+              tip.style.display = 'none';
+              tip.style.zIndex = '3000';
+              tip.style.background = '#fff';
+              tip.style.border = '1px solid #e5e7eb';
+              tip.style.borderRadius = '10px';
+              tip.style.boxShadow = '0 8px 28px rgba(2,6,23,.15)';
+              tip.style.padding = '8px 10px';
+              tip.style.minWidth = '260px';
+              document.body.appendChild(tip);
+            }
+            return tip;
+          };
+          const renderTipContent = () => {
+            const st = window.__DIST_STATE || {};
+            const ex = (st.categorias && st.categorias.extra) || {};
+            const md = (st.categorias && st.categorias.medio) || {};
+            const hasData = [ex.kg, ex.cxEq, ex.custoKg, ex.custoCx, ex.custoTotal, md.kg, md.cxEq, md.custoKg, md.custoCx, md.custoTotal]
+              .some(v => Number(v||0) > 0);
+            if(!hasData){
+              return `<div style="padding:6px 8px; color:#64748b;">Sem dados!</div>`;
+            }
+            const fmtNum = (n, d=0) => Number(n||0).toLocaleString('pt-BR',{ maximumFractionDigits: d });
+            const fmtMoney = (n) => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(n||0));
+            const row = (label, kg, cx, kgCost, cxCost, total) => `
+              <div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin:4px 0">
+                <div style="font-weight:700;color:#0f172a">${label}</div>
+                <div style="text-align:right;color:#475569">${fmtNum(kg,0)} kg · ${fmtNum(cx,0)} cx</div>
+                <div style="grid-column:1 / -1;display:flex;justify-content:space-between;color:#64748b;font-size:.85em">
+                  <span>Custo/kg</span><span>${fmtMoney(kgCost)}</span>
+                </div>
+                <div style="grid-column:1 / -1;display:flex;justify-content:space-between;color:#64748b;font-size:.85em">
+                  <span>Custo/cx</span><span>${fmtMoney(cxCost)}</span>
+                </div>
+                <div style="grid-column:1 / -1;display:flex;justify-content:space-between;font-weight:700;color:#0a3392">
+                  <span>Total</span><span>${fmtMoney(total)}</span>
+                </div>
+              </div>`;
+            return `
+              <div style="font-size:.9rem">
+                ${row('EXTRA', ex.kg, ex.cxEq, ex.custoKg, ex.custoCx, ex.custoTotal)}
+                <div style="border-top:1px solid #e5e7eb;margin:6px 0"></div>
+                ${row('MÉDIO', md.kg, md.cxEq, md.custoKg, md.custoCx, md.custoTotal)}
+              </div>`;
+          };
+          const tip = ensureDistTooltip();
+          const attachEyeHover = (container) => {
+            container.querySelectorAll('a.eye-open')?.forEach(a => {
+              a.addEventListener('mouseenter', (e)=>{
+                tip.innerHTML = renderTipContent();
+                tip.style.display = 'block';
+                const r = a.getBoundingClientRect();
+                tip.style.left = (r.right + 8) + 'px';
+                tip.style.top = Math.max(8, r.top - 6) + 'px';
+              });
+              a.addEventListener('mouseleave', ()=>{ tip.style.display = 'none'; tip.innerHTML = ''; });
+            });
+          };
+          attachEyeHover(classBody);
           // cálculo total
           const parsePT = (text) => {
             if(!text) return NaN;
@@ -2684,9 +2789,20 @@
           };
           function recompute(){
             let sum = 0;
+            // soma dos classificáveis (Valor Inicial digitado * qtd, apenas quando unidade é CX)
+            const classRows = Array.from(classBody.querySelectorAll('tr'));
+            classRows.forEach(tr => {
+              const unit = String(tr.getAttribute('data-unit')||'').toUpperCase();
+              const q = Number(tr.getAttribute('data-q')||'0');
+              const p = parsePT(tr.querySelector('input.vcl-preco-inicial')?.value||'');
+              const t = (unit==='CX' && !isNaN(p) && !isNaN(q)) ? (p*q) : 0;
+              const totalCell = tr.querySelector('td:nth-child(4)');
+              if(totalCell) totalCell.textContent = fmtMoney(t);
+              sum += t;
+            });
             const trs = Array.from(outrosBody.querySelectorAll('tr'));
             trs.forEach((tr, i)=>{
-              const q = Number(nclass[i]?.qtdneg||0);
+              const q = Number(tr.getAttribute('data-q')||'0');
               const p = parsePT(tr.querySelector('input.vop-price')?.value||'');
               const t = (isNaN(p)?0:p) * (isNaN(q)?0:q);
               const cell = tr.querySelector('.vop-total');
@@ -2695,25 +2811,47 @@
             });
             totalEl.textContent = fmtMoney(sum);
           }
-          outrosBody.addEventListener('input', (ev)=>{ if(ev.target && ev.target.classList.contains('vop-price')) recompute(); });
+          outrosBody.addEventListener('input', (ev)=>{ if(ev.target && (ev.target.classList.contains('vop-price') || ev.target.classList.contains('vop-preco-inicial'))) recompute(); });
+          classBody.addEventListener('input', (ev)=>{ if(ev.target && ev.target.classList.contains('vcl-preco-inicial')) recompute(); });
           recompute();
           // Close handlers
           document.getElementById('valeResumoClose')?.addEventListener('click', ()=>{ modal.style.display='none'; });
           modal.addEventListener('click', (ev)=>{ if(ev.target === modal) modal.style.display='none'; });
           // Salvar/Faturar emit
-          document.getElementById('valeResumoSalvar')?.addEventListener('click', ()=>{
-            const items = Array.from(outrosBody.querySelectorAll('tr')).map((tr, i)=>{
-              const prod = String(nclass[i]?.produto||'');
-              const codvol = String(nclass[i]?.codvol||'').toUpperCase();
-              const codprod = nclass[i]?.codprod ?? null;
-              const qtd = Number(nclass[i]?.qtdneg||0);
-              const p = parsePT(tr.querySelector('input.vop-price')?.value||'');
-              return { prod, codprod, codvol, qtd, preco: isNaN(p)?null:p };
+          // Build payload with sequences for precise updates (inclui preco_inicial para ambas tabelas)
+          const buildValeItems = () => {
+            const items = [];
+            // Classificáveis: só preco_inicial
+            Array.from(classBody.querySelectorAll('tr')).forEach(tr => {
+              const seq = Number(tr.getAttribute('data-seq')||'0');
+              const p0 = parsePT(tr.querySelector('input.vcl-preco-inicial')?.value||'');
+              if(seq){ items.push({ sequencia: seq, preco_inicial: isNaN(p0)?null:p0 }); }
             });
-            window.dispatchEvent(new CustomEvent('vale:salvar', { detail: { nunota: String(nunota), items } }));
+            // Não Classificáveis: preco_inicial (opcional) + preco (VLRUNIT)
+            Array.from(outrosBody.querySelectorAll('tr')).forEach((tr)=>{
+              const seq = Number(tr.getAttribute('data-seq')||'0');
+              const p = parsePT(tr.querySelector('input.vop-price')?.value||'');
+              const p0 = parsePT(tr.querySelector('input.vop-preco-inicial')?.value||'');
+              if(seq){ items.push({ sequencia: seq, preco: isNaN(p)?null:p, preco_inicial: isNaN(p0)?null:p0 }); }
+            });
+            return items;
+          };
+
+          document.getElementById('valeResumoSalvar')?.addEventListener('click', async ()=>{
+            const items = buildValeItems();
+            try{
+              const res = await window.__postJSON('/sankhya/comercial/vale/save/', { nunota: Number(nunota), items });
+              if(res.ok){ alert('Valores salvos com sucesso.'); }
+              else{ alert('Falha ao salvar: ' + (res.body?.error || 'erro desconhecido')); }
+            }catch(e){ alert('Erro ao salvar: ' + e); }
           });
-          document.getElementById('valeResumoFaturar')?.addEventListener('click', ()=>{
-            window.dispatchEvent(new CustomEvent('vale:faturar', { detail: { nunota: String(nunota) } }));
+          document.getElementById('valeResumoFaturar')?.addEventListener('click', async ()=>{
+            const items = buildValeItems();
+            try{
+              const res = await window.__postJSON('/sankhya/comercial/vale/save/', { nunota: Number(nunota), items, faturar: true });
+              if(res.ok){ alert('Faturado com sucesso.'); }
+              else{ alert('Falha ao faturar: ' + (res.body?.error || 'erro desconhecido')); }
+            }catch(e){ alert('Erro ao faturar: ' + e); }
           });
         }catch(_){ }
       }
@@ -2733,18 +2871,34 @@
           const fmtQty = (n)=> isNaN(n) ? '0' : Number(n||0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
           const classifs = rows.filter(r=> r.classificavel !== false);
           const nclass = rows.filter(r=> r.classificavel === false);
-          // Classificáveis
+          // Classificáveis com Valor Inicial editável
           if(classifs.length){
             classBody.innerHTML = classifs.map(r=>{
               const prod = r.produto||'';
               const unit = ((r.codvol||'')+'').toUpperCase();
-              const q = fmtQty(Number(r.qtdneg||0));
-              const status = r.statusclass || '-';
-              return `<tr>
-                <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}${unit?` <span style='color:#64748b; font-size:.8rem; margin-left:6px;'>${unit}</span>`:''}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${q}</td>
+              const qnum = Number(r.qtdneg||0);
+              const q = fmtQty(qnum);
+              const precoIni = Number(r.preco_inicial||0) || 0;
+              const totalIni = (precoIni>0 && unit==='CX') ? precoIni*qnum : 0;
+              const vlrtot = Number(r.vlrtot||0) || 0;
+              const status = (vlrtot>0)
+                ? `<span title="OK: negociação salva" style="display:inline-block;width:8px;height:8px;border-radius:999px;background:#16a34a;opacity:.85"></span>`
+                : `<span title="Alerta: VLRTOT = 0 (não salvo)" style="display:inline-block;width:8px;height:8px;border-radius:999px;background:#f59e0b;opacity:.9"></span>`;
+              const nun = Number(r.nunota||0), seq = Number(r.sequencia||0);
+              const abrir = (nun && seq) ? `
+                <a class=\"eye-open\" href=\"/sankhya/comercial/?sel_nunota=${nun}&sel_seq=${seq}\" target=\"_blank\" rel=\"noopener\" data-nun=\"${nun}\" data-seq=\"${seq}\" style=\"display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;color:#94a3b8;text-decoration:none;\">
+                  <svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">
+                    <path d=\"M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z\"></path>
+                    <circle cx=\"12\" cy=\"12\" r=\"3\"></circle>
+                  </svg>
+                </a>` : '';
+              return `<tr data-q="${qnum}" data-unit="${unit}" data-nun="${nun}" data-seq="${seq}">
+                <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${q}${unit?`<span style='color:#64748b; font-size:.72rem; margin-left:2px;'>${unit.toLowerCase()}</span>`:''}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;"><input class="pcl-preco-inicial" data-nun="${nun}" data-seq="${seq}" type="text" inputmode="decimal" style="width:90px; text-align:right; padding:0; border:none; background:transparent;" value="${precoIni?fmtMoney(precoIni):''}" placeholder="R$" /></td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${fmtMoney(totalIni)}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${status}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;"><button class="btn" style="border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:4px 6px;">Abrir</button></td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${abrir}</td>
               </tr>`;
             }).join('');
           }else{
@@ -2757,9 +2911,11 @@
               const unit = ((r.codvol||'')+'').toUpperCase();
               const q = Number(r.qtdneg||0);
               const id = `pop_${idx}_${Date.now()}`;
-              return `<tr data-idx="${idx}">
-                <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}${unit?` <span style='color:#64748b; font-size:.8rem; margin-left:6px;'>${unit}</span>`:''}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${fmtQty(q)}</td>
+              const precoIni = Number(r.preco_inicial||0) || 0;
+              return `<tr data-idx="${idx}" data-q="${q}" data-unit="${unit}" data-nun="${Number(r.nunota||0)}" data-seq="${Number(r.sequencia||0)}">
+                <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${fmtQty(q)}${unit?`<span style='color:#64748b; font-size:.72rem; margin-left:2px;'>${unit.toLowerCase()}</span>`:''}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;"><input class="pop-preco-inicial" data-nun="${Number(r.nunota||0)}" data-seq="${Number(r.sequencia||0)}" type="text" inputmode="decimal" style="width:90px; text-align:right; padding:0; border:none; background:transparent;" value="${precoIni?fmtMoney(precoIni):''}" placeholder="R$" /></td>
                 <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;"><input data-idx="${idx}" class="pop-price" id="${id}" type="text" inputmode="decimal" style="width:90px; text-align:right; padding:4px 6px; border:1px solid #cbd5e1; border-radius:6px;" placeholder="R$" /></td>
                 <td class="pop-total" style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">R$\u00A00,00</td>
               </tr>`;
@@ -2768,6 +2924,71 @@
             outrosBody.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>';
           }
           modal.style.display = 'flex';
+          // Tooltip de distribuição no ícone olho (usa estado corrente de distribuição)
+          const ensureDistTooltip = () => {
+            let tip = document.getElementById('distEyeTooltip');
+            if(!tip){
+              tip = document.createElement('div');
+              tip.id = 'distEyeTooltip';
+              tip.style.position = 'fixed';
+              tip.style.display = 'none';
+              tip.style.zIndex = '3000';
+              tip.style.background = '#fff';
+              tip.style.border = '1px solid #e5e7eb';
+              tip.style.borderRadius = '10px';
+              tip.style.boxShadow = '0 8px 28px rgba(2,6,23,.15)';
+              tip.style.padding = '8px 10px';
+              tip.style.minWidth = '260px';
+              document.body.appendChild(tip);
+            }
+            return tip;
+          };
+          const renderTipContent = () => {
+            const st = window.__DIST_STATE || {};
+            const ex = (st.categorias && st.categorias.extra) || {};
+            const md = (st.categorias && st.categorias.medio) || {};
+            const hasData = [ex.kg, ex.cxEq, ex.custoKg, ex.custoCx, ex.custoTotal, md.kg, md.cxEq, md.custoKg, md.custoCx, md.custoTotal]
+              .some(v => Number(v||0) > 0);
+            if(!hasData){
+              return `<div style=\"padding:6px 8px; color:#64748b;\">Sem dados!</div>`;
+            }
+            const fmtNum = (n, d=0) => Number(n||0).toLocaleString('pt-BR',{ maximumFractionDigits: d });
+            const fmtMoney = (n) => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(n||0));
+            const row = (label, kg, cx, kgCost, cxCost, total) => `
+              <div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin:4px 0">
+                <div style="font-weight:700;color:#0f172a">${label}</div>
+                <div style="text-align:right;color:#475569">${fmtNum(kg,0)} kg · ${fmtNum(cx,0)} cx</div>
+                <div style="grid-column:1 / -1;display:flex;justify-content:space-between;color:#64748b;font-size:.85em">
+                  <span>Custo/kg</span><span>${fmtMoney(kgCost)}</span>
+                </div>
+                <div style="grid-column:1 / -1;display:flex;justify-content:space-between;color:#64748b;font-size:.85em">
+                  <span>Custo/cx</span><span>${fmtMoney(cxCost)}</span>
+                </div>
+                <div style="grid-column:1 / -1;display:flex;justify-content:space-between;font-weight:700;color:#0a3392">
+                  <span>Total</span><span>${fmtMoney(total)}</span>
+                </div>
+              </div>`;
+            return `
+              <div style="font-size:.9rem">
+                ${row('EXTRA', ex.kg, ex.cxEq, ex.custoKg, ex.custoCx, ex.custoTotal)}
+                <div style="border-top:1px solid #e5e7eb;margin:6px 0"></div>
+                ${row('MÉDIO', md.kg, md.cxEq, md.custoKg, md.custoCx, md.custoTotal)}
+              </div>`;
+          };
+          const tip = ensureDistTooltip();
+          const attachEyeHover = (container) => {
+            container.querySelectorAll('a.eye-open')?.forEach(a => {
+              a.addEventListener('mouseenter', (e)=>{
+                tip.innerHTML = renderTipContent();
+                tip.style.display = 'block';
+                const r = a.getBoundingClientRect();
+                tip.style.left = (r.right + 8) + 'px';
+                tip.style.top = Math.max(8, r.top - 6) + 'px';
+              });
+              a.addEventListener('mouseleave', ()=>{ tip.style.display = 'none'; tip.innerHTML = ''; });
+            });
+          };
+          attachEyeHover(classBody);
           // cálculo total
           const parsePT = (text) => {
             if(!text) return NaN;
@@ -2776,9 +2997,19 @@
           };
           function recompute(){
             let sum = 0;
+            // Classificáveis
+            Array.from(classBody.querySelectorAll('tr')).forEach(tr => {
+              const unit = String(tr.getAttribute('data-unit')||'').toUpperCase();
+              const q = Number(tr.getAttribute('data-q')||'0');
+              const p0 = parsePT(tr.querySelector('input.pcl-preco-inicial')?.value||'');
+              const t = (unit==='CX' && !isNaN(p0) && !isNaN(q)) ? (p0*q) : 0;
+              const totalCell = tr.querySelector('td:nth-child(4)');
+              if(totalCell) totalCell.textContent = fmtMoney(t);
+              sum += t;
+            });
             const trs = Array.from(outrosBody.querySelectorAll('tr'));
             trs.forEach((tr, i)=>{
-              const q = Number(nclass[i]?.qtdneg||0);
+              const q = Number(tr.getAttribute('data-q')||'0');
               const p = parsePT(tr.querySelector('input.pop-price')?.value||'');
               const t = (isNaN(p)?0:p) * (isNaN(q)?0:q);
               const cell = tr.querySelector('.pop-total');
@@ -2787,25 +3018,52 @@
             });
             totalEl.textContent = fmtMoney(sum);
           }
-          outrosBody.addEventListener('input', (ev)=>{ if(ev.target && ev.target.classList.contains('pop-price')) recompute(); });
+          outrosBody.addEventListener('input', (ev)=>{ if(ev.target && (ev.target.classList.contains('pop-price') || ev.target.classList.contains('pop-preco-inicial'))) recompute(); });
+          classBody.addEventListener('input', (ev)=>{ if(ev.target && ev.target.classList.contains('pcl-preco-inicial')) recompute(); });
           recompute();
           // Close handlers
           document.getElementById('parceiroResumoClose')?.addEventListener('click', ()=>{ modal.style.display='none'; });
           modal.addEventListener('click', (ev)=>{ if(ev.target === modal) modal.style.display='none'; });
           // Salvar/Faturar emit
-          document.getElementById('parceiroResumoSalvar')?.addEventListener('click', ()=>{
-            const items = Array.from(outrosBody.querySelectorAll('tr')).map((tr, i)=>{
-              const prod = String(nclass[i]?.produto||'');
-              const codvol = String(nclass[i]?.codvol||'').toUpperCase();
-              const codprod = nclass[i]?.codprod ?? null;
-              const qtd = Number(nclass[i]?.qtdneg||0);
-              const p = parsePT(tr.querySelector('input.pop-price')?.value||'');
-              return { prod, codprod, codvol, qtd, preco: isNaN(p)?null:p };
-            });
-            window.dispatchEvent(new CustomEvent('parceiro:salvar', { detail: { parceiro: String(parceiro), items } }));
+          // For parceiro modal, aggregate by nunota groups and call endpoint per nunota
+          document.getElementById('parceiroResumoSalvar')?.addEventListener('click', async ()=>{
+            try{
+              // Inputs are rendered in the same order as nclass array
+              const inputs = Array.from(outrosBody.querySelectorAll('input.pop-price'));
+              const byNun = new Map();
+              // Primeiro, coletar PRECOBASE dos classificáveis
+              Array.from(classBody.querySelectorAll('tr')).forEach(tr => {
+                const nun = Number(tr.getAttribute('data-nun')||'0');
+                const seq = Number(tr.getAttribute('data-seq')||'0');
+                const p0 = parsePT(tr.querySelector('input.pcl-preco-inicial')?.value||'');
+                if(!nun || !seq) return;
+                if(!byNun.has(nun)) byNun.set(nun, []);
+                byNun.get(nun).push({ sequencia: seq, preco_inicial: isNaN(p0)?null:p0 });
+              });
+              nclass.forEach((r, i)=>{
+                const nun = Number(r.nunota||0); if(!nun) return;
+                if(!byNun.has(nun)) byNun.set(nun, []);
+                const p = parsePT(inputs[i]?.value||'');
+                const p0 = parsePT(outrosBody.querySelectorAll('input.pop-preco-inicial')[i]?.value||'');
+                byNun.get(nun).push({ sequencia: Number(r.sequencia||0), preco: isNaN(p)?null:p, preco_inicial: isNaN(p0)?null:p0 });
+              });
+              for(const [nun, items] of byNun.entries()){
+                const res = await window.__postJSON('/sankhya/comercial/vale/save/', { nunota: nun, items });
+                if(!res.ok){ alert('Falha ao salvar para vale ' + nun + ': ' + (res.body?.error||'erro')); }
+              }
+              alert('Valores salvos.');
+            }catch(e){ alert('Erro ao salvar: ' + e); }
           });
-          document.getElementById('parceiroResumoFaturar')?.addEventListener('click', ()=>{
-            window.dispatchEvent(new CustomEvent('parceiro:faturar', { detail: { parceiro: String(parceiro) } }));
+          document.getElementById('parceiroResumoFaturar')?.addEventListener('click', async ()=>{
+            try{
+              const rows = (window.__COM_LIST_ROWS||[]).filter(r=> String(r.parceiro||'') === String(parceiro||''));
+              const nunotas = Array.from(new Set(rows.map(r=> Number(r.nunota||0)).filter(Boolean)));
+              for(const nun of nunotas){
+                const res = await window.__postJSON('/sankhya/comercial/vale/save/', { nunota: nun, items: [], faturar: true });
+                if(!res.ok){ alert('Falha ao faturar vale ' + nun + ': ' + (res.body?.error||'erro')); }
+              }
+              alert('Faturamento enviado.');
+            }catch(e){ alert('Erro ao faturar: ' + e); }
           });
         }catch{}
       }
@@ -3282,6 +3540,9 @@
       // Inline edit fields
   ['totalValueInput','costCxInput','costKgInput','extraCustoCxInput','entPrecoCxInput']
         .map(id => document.getElementById(id))
+        .forEach(attachSelectAll);
+      // Modal Valor Inicial inputs
+      document.querySelectorAll('#valeResumoModal input.vcl-preco-inicial, #valeResumoModal input.vop-preco-inicial, #parceiroResumoModal input.pcl-preco-inicial, #parceiroResumoModal input.pop-preco-inicial')
         .forEach(attachSelectAll);
     })();
 
@@ -5437,6 +5698,16 @@
                 window.__DIST_seedExtraCustoKg(precoKg, true);
                 if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh();
               }
+              // Sincronizar Distribuição (Etapa 1) usando Preço Inicial/cx como precoBase
+              try{
+                if(window.__DIST_EXTRA_MEDIO_STATE){
+                  window.__DIST_EXTRA_MEDIO_STATE.precoBase = Number(n) || 0;
+                }
+                if(typeof window.__syncExtraMedio === 'function'){
+                  // Recalcula defaults (Extra com precoBase; Médio = metade), atualiza total e custos globais
+                  window.__syncExtraMedio('initial');
+                }
+              }catch{}
               // Persistir PRECOBASE no backend, se houver contexto (nunota/seq)
               try{
                 const nun = card.getAttribute('data-nunota');
