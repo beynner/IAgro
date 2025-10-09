@@ -9,13 +9,69 @@
   <style>
   :root { --border:#e5e7eb; --panel:#fff; --muted:#6b7280; --bg:#f7f9fb; --ph-selected-bg:#FEF9C3; --ph-selected-border:#F59E0B; }
     body { margin:0; font-family: Inter, system-ui, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:#111827; }
-    header { padding: 12px 16px; background:#fff; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5; }
+    header { padding: 12px 16px; background:#fff; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5; box-shadow: 0 2px 4px rgba(0,0,0,0.04); }
     main { display:grid; grid-template-columns: 320px 1fr; gap:12px; padding:12px; }
-    .panel { background:#fff; border:1px solid var(--border); border-radius:8px; }
-    .panel header { padding:10px 14px; font-weight:600; border-bottom:1px solid var(--border); }
-    .panel .content { padding:12px; }
+    .panel { 
+      background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 25%, #ffffff 50%, #e8e8e8 75%, #f5f5f5 100%);
+      border: none;
+      border-radius: 8px;
+      box-shadow: 
+        inset 0 2px 4px rgba(0, 0, 0, 0.15),
+        inset 0 -2px 4px rgba(255, 255, 255, 0.8),
+        inset 2px 0 4px rgba(0, 0, 0, 0.12),
+        inset -2px 0 4px rgba(255, 255, 255, 0.7),
+        0 1px 2px rgba(0, 0, 0, 0.05);
+      position: relative;
+      overflow: visible;
+    }
+    .panel::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 8px;
+      background: 
+        repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0, 0, 0, 0.015) 2px, rgba(0, 0, 0, 0.015) 4px),
+        repeating-linear-gradient(-45deg, transparent, transparent 3px, rgba(255, 255, 255, 0.02) 3px, rgba(255, 255, 255, 0.02) 6px),
+        radial-gradient(ellipse at 20% 30%, rgba(200, 200, 200, 0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 70%, rgba(220, 220, 220, 0.06) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .panel > * { position: relative; z-index: 1; }
+    .panel header { 
+      padding: 10px 14px; 
+      font-weight: 800; 
+      font-size: 1.1rem;
+      text-transform: uppercase;
+      color: #334155;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.6);
+      border-radius: 8px 8px 0 0;
+    }
+    
+    /* Apply same background style to modal cards */
+    #cabCard, #cabItemsCard {
+      position: relative;
+      overflow: visible;
+    }
+    #cabCard::before, #cabItemsCard::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 8px;
+      background: 
+        repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0, 0, 0, 0.015) 2px, rgba(0, 0, 0, 0.015) 4px),
+        repeating-linear-gradient(-45deg, transparent, transparent 3px, rgba(255, 255, 255, 0.02) 3px, rgba(255, 255, 255, 0.02) 6px),
+        radial-gradient(ellipse at 20% 30%, rgba(200, 200, 200, 0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 70%, rgba(220, 220, 220, 0.06) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    #cabCard > *, #cabItemsCard > * { position: relative; z-index: 1; }
+    
+    .panel .content { padding:12px; background: rgba(255, 255, 255, 0.5); border-radius: 0 0 8px 8px; }
     label { font-size:12px; color:var(--muted); display:block; margin-bottom:4px; }
-    input, select { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; }
+    input, select { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
     input[type="date"] { max-width: 100%; }
     @media (max-width: 1280px) {
       .filters-row2 input[type="date"] { width: 100%; }
@@ -62,14 +118,30 @@
 
     /* Top toolbar above results panel */
   .toolbar-top { display:flex; justify-content:flex-start; gap:8px; align-items:center; margin: 0 0 6px 0; flex-wrap: nowrap; }
-    .icon-btn { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; border:1px solid var(--border); background:#fff; border-radius:6px; cursor:pointer; }
-    .icon-btn:hover { background:#f9fafb; }
+    .icon-btn { 
+      display:inline-flex; 
+      align-items:center; 
+      justify-content:center; 
+      width:34px; 
+      height:34px; 
+      border:1px solid var(--border); 
+      background:#fff; 
+      border-radius:6px; 
+      cursor:pointer;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+      transition: box-shadow .2s ease, background-color .2s ease;
+    }
+    .icon-btn:hover { background:#f9fafb; box-shadow: 0 4px 8px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.08); }
   .icon { width:18px; height:18px; color:#374151; }
   /* Make add/update item icon more visible */
   #itemAddBtn .icon { width:28px; height:28px; }
   .icon-btn.success .icon { color: #065F46; }
     .dd-item { padding:6px 8px; cursor:pointer; }
+    .dd-item:hover { background:#f1f5f9; }
     .dd-item.active { background:#eef2ff; }
+    .vsugg-item { padding:6px 8px; cursor:pointer; }
+    .vsugg-item:hover { background:#f1f5f9; }
+    .vsugg-item.active { background:#eef2ff; }
     .icon-btn[disabled] { opacity: 0.5; cursor: not-allowed; background:#f3f4f6; }
     /* Lixeira habilitada fica vermelha */
     .icon-btn.danger:not([disabled]) .icon { color:#b91c1c; }
@@ -96,6 +168,10 @@
   #pageOverlay.hidden { opacity: 0; visibility: hidden; }
   .ph-spinner { width: 52px; height: 52px; border: 3px solid rgba(255,255,255,.35); border-top-color: #ffffff; border-radius: 50%; animation: phspin .8s linear infinite; box-shadow: 0 0 0 1px rgba(0,0,0,.08) inset; }
   @keyframes phspin { to { transform: rotate(360deg); } }
+  /* Botão Home */
+  .home-btn { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:8px; background:#fff; border:1px solid #e5e7eb; color:#334155; text-decoration:none; transition:all .2s ease; box-shadow:0 2px 4px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06); }
+  .home-btn:hover { background:#f8fafb; color:#0a3392; box-shadow:0 4px 8px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.08); transform:translateY(-1px); }
+  .home-btn svg { width:20px; height:20px; }
 
   /* Force compact table rows specifically for Portal bottom card and Items modal */
   .panel.panel--items table th,
@@ -129,18 +205,28 @@
   <div id="pageOverlay" style="display:flex;">
     <div class="ph-spinner" aria-label="Carregando" role="status"></div>
   </div>
-  <header><h1>Portal Packing House</h1></header>
+  
+  <header>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <a href="/sankhya/" class="home-btn" title="Voltar para Home" aria-label="Voltar para página inicial">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+          <polyline points="9 22 9 12 15 12 15 22"></polyline>
+        </svg>
+      </a>
+      <h1 style="margin:0;">Portal Packing House</h1>
+    </div>
+  </header>
 
   <main>
     <!-- Sidebar filtros (esquerda) -->
     <aside class="panel">
-      <header>Filtros rápidos</header>
-      <div class="content">
-        <div class="filters-actions" style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:8px;">
-          <button type="button" id="btnClear">Limpar</button>
-          <button type="submit" form="filtersForm">Aplicar</button>
-        </div>
-        <form id="filtersForm" class="filters-grid">
+      <header>Filtros</header>
+      <div class="filters-actions" style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:8px; padding:0 14px; margin-top:20px;">
+        <button type="button" id="btnClear" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:5px 10px; font-size:.8rem; font-weight:600; cursor:pointer; line-height:1; color:#475569;">Limpar</button>
+        <button type="submit" form="filtersForm" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:5px 10px; font-size:.8rem; font-weight:600; cursor:pointer; line-height:1; color:#475569;">Aplicar</button>
+      </div>
+      <form id="filtersForm" class="filters-grid" style="padding:0 14px;">
           <div>
             <label>Últimos dias (fallback)</label>
             <input type="number" name="days" value="{{ params.days }}" />
@@ -154,15 +240,7 @@
             </div>
           </div>
           <div>
-            <label>Nota</label>
-            <div class="filters-range">
-              <input type="text" name="nronota_ini" value="{{ params.nronota_ini|default:'' }}" />
-              <div class="sep">a</div>
-              <input type="text" name="nronota_fim" value="{{ params.nronota_fim|default:'' }}" />
-            </div>
-          </div>
-          <div>
-            <label>Nº Único</label>
+            <label>Vale</label>
             <input type="number" name="nunota_ini" value="{{ params.nunota_ini|default:'' }}" />
           </div>
           <div>
@@ -189,12 +267,6 @@
           </div>
           
         </form>
-        <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
-          <button type="button" id="btnPrev" class="icon-btn" title="Anterior" data-page="{{ prev_page }}" {% if not has_prev %}disabled{% endif %}>&lt;</button>
-          <div style="font-size:12px; color:var(--muted);">Página {{ page }}</div>
-          <button type="button" id="btnNext" class="icon-btn" title="Próxima" data-page="{{ next_page }}" {% if not has_next %}disabled{% endif %}>&gt;</button>
-        </div>
-      </div>
     </aside>
 
     <!-- Conteúdo (direita) com duas áreas de altura fixa -->
@@ -207,7 +279,7 @@
             <line x1="5" y1="12" x2="19" y2="12"></line>
           </svg>
         </a>
-        <button class="icon-btn danger" id="btnDeleteNota" type="button" title="Excluir nota selecionada" disabled>
+        <button class="icon-btn" id="btnDeleteNota" type="button" title="Excluir nota selecionada" disabled style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:3px 6px; cursor:pointer; color:#475569; font-size:.72rem; display:inline-flex; align-items:center; gap:4px;">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="3 6 5 6 21 6"></polyline>
             <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
@@ -216,7 +288,7 @@
             <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
           </svg>
         </button>
-        <button class="icon-btn" type="button" title="Imprimir" id="btnPrint">
+        <button class="icon-btn" type="button" title="Imprimir" id="btnPrint" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:3px 6px; cursor:pointer; color:#475569; font-size:.72rem; display:inline-flex; align-items:center; gap:4px;">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="6 9 6 2 18 2 18 9"></polyline>
             <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
@@ -227,27 +299,25 @@
       <div class="panel panel--results">
         <header>Notas</header>
         <div class="list" id="notasList" tabindex="0">
-            <table id="notasTable" class="ph-selectable-table" style="width:100%; border-collapse:collapse;">
+            <table id="notasTable" class="ph-selectable-table" style="width:100%; border-collapse:collapse; table-layout:fixed;">
+            <colgroup>
+              <col style="width: 90px;">  <!-- Vale -->
+              <col style="width: 110px;"> <!-- Data -->
+              <col style="width: auto;">  <!-- Parceiro -->
+            </colgroup>
             <thead>
               <tr>
                 <th>
                   {% with key='nunota' %}
                   <a href="?start={{ params.date_start|default:'' }}&end={{ params.date_end|default:'' }}&nronota_ini={{ params.nronota_ini|default:'' }}&nronota_fim={{ params.nronota_fim|default:'' }}&nunota_ini={{ params.nunota_ini|default:'' }}&codparc={{ params.codparc|default:'' }}&codprod={{ params.codprod|default:'' }}&controle={{ params.controle|default:'' }}&days={{ params.days }}&page={{ page }}&sort={{ key }}&dir={% if params.sort == key and params.dir == 'asc' %}desc{% else %}asc{% endif %}">
-                    Nº Único{% if params.sort == key %}{% if params.dir == 'asc' %} ▲{% else %} ▼{% endif %}{% endif %}
-                  </a>
-                  {% endwith %}
-                </th>
-                <th>
-                  {% with key='nronota' %}
-                  <a href="?start={{ params.date_start|default:'' }}&end={{ params.date_end|default:'' }}&nronota_ini={{ params.nronota_ini|default:'' }}&nronota_fim={{ params.nronota_fim|default:'' }}&nunota_ini={{ params.nunota_ini|default:'' }}&codparc={{ params.codparc|default:'' }}&codprod={{ params.codprod|default:'' }}&controle={{ params.controle|default:'' }}&days={{ params.days }}&page={{ page }}&sort={{ key }}&dir={% if params.sort == key and params.dir == 'asc' %}desc{% else %}asc{% endif %}">
-                    Nº Documento{% if params.sort == key %}{% if params.dir == 'asc' %} ▲{% else %} ▼{% endif %}{% endif %}
+                    Vale{% if params.sort == key %}{% if params.dir == 'asc' %} ▲{% else %} ▼{% endif %}{% endif %}
                   </a>
                   {% endwith %}
                 </th>
                 <th>
                   {% with key='dtneg' %}
                   <a href="?start={{ params.date_start|default:'' }}&end={{ params.date_end|default:'' }}&nronota_ini={{ params.nronota_ini|default:'' }}&nronota_fim={{ params.nronota_fim|default:'' }}&nunota_ini={{ params.nunota_ini|default:'' }}&codparc={{ params.codparc|default:'' }}&codprod={{ params.codprod|default:'' }}&controle={{ params.controle|default:'' }}&days={{ params.days }}&page={{ page }}&sort={{ key }}&dir={% if params.sort == key and params.dir == 'asc' %}desc{% else %}asc{% endif %}">
-                    Dt. Neg.{% if params.sort == key %}{% if params.dir == 'asc' %} ▲{% else %} ▼{% endif %}{% endif %}
+                    Data{% if params.sort == key %}{% if params.dir == 'asc' %} ▲{% else %} ▼{% endif %}{% endif %}
                   </a>
                   {% endwith %}
                 </th>
@@ -255,13 +325,6 @@
                   {% with key='parceiro' %}
                   <a href="?start={{ params.date_start|default:'' }}&end={{ params.date_end|default:'' }}&nronota_ini={{ params.nronota_ini|default:'' }}&nronota_fim={{ params.nronota_fim|default:'' }}&nunota_ini={{ params.nunota_ini|default:'' }}&codparc={{ params.codparc|default:'' }}&codprod={{ params.codprod|default:'' }}&controle={{ params.controle|default:'' }}&days={{ params.days }}&page={{ page }}&sort={{ key }}&dir={% if params.sort == key and params.dir == 'asc' %}desc{% else %}asc{% endif %}">
                     Parceiro{% if params.sort == key %}{% if params.dir == 'asc' %} ▲{% else %} ▼{% endif %}{% endif %}
-                  </a>
-                  {% endwith %}
-                </th>
-                <th>
-                  {% with key='valor' %}
-                  <a href="?start={{ params.date_start|default:'' }}&end={{ params.date_end|default:'' }}&nronota_ini={{ params.nronota_ini|default:'' }}&nronota_fim={{ params.nronota_fim|default:'' }}&nunota_ini={{ params.nunota_ini|default:'' }}&codparc={{ params.codparc|default:'' }}&codprod={{ params.codprod|default:'' }}&controle={{ params.controle|default:'' }}&days={{ params.days }}&page={{ page }}&sort={{ key }}&dir={% if params.sort == key and params.dir == 'asc' %}desc{% else %}asc{% endif %}">
-                    Vlr. Nota{% if params.sort == key %}{% if params.dir == 'asc' %} ▲{% else %} ▼{% endif %}{% endif %}
                   </a>
                   {% endwith %}
                 </th>
@@ -274,10 +337,8 @@
           data-nunota="{{ nunota }}"
           data-central-url="/sankhya/packing/central/?nunota={{ nunota }}">
                 <td>{{ nunota }}</td>
-                <td>{{ nronota }}</td>
-                <td>{{ dtneg }}</td>
+                <td>{{ dtneg|date:"d/m/Y" }}</td>
                 <td>{{ nomeparc }}</td>
-                <td>{{ vtotal }}</td>
               </tr>
               {% endwith %}
               {% empty %}
@@ -302,7 +363,7 @@
                 <th>Peso</th>
                 <th>Classifica</th>
                 <th>Vlr Unit</th>
-                <th>Total</th>
+                <th>Total kg</th>
                 <th>Obs</th>
               </tr>
             </thead>
@@ -328,7 +389,7 @@
         
   <!-- Modal: Novo Cabeçalho (TGFCAB) - reusa campos do central -->
   <div id="cabModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:70;">
-  <div id="cabCard" style="position:fixed; left:-1200px; top:64px; background:#fff; border:1px solid var(--border); border-radius:8px; width:380px; max-width:95vw; max-height:90vh; overflow:auto; transition:left .28s ease, opacity .18s ease; z-index:71;">
+  <div id="cabCard" style="position:fixed; left:-1200px; top:64px; background:linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 25%, #ffffff 50%, #e8e8e8 75%, #f5f5f5 100%); border:none; border-radius:8px; box-shadow:inset 0 2px 4px rgba(0, 0, 0, 0.15), inset 0 -2px 4px rgba(255, 255, 255, 0.8), inset 2px 0 4px rgba(0, 0, 0, 0.12), inset -2px 0 4px rgba(255, 255, 255, 0.7), 0 1px 2px rgba(0, 0, 0, 0.05); width:380px; max-width:95vw; max-height:90vh; overflow:auto; transition:left .28s ease, opacity .18s ease; z-index:71;">
       <div style="padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
   <strong>Cabeçalho</strong>
         <button class="icon-btn" type="button" id="cabClose" title="Fechar">×</button>
@@ -403,7 +464,7 @@
   </div>
   <!-- Modal Itens (in-place) -->
   <div id="cabItemsModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:75;">
-  <div id="cabItemsCard" style="position:fixed; left:100%; top:64px; background:#fff; border:1px solid var(--border); border-radius:8px; width:820px; max-width:95vw; max-height:90vh; overflow:auto; transition:left .28s ease; z-index:76;">
+  <div id="cabItemsCard" style="position:fixed; left:100%; top:64px; background:linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 25%, #ffffff 50%, #e8e8e8 75%, #f5f5f5 100%); border:none; border-radius:8px; box-shadow:inset 0 2px 4px rgba(0, 0, 0, 0.15), inset 0 -2px 4px rgba(255, 255, 255, 0.8), inset 2px 0 4px rgba(0, 0, 0, 0.12), inset -2px 0 4px rgba(255, 255, 255, 0.7), 0 1px 2px rgba(0, 0, 0, 0.05); width:820px; max-width:95vw; max-height:90vh; overflow:auto; transition:left .28s ease; z-index:76;">
       <div style="padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
         <strong>Itens — Nota</strong>
         <div style="display:flex; gap:8px; align-items:center;">
@@ -421,13 +482,6 @@
               <input type="hidden" id="item_prod_hidden" />
               <div id="item_prod_sugg" style="position:absolute; left:0; right:0; background:#fff; border:1px solid var(--border); display:none; max-height:160px; overflow:auto; z-index:120; font-size:13px;"></div>
             </div>
-            <div style="display:flex; flex-direction:column; align-items:flex-start;">
-              <label for="item_classifica" style="font-size:12px; color:var(--muted); margin-bottom:4px;">Classifica</label>
-              <label class="switch" title="Classifica">
-                <input type="checkbox" id="item_classifica" checked aria-label="Classifica" />
-                <span class="slider"></span>
-              </label>
-            </div>
             <div style="width:88px;">
               <label>Vol</label>
               <input type="text" id="item_vol" placeholder="CODVOL" autocomplete="off" value="CX" />
@@ -442,7 +496,7 @@
               <input type="number" id="item_peso" step="0.001" />
             </div>
             <div style="width:120px;">
-              <label>Total</label>
+              <label>Total KG</label>
               <input type="text" id="item_total" disabled style="background:#f3f4f6; text-align:right;" />
             </div>
           </div>
@@ -451,8 +505,15 @@
               <label>Observação</label>
               <input type="text" id="item_obs" />
             </div>
+            <div style="display:flex; flex-direction:column; align-items:flex-start;">
+              <label for="item_classifica" style="font-size:12px; color:var(--muted); margin-bottom:4px;">Classifica</label>
+              <label class="switch" title="Classifica">
+                <input type="checkbox" id="item_classifica" checked aria-label="Classifica" />
+                <span class="slider"></span>
+              </label>
+            </div>
             <div style="width:70px; display:flex; justify-content:center;">
-              <button id="itemAddBtn" class="icon-btn success icon-btn--plain" title="Adicionar" aria-label="Adicionar">
+              <button id="itemAddBtn" class="icon-btn" title="Adicionar" aria-label="Adicionar" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:3px 6px; cursor:pointer; color:#475569; font-size:.72rem; display:inline-flex; align-items:center; gap:4px;">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <circle cx="12" cy="12" r="9"></circle>
                   <line x1="12" y1="8" x2="12" y2="16"></line>
@@ -475,7 +536,7 @@
                   <th>Qtd</th>
                   <th>Vol</th>
                   <th>Peso</th>
-                  <th>Total</th>
+                  <th>Total kg</th>
                   <th></th>
                 </tr>
               </thead>
@@ -497,7 +558,7 @@
       <header style="padding:10px 14px; border-bottom:1px solid var(--border); font-weight:600;">Selecione a TOP</header>
       <div style="padding:10px 14px; border-bottom:1px solid var(--border); display:flex; gap:8px;">
         <input id="topSearch" type="text" placeholder="Código ou descrição" style="flex:1;" />
-        <button type="button" id="topClose">Fechar</button>
+        <button type="button" id="topClose" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:5px 10px; font-size:.8rem; font-weight:600; cursor:pointer; line-height:1; color:#475569;">Fechar</button>
       </div>
       <div id="topList" style="overflow:auto;">
         <!-- itens via JS -->
@@ -730,6 +791,28 @@
         first.forEach((r, i) => { const nun = r && r.dataset && r.dataset.nunota; if (nun) schedulePrefetch(nun, 220 + (i*140)); });
       } catch(_) {}
 
+      // Auto-abrir modal de itens se nota foi recém-criada (parâmetro new=1)
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('new') === '1') {
+          const active = tbl.querySelector('tbody tr.row--click.row--active');
+          if (active) {
+            const nun = active.dataset.nunota;
+            if (nun) {
+              // Remover parâmetro 'new' da URL para evitar reabertura em refresh
+              urlParams.delete('new');
+              const cleanUrl = window.location.pathname + (urlParams.toString() ? '?' + urlParams.toString() : '');
+              window.history.replaceState({}, '', cleanUrl);
+              // Abrir modal de edição e itens para a nota recém-criada
+              setTimeout(() => {
+                if (typeof openCabModalForEdit === 'function') openCabModalForEdit(nun);
+                if (typeof showItemsModal === 'function') showItemsModal(nun);
+              }, 400); // pequeno delay para garantir que página carregou completamente
+            }
+          }
+        }
+      } catch(_) { }
+
       // Hover-based prefetch to anticipate user choice
       tbl.addEventListener('mouseover', (e) => {
         const tr = e.target && e.target.closest ? e.target.closest('tr.row--click') : null;
@@ -756,24 +839,28 @@
         const active = tbl.querySelector('tbody tr.row--click.row--active');
         if (!active) return;
         const nun = active.getAttribute('data-nunota');
-        // Diagnóstico prévio
-        let diagText = '';
-        try{
-          const r = await fetch(`/sankhya/nota/diagnose/?nunota=${encodeURIComponent(nun)}`, {credentials:'same-origin'});
-          const j = await r.json();
-          if (j && j.ok){
-            const parts = [];
-            parts.push(`Itens na nota: ${j.itens_count}`);
-            const cabRefs = (j.fk_refs_to_cab||[]).filter(x=> (x.count||0) > 0).map(x=> `${x.table}(${x.count})`);
-            if (cabRefs.length) parts.push(`Referências ao cabeçalho: ${cabRefs.join(', ')}`);
-            const iteRefs = (j.fk_refs_to_ite_by_nunota||[]).filter(x=> (x.count||0) > 0).map(x=> `${x.table}(${x.count})`);
-            if (iteRefs.length) parts.push(`Referências a itens: ${iteRefs.join(', ')}`);
-            diagText = parts.length ? ('\n\nDiagnóstico:\n' + parts.join('\n')) : '';
-          }
-        }catch(_){}
-        const ok = confirm(`Confirma excluir a nota ${nun} e todos os itens?${diagText}`);
+        // Confirm FIRST for instant response
+        const ok = confirm(`Confirma excluir a nota ${nun} e todos os itens?`);
         if (!ok) return;
-        const res = await postJSON('/sankhya/nota/delete/', { nunota: parseInt(nun,10) });
+        // Delete immediately - diagnostic in background (non-blocking)
+        const deletePromise = postJSON('/sankhya/nota/delete/', { nunota: parseInt(nun,10) });
+        // Diagnostic fetch in parallel (don't await - just for console log)
+        fetch(`/sankhya/nota/diagnose/?nunota=${encodeURIComponent(nun)}`, {credentials:'same-origin'})
+          .then(r => r.json())
+          .then(j => {
+            if (j && j.ok){
+              const parts = [];
+              parts.push(`Itens na nota: ${j.itens_count}`);
+              const cabRefs = (j.fk_refs_to_cab||[]).filter(x=> (x.count||0) > 0).map(x=> `${x.table}(${x.count})`);
+              if (cabRefs.length) parts.push(`Referências ao cabeçalho: ${cabRefs.join(', ')}`);
+              const iteRefs = (j.fk_refs_to_ite_by_nunota||[]).filter(x=> (x.count||0) > 0).map(x=> `${x.table}(${x.count})`);
+              if (iteRefs.length) parts.push(`Referências a itens: ${iteRefs.join(', ')}`);
+              if(parts.length) console.log('Diagnóstico:', parts.join(' | '));
+            }
+          })
+          .catch(() => {}); // Ignore diagnostic errors
+        // Wait only for delete
+        const res = await deletePromise;
         if (res.ok && (res.body?.deleted_cab || 0) > 0){
           alert(`Nota ${nun} excluída com sucesso.`);
           // Recarrega sem 'sel'
@@ -1027,7 +1114,7 @@
         // show only the cab overlay and dock the card to left
         try{ const cabOv = document.getElementById('cabModal'); const itemsOv = document.getElementById('cabItemsModal'); const rodOv = document.getElementById('rodapeModal'); if(cabOv) cabOv.style.display = 'block'; if(itemsOv) itemsOv.style.display = 'none'; if(rodOv) rodOv.style.display = 'none'; }catch(_){ }
         const cab = document.getElementById('cabCard'); if(cab){ cab.style.top = getViewportTopOffset() + 'px'; cab.style.left = '16px'; cab.style.opacity = '1'; }
-        setTimeout(()=>{ try{ document.getElementById('cab_nronota')?.focus(); }catch(_){} },120);
+        setTimeout(()=>{ try{ document.getElementById('cab_parcSearch')?.focus(); }catch(_){} },120);
       }
       // Helper to open modal in EDIT mode by pre-filling values from a central header object
       async function openCabModalForEdit(nunota){
@@ -1112,6 +1199,52 @@
       attachTA('cab_top','cab_top_cod','cab_top_dd','/sankhya/top/search/');
       attachTA('cab_nat','cab_nat_cod','cab_nat_dd','/sankhya/natureza/search/');
       attachTA('cab_cencus','cab_cencus_cod','cab_cencus_dd','/sankhya/cencus/search/');
+
+      // Add Enter to save behavior for cab_parcSearch when dropdown is closed
+      try {
+        const cabParcInput = document.getElementById('cab_parcSearch');
+        const cabParcDropdown = document.getElementById('cab_parcDropdown');
+        if (cabParcInput && cabParcDropdown) {
+          cabParcInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && cabParcDropdown.style.display === 'none') {
+              e.preventDefault();
+              // Trigger save button click
+              const saveBtn = document.getElementById('cabSave');
+              if (saveBtn && !saveBtn.hasAttribute('disabled')) {
+                saveBtn.click();
+              }
+            }
+          });
+        }
+      } catch (_) { }
+
+      // Add global Enter handler for the entire cabCard modal
+      try {
+        const cabCard = document.getElementById('cabCard');
+        if (cabCard) {
+          cabCard.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              // Check if any dropdown is currently visible
+              const dropdowns = [
+                document.getElementById('cab_parcDropdown'),
+                document.getElementById('cab_top_dd'),
+                document.getElementById('cab_nat_dd'),
+                document.getElementById('cab_cencus_dd')
+              ];
+              const anyDropdownVisible = dropdowns.some(dd => dd && dd.style.display !== 'none');
+              
+              // If no dropdown is visible, trigger save
+              if (!anyDropdownVisible) {
+                e.preventDefault();
+                const saveBtn = document.getElementById('cabSave');
+                if (saveBtn && !saveBtn.hasAttribute('disabled')) {
+                  saveBtn.click();
+                }
+              }
+            }
+          });
+        }
+      } catch (_) { }
 
       // small non-blocking toast helper (soft message)
       function showToast(message, type){ // type: info|success|error
@@ -1366,7 +1499,22 @@
       function clearItemsList(){ if(!itemsListBody) return; itemsListBody.innerHTML = '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr>'; }
       // Click-to-select for items modal rows (visual highlight and future actions)
       try{
-        itemsListBody?.addEventListener('click', function(e){
+        itemsListBody?.addEventListener('click', async function(e){
+          // Handle delete button clicks - check button OR any element inside it (SVG/path)
+          const delBtn = e.target.classList?.contains('item-del') ? e.target : e.target.closest?.('button.item-del');
+          if(delBtn){
+            e.stopPropagation();
+            e.preventDefault();
+            if(!confirm('Excluir este item?')) return;
+            const seq = delBtn.dataset.seq;
+            const nunRaw = document.getElementById('items_nunota')?.value;
+            if(!nunRaw || !seq) return;
+            const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nunRaw,10), sequencias: [parseInt(seq,10)] });
+            if(res.ok){ alert('Item excluído'); try{ const n=String(nunRaw); if(window.__ITEMS_CACHE) delete window.__ITEMS_CACHE[n]; }catch(_){} try{ loadItems(nunRaw); }catch(_){} try{ panelLoadItems(nunRaw); }catch(_){} }
+            else { alert('Falha: '+(res.body?.errors||[]).join('\n')); }
+            return;
+          }
+          // Handle row selection
           const tr = e.target && e.target.closest ? e.target.closest('tr') : null;
           if(!tr) return;
           const rows = Array.from(itemsListBody.querySelectorAll('tr'));
@@ -1423,7 +1571,7 @@
           <td>${it.codvol||''}</td>
           <td style="text-align:right">${pesoFormatted}</td>
           <td style="text-align:right">${totalFormatted}</td>
-          <td><button class="icon-btn danger icon-btn--plain item-del" data-seq="${it.sequencia||''}" aria-label="Excluir">
+          <td><button class="icon-btn item-del" data-seq="${it.sequencia||''}" aria-label="Excluir" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:3px 6px; cursor:pointer; color:#475569; font-size:.72rem; display:inline-flex; align-items:center; gap:4px;">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <polyline points="3 6 5 6 21 6"></polyline>
               <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
@@ -1446,9 +1594,7 @@
           tr.dataset.gp = it.geraproducao != null ? String(it.geraproducao) : (typeof it.classifica !== 'undefined' ? (it.classifica ? 'S' : 'N') : '');
         }catch(_){ }
         itemsListBody.appendChild(tr);
-  // wire delete (sequence is kept as data attribute for server delete but not shown to user)
-  tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunRaw = document.getElementById('items_nunota')?.value; const nun = normalizeNunota(nunRaw); if(!nun || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nun,10), sequencias: [ parseInt(seq,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(window.__ITEMS_CACHE) delete window.__ITEMS_CACHE[String(nun)]; }catch(_){ } try{ loadItems(nun); }catch(_){ } try{ panelLoadItems(nun); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
-
+        // Delete button handled by event delegation on itemsListBody for instant response
         // enable dblclick to load row into edit form
         tr.addEventListener('dblclick', function(){
           try{
@@ -1545,21 +1691,103 @@
           if(!uniq.length){ vhide(); return; }
           volSugg.innerHTML = uniq.map((it,idx)=>`<div class="vsugg-item${idx===0?' active':''}" data-cod="${it.cod}" data-descr="${(it.descr||'').replace(/"/g,'&quot;')}">${it.cod} - ${it.descr}</div>`).join('');
           volSugg.style.display='block';
-          Array.from(volSugg.querySelectorAll('.vsugg-item')).forEach(el=> el.addEventListener('click', ()=>{ volHidden.value = el.dataset.cod; volVis.value = el.dataset.cod; vhide(); try{ document.getElementById('item_qtd')?.focus(); }catch(_){ } }));
+          Array.from(volSugg.querySelectorAll('.vsugg-item')).forEach(el=> el.addEventListener('click', ()=>{ volHidden.value = el.dataset.cod; volVis.value = el.dataset.cod; vhide(); checkVolumeClassification(); try{ document.getElementById('item_qtd')?.focus(); }catch(_){ } }));
         }
   volVis.addEventListener('input', function(){ const q = volVis.value.trim(); if(tv) clearTimeout(tv); if(!q){ vhide(); // keep hidden default (CX) if present
     if(!volHidden.value) volHidden.value = 'CX'; return; } tv = setTimeout(()=>{ fetch('/sankhya/vol/search/?q=' + encodeURIComponent(q) + '&limit=8',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ const items = j.results||[]; vshow(items); }).catch(()=> vhide()); }, 150); });
-  volVis.addEventListener('keydown', function(e){ if(volSugg.style.display === 'none') return; const nodes = Array.from(volSugg.querySelectorAll('.vsugg-item')); if(!nodes.length) return; let idx = nodes.findIndex(x=>x.classList.contains('active')); if(idx < 0) idx = 0; if(e.key === 'ArrowDown'){ e.preventDefault(); idx = Math.min(nodes.length-1, idx+1); nodes.forEach(x=>x.classList.remove('active')); nodes[idx].classList.add('active'); nodes[idx].scrollIntoView({block:'nearest'}); } else if(e.key === 'ArrowUp'){ e.preventDefault(); idx = Math.max(0, idx-1); nodes.forEach(x=>x.classList.remove('active')); nodes[idx].classList.add('active'); nodes[idx].scrollIntoView({block:'nearest'}); } else if(e.key === 'Enter' || e.key === 'Tab'){ const el = nodes.find(x=>x.classList.contains('active')) || nodes[0]; if(el){ e.preventDefault(); // store only the code in the visible input to avoid duplication
-    volHidden.value = el.dataset.cod;
-    volVis.value = el.dataset.cod;
-    vhide(); try{ document.getElementById('item_qtd')?.focus(); }catch(_){ } } } else if(e.key === 'Escape'){ vhide(); } });
+  volVis.addEventListener('keydown', function(e){ 
+    if(e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === 'Tab' || e.key === 'Escape'){
+      if(volSugg.style.display === 'none') return;
+      const nodes = Array.from(volSugg.querySelectorAll('.vsugg-item')); 
+      if(!nodes.length) return; 
+      let idx = nodes.findIndex(x=>x.classList.contains('active')); 
+      if(idx < 0) idx = 0; 
+      if(e.key === 'ArrowDown'){ 
+        e.preventDefault(); 
+        idx = Math.min(nodes.length-1, idx+1); 
+        nodes.forEach(x=>x.classList.remove('active')); 
+        nodes[idx].classList.add('active'); 
+        nodes[idx].scrollIntoView({block:'nearest'}); 
+      } else if(e.key === 'ArrowUp'){ 
+        e.preventDefault(); 
+        idx = Math.max(0, idx-1); 
+        nodes.forEach(x=>x.classList.remove('active')); 
+        nodes[idx].classList.add('active'); 
+        nodes[idx].scrollIntoView({block:'nearest'}); 
+      } else if(e.key === 'Enter' || e.key === 'Tab'){ 
+        const el = nodes.find(x=>x.classList.contains('active')) || nodes[0]; 
+        if(el){ 
+          e.preventDefault(); 
+          volHidden.value = el.dataset.cod;
+          volVis.value = el.dataset.cod;
+          vhide(); 
+          checkVolumeClassification(); 
+          try{ document.getElementById('item_qtd')?.focus(); }catch(_){ } 
+        } 
+      } else if(e.key === 'Escape'){ 
+        vhide(); 
+      } 
+    }
+  });
   // (no-op) click attachments are added when suggestions are rendered
       })();
+
+  // Monitor volume changes and apply classification rules
+  function checkVolumeClassification() {
+    const volHidden = document.getElementById('item_vol_hidden');
+    const volVis = document.getElementById('item_vol');
+    const classificaCheckbox = document.getElementById('item_classifica');
+    const pesoInput = document.getElementById('item_peso');
+    
+    if (!volHidden || !volVis || !classificaCheckbox || !pesoInput) return;
+    
+    const volValue = (volHidden.value || volVis.value || '').trim().toUpperCase();
+    
+    if (volValue && volValue !== 'CX') {
+      // Volume is NOT CX: uncheck classification and set peso to 1
+      classificaCheckbox.checked = false;
+      if (!pesoInput.value || pesoInput.value === '0') {
+        pesoInput.value = '1';
+        recalcItemTotal();
+      }
+    }
+  }
+  
+  // Attach listeners to volume fields
+  const volHiddenField = document.getElementById('item_vol_hidden');
+  const volVisField = document.getElementById('item_vol');
+  if (volHiddenField) {
+    // Create a MutationObserver to watch for value changes on hidden field
+    const observer = new MutationObserver(checkVolumeClassification);
+    observer.observe(volHiddenField, { attributes: true, attributeFilter: ['value'] });
+    // Also use input event as fallback
+    volHiddenField.addEventListener('change', checkVolumeClassification);
+  }
+  if (volVisField) {
+    volVisField.addEventListener('input', checkVolumeClassification);
+    volVisField.addEventListener('change', checkVolumeClassification);
+    volVisField.addEventListener('blur', checkVolumeClassification);
+  }
+  // Check on page load
+  setTimeout(checkVolumeClassification, 100);
 
   // Calculate total = qtd * peso when inputs change
   function recalcItemTotal(){ try{ const qtd = parseFloat(String(document.getElementById('item_qtd').value||'').replace(',','.')) || 0; const peso = parseFloat(String(document.getElementById('item_peso').value||'').replace(',','.')) || 0; const total = (qtd && peso) ? (qtd * peso) : 0; document.getElementById('item_total').value = total ? String(total) : ''; }catch(_){ } }
   document.getElementById('item_qtd')?.addEventListener('input', recalcItemTotal);
   document.getElementById('item_peso')?.addEventListener('input', recalcItemTotal);
+
+  // Add Enter key support to trigger itemAddBtn click
+  ['item_qtd', 'item_peso', 'item_obs', 'item_lote', 'item_prod_vis'].forEach(fieldId => {
+    const field = document.getElementById(fieldId);
+    if (field) {
+      field.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          document.getElementById('itemAddBtn')?.click();
+        }
+      });
+    }
+  });
 
   // Add item button: plan + save single item (reuses /sankhya/item/plan/ and /sankhya/item/save/)
       // Prevent rapid double-clicks on the Add button
@@ -1642,6 +1870,8 @@
             // reset edit state and clear fields
             try{ document.getElementById('item_seq_edit').value=''; setItemAddBtnMode('add'); }catch(_){}
             try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_peso').value=''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ }
+            // focus back to product field
+            try{ document.getElementById('item_prod_vis')?.focus(); }catch(_){ }
           } else {
             const body = resp.body || {}; const errs = Array.isArray(body.errors)&&body.errors.length? body.errors.join('\n') : (body.error || ''); const dbmsg = body.db_error && (body.db_error.message || body.db_error.msg) ? (body.db_error.message || body.db_error.msg) : ''; showToast('Falha ao atualizar item: ' + (errs || dbmsg || ('status ' + resp.status)),'error'); try{ console.error('item/update failed', resp.status, body); }catch(_){ }
           }
@@ -1659,6 +1889,8 @@
           try{ loadItems(nun); }catch(_){ }
           try{ panelLoadItems(nun); }catch(_){ }
           try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ }
+          // focus back to product field
+          try{ document.getElementById('item_prod_vis')?.focus(); }catch(_){ }
         } else {
           const body = saveResp.body || {};
           const errs = Array.isArray(body.errors) && body.errors.length ? body.errors.join('\n') : (body.error || '');
@@ -1752,7 +1984,17 @@
               animateHeaderToLeft();
               // Important: ensure Save button is not captured as disabled baseline
               try { cabSave.removeAttribute('disabled'); if (cabSave.dataset) delete cabSave.dataset.wasDisabled; } catch(_){}
-              showItemsModal(nun);
+              // Refresh notes list after creating new header (reload page to update left panel)
+              try {
+                const url = new URL(window.location.href);
+                url.searchParams.set('sel', nun); // select the newly created note
+                url.searchParams.set('new', '1'); // indicate it's a new note to auto-open modal
+                window.location.href = url.pathname + '?' + url.searchParams.toString();
+              } catch(_) {
+                // Fallback: simple reload with parameters
+                const qs = window.location.search ? window.location.search + '&' : '?';
+                window.location.href = window.location.pathname + qs + 'sel=' + nun + '&new=1';
+              }
               return;
             }
             const errs = (res.body?.errors||[]).join('\n');

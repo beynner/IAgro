@@ -9,13 +9,48 @@
   <style>
   :root { --border:#e5e7eb; --panel:#fff; --muted:#6b7280; --bg:#f7f9fb; --ph-selected-bg:#FEF9C3; --ph-selected-border:#F59E0B; }
   body { margin:0; font-family: Inter, system-ui, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:#111827; font-size:12px; }
-    header { padding: 12px 16px; background:#fff; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5; }
+    header { padding: 12px 16px; background:#fff; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5; box-shadow: 0 2px 4px rgba(0,0,0,0.04); }
     main { display:grid; grid-template-columns: 320px 1fr; gap:12px; padding:12px; }
-    .panel { background:#fff; border:1px solid var(--border); border-radius:8px; }
-    .panel header { padding:10px 14px; font-weight:600; border-bottom:1px solid var(--border); }
-    .panel .content { padding:12px; }
+    .panel { 
+      background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 25%, #ffffff 50%, #e8e8e8 75%, #f5f5f5 100%);
+      border: none;
+      border-radius: 8px;
+      box-shadow: 
+        inset 0 2px 4px rgba(0, 0, 0, 0.15),
+        inset 0 -2px 4px rgba(255, 255, 255, 0.8),
+        inset 2px 0 4px rgba(0, 0, 0, 0.12),
+        inset -2px 0 4px rgba(255, 255, 255, 0.7),
+        0 1px 2px rgba(0, 0, 0, 0.05);
+      position: relative;
+      overflow: visible;
+    }
+    .panel::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 8px;
+      background: 
+        repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0, 0, 0, 0.015) 2px, rgba(0, 0, 0, 0.015) 4px),
+        repeating-linear-gradient(-45deg, transparent, transparent 3px, rgba(255, 255, 255, 0.02) 3px, rgba(255, 255, 255, 0.02) 6px),
+        radial-gradient(ellipse at 20% 30%, rgba(200, 200, 200, 0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 70%, rgba(220, 220, 220, 0.06) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .panel > * { position: relative; z-index: 1; }
+    .panel header { 
+      padding: 10px 14px; 
+      font-weight: 800; 
+      font-size: 1.1rem;
+      text-transform: uppercase;
+      color: #334155;
+      border-bottom: 1px solid var(--border); 
+      background: rgba(255, 255, 255, 0.6);
+      border-radius: 8px 8px 0 0;
+    }
+    .panel .content { padding:12px; background: rgba(255, 255, 255, 0.5); border-radius: 0 0 8px 8px; }
     label { font-size:12px; color:var(--muted); display:block; margin-bottom:4px; }
-    input, select { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; }
+    input, select { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
     input[type="date"] { max-width: 100%; }
     @media (max-width: 1280px) {
       .filters-row2 input[type="date"] { width: 100%; }
@@ -27,11 +62,29 @@
   .filters-range { display:grid; grid-template-columns: 1fr auto 1fr; gap:8px; align-items:end; }
   .filters-range .sep { color: var(--muted); padding: 0 4px; }
   input, select { box-sizing: border-box; min-width: 0; }
+  
+  /* Botões de filtro */
+  button { 
+    padding:8px 16px; 
+    border:1px solid var(--border); 
+    background:#fff; 
+    border-radius:6px; 
+    cursor:pointer; 
+    font-size:12px; 
+    font-weight:600;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    transition: all .2s ease;
+  }
+  button:hover { background:#f9fafb; box-shadow: 0 2px 4px rgba(0,0,0,0.08); }
+  button[type="submit"] { background:#2563eb; color:#fff; border-color:#2563eb; }
+  button[type="submit"]:hover { background:#1d4ed8; }
 
     /* Right column structured into two fixed-height panels */
   .rightcol { display:grid; grid-template-rows: auto 48vh 30vh; gap:12px; }
     .panel--results { height: 48vh; display:grid; grid-template-rows: auto 1fr; }
     .panel--items { height: 30vh; display:grid; grid-template-rows: auto 1fr; }
+    .bottom-row { display:grid; grid-template-columns: 1fr 320px; gap:12px; }
+    .panel--summary { height: 30vh; display:grid; grid-template-rows: auto 1fr; }
 
     table { width:100%; border-collapse: collapse; }
   th, td { border-bottom:1px solid var(--border); padding:8px 10px; text-align:left; font-size:12px; }
@@ -57,9 +110,23 @@
 
     /* Top toolbar above results panel */
   .toolbar-top { display:flex; justify-content:flex-start; gap:8px; align-items:center; margin: 0 0 6px 0; flex-wrap: nowrap; }
-    .icon-btn { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; border:1px solid var(--border); background:#fff; border-radius:6px; cursor:pointer; }
-    .icon-btn:hover { background:#f9fafb; }
-    .icon { width:18px; height:18px; color:#374151; }
+    .icon-btn { 
+      display:inline-flex; 
+      align-items:center; 
+      justify-content:center; 
+      width:34px; 
+      height:34px; 
+      border:1px solid var(--border); 
+      background:#fff; 
+      border-radius:6px; 
+      cursor:pointer;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+      transition: box-shadow .2s ease, background-color .2s ease;
+      flex-shrink: 0;
+    }
+    .icon-btn:hover { background:#f9fafb; box-shadow: 0 4px 8px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.08); }
+    .icon-btn svg,
+    .icon-btn .icon { width:18px !important; height:18px !important; color:#374151; flex-shrink: 0; }
     .dd-item { padding:6px 8px; cursor:pointer; }
     .dd-item.active { background:#eef2ff; }
     .icon-btn[disabled] { opacity: 0.5; cursor: not-allowed; background:#f3f4f6; }
@@ -88,6 +155,10 @@
     #pageOverlay.hidden { opacity: 0; pointer-events: none; }
     .ph-spinner { width: 56px; height: 56px; border-radius: 50%; border: 4px solid #e5e7eb; border-top-color: #2563eb; animation: phspin 1s linear infinite; box-shadow: 0 0 0 1px rgba(0,0,0,0.02) inset; }
     @keyframes phspin { to { transform: rotate(360deg); } }
+    /* Botão Home */
+    .home-btn { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:8px; background:#fff; border:1px solid #e5e7eb; color:#334155; text-decoration:none; transition:all .2s ease; box-shadow:0 2px 4px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06); }
+    .home-btn:hover { background:#f8fafb; color:#0a3392; box-shadow:0 4px 8px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.08); transform:translateY(-1px); }
+    .home-btn svg { width:20px; height:20px; }
   </style>
 </head>
 <body>
@@ -96,25 +167,56 @@
     <div class="ph-spinner" aria-label="Carregando" role="status" style="width:56px;height:56px;border-radius:50%;border:4px solid #e5e7eb;border-top-color:#2563eb;"></div>
   </div>
 
-    <h1 style="display:flex; align-items:center; gap:10px;">
-      Classificação
-      {% if timings %}
-        <span title="Tempo de servidor (ms)" style="font-size:12px; font-weight:500; color:#111827; background:#E5E7EB; border-radius:9999px; padding:2px 8px;">
-          {{ timings.total_ms }} ms (list {{ timings.list_ms }}, sum {{ timings.sum_ms }})
-        </span>
-      {% endif %}
+  <header>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <a href="/sankhya/" class="home-btn" title="Voltar para Home" aria-label="Voltar para página inicial">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+          <polyline points="9 22 9 12 15 12 15 22"></polyline>
+        </svg>
+      </a>
+      <h1 style="display:flex; align-items:center; gap:10px; margin:0;">
+        Classificação
+        {% if timings %}
+          <span title="Tempo de servidor (ms)" style="font-size:12px; font-weight:500; color:#111827; background:#E5E7EB; border-radius:9999px; padding:2px 8px;">
+            {{ timings.total_ms }} ms (list {{ timings.list_ms }}, sum {{ timings.sum_ms }})
+          </span>
+        {% endif %}
+      </h1>
+    </div>
     {% if db_error %}
       <div style="margin-top:8px; padding:8px 10px; border:1px solid #fecaca; background:#fef2f2; color:#991b1b; border-radius:6px; font-size:12px;">
         Não foi possível conectar ao banco Oracle no momento. Detalhes: {{ db_error }}
       </div>
     {% endif %}
-    </h1>
+  </header>
 
   <main>
     <!-- Sidebar filtros (esquerda) -->
     <aside class="panel">
-      <header>Filtros rápidos</header>
-        <form id="filtersForm" class="filters-grid">
+      <header>Filtros</header>
+      
+      <div class="filters-actions" style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:8px; padding:0 14px; margin-top:8px;">
+        <button type="button" id="btnClear" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:5px 10px; font-size:.8rem; font-weight:600; cursor:pointer; line-height:1; color:#475569;">Limpar</button>
+        <button type="submit" form="filtersForm" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:5px 10px; font-size:.8rem; font-weight:600; cursor:pointer; line-height:1; color:#475569;">Aplicar</button>
+      </div>
+      
+      <!-- Filtros de Status do Lote -->
+      <div style="padding:8px 14px; border-bottom:1px solid var(--border);">
+        <div style="font-size:12px; font-weight:600; color:#64748b; margin-bottom:8px;">STATUS DO LOTE</div>
+        <div id="statusFilters" style="display:grid; grid-template-columns:auto 1fr; gap:6px 8px; align-items:center;">
+          <input type="checkbox" data-filter="green" id="filterGreen" style="cursor:pointer; accent-color:#10b981;">
+          <label for="filterGreen" style="cursor:pointer; font-size:13px; color:#10b981;">Classificação Finalizada</label>
+          
+          <input type="checkbox" data-filter="yellow" id="filterYellow" style="cursor:pointer; accent-color:#f59e0b;">
+          <label for="filterYellow" style="cursor:pointer; font-size:13px; color:#f59e0b;">Classificando</label>
+          
+          <input type="checkbox" data-filter="red" id="filterRed" style="cursor:pointer; accent-color:#ef4444;">
+          <label for="filterRed" style="cursor:pointer; font-size:13px; color:#ef4444;">A Classificar</label>
+        </div>
+      </div>
+      
+      <form id="filtersForm" class="filters-grid" style="padding:0 14px;">
           <div>
             <label>Últimos dias (fallback)</label>
             <input type="number" name="days" value="{{ params.days }}" />
@@ -128,16 +230,12 @@
             </div>
           </div>
           <div>
-            <label>Nº Único</label>
-            <input type="number" name="nunota" value="{{ params.nunota|default:'' }}" />
+            <label>Vale</label>
+            <input type="number" name="nunota_ini" value="{{ params.nunota_ini|default:'' }}" />
           </div>
           <div>
-            <label>Produto (Fabricante)</label>
-            <div style="position:relative;">
-              <input type="hidden" name="fabricante" id="fabricanteHidden" value="{{ params.fabricante|default:'' }}" />
-              <input type="text" id="fabricanteSearch" placeholder="Digite o fabricante" autocomplete="off" style="width:100%;" value="{{ params.fabricante|default:'' }}" />
-              <div id="fabricanteDropdown" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:6px; max-height:200px; overflow:auto; display:none; z-index:10;"></div>
-            </div>
+            <label>Produto</label>
+            <input type="number" name="codprod" value="{{ params.codprod|default:'' }}" />
           </div>
           <div>
             <label>Lote / CODAGREGACAO</label>
@@ -147,15 +245,12 @@
             <label>Parceiro</label>
             <div style="position:relative;">
               <input type="hidden" name="codparc" id="codparc" value="{{ params.codparc|default:'' }}" />
-              <input type="text" id="parcSearch" placeholder="Código ou nome do parceiro" autocomplete="off" style="width:100%;" value="{% if parc_display %}{{ parc_display }}{% elif params.codparc %}{{ params.codparc }}{% endif %}" />
+              <input type="text" id="parcSearch" placeholder="Código ou nome do parceiro" autocomplete="off" style="width:100%;" value="{% if params.codparc %}{{ params.codparc }}{% endif %}" />
               <div id="parcDropdown" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:6px; max-height:200px; overflow:auto; display:none; z-index:10;"></div>
             </div>
           </div>
           
         </form>
-        <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
-          <button type="button" id="btnPrev" class="icon-btn" title="Anterior" data-page="{{ prev_page }}" {% if not has_prev %}disabled{% endif %}>&lt;</button>
-      </div>
     </aside>
 
     <!-- Conteúdo (direita) com duas áreas de altura fixa -->
@@ -194,15 +289,7 @@
         </button>
       </div>
       <div class="panel panel--results">
-        <header>
-          LOTES
-          <span id="lotesLegend" style="font-weight:normal; margin-left:12px; font-size:12px;">
-            <a href="#" data-filter="all" style="margin-right:8px; text-decoration:underline;">Todos</a>
-            <a href="#" data-filter="green" style="color:#10b981; margin-right:8px;">Classificação Finalizada</a>
-            <a href="#" data-filter="yellow" style="color:#f59e0b; margin-right:8px;">Classificando</a>
-            <a href="#" data-filter="red" style="color:#ef4444;">A Classificar</a>
-          </span>
-        </header>
+        <header>LOTES</header>
         <div class="list" id="notasList" tabindex="0">
           <style>
             .status-dot{display:inline-block;width:10px;height:10px;border-radius:9999px;background:#ef4444}
@@ -275,47 +362,80 @@
           </table>
           <script>
             (function(){
-              const legend = document.getElementById('lotesLegend');
+              const statusFilters = document.getElementById('statusFilters');
               const tblEl = document.getElementById('notasTable');
-              if(!legend || !tblEl) return;
-              function applyLegendFilter(kind){
+              const filtersForm = document.getElementById('filtersForm');
+              if(!statusFilters || !tblEl) return;
+              
+              // Apply filter based on checked checkboxes
+              function applyStatusFilter(){
+                const checkboxes = statusFilters.querySelectorAll('input[type="checkbox"]');
+                const checkedFilters = Array.from(checkboxes)
+                  .filter(cb => cb.checked)
+                  .map(cb => cb.getAttribute('data-filter'));
+                
                 const rows = Array.from(tblEl.querySelectorAll('tbody tr.row--click'));
                 rows.forEach(r=>{
                   const dot = r.querySelector('.status-dot');
                   const isGreen = dot && dot.classList.contains('status--green');
                   const isYellow = dot && dot.classList.contains('status--yellow');
                   const isRed = dot && dot.classList.contains('status--red');
-                  let show = true;
-                  if(kind==='green') show = !!isGreen;
-                  else if(kind==='yellow') show = !!isYellow;
-                  else if(kind==='red') show = !!isRed;
-                  else show = true; // all
+                  
+                  let show = false;
+                  // If no filters checked, show all
+                  if(checkedFilters.length === 0){
+                    show = true;
+                  } else {
+                    // Show if matches any checked filter
+                    if(checkedFilters.includes('green') && isGreen) show = true;
+                    if(checkedFilters.includes('yellow') && isYellow) show = true;
+                    if(checkedFilters.includes('red') && isRed) show = true;
+                  }
                   r.style.display = show ? '' : 'none';
                 });
               }
-              legend.addEventListener('click', function(e){
-                const a = e.target.closest('a[data-filter]');
-                if(!a) return;
-                e.preventDefault();
-                const kind = a.getAttribute('data-filter')||'all';
-                applyLegendFilter(kind);
+              
+              // Apply filter on checkbox change
+              statusFilters.addEventListener('change', function(e){
+                if(e.target.type === 'checkbox'){
+                  applyStatusFilter();
+                }
               });
+              
+              // Add hidden inputs to form on submit
+              if(filtersForm){
+                filtersForm.addEventListener('submit', function(e){
+                  // Remove old status filter inputs
+                  filtersForm.querySelectorAll('input[name="status_filter"]').forEach(el => el.remove());
+                  
+                  // Add checked status filters
+                  const checkboxes = statusFilters.querySelectorAll('input[type="checkbox"]:checked');
+                  checkboxes.forEach(cb => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = 'status_filter';
+                    input.value = cb.getAttribute('data-filter');
+                    filtersForm.appendChild(input);
+                  });
+                });
+              }
             })();
           </script>
         </div>
       </div>
 
-      <div class="panel panel--items">
-    <header style="display:flex; justify-content:space-between; align-items:center;">
-      <div>Produtos Classificados (TOP 26)
-        {% if nunota_class_sel %}
-          <span id="nunotaClassBadge" style="margin-left:8px; font-weight:600; color:#1f2937; background:#e5e7eb; padding:2px 6px; border-radius:9999px; font-size:12px;">NUNOTA {{ nunota_class_sel }}</span>
-        {% else %}
-          <span id="nunotaClassBadge" style="display:none; margin-left:8px; font-weight:600; color:#1f2937; background:#e5e7eb; padding:2px 6px; border-radius:9999px; font-size:12px;"></span>
-        {% endif %}
-      </div>
-      <div style="display:flex; gap:8px; align-items:center;"></div>
-    </header>
+      <div class="bottom-row">
+        <div class="panel panel--items">
+      <header style="display:flex; justify-content:space-between; align-items:center;">
+        <div>Produtos Classificados (TOP 26)
+          {% if nunota_class_sel %}
+            <span id="nunotaClassBadge" style="margin-left:8px; font-weight:600; color:#1f2937; background:#e5e7eb; padding:2px 6px; border-radius:9999px; font-size:12px;">NUNOTA {{ nunota_class_sel }}</span>
+          {% else %}
+            <span id="nunotaClassBadge" style="display:none; margin-left:8px; font-weight:600; color:#1f2937; background:#e5e7eb; padding:2px 6px; border-radius:9999px; font-size:12px;"></span>
+          {% endif %}
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;"></div>
+      </header>
         <div class="items">
           <table class="ph-selectable-table">
             <thead>
@@ -347,6 +467,57 @@
               {% endif %}
             </tbody>
           </table>
+        </div>
+        </div>
+
+        <div class="panel panel--summary">
+          <header>Resumo da Classificação</header>
+          <div class="content" style="display:flex; flex-direction:column; gap:16px; padding:20px;">
+            <div style="display:flex; flex-direction:column; gap:12px;">
+              <div style="padding:12px; background:#f9fafb; border-radius:6px; border-left:3px solid #3b82f6;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                  <span style="color:#6b7280; font-size:11px; font-weight:600; text-transform:uppercase;">In Natura (kg)</span>
+                  <span id="resumoInNatura" style="font-size:24px; font-weight:700; color:#1f2937;">0,0</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <div style="text-align:left; color:#9ca3af; font-size:10px;">100%</div>
+                  <div style="text-align:right;">
+                    <span id="resumoInNaturaCx" style="color:#6b7280; font-size:12px; font-weight:600;">0,0 cx</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div style="padding:12px; background:#f9fafb; border-radius:6px; border-left:3px solid #10b981;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                  <span style="color:#6b7280; font-size:11px; font-weight:600; text-transform:uppercase;">Classificado (kg)</span>
+                  <span id="resumoClassificado" style="font-size:24px; font-weight:700; color:#1f2937;">0,0</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <div style="text-align:left;">
+                    <span id="resumoClassificadoPct" style="color:#10b981; font-size:12px; font-weight:600;">0%</span>
+                  </div>
+                  <div style="text-align:right;">
+                    <span id="resumoClassificadoCx" style="color:#6b7280; font-size:12px; font-weight:600;">0,0 cx</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div style="padding:12px; background:#f9fafb; border-radius:6px; border-left:3px solid #f59e0b;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                  <span style="color:#6b7280; font-size:11px; font-weight:600; text-transform:uppercase;">Estoque (kg)</span>
+                  <span id="resumoEstoque" style="font-size:24px; font-weight:700; color:#1f2937;">0,0</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <div style="text-align:left;">
+                    <span id="resumoEstoquePct" style="color:#f59e0b; font-size:12px; font-weight:600;">0%</span>
+                  </div>
+                  <div style="text-align:right;">
+                    <span id="resumoEstoqueCx" style="color:#6b7280; font-size:12px; font-weight:600;">0,0 cx</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -590,21 +761,27 @@
             <div>
               <div style="font-size:14px; color:#6b7280;">Lote</div>
               <div id="cab_lote_text" style="font-weight:700; color:#111827; font-size:20px; line-height:1.2;">—</div>
-              <div style="margin-top:4px; font-size:12px; color:#6b7280;">NUNOTA</div>
-              <div id="cab_nunota_text" style="color:#374151; background:#E5E7EB; border:1px solid var(--border); border-radius:6px; padding:4px 8px; display:inline-block;">—</div>
+              <div style="margin-top:4px; font-size:12px; color:#6b7280;">Nota</div>
+              <div id="cab_nunota_top11_text" style="color:#374151; background:#DBEAFE; border:1px solid var(--border); border-radius:6px; padding:4px 8px; display:inline-block; font-weight:600;">—</div>
               <div id="cab_parc_text" style="margin-top:6px; color:#374151; background:#FEF9C3; border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-weight:600;">—</div>
               <div id="cab_prod_text" style="margin-top:6px; color:#374151; background:#FEF9C3; border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-weight:600;">—</div>
             </div>
 
             <!-- Metrics (moved just below product) -->
-            <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:10px;">
-              <div style="border:1px solid var(--border); border-radius:8px; padding:4px 8px 8px; background:#f9fafb; text-align:center;">
-                <div style="font-size:11px; color:#6b7280; margin-top:-4px;">Qtde InNatura</div>
-                <div id="cab_qtd_pedido_text" style="font-weight:700; font-size:18px; line-height:1.1; text-align:center; margin-top:8px;">—</div>
-              </div>
-              <div style="border:1px solid var(--border); border-radius:8px; padding:4px 8px 8px; background:#f9fafb; text-align:center;">
-                <div style="font-size:11px; color:#6b7280; margin-top:-4px;">Qtde Classificado</div>
-                <div style="margin-top:8px;"><span id="cab_class_count_text" style="font-weight:700; font-size:18px; line-height:1.1; text-align:center; display:inline-block;">—</span></div>
+            <div style="display:flex; gap:10px;">
+              <div style="width:50%; display:grid; gap:10px;">
+                <div style="border:1px solid var(--border); border-radius:8px; padding:4px 8px 8px; background:#f9fafb; text-align:center;">
+                  <div style="font-size:11px; color:#6b7280; margin-top:-4px;">Qtde In Natura</div>
+                  <div id="cab_qtd_pedido_text" style="font-weight:700; font-size:18px; line-height:1.1; text-align:center; margin-top:8px;">—</div>
+                </div>
+                <div style="border:1px solid var(--border); border-radius:8px; padding:4px 8px 8px; background:#f9fafb; text-align:center;">
+                  <div style="font-size:11px; color:#6b7280; margin-top:-4px;">Qtde Classificado</div>
+                  <div style="margin-top:8px;"><span id="cab_class_count_text" style="font-weight:700; font-size:18px; line-height:1.1; text-align:center; display:inline-block;">—</span></div>
+                </div>
+                <div style="border:1px solid var(--border); border-radius:8px; padding:4px 8px 8px; background:#f9fafb; text-align:center;">
+                  <div style="font-size:11px; color:#6b7280; margin-top:-4px;">Estoque</div>
+                  <div id="cab_estoque_text" style="font-weight:700; font-size:18px; line-height:1.1; text-align:center; margin-top:8px;">—</div>
+                </div>
               </div>
             </div>
 
@@ -612,7 +789,6 @@
             <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
               <span id="cab_top_text" style="display:inline-block; background:#eef2ff; color:#1f2937; padding:4px 10px; border-radius:9999px; font-size:12px;">26 — Classificação</span>
               <span id="cab_dtneg_text" style="display:inline-block; background:#f3f4f6; color:#374151; padding:4px 10px; border-radius:9999px; font-size:12px;">—</span>
-              <span id="cab_nunota_class_badge" style="display:none; background:#e5e7eb; color:#111827; padding:4px 10px; border-radius:9999px; font-size:12px;">NUNOTA —</span>
             </div>
 
             <!-- Natureza / Centro stacked -->
@@ -660,7 +836,7 @@
                   <input type="number" id="item_peso" step="0.001" />
                 </div>
                 <div style="width:120px;">
-                  <label>Total</label>
+                  <label>Total kg</label>
                   <input type="text" id="item_total" disabled style="background:#f3f4f6; text-align:right;" />
                 </div>
               </div>
@@ -691,24 +867,22 @@
               </div>
               <div style="max-height:42vh; overflow:auto; border:1px solid var(--border); border-radius:6px;">
                 <table class="ph-selectable-table" style="width:100%; border-collapse:collapse;">
-                  <thead><tr><th style="padding:8px">Lote</th><th>Produto</th><th>Vol</th><th>Qtd</th><th>Peso</th><th>Classifica</th><th>Total</th><th></th></tr></thead>
-                    <tbody id="itemsListBody"><tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr></tbody>
+                  <thead><tr><th style="padding:8px">Lote</th><th>Produto</th><th style="text-align:right">Vol</th><th style="text-align:right">Qtd</th><th style="text-align:right">Peso</th><th style="text-align:right">Total kg</th><th style="text-align:right"></th></tr></thead>
+                    <tbody id="itemsListBody"><tr><td colspan="7" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr></tbody>
                 </table>
               </div>
             </div>
-            <div style="display:flex; gap:8px; justify-content:space-between; align-items:center; margin-top:6px;">
-              <div style="display:flex; align-items:center; gap:10px;">
-                <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:#374151;">
-                  Classificação Finalizada
-                  <span class="switch">
-                    <input type="checkbox" id="toggleStatusNota" />
-                    <span class="slider"></span>
-                  </span>
-                </label>
-              </div>
-              <div>
-                <button id="itemsCancel" type="button" title="Fechar">Fechar</button>
-              </div>
+            <div style="display:flex; gap:8px; justify-content:flex-end; align-items:center; margin-top:6px;">
+              <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:#374151;">
+                Classificação Finalizada
+                <span class="switch">
+                  <input type="checkbox" id="toggleStatusNota" />
+                  <span class="slider"></span>
+                </span>
+              </label>
+            </div>
+            <div style="display:flex; justify-content:flex-end; margin-top:6px;">
+              <button id="itemsCancel" type="button" title="Fechar">Fechar</button>
             </div>
           </div>
         </div>
@@ -1059,7 +1233,9 @@
         });
       })();
       // Load classified products for selected lote via AJAX
-  async function loadClassifiedFor(controle){ const bodyEl = document.getElementById('prodClassBody'); if(!bodyEl) return; bodyEl.innerHTML = '<tr><td colspan="7">Carregando...</td></tr>'; try{ let j = null; try{ if(window.__LOTES_CACHE && window.__LOTES_CACHE[controle]){ j = window.__LOTES_CACHE[controle]; } }catch(_){ } if(!j){ const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' }); j = await r.json(); try{ window.__LOTES_CACHE = window.__LOTES_CACHE || {}; if(j && j.ok){ window.__LOTES_CACHE[controle] = j; } }catch(_){ } } if(!j || !j.ok){ bodyEl.innerHTML = `<tr><td colspan="7">Erro: ${(j&&j.error)||'falha'}</td></tr>`; return; } const rows = j.classificacoes || []; // update nunota TOP 26 badge
+  async function loadClassifiedFor(controle, forceRefresh){ const bodyEl = document.getElementById('prodClassBody'); if(!bodyEl) return; bodyEl.innerHTML = '<tr><td colspan="7">Carregando...</td></tr>'; try{ let j = null; if(!forceRefresh){ try{ if(window.__LOTES_CACHE && window.__LOTES_CACHE[controle]){ j = window.__LOTES_CACHE[controle]; } }catch(_){ } } if(!j){ const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle) + '&_t=' + Date.now(), { credentials: 'same-origin' }); j = await r.json(); try{ window.__LOTES_CACHE = window.__LOTES_CACHE || {}; if(j && j.ok){ window.__LOTES_CACHE[controle] = j; } }catch(_){ } } if(!j || !j.ok){ bodyEl.innerHTML = `<tr><td colspan="7">Erro: ${(j&&j.error)||'falha'}</td></tr>`; return; } const rows = j.classificacoes || []; // update nunota TOP 26 badge
+  // Tornar função global para acesso de qualquer lugar
+  window.loadClassifiedFor = loadClassifiedFor;
     // helpers for number formatting and total calculation
   function formatNum(val){ const n = parseFloat(val); return (isFinite(n) ? n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : ''); }
   function totalKgValue(item){ try{ const q = parseFloat(item && item.qtd != null ? item.qtd : NaN); const p = parseFloat(item && item.peso != null ? item.peso : NaN); const v = q * p; return (isFinite(v) ? v : NaN); }catch(_){ return NaN; } }
@@ -1162,7 +1338,85 @@
             try{ formatLotesRow(activeRow); }catch(_){ }
           }
         }catch(_){ }
-  if(rows.length===0){ bodyEl.innerHTML = '<tr><td colspan="7">Nenhum produto classificado para a seleção.</td></tr>'; return; } bodyEl.innerHTML = ''; for(const it of rows){ const tr = document.createElement('tr'); const qtdDisp = formatNum(it.qtd); const pesoDisp = formatNum(it.peso); const totalVal = totalKgValue(it); const totalDisp = isFinite(totalVal) ? totalVal.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : ''; tr.innerHTML = `<td>${it.nunota||''}</td><td>${it.sequencia||''}</td><td>${it.cod||''}</td><td>${it.descr||''}</td><td>${qtdDisp}</td><td>${pesoDisp}</td><td>${totalDisp}</td>`; bodyEl.appendChild(tr); } }catch(err){ bodyEl.innerHTML = '<tr><td colspan="7">Erro ao carregar.</td></tr>'; } finally { try { if (window.__PH_INITIAL_LOADING) { window.__PH_INITIAL_LOADING = false; window.PHOverlay && window.PHOverlay.hide && window.PHOverlay.hide(); } } catch(_) {} } }
+  if(rows.length===0){ bodyEl.innerHTML = '<tr><td colspan="7">Nenhum produto classificado para a seleção.</td></tr>'; updateResumoClassificacao([], j); return; } bodyEl.innerHTML = ''; for(const it of rows){ const tr = document.createElement('tr'); const qtdDisp = formatNum(it.qtd); const pesoDisp = formatNum(it.peso); const totalVal = totalKgValue(it); const totalDisp = isFinite(totalVal) ? totalVal.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : ''; tr.innerHTML = `<td>${it.nunota||''}</td><td>${it.sequencia||''}</td><td>${it.cod||''}</td><td>${it.descr||''}</td><td>${qtdDisp}</td><td>${pesoDisp}</td><td>${totalDisp}</td>`; bodyEl.appendChild(tr); } updateResumoClassificacao(rows, j); }catch(err){ bodyEl.innerHTML = '<tr><td colspan="7">Erro ao carregar.</td></tr>'; updateResumoClassificacao([], null); } finally { try { if (window.__PH_INITIAL_LOADING) { window.__PH_INITIAL_LOADING = false; window.PHOverlay && window.PHOverlay.hide && window.PHOverlay.hide(); } } catch(_) {} } }
+
+      // Update summary card with totals from classified products
+      function updateResumoClassificacao(rows, jsonData) {
+        try {
+          const formatNum = (val) => {
+            return isFinite(val) ? val.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '0,0';
+          };
+          const formatPct = (val) => {
+            return isFinite(val) ? val.toFixed(1) + '%' : '0%';
+          };
+
+          // Calcular Total In Natura (qtd * peso das entradas)
+          let totalInNatura = 0;
+          let totalInNaturaCx = 0;
+          if (jsonData && Array.isArray(jsonData.entradas)) {
+            const pin = jsonData.prod_in_natura != null ? String(jsonData.prod_in_natura) : '';
+            if (pin) {
+              const match = jsonData.entradas.find(e => String(e.codprod || e.CODPROD || '') === pin);
+              if (match) {
+                const q = parseFloat(match.qtd || match.QTDNEG || 0);
+                const p = parseFloat(match.peso || match.PESO || 0);
+                totalInNatura = (isFinite(q) && isFinite(p)) ? (q * p) : 0;
+                totalInNaturaCx = isFinite(q) ? q : 0;
+              } else {
+                totalInNatura = jsonData.entradas.reduce((s, e) => {
+                  const q = parseFloat(e.qtd || e.QTDNEG || 0);
+                  const p = parseFloat(e.peso || e.PESO || 0);
+                  return s + ((isFinite(q) && isFinite(p)) ? (q * p) : 0);
+                }, 0);
+                totalInNaturaCx = jsonData.entradas.reduce((s, e) => {
+                  const q = parseFloat(e.qtd || e.QTDNEG || 0);
+                  return s + (isFinite(q) ? q : 0);
+                }, 0);
+              }
+            } else {
+              totalInNatura = jsonData.entradas.reduce((s, e) => {
+                const q = parseFloat(e.qtd || e.QTDNEG || 0);
+                const p = parseFloat(e.peso || e.PESO || 0);
+                return s + ((isFinite(q) && isFinite(p)) ? (q * p) : 0);
+              }, 0);
+              totalInNaturaCx = jsonData.entradas.reduce((s, e) => {
+                const q = parseFloat(e.qtd || e.QTDNEG || 0);
+                return s + (isFinite(q) ? q : 0);
+              }, 0);
+            }
+          }
+
+          // Calcular Total Classificado (qtd * peso dos produtos classificados)
+          let totalClassificado = 0;
+          let totalClassificadoCx = 0;
+          for (const it of rows) {
+            const q = parseFloat(it && it.qtd != null ? it.qtd : 0);
+            const p = parseFloat(it && it.peso != null ? it.peso : 0);
+            if (isFinite(q) && isFinite(p)) totalClassificado += (q * p);
+            if (isFinite(q)) totalClassificadoCx += q;
+          }
+
+          // Calcular Estoque (In Natura - Classificado), não permitir valores negativos
+          const estoque = Math.max(0, totalInNatura - totalClassificado);
+          const estoqueCx = Math.max(0, totalInNaturaCx - totalClassificadoCx);
+
+          // Calcular porcentagens
+          const pctClassificado = totalInNatura > 0 ? (totalClassificado / totalInNatura) * 100 : 0;
+          const pctEstoque = totalInNatura > 0 ? (estoque / totalInNatura) * 100 : 0;
+
+          // Atualizar elementos
+          document.getElementById('resumoInNatura').textContent = formatNum(totalInNatura);
+          document.getElementById('resumoInNaturaCx').textContent = formatNum(totalInNaturaCx) + ' cx';
+          document.getElementById('resumoClassificado').textContent = formatNum(totalClassificado);
+          document.getElementById('resumoClassificadoCx').textContent = formatNum(totalClassificadoCx) + ' cx';
+          document.getElementById('resumoClassificadoPct').textContent = formatPct(pctClassificado);
+          document.getElementById('resumoEstoque').textContent = formatNum(estoque);
+          document.getElementById('resumoEstoqueCx').textContent = formatNum(estoqueCx) + ' cx';
+          document.getElementById('resumoEstoquePct').textContent = formatPct(pctEstoque);
+        } catch (err) {
+          console.error('Erro ao atualizar resumo:', err);
+        }
+      }
 
       // Removed obsolete in-card header action buttons (Add/Edit/Delete) and their handlers
 
@@ -1268,12 +1522,12 @@
   // Reuse SQL preview modal (prefer global so it shows above any other overlays)
   const sqlModal = document.getElementById('sqlPreviewModalGlobal') || document.getElementById('sqlPreviewModal'); const sqlContent = document.getElementById('sqlPreviewContentGlobal') || document.getElementById('sqlPreviewContent'); const sqlCancel = document.getElementById('sqlPreviewCancelGlobal') || document.getElementById('sqlPreviewCancel'); const sqlConfirm = document.getElementById('sqlPreviewConfirmGlobal') || document.getElementById('sqlPreviewConfirm');
         if(!sqlModal || !sqlContent){ // fallback to direct save
-          const ok = confirm('Aplicar alteração (sem preview)?'); if(!ok) return; const saveRes = await postJSON('/sankhya/item/save/', payload); if(saveRes.ok){ alert('Item salvo'); try{ if(window.__LOTES_CACHE){ const activeRow = tbl.querySelector('tbody tr.row--active'); const ctrl = activeRow ? activeRow.dataset.nunota : null; if(ctrl) delete window.__LOTES_CACHE[String(ctrl)]; } }catch(_){ } itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha ao salvar: ' + (saveRes.body?.errors||[]).join('\n') || 'Erro'); } return; }
+          const ok = confirm('Aplicar alteração (sem preview)?'); if(!ok) return; const saveRes = await postJSON('/sankhya/item/save/', payload); if(saveRes.ok){ try{ if(window.__LOTES_CACHE){ const activeRow = tbl.querySelector('tbody tr.row--active'); const ctrl = activeRow ? activeRow.dataset.nunota : null; if(ctrl) delete window.__LOTES_CACHE[String(ctrl)]; } }catch(_){ } itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha ao salvar: ' + (saveRes.body?.errors||[]).join('\n') || 'Erro'); } return; }
         sqlContent.textContent = preview; sqlModal.style.display = 'flex';
         sqlCancel.onclick = function(){ sqlModal.style.display='none'; };
         sqlConfirm.onclick = async function(){ sqlModal.style.display='none'; // perform actual save
           const saveRes = await postJSON('/sankhya/item/save/', payload);
-          if(saveRes.ok){ alert('Item salvo'); try{ if(window.__LOTES_CACHE){ const activeRow = tbl.querySelector('tbody tr.row--active'); const ctrl = activeRow ? activeRow.dataset.nunota : null; if(ctrl) delete window.__LOTES_CACHE[String(ctrl)]; } }catch(_){ } itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha ao salvar: ' + (saveRes.body?.errors||[]).join('\n') || 'Erro'); }
+          if(saveRes.ok){ try{ if(window.__LOTES_CACHE){ const activeRow = tbl.querySelector('tbody tr.row--active'); const ctrl = activeRow ? activeRow.dataset.nunota : null; if(ctrl) delete window.__LOTES_CACHE[String(ctrl)]; } }catch(_){ } itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha ao salvar: ' + (saveRes.body?.errors||[]).join('\n') || 'Erro'); }
         };
       });
 
@@ -1576,148 +1830,19 @@
       const btnPrint = document.getElementById('btnPrint'); if(btnPrint){ btnPrint.addEventListener('click', ()=>window.print()); }
       const clearBtn = document.getElementById('btnClear'); const form = document.getElementById('filtersForm'); if(clearBtn && form){ clearBtn.addEventListener('click', (e)=>{ e.preventDefault(); const inputs = form.querySelectorAll('input'); inputs.forEach((inp)=>{ if(inp.type === 'hidden' || inp.type === 'text' || inp.type === 'number' || inp.type === 'date'){ inp.value = ''; } }); const parcHidden = document.getElementById('codparc'); if(parcHidden) parcHidden.value = ''; const parcVisible = document.getElementById('parcSearch'); if(parcVisible) parcVisible.value = ''; }); }
       if(form){ form.addEventListener('submit', ()=>{ let pg = form.querySelector('input[name="page"]'); if(!pg){ pg = document.createElement('input'); pg.type='hidden'; pg.name='page'; form.appendChild(pg); } pg.value='1'; }); }
+      // Replicar data inicial para data final ao digitar no primeiro campo
+      try {
+        const startDate = form.querySelector('input[name="start"]');
+        const endDate = form.querySelector('input[name="end"]');
+        if (startDate && endDate) {
+          const syncEnd = () => { if (startDate.value !== undefined) endDate.value = startDate.value; };
+          startDate.addEventListener('input', syncEnd);
+          startDate.addEventListener('change', syncEnd);
+        }
+      } catch (_) { }
       function goToPage(targetPage){ try{ const url = new URL(window.location.href); url.searchParams.set('page', String(targetPage)); window.location.href = url.pathname + '?' + url.searchParams.toString(); }catch(err){ const qs = window.location.search ? window.location.search + '&' : '?'; window.location.href = window.location.pathname + qs + 'page=' + encodeURIComponent(targetPage); } }
   const btnPrev = document.getElementById('btnPrev'); if(btnPrev && !btnPrev.disabled){ btnPrev.addEventListener('click', ()=>{ try{ window.PHOverlay && window.PHOverlay.show && window.PHOverlay.show(); }catch(_){ } goToPage(btnPrev.dataset.page); }); }
   const btnNext = document.getElementById('btnNext'); if(btnNext && !btnNext.disabled){ btnNext.addEventListener('click', ()=>{ try{ window.PHOverlay && window.PHOverlay.show && window.PHOverlay.show(); }catch(_){ } goToPage(btnNext.dataset.page); }); }
-    })();
-    // Auto-submit filters for days/date/nunota on Enter or change
-    (function(){
-      const form = document.getElementById('filtersForm'); if(!form) return;
-      function submitResetPage(){ try{ let pg=form.querySelector('input[name="page"]'); if(!pg){ pg=document.createElement('input'); pg.type='hidden'; pg.name='page'; form.appendChild(pg);} pg.value='1'; form.submit(); }catch(_){}}
-      const days = form.querySelector('input[name="days"]');
-      const d1 = form.querySelector('input[name="start"]');
-      const d2 = form.querySelector('input[name="end"]');
-      const nun = form.querySelector('input[name="nunota"]');
-      [d1,d2].forEach(el=> el && el.addEventListener('change', submitResetPage));
-      if(days){ days.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitResetPage(); }}); }
-      if(nun){ nun.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitResetPage(); }}); nun.addEventListener('blur', ()=>{ if(nun.value && nun.value.trim()!==''){ submitResetPage(); }}); }
-    })();
-    // --- Produto (Fabricante) autocomplete ---
-    (function(){
-      const inp = document.getElementById('fabricanteSearch');
-      const hid = document.getElementById('fabricanteHidden');
-      const dd  = document.getElementById('fabricanteDropdown');
-      const form = document.getElementById('filtersForm');
-      if(!inp || !hid || !dd || !form) return;
-      let t = null;
-      function hide(){ dd.style.display='none'; dd.innerHTML=''; }
-      function build(items){
-        dd.innerHTML = items.map((it, idx)=>{
-          const fab = (it.fabricante||'').toString().toUpperCase();
-          return `<div class="ac-item${idx===0?' active':''}" data-fab="${fab}">${fab}</div>`;
-        }).join('');
-        dd.style.display = items.length ? 'block' : 'none';
-      }
-      function fetchQ(q){
-        const url = `/sankhya/produtos/search/?fabricante=1&q=${encodeURIComponent(q)}&limit=10`;
-        fetch(url, { credentials:'same-origin' }).then(r=>r.json()).then(j=> build(j.results||[])).catch(hide);
-      }
-      function selectActive(){
-        const el = dd.querySelector('.ac-item.active') || dd.querySelector('.ac-item');
-        if(!el) return false;
-        const fab = el.getAttribute('data-fab')||'';
-        hid.value = fab; inp.value = fab; hide();
-        try{
-          let pg = form.querySelector('input[name="page"]');
-          if(!pg){ pg = document.createElement('input'); pg.type='hidden'; pg.name='page'; form.appendChild(pg); }
-          pg.value = '1'; form.submit();
-        }catch(_){ }
-        return true;
-      }
-      inp.addEventListener('input', (e)=>{
-        const q = (e.target.value||'').trim();
-        if(t) clearTimeout(t);
-        if(!q){ hide(); hid.value=''; return; }
-        const ok = q.length >= 3;
-        t = setTimeout(()=> ok ? fetchQ(q) : hide(), 200);
-      });
-      inp.addEventListener('keydown', (e)=>{
-        if(dd.style.display === 'none') return;
-        const items = Array.from(dd.querySelectorAll('.ac-item'));
-        if(!items.length) return;
-        const cur = items.findIndex(x=>x.classList.contains('active'));
-        if(e.key === 'ArrowDown'){
-          e.preventDefault(); const nxt = (cur+1+items.length)%items.length; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'});
-        } else if(e.key === 'ArrowUp'){
-          e.preventDefault(); const nxt = (cur-1+items.length)%items.length; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'});
-        } else if(e.key === 'Enter' || e.key === 'Tab'){
-          if(selectActive()) e.preventDefault();
-        } else if(e.key === 'Escape'){
-          hide();
-        }
-      });
-      dd.addEventListener('click', (ev)=>{
-        const el = ev.target.closest('.ac-item'); if(!el) return; dd.querySelectorAll('.ac-item').forEach(x=>x.classList.remove('active')); el.classList.add('active'); selectActive();
-      });
-      document.addEventListener('click', (ev)=>{ if(ev.target!==inp && !dd.contains(ev.target)) hide(); });
-    })();
-    // --- Parceiro autocomplete (codparc) ---
-    (function(){
-      const inp = document.getElementById('parcSearch');
-      const hid = document.getElementById('codparc');
-      const dd  = document.getElementById('parcDropdown');
-      const form = document.getElementById('filtersForm');
-      if(!inp || !hid || !dd || !form) return;
-      let t = null;
-      function hide(){ dd.style.display='none'; dd.innerHTML=''; }
-      function build(items){
-        dd.innerHTML = items.map((it, idx)=>`<div class="ac-item${idx===0?' active':''}" data-cod="${it.codparc}" data-nome="${(it.nomeparc||'').replace(/\"/g,'&quot;')}">${it.codparc} — ${it.nomeparc}</div>`).join('');
-        dd.style.display = items.length ? 'block' : 'none';
-      }
-      function fetchQ(q){
-        const lim = 10;
-        fetch(`/sankhya/parceiros/search/?q=${encodeURIComponent(q)}&limit=${lim}`, { credentials:'same-origin' })
-          .then(r=>r.json()).then(j=> build(j.results||[])).catch(hide);
-      }
-      function selectActive(){
-        const el = dd.querySelector('.ac-item.active') || dd.querySelector('.ac-item');
-        if(!el) return false;
-        const cod = el.getAttribute('data-cod')||'';
-        const nome = el.getAttribute('data-nome')||'';
-        hid.value = cod; inp.value = `${cod} — ${nome}`;
-        hide();
-        // Submit filters resetting to page=1
-        try{
-          let pg = form.querySelector('input[name="page"]');
-          if(!pg){ pg = document.createElement('input'); pg.type='hidden'; pg.name='page'; form.appendChild(pg); }
-          pg.value = '1';
-          form.submit();
-        }catch(_){ }
-        return true;
-      }
-      inp.addEventListener('input', (e)=>{
-        const q = (e.target.value||'').trim();
-        if(t) clearTimeout(t);
-        if(!q){ hide(); hid.value=''; return; }
-        const isNum = /^\d+$/.test(q);
-        const ok = isNum ? q.length >= 1 : q.length >= 3;
-        t = setTimeout(()=> ok ? fetchQ(q) : hide(), 200);
-      });
-      inp.addEventListener('keydown', (e)=>{
-        if(dd.style.display === 'none') return;
-        const items = Array.from(dd.querySelectorAll('.ac-item'));
-        if(!items.length) return;
-        const cur = items.findIndex(x=>x.classList.contains('active'));
-        if(e.key === 'ArrowDown'){
-          e.preventDefault(); const nxt = (cur+1+items.length)%items.length; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'});
-        } else if(e.key === 'ArrowUp'){
-          e.preventDefault(); const nxt = (cur-1+items.length)%items.length; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'});
-        } else if(e.key === 'Enter' || e.key === 'Tab'){
-          if(selectActive()) e.preventDefault();
-        } else if(e.key === 'Escape'){
-          hide();
-        }
-      });
-      dd.addEventListener('click', (ev)=>{
-        const el = ev.target.closest('.ac-item'); if(!el) return; dd.querySelectorAll('.ac-item').forEach(x=>x.classList.remove('active')); el.classList.add('active'); selectActive();
-      });
-      document.addEventListener('click', (ev)=>{ if(ev.target!==inp && !dd.contains(ev.target)) hide(); });
-      // Style active row (light gray)
-      try{
-        const style = document.createElement('style');
-        style.textContent = '.ac-item{padding:6px 8px; cursor:pointer;} .ac-item:hover{background:#f3f4f6;} .ac-item.active{background:#e5e7eb;}';
-        document.head.appendChild(style);
-      }catch(_){ }
     })();
     // --- Portal-like orchestration for Cabeçalho -> Itens -> Rodapé flow ---
     (function(){
@@ -1729,10 +1854,10 @@
         try{
           const active = document.querySelector('#notasTable tbody tr.row--active');
           if(active){
-            const lote = active.cells[0]?.textContent?.trim() || active.dataset.nunota || '';
-            const parceiroNome = active.cells[1]?.textContent?.trim() || '';
+            const lote = active.cells[1]?.textContent?.trim() || active.dataset.nunota || '';
+            const parceiroNome = active.cells[2]?.textContent?.trim() || '';
             const parceiroCod = active.dataset.codparc || '';
-            const prodCell = active.cells[2]?.textContent?.trim() || '';
+            const prodCell = active.cells[3]?.textContent?.trim() || '';
             const loteText = document.getElementById('cab_lote_text'); if(loteText) loteText.textContent = lote || '—';
             const nunEl = document.getElementById('cab_nunota_text'); if(nunEl) nunEl.textContent = '';
             // Show "cod — nome" if we have both; else fallback to name only
@@ -1764,7 +1889,7 @@
             if(m){ const prodCodH = document.getElementById('cab_prod_cod'); if(prodCodH) prodCodH.value = m[1]; }
 
             // Data Classificação: hoje (visual)
-            try { const d = new Date(); const iso = d.toISOString().slice(0,10); const dtText = document.getElementById('cab_dtneg_text'); if(dtText) dtText.textContent = iso; } catch(_) {}
+            try { const d = new Date(); const dd = String(d.getDate()).padStart(2,'0'); const mm = String(d.getMonth()+1).padStart(2,'0'); const yyyy = d.getFullYear(); const formatted = `${dd}-${mm}-${yyyy}`; const dtText = document.getElementById('cab_dtneg_text'); if(dtText) dtText.textContent = formatted; } catch(_) {}
 
             // TOP text (fixed)
             try { const topText = document.getElementById('cab_top_text'); if(topText) topText.textContent = '26 — Classificação'; } catch(_) {}
@@ -1776,22 +1901,43 @@
                 .then(r=>r.json())
                 .then(j=>{
                   try { window.PH_INNATURA_CODPROD = j.prod_in_natura || null; } catch(_) {}
-                  // In Natura total
+                  // In Natura total - SEMPRE soma TODAS as entradas (TOP 11)
                   let qInn = 0;
                   if(j && j.ok && Array.isArray(j.entradas)){
-                    if(j.prod_in_natura){
-                      const match = j.entradas.find(e=> String(e.codprod||'') === String(j.prod_in_natura));
-                      qInn = match ? (parseFloat(match.qtd||0)||0) : 0;
-                    } else {
-                      qInn = j.entradas.reduce((s,e)=> s + (parseFloat(e.qtd||0)||0), 0);
-                    }
+                    // Soma todas as quantidades das entradas (TOP 11 - In Natura)
+                    qInn = j.entradas.reduce((s,e)=> s + (parseFloat(e.qtd||e.qtdneg||e.QTDNEG||0)||0), 0);
                   }
+                  console.log('DEBUG Qtd In Natura:', {qInn, totalEntradas: j?.entradas?.length, prod_in_natura: j?.prod_in_natura});
                   // Qtd InNatura (exibe na métrica principal, 1 casa decimal)
                   const qpEl = document.getElementById('cab_qtd_pedido_text'); if(qpEl) qpEl.textContent = (qInn||0).toFixed(1);
 
-                  // Classificados count
-                  const classCount = Array.isArray(j.classificacoes) ? j.classificacoes.length : 0;
-                  const ccEl = document.getElementById('cab_class_count_text'); if(ccEl) ccEl.textContent = Number(classCount||0).toFixed(1);
+                  // NUNOTA da TOP 11 (primeira entrada)
+                  try {
+                    const entradas = Array.isArray(j.entradas) ? j.entradas : [];
+                    const nunTop11El = document.getElementById('cab_nunota_top11_text');
+                    if (entradas.length > 0 && entradas[0].nunota) {
+                      if(nunTop11El) nunTop11El.textContent = String(entradas[0].nunota);
+                    } else {
+                      if(nunTop11El) nunTop11El.textContent = '—';
+                    }
+                  } catch(_) {}
+
+                  // Classificados: soma das QUANTIDADES (caixas), não contagem de itens
+                  let qClassif = 0;
+                  if(Array.isArray(j.classificacoes)){
+                    qClassif = j.classificacoes.reduce((s,c)=> s + (parseFloat(c.qtd||c.qtdneg||0)||0), 0);
+                  }
+                  const ccEl = document.getElementById('cab_class_count_text'); if(ccEl) ccEl.textContent = (qClassif||0).toFixed(1);
+
+                  // Estoque = In Natura - Classificado
+                  const estoque = qInn - qClassif;
+                  const estoqueEl = document.getElementById('cab_estoque_text');
+                  if(estoqueEl) {
+                    estoqueEl.textContent = estoque.toFixed(1);
+                    if(estoque > 0) estoqueEl.style.color = '#3B82F6';
+                    else if(estoque < 0) estoqueEl.style.color = '#EF4444';
+                    else estoqueEl.style.color = '#6B7280';
+                  }
 
                   // Nunota TOP 26 badge
                   const nunBadge = document.getElementById('cab_nunota_class_badge');
@@ -1845,6 +1991,7 @@
           } else {
             const loteText = document.getElementById('cab_lote_text'); if(loteText) loteText.textContent = '—';
             const nunEl = document.getElementById('cab_nunota_text'); if(nunEl) nunEl.textContent = '';
+            const nunTop11El = document.getElementById('cab_nunota_top11_text'); if(nunTop11El) nunTop11El.textContent = '—';
             const parcText = document.getElementById('cab_parc_text'); if(parcText) parcText.textContent = '—';
             const prodText = document.getElementById('cab_prod_text'); if(prodText) prodText.textContent = '—';
             const prodCodH = document.getElementById('cab_prod_cod'); if(prodCodH) prodCodH.value = '';
@@ -1905,7 +2052,7 @@
         animateHeaderToLeft();
         const cabRect = cab.getBoundingClientRect();
         const leftForItems = Math.max(16 + cabRect.width + 8, cabRect.right + 8) + 'px';
-        requestAnimationFrame(()=>{ itemsCard.style.left = leftForItems; });
+        requestAnimationFrame(()=>{ itemsCard.style.left = leftForItems; setTimeout(()=>{ try{ const prodVis = document.getElementById('item_prod_vis'); if(prodVis) prodVis.focus(); }catch(_){} }, 400); });
         // Prepare UI instantly; load items if nunota is known, otherwise show placeholder and disable add
         const listBody = document.getElementById('itemsListBody');
         const addBtn = document.getElementById('itemAddBtn');
@@ -1916,7 +2063,7 @@
           try{ refreshItemsList(); }catch(e){ }
         } else {
           itemsNunota.value = '';
-          if(listBody) listBody.innerHTML = '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Carregando itens do lote...</td></tr>';
+          if(listBody) listBody.innerHTML = '<tr><td colspan="7" style="padding:8px; color:var(--muted)">Carregando itens do lote...</td></tr>';
           // First open: load itens por lote e tentar resolver nunota_class existente
           try{
             const ctrl = getCurrentControle();
@@ -1925,7 +2072,7 @@
               let j0 = {}; try{ j0 = await r0.json(); }catch(_){ j0 = {}; }
               if(j0 && j0.ok){
                 // Preencher lista com classificacoes existentes
-                try{ const rows = j0.classificacoes || []; itemsListBody.innerHTML = ''; if(rows.length){ for(const row of rows){ addItemRowToList({ nunota: row.nunota, sequencia: row.sequencia, cod: row.cod, descr: row.descr, codvol: row.codvol, qtd: row.qtd, peso: null, total: row.vlt || null, lote: ctrl, geraproducao: null }); } } else { clearItemsList(); } }catch(_){ }
+                try{ const rows = j0.classificacoes || []; itemsListBody.innerHTML = ''; if(rows.length){ for(const row of rows){ addItemRowToList({ nunota: row.nunota, sequencia: row.sequencia, cod: row.cod, descr: row.descr, codvol: row.codvol, qtd: row.qtd, peso: row.peso, total: row.vlt || (row.qtd && row.peso ? row.qtd * row.peso : null), lote: ctrl, geraproducao: null }); } } else { clearItemsList(); } }catch(_){ }
                 // Se houver nunota_class, setar no hidden e habilitar adicionar
                 if(j0.nunota_class){ try{ itemsNunota.value = String(parseInt(j0.nunota_class,10)); }catch(_){ itemsNunota.value = String(j0.nunota_class); }
                   if(addBtn){ addBtn.removeAttribute('disabled'); addBtn.setAttribute('title','Adicionar'); }
@@ -1981,8 +2128,88 @@
       const seqInp = document.getElementById('item_seq_edit'); if(seqInp) seqInp.value='';
     }catch(_){ }
       }
-  document.getElementById('cabItemsClose')?.addEventListener('click', ()=>{ try{ resetItemForm(); }catch(_){ } try{ hideItemsModal(); }catch(_){ } try{ hideCabModal(); }catch(_){ } });
-  document.getElementById('itemsCancel')?.addEventListener('click', ()=>{ try{ resetItemForm(); }catch(_){ } try{ hideItemsModal(); }catch(_){ } try{ hideCabModal(); }catch(_){ } });
+  document.getElementById('cabItemsClose')?.addEventListener('click', ()=>{ 
+    console.log('[CLOSE] Fechando modal e atualizando...');
+    try{ resetItemForm(); }catch(_){ } 
+    try{ hideItemsModal(); }catch(_){ } 
+    try{ hideCabModal(); }catch(_){ } 
+    setTimeout(()=>{ 
+      try{ 
+        const activeRow = document.querySelector('#notasTable tbody tr.row--active'); 
+        if(activeRow){ 
+          const ctrl = activeRow.dataset.nunota; 
+          console.log('[CLOSE] Lote ativo:', ctrl);
+          if(ctrl){ 
+            // Limpar cache
+            try{ 
+              if(window.__LOTES_CACHE && window.__LOTES_CACHE[String(ctrl)]){ 
+                delete window.__LOTES_CACHE[String(ctrl)]; 
+                console.log('[CLOSE] Cache limpo');
+              } 
+            }catch(_){} 
+            // Recarregar produtos classificados E resumo
+            if(window.loadClassifiedFor){ 
+              console.log('[CLOSE] Chamando window.loadClassifiedFor...');
+              window.loadClassifiedFor(ctrl, true); 
+            } else {
+              console.error('[CLOSE] window.loadClassifiedFor não existe!');
+            }
+            // Atualizar cabeçalho do modal
+            if(typeof updateHeaderQuantities === 'function'){ 
+              console.log('[CLOSE] Chamando updateHeaderQuantities...');
+              updateHeaderQuantities(ctrl); 
+            }
+            // Forçar clique na linha para refresh completo
+            console.log('[CLOSE] Simulando clique na linha ativa...');
+            activeRow.click();
+          } 
+        } else {
+          console.warn('[CLOSE] Nenhuma linha ativa encontrada!');
+        }
+      }catch(e){ console.error('[CLOSE] Erro:', e); } 
+    }, 350); 
+  });
+  document.getElementById('itemsCancel')?.addEventListener('click', ()=>{ 
+    console.log('[CANCEL] Cancelando modal e atualizando...');
+    try{ resetItemForm(); }catch(_){ } 
+    try{ hideItemsModal(); }catch(_){ } 
+    try{ hideCabModal(); }catch(_){ } 
+    setTimeout(()=>{ 
+      try{ 
+        const activeRow = document.querySelector('#notasTable tbody tr.row--active'); 
+        if(activeRow){ 
+          const ctrl = activeRow.dataset.nunota; 
+          console.log('[CANCEL] Lote ativo:', ctrl);
+          if(ctrl){ 
+            // Limpar cache
+            try{ 
+              if(window.__LOTES_CACHE && window.__LOTES_CACHE[String(ctrl)]){ 
+                delete window.__LOTES_CACHE[String(ctrl)]; 
+                console.log('[CANCEL] Cache limpo');
+              } 
+            }catch(_){} 
+            // Recarregar produtos classificados E resumo
+            if(window.loadClassifiedFor){ 
+              console.log('[CANCEL] Chamando window.loadClassifiedFor...');
+              window.loadClassifiedFor(ctrl, true); 
+            } else {
+              console.error('[CANCEL] window.loadClassifiedFor não existe!');
+            }
+            // Atualizar cabeçalho do modal
+            if(typeof updateHeaderQuantities === 'function'){ 
+              console.log('[CANCEL] Chamando updateHeaderQuantities...');
+              updateHeaderQuantities(ctrl); 
+            }
+            // Forçar clique na linha para refresh completo
+            console.log('[CANCEL] Simulando clique na linha ativa...');
+            activeRow.click();
+          } 
+        } else {
+          console.warn('[CANCEL] Nenhuma linha ativa encontrada!');
+        }
+      }catch(e){ console.error('[CANCEL] Erro:', e); } 
+    }, 350); 
+  });
 
       // Rodape modal
   // Rodapé removido nesta página; sem ações necessárias
@@ -1990,10 +2217,16 @@
       // Items helpers: addItemRowToList and loadItems (mirrors portal functions)
   const itemsListBody = document.getElementById('itemsListBody');
   const itemsSearch = document.getElementById('itemsSearch');
-  function clearItemsList(){ if(!itemsListBody) return; itemsListBody.innerHTML = '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr>'; }
+  function clearItemsList(){ if(!itemsListBody) return; itemsListBody.innerHTML = '<tr><td colspan="7" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr>'; }
       function addItemRowToList(it){ if(!itemsListBody) return; if(itemsListBody.querySelector('td')){ const first = itemsListBody.querySelector('td').parentElement; if(first && first.childElementCount === 1 && first.children[0].getAttribute('colspan')) itemsListBody.innerHTML = ''; }
-        const tr = document.createElement('tr'); tr.innerHTML = `\n          <td style="padding:8px">${it.lote||''}</td>\n          <td>${it.cod||''} ${it.descr||''}</td>\n          <td>${it.codvol||''}</td>\n          <td style="text-align:right">${it.qtd!=null?String(it.qtd):''}</td>\n          <td style="text-align:right">${it.peso!=null?String(it.peso):''}</td>\n          <td style="text-align:right">${it.total!=null?String(it.total):''}</td>\n          <td><button class="icon-btn danger icon-btn--plain item-del" data-seq="${it.sequencia||''}" aria-label="Excluir">\n            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">\n              <polyline points="3 6 5 6 21 6"></polyline>\n              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>\n              <path d="M10 11v6"></path>\n              <path d="M14 11v6"></path>\n              <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>\n            </svg>\n          </button></td>\n        `; itemsListBody.appendChild(tr);
-  tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nun,10), sequencias: [ parseInt(seq,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(typeof loadItems === 'function') loadItems(nun); }catch(_){ } try{ refreshClassifiedCard(it.lote); }catch(_){ } try{ resetItemForm(); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
+        // Calcular total (qtd * peso)
+        const qtd = parseFloat(it.qtd) || 0;
+        const peso = parseFloat(it.peso) || 0;
+        const total = qtd * peso;
+        const totalFormatted = total > 0 ? Math.round(total).toLocaleString('pt-BR') : '';
+        
+        const tr = document.createElement('tr'); tr.innerHTML = `\n          <td style="padding:8px">${it.lote||''}</td>\n          <td>${it.cod||''} ${it.descr||''}</td>\n          <td style="text-align:right">${it.codvol||''}</td>\n          <td style="text-align:right">${it.qtd!=null?String(it.qtd):''}</td>\n          <td style="text-align:right">${it.peso!=null?String(it.peso):''}</td>\n          <td style="text-align:right">${totalFormatted}</td>\n          <td style="text-align:right"><button class="icon-btn danger icon-btn--plain item-del" data-seq="${it.sequencia||''}" aria-label="Excluir">\n            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">\n              <polyline points="3 6 5 6 21 6"></polyline>\n              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>\n              <path d="M10 11v6"></path>\n              <path d="M14 11v6"></path>\n              <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>\n            </svg>\n          </button></td>\n        `; itemsListBody.appendChild(tr);
+  tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nun,10), sequencias: [ parseInt(seq,10) ] }); if(res.ok){ try{ if(typeof loadItems === 'function') loadItems(nun); }catch(_){ } try{ if(window.__LOTES_CACHE && it.lote && window.__LOTES_CACHE[it.lote]){ delete window.__LOTES_CACHE[it.lote]; } }catch(_){} try{ refreshClassifiedCard(it.lote); }catch(_){ } try{ resetItemForm(); }catch(_){ } try{ const prodVis = document.getElementById('item_prod_vis'); if(prodVis) prodVis.focus(); }catch(_){ } try{ updateHeaderQuantities(it.lote); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
       }
       let itemsListController = null;
       async function loadItems(nunota){ try{ if(itemsListController){ try{ itemsListController.abort(); }catch(_){ } itemsListController = null; } }catch(_){ }
@@ -2008,7 +2241,23 @@
   document.getElementById('itemAddBtn')?.addEventListener('click', async function(){ const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun){ alert('NUNOTA desconhecido.'); return; } let codprodRaw = (document.getElementById('item_prod_hidden')?.value||'').trim(); if(!codprodRaw){ const txt = (document.getElementById('item_prod_vis')?.value||'').trim(); const m = txt.match(/(\d+)/); codprodRaw = m ? m[1] : ''; } const codprodNum = codprodRaw ? parseInt(codprodRaw,10) : NaN; if(!codprodRaw || !Number.isFinite(codprodNum)){ alert('Selecione um produto válido.'); return; } const qtd = parseFloat(String(document.getElementById('item_qtd')?.value||'').replace(',','.')) || 0; if(!(qtd > 0)){ alert('Informe quantidade maior que zero.'); return; } const vlr = 0; const peso = parseFloat(String(document.getElementById('item_peso')?.value||'').replace(',','.')) || null; const codvol = (document.getElementById('item_vol_hidden')?.value||document.getElementById('item_vol')?.value||'CX') || null; const obs = (document.getElementById('item_obs')?.value||'') || null; let selectedControle = null; try{ const cabLote = document.getElementById('cab_lote_text'); const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : ''; if (cabeLoteText) { selectedControle = cabeLoteText; } }catch(_){ } if(!selectedControle){ try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedControle = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ } } const payload = { nunota: parseInt(nun,10), codprod: codprodNum, qtdneg: qtd, vlrunit: vlr, codvol: codvol || null, peso: peso, obs: obs || null, codagregacao: selectedControle };
   const planResp = await postJSON('/sankhya/item/plan/', payload);
   if(!planResp.ok){ const b = planResp.body || {}; const errs = (Array.isArray(b.errors) && b.errors.length) ? b.errors.join('\n') : (b.error || (b.db_error && (b.db_error.message || b.db_error.msg)) || ''); alert('Erro no plano: ' + (errs || '')); return; }
-  const saveResp = await postJSON('/sankhya/item/save/', payload); if(saveResp.ok && saveResp.body && (saveResp.body.executed || saveResp.body.item)){ alert('Item salvo'); const created = saveResp.body.item || saveResp.body.created_item || null; if(created){ try{ addItemRowToList(created); }catch(_){ try{ loadItems(nun); }catch(__){} } } else { try{ loadItems(nun); }catch(_){ } } try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ } } else { const body = saveResp.body || {}; const errs = Array.isArray(body.errors) && body.errors.length ? body.errors.join('\n') : (body.error || ''); alert('Falha ao salvar item: ' + (errs || ('status ' + saveResp.status))); try{ loadItems(nun); }catch(_){ } }
+  const saveResp = await postJSON('/sankhya/item/save/', payload); if(saveResp.ok && saveResp.body && (saveResp.body.executed || saveResp.body.item)){ const created = saveResp.body.item || saveResp.body.created_item || null; if(created){ try{ addItemRowToList(created); }catch(_){ try{ loadItems(nun); }catch(__){} } } else { try{ loadItems(nun); }catch(_){ } } try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ } try{ const prodVis = document.getElementById('item_prod_vis'); if(prodVis) prodVis.focus(); }catch(_){ } try{ if(window.__LOTES_CACHE && selectedControle && window.__LOTES_CACHE[selectedControle]){ delete window.__LOTES_CACHE[selectedControle]; } }catch(_){} try{ refreshClassifiedCard(selectedControle); }catch(_){ } try{ updateHeaderQuantities(selectedControle); }catch(_){ } } else { const body = saveResp.body || {}; const errs = Array.isArray(body.errors) && body.errors.length ? body.errors.join('\n') : (body.error || ''); alert('Falha ao salvar item: ' + (errs || ('status ' + saveResp.status))); try{ loadItems(nun); }catch(_){ } }
+      });
+
+      // Adicionar listener para ENTER nos campos do card ITENS
+      ['item_prod_vis', 'item_qtd', 'item_vol', 'item_peso', 'item_obs'].forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+          field.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              const addBtn = document.getElementById('itemAddBtn');
+              if (addBtn && !addBtn.disabled) {
+                addBtn.click();
+              }
+            }
+          });
+        }
       });
 
       // Cab Save: create header and open items modal (reuses portal endpoints)
@@ -2064,18 +2313,23 @@
         try { if (n && typeof window.initHeaderStatusToggle === 'function') window.initHeaderStatusToggle(n); } catch(_){ }
       }; } catch(_){ }
 
-      // Override items helpers to align with portal behavior (Classifica column, edit mode, totals)
+      // Override items helpers to align with portal behavior (edit mode, totals)
       function addItemRowToList(it){ if(!itemsListBody) return; if(itemsListBody.querySelector('td')){ const first = itemsListBody.querySelector('td').parentElement; if(first && first.childElementCount === 1 && first.children[0].getAttribute('colspan')) itemsListBody.innerHTML = ''; }
-        const tr = document.createElement('tr'); const classTxt = (it && (typeof it.classifica !== 'undefined' || typeof it.geraproducao !== 'undefined')) ? ((it.geraproducao ? String(it.geraproducao).toUpperCase() !== 'N' : !!it.classifica) ? 'Sim' : 'Não') : '';
+        // Calcular total (qtd * peso) se não vier do servidor
+        const qtd = parseFloat(it.qtd) || 0;
+        const peso = parseFloat(it.peso) || 0;
+        const total = it.total != null ? parseFloat(it.total) : (qtd * peso);
+        const totalFormatted = total > 0 ? Math.round(total).toLocaleString('pt-BR') : '';
+        
+        const tr = document.createElement('tr');
         tr.innerHTML = `
           <td style="padding:8px">${it.lote||''}</td>
           <td>${it.cod||''} ${it.descr||''}</td>
-          <td>${it.codvol||''}</td>
+          <td style="text-align:right">${it.codvol||''}</td>
           <td style="text-align:right">${it.qtd!=null?String(it.qtd):''}</td>
           <td style="text-align:right">${it.peso!=null?String(it.peso):''}</td>
-          <td style="text-align:center">${classTxt}</td>
-          <td style="text-align:right">${it.total!=null?String(it.total):''}</td>
-          <td><button class="icon-btn danger icon-btn--plain item-del" data-seq="${it.sequencia||''}" aria-label="Excluir">
+          <td style="text-align:right">${totalFormatted}</td>
+          <td style="text-align:right"><button class="icon-btn danger icon-btn--plain item-del" data-seq="${it.sequencia||''}" aria-label="Excluir">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <polyline points="3 6 5 6 21 6"></polyline>
               <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
@@ -2098,31 +2352,14 @@
           tr.dataset.gp = it.geraproducao != null ? String(it.geraproducao) : (typeof it.classifica !== 'undefined' ? (it.classifica ? 'S' : 'N') : '');
           if (it.nunota != null) tr.dataset.nunota = String(it.nunota);
         }catch(_){ }
-        // dblclick to open the inline Item modal with fields prefilled including Peso
-        tr.addEventListener('dblclick', function(){
-          try{
-            const nun = tr.dataset.nunota ? parseInt(tr.dataset.nunota,10) : null;
-            const seq = tr.dataset.seq ? parseInt(tr.dataset.seq,10) : null;
-            if(!nun || !seq) return;
-            // Open simple inline modal
-            const inline = document.getElementById('modalItemEdit'); if(!inline) return;
-            // Fill fields we control in this simple modal
-            document.getElementById('itemProdHidden') && (document.getElementById('itemProdHidden').value = tr.dataset.cod || '');
-            document.getElementById('itemProdCod') && (document.getElementById('itemProdCod').value = tr.dataset.cod ? `${tr.dataset.cod} - ${tr.dataset.descr||''}` : '');
-            document.getElementById('itemVolHidden') && (document.getElementById('itemVolHidden').value = tr.dataset.codvol || '');
-            document.getElementById('itemVol') && (document.getElementById('itemVol').value = tr.dataset.codvol || '');
-            document.getElementById('itemQtd') && (document.getElementById('itemQtd').value = tr.dataset.qtd || '');
-            document.getElementById('itemPeso') && (document.getElementById('itemPeso').value = tr.dataset.peso || '');
-            document.getElementById('itemObs') && (document.getElementById('itemObs').value = tr.dataset.obs || '');
-            inline.style.display = 'flex';
-          }catch(e){ console.error('inline dblclick open failed', e); }
-        });
-  tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunFromRow = tr.dataset.nunota ? parseInt(tr.dataset.nunota,10) : null; if(!nunFromRow || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: nunFromRow, sequencias: [ parseInt(seq,10) ] }); if(res.ok){ alert('Item excluído'); try{ refreshItemsList(); }catch(_){ } try{ resetItemForm(); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
+        // Modal "Editar Item" removido - edição inline desabilitada para melhor UX
+        // tr.addEventListener('dblclick', function(){ ... });
+  tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunFromRow = tr.dataset.nunota ? parseInt(tr.dataset.nunota,10) : null; if(!nunFromRow || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: nunFromRow, sequencias: [ parseInt(seq,10) ] }); if(res.ok){ try{ refreshItemsList(); }catch(_){ } try{ if(window.__LOTES_CACHE && it.lote && window.__LOTES_CACHE[it.lote]){ delete window.__LOTES_CACHE[it.lote]; } }catch(_){} try{ refreshClassifiedCard(it.lote); }catch(_){ } try{ resetItemForm(); }catch(_){ } try{ const prodVis = document.getElementById('item_prod_vis'); if(prodVis) prodVis.focus(); }catch(_){ } try{ updateHeaderQuantities(it.lote); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
   tr.addEventListener('dblclick', function(){ try{ const seq = tr.dataset.seq; if(!seq) return; const seqInp = document.getElementById('item_seq_edit'); if(seqInp) seqInp.value = seq; const prodH = document.getElementById('item_prod_hidden'); const prodV = document.getElementById('item_prod_vis'); if(prodH) prodH.value = tr.dataset.cod || ''; if(prodV) prodV.value = tr.dataset.cod ? `${tr.dataset.cod} — ${tr.dataset.descr||''}` : ''; const volH = document.getElementById('item_vol_hidden'); const volV = document.getElementById('item_vol'); if(volH) volH.value = tr.dataset.codvol || ''; if(volV) volV.value = tr.dataset.codvol || ''; const qtd = document.getElementById('item_qtd'); if(qtd) qtd.value = tr.dataset.qtd || ''; const peso = document.getElementById('item_peso'); if(peso) peso.value = tr.dataset.peso || ''; const obs = document.getElementById('item_obs'); if(obs) obs.value = tr.dataset.obs || ''; const chk = document.getElementById('item_classifica'); if(chk) chk.checked = (String(tr.dataset.gp||'S').toUpperCase() !== 'N'); const addBtn = document.getElementById('itemAddBtn'); if(addBtn){ addBtn.setAttribute('title','Atualizar'); addBtn.dataset.mode = 'edit'; try{ const icon = addBtn.querySelector('svg'); if(icon){ icon.innerHTML = '<path d="M20 6L9 17l-5-5" />'; icon.setAttribute('viewBox','0 0 24 24'); } addBtn.classList.add('success'); }catch(_){ } } try{ recalcItemTotal(); }catch(_){ } try{ prodV && prodV.focus(); }catch(_){ } }catch(e){ console.error('editLoad failed', e); } });
       }
 
       async function loadItems(nunota){ try{ if(itemsListController){ try{ itemsListController.abort(); }catch(_){ } itemsListController = null; try{ window.itemsListController = null; }catch(_){ } } }catch(_){ }
-        const resolved = nunota!=null ? (parseInt(nunota,10)||null) : (parseInt(document.getElementById('items_nunota')?.value||'',10)||null); if(!resolved){ console.error('loadItems: nunota inválido', nunota); return; } document.getElementById('items_nunota').value = resolved; clearItemsList(); try{ itemsListController = new AbortController(); try{ window.itemsListController = itemsListController; }catch(_){ } const opts = { credentials: 'same-origin', signal: itemsListController.signal }; const url = '/sankhya/item/list/?nunota=' + encodeURIComponent(resolved); const r = await fetch(url, opts); itemsListController = null; try{ window.itemsListController = null; }catch(_){ } let j = {}; try{ j = await r.json(); }catch(_){ j = {}; } if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="8">Erro: ${j.error||'falha'}</td></tr>`; return; } const rows = j.items || j.results || []; if(!rows.length){ clearItemsList(); return; } itemsListBody.innerHTML = ''; for(const it of rows){ addItemRowToList(it); } }catch(err){ if(err && err.name === 'AbortError'){ console.info('loadItems aborted for nunota', nunota); return; } itemsListBody.innerHTML = '<tr><td colspan="8">Erro ao carregar.</td></tr>'; } }
+        const resolved = nunota!=null ? (parseInt(nunota,10)||null) : (parseInt(document.getElementById('items_nunota')?.value||'',10)||null); if(!resolved){ console.error('loadItems: nunota inválido', nunota); return; } document.getElementById('items_nunota').value = resolved; clearItemsList(); try{ itemsListController = new AbortController(); try{ window.itemsListController = itemsListController; }catch(_){ } const opts = { credentials: 'same-origin', signal: itemsListController.signal }; const url = '/sankhya/item/list/?nunota=' + encodeURIComponent(resolved); const r = await fetch(url, opts); itemsListController = null; try{ window.itemsListController = null; }catch(_){ } let j = {}; try{ j = await r.json(); }catch(_){ j = {}; } if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="7">Erro: ${j.error||'falha'}</td></tr>`; return; } const rows = j.items || j.results || []; if(!rows.length){ clearItemsList(); return; } itemsListBody.innerHTML = ''; for(const it of rows){ addItemRowToList(it); } }catch(err){ if(err && err.name === 'AbortError'){ console.info('loadItems aborted for nunota', nunota); return; } itemsListBody.innerHTML = '<tr><td colspan="7">Erro ao carregar.</td></tr>'; } }
 
       // Helpers to show items by Lote (controle/CODAGREGACAO)
       function getCurrentControle(){
@@ -2149,7 +2386,7 @@
           const r = await fetch(url, { credentials: 'same-origin', signal: itemsListController.signal });
           itemsListController = null; try{ window.itemsListController = null; }catch(_){ }
           let j = {}; try{ j = await r.json(); }catch(_){ j = {}; }
-          if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="8">Erro: ${j.error||'falha'}</td></tr>`; return; }
+          if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="7">Erro: ${j.error||'falha'}</td></tr>`; return; }
           const rows = j.classificacoes || [];
           // Reflect current STATUSNOTA from TGFCAB TOP 26, if there is a nunota_class
           try{
@@ -2162,7 +2399,7 @@
           for(const row of rows){
             addItemRowToList({ nunota: row.nunota, sequencia: row.sequencia, cod: row.cod, descr: row.descr, codvol: row.codvol, qtd: row.qtd, peso: (typeof row.peso !== 'undefined' ? row.peso : null), total: row.vlt || null, lote: ctrl, geraproducao: null });
           }
-        }catch(err){ if(err && err.name === 'AbortError'){ return; } itemsListBody.innerHTML = '<tr><td colspan="8">Erro ao carregar.</td></tr>'; }
+        }catch(err){ if(err && err.name === 'AbortError'){ return; } itemsListBody.innerHTML = '<tr><td colspan="7">Erro ao carregar.</td></tr>'; }
       }
 
       function refreshItemsList(){ try{ const c = getCurrentControle(); if(c) loadItemsByControle(c); else clearItemsList(); }catch(_){ }
@@ -2172,16 +2409,59 @@
       function refreshClassifiedCard(ctrlOverride){
         try{
           const ctrl = (ctrlOverride && String(ctrlOverride).trim()) || getCurrentControle();
+          console.log('[refreshClassifiedCard] Controle:', ctrl);
+          if(!ctrl) { console.warn('[refreshClassifiedCard] Sem controle!'); return; }
+          try{ if(window.__LOTES_CACHE && window.__LOTES_CACHE[ctrl]){ delete window.__LOTES_CACHE[ctrl]; console.log('[refreshClassifiedCard] Cache deletado'); } }catch(_){ }
+          console.log('[refreshClassifiedCard] Chamando window.loadClassifiedFor...');
+          if(window.loadClassifiedFor) {
+            window.loadClassifiedFor(ctrl, true);
+          } else {
+            console.error('[refreshClassifiedCard] window.loadClassifiedFor não existe!');
+          }
+        }catch(e){ console.error('[refreshClassifiedCard] Erro:', e); }
+      }
+
+      // Atualiza APENAS as quantidades do cabeçalho (In Natura e Classificado) sem recarregar a tabela
+      async function updateHeaderQuantities(controle){
+        try{
+          const ctrl = controle || getCurrentControle();
           if(!ctrl) return;
-          try{ if(window.__LOTES_CACHE && window.__LOTES_CACHE[ctrl]){ delete window.__LOTES_CACHE[ctrl]; } }catch(_){ }
-          if(typeof loadClassifiedFor === 'function') loadClassifiedFor(ctrl);
-        }catch(_){ }
+          const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(ctrl), { credentials: 'same-origin' });
+          const j = await r.json();
+          if(j && j.ok){
+            // Qtd In Natura
+            let qInn = 0;
+            if(Array.isArray(j.entradas)){
+              qInn = j.entradas.reduce((s,e)=> s + (parseFloat(e.qtd||e.qtdneg||e.QTDNEG||0)||0), 0);
+            }
+            const qpEl = document.getElementById('cab_qtd_pedido_text');
+            if(qpEl) qpEl.textContent = (qInn||0).toFixed(1);
+            
+            // Qtd Classificado
+            let qClassif = 0;
+            if(Array.isArray(j.classificacoes)){
+              qClassif = j.classificacoes.reduce((s,c)=> s + (parseFloat(c.qtd||c.qtdneg||0)||0), 0);
+            }
+            const ccEl = document.getElementById('cab_class_count_text');
+            if(ccEl) ccEl.textContent = (qClassif||0).toFixed(1);
+            
+            // Estoque = In Natura - Classificado
+            const estoque = qInn - qClassif;
+            const estoqueEl = document.getElementById('cab_estoque_text');
+            if(estoqueEl) {
+              estoqueEl.textContent = estoque.toFixed(1);
+              if(estoque > 0) estoqueEl.style.color = '#3B82F6';
+              else if(estoque < 0) estoqueEl.style.color = '#EF4444';
+              else estoqueEl.style.color = '#6B7280';
+            }
+          }
+        }catch(e){ console.error('updateHeaderQuantities error:', e); }
       }
 
   // Checkbox 'Somente classifica' removido: listamos todos os itens sempre
 
       // Total calc for items modal
-      function recalcItemTotal(){ try{ const qtd = parseFloat(String(document.getElementById('item_qtd').value||'').replace(',','.')) || 0; const peso = parseFloat(String(document.getElementById('item_peso').value||'').replace(',','.')) || 0; const total = (qtd && peso) ? (qtd * peso) : 0; document.getElementById('item_total').value = total ? String(total) : ''; }catch(_){ } }
+      function recalcItemTotal(){ try{ const qtd = parseFloat(String(document.getElementById('item_qtd').value||'').replace(',','.')) || 0; const peso = parseFloat(String(document.getElementById('item_peso').value||'').replace(',','.')) || 0; const total = (qtd && peso) ? (qtd * peso) : 0; document.getElementById('item_total').value = total ? Math.round(total).toLocaleString('pt-BR') : ''; }catch(_){ } }
       document.getElementById('item_qtd')?.addEventListener('input', recalcItemTotal);
       document.getElementById('item_peso')?.addEventListener('input', recalcItemTotal);
 
@@ -2358,30 +2638,31 @@
         const payload = Object.assign({}, basePayload, { sequencia: parseInt(seqEditRaw,10) });
         const resp = await postJSON('/sankhya/item/save/', payload);
         if(resp.ok && resp.body && (resp.body.executed || resp.body.item)){
-          alert('Item atualizado'); try{ refreshItemsList(); }catch(_){ } try{ refreshClassifiedCard(selectedControle); }catch(_){ }
+          console.log('[EDIT] Item salvo, atualizando UI...', selectedControle);
+          try{ refreshItemsList(); }catch(_){ } 
+          try{ if(window.__LOTES_CACHE && selectedControle && window.__LOTES_CACHE[selectedControle]){ delete window.__LOTES_CACHE[selectedControle]; console.log('[EDIT] Cache limpo:', selectedControle); } }catch(_){} 
+          try{ console.log('[EDIT] Chamando refreshClassifiedCard...'); refreshClassifiedCard(selectedControle); }catch(e){ console.error('[EDIT] Erro refreshClassifiedCard:', e); }
           try{ resetItemForm(); }catch(_){ }
           try{ document.getElementById('item_seq_edit').value=''; const addBtn=document.getElementById('itemAddBtn'); if(addBtn){ addBtn.dataset.mode=''; addBtn.setAttribute('title','Adicionar'); const icon = addBtn.querySelector('svg'); if(icon){ icon.innerHTML = '<circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line>'; icon.setAttribute('viewBox','0 0 24 24'); } addBtn.classList.add('success'); } }catch(_){}
+          try{ const prodVis = document.getElementById('item_prod_vis'); if(prodVis) prodVis.focus(); }catch(_){ }
+          try{ console.log('[EDIT] Chamando updateHeaderQuantities...'); updateHeaderQuantities(selectedControle); }catch(e){ console.error('[EDIT] Erro updateHeaderQuantities:', e); }
           
         } else {
           const body = resp.body || {}; const errs = Array.isArray(body.errors)&&body.errors.length? body.errors.join('\n') : (body.error || ''); const dbmsg = (body.db_error && (body.db_error.message || body.db_error.msg)) ? (body.db_error.message || body.db_error.msg) : ''; alert('Falha ao atualizar item: ' + (errs || dbmsg || ('status ' + resp.status)));
         }
         return;
       }
-      // Plan silently and save directly (no SQL preview modal)
-      try{
-        const planResp = await postJSON('/sankhya/item/plan/', basePayload);
-        if(!planResp.ok){
-          const b = planResp.body || {};
-          const errs = (Array.isArray(b.errors) && b.errors.length) ? b.errors.join('\n') : (b.error || (b.db_error && (b.db_error.message || b.db_error.msg)) || '');
-          if (errs) { alert('Erro no plano: ' + errs); return; }
-        }
-      }catch(_){ }
+      // SQL preview modal removed for better UX - direct save
       const saveResp = await postJSON('/sankhya/item/save/', basePayload);
       if(saveResp.ok && saveResp.body && (saveResp.body.executed || saveResp.body.item)){
-        alert('Item salvo'); const created = saveResp.body.item || saveResp.body.created_item || null;
+        console.log('[INSERT] Item salvo, atualizando UI...', selectedControle);
+        const created = saveResp.body.item || saveResp.body.created_item || null;
   if(created){ try{ addItemRowToList(created); }catch(_){ try{ refreshItemsList(); }catch(__){} } } else { try{ refreshItemsList(); }catch(_){ } }
-  try{ refreshClassifiedCard(selectedControle); }catch(_){ }
+  try{ if(window.__LOTES_CACHE && selectedControle && window.__LOTES_CACHE[selectedControle]){ delete window.__LOTES_CACHE[selectedControle]; console.log('[INSERT] Cache limpo:', selectedControle); } }catch(_){} 
+  try{ console.log('[INSERT] Chamando refreshClassifiedCard...'); refreshClassifiedCard(selectedControle); }catch(e){ console.error('[INSERT] Erro refreshClassifiedCard:', e); }
         try{ resetItemForm(); }catch(_){ }
+        try{ const prodVis = document.getElementById('item_prod_vis'); if(prodVis) prodVis.focus(); }catch(_){ }
+        try{ console.log('[INSERT] Chamando updateHeaderQuantities...'); updateHeaderQuantities(selectedControle); }catch(e){ console.error('[INSERT] Erro updateHeaderQuantities:', e); }
       } else {
         const body = saveResp.body || {}; const errs = Array.isArray(body.errors) && body.errors.length ? body.errors.join('\n') : (body.error || ''); alert('Falha ao salvar item: ' + (errs || ('status ' + saveResp.status))); try{ loadItems(nun); }catch(_){ }
       }

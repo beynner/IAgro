@@ -2,6 +2,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render, redirect
 from datetime import date as _date
 from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.http import require_http_methods
 import logging
 import json
 import time
@@ -16,12 +17,14 @@ try:
         obter_cabecalho_nota,
         plan_insert_cabecalho,
         insert_cabecalho,
+        insert_cabecalho_fast,
         is_write_enabled,
         buscar_top_operacoes,
         buscar_naturezas,
         buscar_centros_resultado,
         plan_insert_item,
         insert_item,
+        insert_item_fast,
         plan_update_item,
         update_item,
         listar_lotes_entradas_classificaveis,
@@ -51,6 +54,16 @@ try:
     )
     # Lazy import inside functions for advanced helpers when needed
     ORACLE_AVAILABLE = True
+    # Importar serviço gerar_vale_compra_top13 (vale TOP 13) da camada faturamento
+    try:
+        from .services.faturamento import gerar_vale_compra_top13  # type: ignore
+    except Exception:
+        # Fallback: tentar obter da oracle_conn (alias pode existir) ou definir stub
+        try:
+            from sankhya_integration.services.oracle_conn import gerar_vale_compra_top13  # type: ignore
+        except Exception:
+            def gerar_vale_compra_top13(*_a, **_kw):  # type: ignore
+                return {'ok': False, 'error': 'Serviço gerar_vale_compra_top13 indisponível'}
 except Exception as exc:  # pragma: no cover - make views importable when Oracle driver is missing
     logger = logging.getLogger(__name__)
     logger.warning('Could not import oracle_conn services (cx_Oracle may be missing): %s', exc)
@@ -70,12 +83,14 @@ except Exception as exc:  # pragma: no cover - make views importable when Oracle
     obter_cabecalho_nota = _missing('obter_cabecalho_nota')
     plan_insert_cabecalho = _missing('plan_insert_cabecalho')
     insert_cabecalho = _missing('insert_cabecalho')
+    insert_cabecalho_fast = _missing('insert_cabecalho_fast')
     is_write_enabled = lambda: False
     buscar_top_operacoes = _missing('buscar_top_operacoes')
     buscar_naturezas = _missing('buscar_naturezas')
     buscar_centros_resultado = _missing('buscar_centros_resultado')
     plan_insert_item = _missing('plan_insert_item')
     insert_item = _missing('insert_item')
+    insert_item_fast = _missing('insert_item_fast')
     plan_update_item = _missing('plan_update_item')
     update_item = _missing('update_item')
     plan_update_cabecalho = _missing('plan_update_cabecalho')
@@ -99,11 +114,32 @@ except Exception as exc:  # pragma: no cover - make views importable when Oracle
     consultar_lote = _missing('consultar_lote')
     sync_item_to_classification = _missing('sync_item_to_classification')
     listar_itens_portal_basico = _missing('listar_itens_portal_basico')
+    try:
+        from .services.faturamento import gerar_vale_compra_top13  # type: ignore
+    except Exception:
+        gerar_vale_compra_top13 = _missing('gerar_vale_compra_top13')
 logger = logging.getLogger(__name__)
 
 
 def index(request: HttpRequest) -> HttpResponse:
     return render(request, "sankhya_integration/index.html")
+
+
+@require_http_methods(["POST"])
+def gerar_vale_compra(request: HttpRequest) -> HttpResponse:
+    """Cria TOP 13 (vale de compra) a partir de uma nota TOP 11.
+    JSON esperado: { "nunota": 123, "items": [ {"sequencia": 1, "preco": 10.5}, ... ] }
+    """
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except Exception:
+        return JsonResponse({'ok': False, 'error': 'JSON inválido'}, status=400)
+    nunota = payload.get('nunota') or payload.get('nunota_11')
+    items = payload.get('items') or []
+    if not nunota:
+        return JsonResponse({'ok': False, 'error': 'Parâmetro nunota ausente'}, status=400)
+    result = gerar_vale_compra_top13(nunota, items)
+    return JsonResponse(result, status=200 if result.get('ok') else 400)
 
 
 def health(request: HttpRequest) -> HttpResponse:
@@ -266,7 +302,8 @@ def compras_portal(request: HttpRequest) -> HttpResponse:
     sel_nunota = sel_param if sel_param is not None else (notas[0][0] if notas else None)
     itens = listar_itens_da_nota(sel_nunota) if sel_nunota else []
     # Ajustar quantidade exibida na tabela lateral "Itens da Nota" para a unidade alternativa
-    # mesma regra usada no endpoint /sankhya/item/list
+    # IMPORTANTE: Sankhya armazena QTDNEG sempre na unidade BASE (KG), mas CODVOL indica a unidade de entrada.
+    # Para exibir corretamente, precisamos DIVIDIR pelo fator quando CODVOL != base
     try:
         if itens:
             converted = []
@@ -285,6 +322,7 @@ def compras_portal(request: HttpRequest) -> HttpResponse:
                     obs  = r[9] if len(r) > 9 else None
                     gp   = r[10] if len(r) > 10 else None
                     disp_qtd = qtdn
+                    # Converter de unidade base para alternativa ao EXIBIR
                     try:
                         if codp is not None and codv:
                             base, fator = get_base_unit_and_factor(int(codp), str(codv))
@@ -583,26 +621,38 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
                 produto_descr = '\n'.join([f"{k}" + (f" ({v})" if v>1 else '') for k, v in mans.items()])
         except Exception:
             produto_descr = ''
-        # Compute displayed qCx: use backend value unless it's zero or clearly the same as qKg; then derive from qKg/peso
+        # Compute displayed qCx: 
+        # REGRA: Se houver itens classificados (TOP 26), mostrar a SOMA das caixas classificadas.
+        # Caso contrário, usar a entrada (TOP 11) calculada.
         try:
-            _qcx_raw = float(info.get('qtd_cx') or 0.0)
+            _qcx_classif = float(info.get('qtd_cx_classificado') or 0.0)
         except Exception:
-            _qcx_raw = 0.0
-        try:
-            _qkg_raw = float(info.get('qtd_kg') or 0.0)
-        except Exception:
-            _qkg_raw = 0.0
-        _peso_raw = None
-        try:
-            _peso_raw = float(info.get('peso_inn')) if info.get('peso_inn') is not None else None
-        except Exception:
-            _peso_raw = None
-        _qcx_disp = _qcx_raw
-        try:
-            if (_qcx_raw <= 0.0 or abs(_qcx_raw - _qkg_raw) < 1e-6) and (_peso_raw is not None) and (_peso_raw > 0):
-                _qcx_disp = _qkg_raw / _peso_raw
-        except Exception:
-            _qcx_disp = _qcx_raw
+            _qcx_classif = 0.0
+        
+        # Se já existem produtos classificados, usar essa quantidade
+        if _qcx_classif > 0:
+            _qcx_disp = _qcx_classif
+        else:
+            # Fallback: usar quantidade de entrada
+            try:
+                _qcx_raw = float(info.get('qtd_cx') or 0.0)
+            except Exception:
+                _qcx_raw = 0.0
+            try:
+                _qkg_raw = float(info.get('qtd_kg') or 0.0)
+            except Exception:
+                _qkg_raw = 0.0
+            try:
+                _peso_raw = float(info.get('peso_inn')) if info.get('peso_inn') is not None else None
+            except Exception:
+                _peso_raw = None
+            if _peso_raw and _peso_raw > 0:
+                try:
+                    _qcx_disp = _qkg_raw / _peso_raw
+                except Exception:
+                    _qcx_disp = _qcx_raw
+            else:
+                _qcx_disp = _qcx_raw
 
         lotes.append((
             ctrl,
@@ -1017,7 +1067,8 @@ def packing_central_salvar(request: HttpRequest) -> HttpResponse:
         'NUMNOTA': form['nronota'] or None,
         'OBSERVACAO': form['obs'] or None,
     }
-    plan = insert_cabecalho(payload, dry_run=False)
+    # Usar versão OTIMIZADA para alta performance (~5x mais rápido)
+    plan = insert_cabecalho_fast(payload, dry_run=False)
     # If called via AJAX (X-Requested-With) return JSON payload so clients can handle redirect
     is_xhr = (request.META.get('HTTP_X_REQUESTED_WITH', '') == 'XMLHttpRequest')
     if is_xhr:
@@ -1892,6 +1943,8 @@ def item_weight_debug(request: HttpRequest) -> JsonResponse:
 
 def item_save(request: HttpRequest) -> JsonResponse:
     """Endpoint JSON para gravar um item na TGFITE."""
+    from sankhya_integration.services.oracle_conn import get_connection
+    
     if request.method != 'POST':
         return JsonResponse({"ok": False, "error": "Use POST"}, status=405)
     try:
@@ -1926,6 +1979,10 @@ def item_save(request: HttpRequest) -> JsonResponse:
     seq = _to_int_or(payload.get('sequencia'))
     if seq:
         codtop, top_class = _get_nota_top(_to_int_or(payload.get('nunota')))
+        # DEBUG: Log do payload recebido
+        print(f'\n🔍 ========== UPDATE ITEM DEBUG ==========')
+        print(f'🔍 Payload recebido do frontend: {payload}')
+        
         # For classification notes (TOP 26), enforce lote immutability: do NOT allow changing CODAGREGACAO on update
         update_dict = {
             'NUNOTA': _to_int_or(payload.get('nunota')),
@@ -1941,6 +1998,8 @@ def item_save(request: HttpRequest) -> JsonResponse:
             # Atualizar GERAPRODUCAO se informado
             'GERAPRODUCAO': _map_gp(payload.get('geraproducao')),
         }
+        print(f'🔍 Update dict montado: {update_dict}')
+        
         try:
             if not (codtop is not None and top_class is not None and int(codtop) == int(top_class)):
                 # Only allow CODAGREGACAO update when not a classification TOP
@@ -1950,6 +2009,25 @@ def item_save(request: HttpRequest) -> JsonResponse:
             # If we can't determine, be conservative and do not include CODAGREGACAO in update
             pass
         plan = update_item(update_dict, dry_run=False)
+        print(f'🔍 Resultado do plan: {plan}')
+        
+        # Verificar o valor REAL que ficou gravado no banco
+        if plan.get('executed'):
+            from .services.oracle_conn import get_connection
+            check_sql = """
+                SELECT QTDNEG, CODVOL, PESO 
+                FROM TGFITE 
+                WHERE NUNOTA = :NUNOTA AND SEQUENCIA = :SEQUENCIA
+            """
+            with get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(check_sql, {'NUNOTA': update_dict['NUNOTA'], 'SEQUENCIA': update_dict['SEQUENCIA']})
+                row = cur.fetchone()
+                if row:
+                    print(f'🔍 Valor REAL gravado no banco: QTDNEG={row[0]}, CODVOL={row[1]}, PESO={row[2]}')
+                cur.close()
+        print(f'🔍 ========================================\n')
+        
         if plan.get('executed'):
             # Removido: duplicação/upsync automática de TOP 11→26 no Portal
             return JsonResponse(plan, status=200)
@@ -1964,12 +2042,43 @@ def item_save(request: HttpRequest) -> JsonResponse:
     # Enforce immutable lote for classification TOP: require 'controle' and reuse existing when available
     nun = _to_int_or(payload.get('nunota'))
     codtop, top_class = _get_nota_top(nun)
+    
+    # Buscar TOP_ENTRADA (11 - Portal/Pedido de Compra)
+    try:
+        from sankhya_integration.services.oracle_conn import get_params as _gp
+        top_entrada = _gp().get('TOP_ENTRADA', 11)
+    except Exception:
+        top_entrada = 11
+    
+    # Se codtop é None, a nota ainda não existe. Determinar contexto pelo Referer ou path
+    if codtop is None:
+        referer = request.META.get('HTTP_REFERER', '')
+        path = request.path
+        # Se vier de /compras_portal/ ou payload tem indicação, assumir TOP 11
+        if '/compras_portal' in referer or '/portal' in referer or payload.get('_source') == 'portal':
+            codtop = top_entrada  # TOP 11
+            print(f'🔍 Nota nova detectada como Portal (TOP {top_entrada}) via referer/source')
+        # Se vier de /compras_classificacao/, assumir TOP 26
+        elif '/compras_classificacao' in referer or '/classificacao' in referer or payload.get('_source') == 'classificacao':
+            codtop = top_class  # TOP 26
+            print(f'🔍 Nota nova detectada como Classificação (TOP {top_class}) via referer/source')
+    
+    print(f'🔍 INSERT DEBUG: nun={nun}, codtop={codtop}, top_class={top_class}, top_entrada={top_entrada}')
     # Prefer 'codagregacao' from client; keep 'controle' for temporary compatibility
     controle = (payload.get('codagregacao') or payload.get('controle') or '').strip()
+    print(f'🔍 Controle recebido do frontend: "{controle}"')
+    
     try:
-        if codtop is not None and top_class is not None and int(codtop) == int(top_class):
-            # If no controle provided, attempt to reuse existing from items in this note
-            if not controle and nun:
+        # Gerar lote automaticamente para TOP 11 (Portal) ou TOP 26 (Classificação)
+        if codtop is not None and (int(codtop) == int(top_entrada) or (top_class and int(codtop) == int(top_class))):
+            is_portal = (int(codtop) == int(top_entrada))
+            is_classif = (top_class and int(codtop) == int(top_class))
+            print(f'🔍 É TOP {"Portal (11)" if is_portal else "Classificação (26)" if is_classif else "especial"}')
+            
+            # Reutilizar controle existente APENAS para Classificação (TOP 26)
+            # Para Portal (TOP 11), cada item deve ter seu próprio lote único
+            if not controle and nun and is_classif:
+                print(f'🔍 TOP Classificação: tentando buscar controle existente...')
                 try:
                     with get_connection() as conn:
                         cur = conn.cursor()
@@ -1977,12 +2086,31 @@ def item_save(request: HttpRequest) -> JsonResponse:
                         row = cur.fetchone()
                         if row and row[0]:
                             controle = str(row[0])
-                except Exception:
+                            print(f'🔍 Encontrou controle existente: {controle}')
+                except Exception as e:
+                    print(f'🔍 Erro ao buscar controle existente: {e}')
                     controle = controle or ''
-            if not controle:
+            
+            # Se ainda não tem controle, será gerado automaticamente após INSERT usando SEQUENCIA real
+            # Não gerar aqui para evitar race condition entre busca de MAX(SEQUENCIA) e INSERT
+            auto_generate_controle = False
+            if not controle and nun:
+                auto_generate_controle = True
+                controle = None  # Deixar vazio por enquanto
+                print(f'🔍 Controle será gerado automaticamente após INSERT com sequência real')
+            
+            # Apenas TOP 26 (Classificação) é obrigatório ter controle
+            if not controle and is_classif:
                 return JsonResponse({"ok": False, "errors": ["Controle (lote) obrigatório para itens de Classificação"], "error": "Controle (lote) obrigatório para itens de Classificação"}, status=400)
-    except Exception:
+        else:
+            print(f'🔍 NÃO é TOP especial (Portal ou Classificação)')
+    except Exception as e:
+        print(f'🔍 Exception no bloco de controle: {e}')
+        import traceback
+        traceback.print_exc()
         pass
+    
+    print(f'🔍 Controle FINAL que será usado: "{controle}"')
 
     # Server-side enforcement: if there is already a TOP_CLASS header (TGFCAB) with items for this lote,
     # always reuse its NUNOTA regardless of the provided one — guarantees a single header per lote.
@@ -2026,7 +2154,8 @@ def item_save(request: HttpRequest) -> JsonResponse:
         # Non-fatal; continue with provided nun
         pass
 
-    plan = insert_item({
+    # Usar versão OTIMIZADA para alta performance (~3-5x mais rápido)
+    plan = insert_item_fast({
         'NUNOTA': nun,
         'CODPROD': _to_int_or(payload.get('codprod')),
         'QTDNEG': payload.get('qtdneg'),
@@ -2039,6 +2168,29 @@ def item_save(request: HttpRequest) -> JsonResponse:
         # Inserir GERAPRODUCAO quando informado; default será do trigger ('S')
         'GERAPRODUCAO': _map_gp(payload.get('geraproducao')),
     }, dry_run=False)
+    
+    # Se o item foi inserido com sucesso E precisamos gerar controle automaticamente
+    if plan.get('executed') and auto_generate_controle and plan.get('sequencia'):
+        from datetime import datetime
+        hoje = datetime.now().strftime('%y%m%d')
+        real_seq = int(plan['sequencia'])
+        novo_controle = f"{nun}S{real_seq:02d}D{hoje}"
+        print(f'🔍 Atualizando controle com sequência real: {novo_controle} (seq={real_seq})')
+        try:
+            with get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE TGFITE SET CODAGREGACAO = :ctrl WHERE NUNOTA = :n AND SEQUENCIA = :s",
+                    ctrl=novo_controle, n=nun, s=real_seq
+                )
+                conn.commit()
+                plan['codagregacao'] = novo_controle
+                print(f'🔍 Controle atualizado com sucesso: {novo_controle}')
+        except Exception as e:
+            print(f'🔍 ERRO ao atualizar controle: {e}')
+            # Não falhar a operação por isso
+            pass
+    
     if nun_overridden:
         try:
             plan.setdefault('warnings', []).append(f"Reutilizado cabeçalho de Classificação existente (NUNOTA {nun_overridden}) para o lote {controle}.")
@@ -2129,11 +2281,12 @@ def classificacao_resumo(request: HttpRequest) -> JsonResponse:
     try:
         rows = resumo_classificacao_por_lote(lote)
         linhas = []
-        for descr, sum_cx, sum_kg in rows:
+        for descr, sum_cx, sum_kg, fator_cx in rows:
             linhas.append({
                 'produto': (descr or '').strip(),
                 'cx': float(sum_cx or 0),
                 'kg': float(sum_kg or 0),
+                'fator_cx': float(fator_cx or 0),  # kg por caixa (TGFVOA)
             })
         return JsonResponse({"ok": True, "lote": lote, "linhas": linhas})
     except Exception as e:
@@ -2232,6 +2385,10 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
         entradas = info.get('entradas') or []
         # Helper to compute display quantity converting from base to alternative unit when needed
         def _disp_qty(_codprod, _codvol, qtdneg):
+            """
+            IMPORTANTE: Sankhya armazena QTDNEG sempre na unidade BASE (KG).
+            Para exibir na unidade alternativa (CX), precisamos DIVIDIR pelo fator.
+            """
             try:
                 q = float(qtdneg or 0)
             except Exception:
@@ -2243,7 +2400,7 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
                 from sankhya_integration.services.oracle_conn import get_base_unit_and_factor as _get_bf
                 base, fator = _get_bf(int(_codprod), str(_codvol))
                 if base and str(base).upper() != str(_codvol).upper() and fator and float(fator) > 0:
-                    # QTDNEG está na base; para exibir na unidade alternativa informada (ex.: CX), divide pelo fator
+                    # QTDNEG está na base (KG); para exibir na unidade alternativa (CX), divide pelo fator
                     return round(q / float(fator), 6)
                 return q
             except Exception:
@@ -2425,6 +2582,74 @@ def _to_float_or(val, default=None):
         return default
 
 
+def update_vlrnota_for_nota(nunota: int) -> dict:
+    """
+    Atualiza o campo VLRNOTA da nota (TGFCAB) com a soma dos VLRTOT de todos os itens
+    onde o fabricante está definido.
+    
+    Args:
+        nunota: Número único da nota
+        
+    Returns:
+        dict: {'ok': bool, 'vlrnota': float, 'updated': bool, 'error': str|None}
+    """
+    result = {
+        'ok': False,
+        'vlrnota': 0.0,
+        'updated': False,
+        'error': None
+    }
+    
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Calcular soma dos VLRTOT onde fabricante está definido
+                sql_sum = """
+                    SELECT NVL(SUM(i.VLRTOT), 0)
+                    FROM TGFITE i
+                    JOIN TGFPRO p ON p.CODPROD = i.CODPROD
+                    WHERE i.NUNOTA = :nunota
+                      AND TRIM(p.FABRICANTE) IS NOT NULL
+                """
+                cur.execute(sql_sum, {'nunota': nunota})
+                row = cur.fetchone()
+                vlrnota_value = float(row[0]) if row and row[0] is not None else 0.0
+                
+                result['vlrnota'] = vlrnota_value
+                
+                # Atualizar TGFCAB.VLRNOTA se write habilitado
+                if is_write_enabled():
+                    sql_update = """
+                        UPDATE TGFCAB
+                        SET VLRNOTA = :vlrnota
+                        WHERE NUNOTA = :nunota
+                    """
+                    cur.execute(sql_update, {
+                        'vlrnota': vlrnota_value,
+                        'nunota': nunota
+                    })
+                    conn.commit()
+                    result['updated'] = True
+                    logger.info(
+                        f'VLRNOTA atualizado: NUNOTA={nunota}, '
+                        f'VLRNOTA={vlrnota_value:.2f}'
+                    )
+                else:
+                    logger.warning(
+                        f'VLRNOTA não atualizado (write disabled): '
+                        f'NUNOTA={nunota}, VLRNOTA={vlrnota_value:.2f}'
+                    )
+                
+                result['ok'] = True
+                
+    except Exception as e:
+        error_msg = f'Erro ao atualizar VLRNOTA: {str(e)}'
+        logger.exception(error_msg)
+        result['error'] = error_msg
+    
+    return result
+
+
 def comercial_dist_save(request: HttpRequest) -> JsonResponse:
     """Persistir custo total e custo por kg da distribuição para o item de entrada (TGFITE)."""
     if request.method != 'POST':
@@ -2490,6 +2715,12 @@ def comercial_dist_save(request: HttpRequest) -> JsonResponse:
                 plan['error'] = err_msg
     plan['ok'] = executed
     plan['write_enabled'] = is_write_enabled()
+    
+    # Atualizar VLRNOTA se o update foi executado com sucesso
+    if executed:
+        vlrnota_result = update_vlrnota_for_nota(nunota)
+        plan['vlrnota_update'] = vlrnota_result
+    
     status_code = 200 if executed else 400
     return JsonResponse(plan, status=status_code)
 
@@ -2540,6 +2771,12 @@ def comercial_dist_reset(request: HttpRequest) -> JsonResponse:
                 plan['error'] = err_msg
     plan['ok'] = executed
     plan['write_enabled'] = is_write_enabled()
+    
+    # Atualizar VLRNOTA se o reset foi executado com sucesso
+    if executed:
+        vlrnota_result = update_vlrnota_for_nota(nunota)
+        plan['vlrnota_update'] = vlrnota_result
+    
     status_code = 200 if executed else 400
     return JsonResponse(plan, status=status_code)
 
@@ -2725,12 +2962,14 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                 dt_iso = None
             # Normalize QTDNEG to the displayed unit (alternative) if needed
             disp_qtd = qtd
+            fator_conversao = 1.0  # fator para converter de unidade base para codvol
             try:
                 if codprod_val is not None and codvol:
                     from sankhya_integration.services.oracle_conn import get_base_unit_and_factor  # lazy import
                     base, fator = get_base_unit_and_factor(int(codprod_val), str(codvol))
                     if base and str(base).upper() != str(codvol).upper() and fator and float(fator) > 0:
                         disp_qtd = float(qtd or 0) / float(fator)
+                        fator_conversao = float(fator)  # salvar para conversão de preço
             except Exception:
                 disp_qtd = qtd
             out.append({
@@ -2749,6 +2988,8 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                         float(vlrunit_val) if vlrunit_val not in (None, '') and float(vlrunit_val or 0) != 0 else None
                     )
                 ),
+                'vlrunit': (float(vlrunit_val) if vlrunit_val not in (None, '') else None),  # valor unitário em unidade base (KG)
+                'fator_conversao': fator_conversao,  # TGFVOA.QUANTIDADE: quantos KG em 1 CX
                 'vlrtot': (
                     float(vlrtot_val) if vlrtot_val not in (None, '') and float(vlrtot_val or 0) != 0 else 0.0
                 ),
