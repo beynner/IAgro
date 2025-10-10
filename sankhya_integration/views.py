@@ -447,7 +447,7 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
     except Exception:
         nunota_req = None
     params = {
-        "days": _to_int(request.GET.get("days")) or 7,
+        "days": _to_int(request.GET.get("days")),
         "date_start": request.GET.get("start"),
         "date_end": request.GET.get("end"),
         "codparc": _to_int(request.GET.get("codparc")),
@@ -1990,6 +1990,7 @@ def item_save(request: HttpRequest) -> JsonResponse:
             'CODPROD': _to_int_or(payload.get('codprod')),
             'QTDNEG': payload.get('qtdneg'),
             'VLRUNIT': payload.get('vlrunit'),
+            'VLRTOT': payload.get('vlrtot'),  # Incluir VLRTOT para itens não classificáveis
             'PRECOBASE': payload.get('preco_inicial'),
             'PESO': payload.get('peso'),
             'CODVOL': payload.get('codvol') or None,
@@ -2029,6 +2030,43 @@ def item_save(request: HttpRequest) -> JsonResponse:
         print(f'🔍 ========================================\n')
         
         if plan.get('executed'):
+            # Recalcular VLRNOTA do cabeçalho após atualizar item (soma dos VLRTOT)
+            try:
+                nunota_update = update_dict['NUNOTA']
+                with get_connection() as conn:
+                    cur = conn.cursor()
+                    
+                    # Somar todos os VLRTOT dos itens desta nota
+                    cur.execute("""
+                        SELECT NVL(SUM(VLRTOT), 0) 
+                        FROM TGFITE 
+                        WHERE NUNOTA = :nunota
+                    """, nunota=nunota_update)
+                    
+                    row_sum = cur.fetchone()
+                    vlrnota_total = float(row_sum[0]) if row_sum else 0.0
+                    
+                    print(f'🔍 [VLRNOTA] Recalculando para NUNOTA {nunota_update}: {vlrnota_total}')
+                    
+                    # Atualizar VLRNOTA no cabeçalho
+                    cur.execute("""
+                        UPDATE TGFCAB 
+                        SET VLRNOTA = :vlrnota 
+                        WHERE NUNOTA = :nunota
+                    """, vlrnota=vlrnota_total, nunota=nunota_update)
+                    
+                    conn.commit()
+                    
+                    print(f'🔍 [VLRNOTA] Atualizado com sucesso: R$ {vlrnota_total:.2f}')
+                    
+                    # Adicionar ao response para o frontend saber
+                    plan['vlrnota'] = vlrnota_total
+                    
+            except Exception as e:
+                print(f'🔍 [VLRNOTA] Erro ao recalcular: {e}')
+                import traceback
+                traceback.print_exc()
+            
             # Removido: duplicação/upsync automática de TOP 11→26 no Portal
             return JsonResponse(plan, status=200)
         # Log and return clearer error for clients
@@ -2884,6 +2922,375 @@ def comercial_vale_save(request: HttpRequest) -> JsonResponse:
     return JsonResponse({'ok': ok, 'updated': updated, 'errors': errors or None, 'header': header}, status=200 if ok else 400)
 
 
+def comercial_vale_gerar(request: HttpRequest) -> JsonResponse:
+    """
+    Gera um Vale de Compra (TOP 13) a partir de um Pedido de Compra (TOP 11).
+    
+    POST JSON:
+    {
+      "nunota_origem": int,           # NUNOTA do pedido (TOP 11)
+      "items": [
+        # ITEM CLASSIFICÁVEL (gera EXTRA + MEDIO):
+        {
+          "tipo": "classificavel",
+          "codprod": int,              # Código do produto IN NATURA
+          "sequencia_origem": int,     # Sequência do item no pedido
+          "extra_cx": float,           # Quantidade EXTRA em caixas
+          "extra_total": float,        # Valor total EXTRA
+          "medio_cx": float,           # Quantidade MÉDIO em caixas
+          "medio_total": float,        # Valor total MÉDIO
+          "codvol": str,               # Unidade (ex: 'CX')
+          "codagregacao": str          # Lote
+        },
+        # ITEM NÃO CLASSIFICÁVEL (duplica produto original):
+        {
+          "tipo": "nao_classificavel",
+          "codprod": int,              # Código do produto (mesmo do pedido)
+          "sequencia_origem": int,     # Sequência do item no pedido
+          "qtdneg": float,             # Quantidade (mesma do pedido)
+          "vlrunit": float,            # Valor unitário (mesmo do pedido)
+          "vlrtot": float,             # Valor total (mesmo do pedido)
+          "codvol": str,               # Unidade (mesma do pedido)
+          "codagregacao": str          # Lote (mesmo do pedido)
+        },
+        ...
+      ]
+    }
+    
+    Retorna:
+    {
+      "ok": bool,
+      "nunota_13": int,               # NUNOTA do vale criado
+      "items_criados": int,           # Quantidade de linhas TGFITE criadas
+      "detalhes": [...]               # Lista de itens criados
+    }
+    """
+    print('='*80)
+    print('[GERAR VALE] ========== ENDPOINT CHAMADO ==========')
+    print(f'[GERAR VALE] Method: {request.method}')
+    print(f'[GERAR VALE] Path: {request.path}')
+    print('='*80)
+    
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'Use POST'}, status=405)
+    
+    try:
+        import json
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except Exception as e:
+        return JsonResponse({'ok': False, 'error': f'JSON inválido: {str(e)}'}, status=400)
+    
+    nunota_origem = _to_int_or(payload.get('nunota_origem'))
+    items = payload.get('items') or []
+    
+    if not nunota_origem:
+        return JsonResponse({'ok': False, 'error': 'nunota_origem obrigatório'}, status=400)
+    if not isinstance(items, list) or len(items) == 0:
+        return JsonResponse({'ok': False, 'error': 'items deve ser uma lista não vazia'}, status=400)
+    
+    try:
+        from sankhya_integration.services.oracle_conn import (
+            get_connection, get_params, insert_cabecalho_fast, insert_item_fast,
+            get_produtos_extra_medio
+        )
+        
+        p = get_params()
+        TOP_ENTRADA = int(p['TOP_ENTRADA'])  # TOP 11
+        TOP_VALE = 13  # TOP 13
+        
+        with get_connection() as conn:
+            cur = conn.cursor()
+            
+            # 1. Validar pedido origem
+            cur.execute("""
+                SELECT CODPARC, CODNAT, CODEMP, CODVEND, DTNEG, CODCENCUS
+                FROM TGFCAB
+                WHERE NUNOTA = :nunota AND CODTIPOPER = :top
+            """, nunota=nunota_origem, top=TOP_ENTRADA)
+            
+            row_origem = cur.fetchone()
+            if not row_origem:
+                return JsonResponse({
+                    'ok': False,
+                    'error': f'Pedido de compra (TOP 11) NUNOTA {nunota_origem} não encontrado'
+                }, status=404)
+            
+            codparc, codnat, codemp, codvend, dtneg, codcencus = row_origem
+            
+            # 2. Verificar se já existe vale para este pedido
+            # IMPORTANTE: Usar MERGE ou INSERT com verificação para evitar race condition
+            cur.execute("""
+                SELECT NUNOTA
+                FROM TGFCAB
+                WHERE NUMPEDIDO = :nunota_origem AND CODTIPOPER = :top_vale
+            """, nunota_origem=nunota_origem, top_vale=TOP_VALE)
+            
+            vale_existente = cur.fetchone()
+            if vale_existente:
+                print(f'[GERAR VALE] ⚠️ Vale já existe! NUNOTA={vale_existente[0]} para pedido {nunota_origem}')
+                conn.rollback()  # Garantir rollback
+                return JsonResponse({
+                    'ok': False,
+                    'vale_existente': int(vale_existente[0]),
+                    'error': f'Já existe um vale (NUNOTA {vale_existente[0]}) para este pedido'
+                }, status=400)
+            
+            # 3. Criar cabeçalho do vale (TOP 13)
+            from datetime import datetime
+            
+            dtneg_str = dtneg.strftime('%d/%m/%Y') if hasattr(dtneg, 'strftime') else datetime.now().strftime('%d/%m/%Y')
+            
+            cab_data = {
+                'CODTIPOPER': TOP_VALE,
+                'CODPARC': codparc,
+                'DTNEG': dtneg_str,
+                'DTMOV': dtneg_str,
+                'CODNAT': codnat or 1,
+                'CODEMP': codemp or 1,
+                'CODVEND': codvend,
+                'CODCENCUS': codcencus,  # Centro de custo do pedido origem
+                'NUMPEDIDO': nunota_origem,  # Vincula ao pedido de origem
+                'STATUSNOTA': 'A',  # Aberto
+                'PENDENTE': 'N'
+            }
+            
+            print(f'[GERAR VALE] Criando cabeçalho com NUMPEDIDO={nunota_origem}')
+            
+            result = insert_cabecalho_fast(cab_data, dry_run=False)
+            
+            print(f'[GERAR VALE] Resultado insert_cabecalho_fast: {result}')
+            
+            if not result.get('ok') or not result.get('nunota'):
+                return JsonResponse({
+                    'ok': False,
+                    'error': f'Falha ao criar cabeçalho do vale: {result.get("error", "erro desconhecido")}'
+                }, status=500)
+            
+            nunota_vale = result['nunota']
+            
+            print(f'[GERAR VALE] Vale criado: NUNOTA={nunota_vale}, NUMPEDIDO={nunota_origem}')
+            
+            # 4. Criar itens do vale (TGFITE)
+            items_criados = []
+            sequencia = 0
+            
+            print(f'[GERAR VALE] Processando {len(items)} items para NUNOTA {nunota_vale}')
+            
+            for item in items:
+                tipo_item = item.get('tipo', 'classificavel')  # Default: classificável
+                codprod = _to_int_or(item.get('codprod'))
+                sequencia_origem = _to_int_or(item.get('sequencia_origem'))
+                codagregacao = item.get('codagregacao')  # Lote do item origem
+                
+                if not codprod:
+                    print(f'[GERAR VALE] Item sem codprod, pulando: {item}')
+                    continue
+                
+                # ============================================================
+                # TIPO 1: ITEM NÃO CLASSIFICÁVEL - Duplica produto original
+                # ============================================================
+                if tipo_item == 'nao_classificavel':
+                    sequencia += 1
+                    
+                    qtdneg = float(item.get('qtdneg', 0) or 0)
+                    vlrunit = float(item.get('vlrunit', 0) or 0)
+                    vlrtot = float(item.get('vlrtot', 0) or 0)
+                    codvol = str(item.get('codvol', 'CX')).upper()
+                    
+                    print(f'[GERAR VALE] Item NÃO CLASSIFICÁVEL: codprod={codprod}, qtd={qtdneg}, vlrunit={vlrunit}, vlrtot={vlrtot}, lote={codagregacao}')
+                    
+                    item_data = {
+                        'NUNOTA': nunota_vale,
+                        'SEQUENCIA': sequencia,
+                        'CODPROD': codprod,           # Mesmo código do pedido
+                        'QTDNEG': qtdneg,             # Mesma quantidade
+                        'VLRUNIT': vlrunit,           # Mesmo valor unitário
+                        'VLRTOT': vlrtot,             # Mesmo valor total
+                        'CODVOL': codvol,             # Mesma unidade
+                        'CODAGREGACAO': codagregacao  # Mesmo lote
+                    }
+                    
+                    result = insert_item_fast(item_data, dry_run=False)
+                    
+                    print(f'[GERAR VALE] Resultado insert NÃO CLASSIFICÁVEL: {result}')
+                    
+                    if result.get('ok'):
+                        items_criados.append({
+                            'sequencia': sequencia,
+                            'codprod': codprod,
+                            'tipo': 'NAO_CLASSIFICAVEL',
+                            'qtdneg': qtdneg,
+                            'vlrunit': vlrunit,
+                            'vlrtot': vlrtot
+                        })
+                    else:
+                        print(f'[GERAR VALE] *** FALHA ao criar item NÃO CLASSIFICÁVEL: {result.get("error")}')
+                    
+                    continue  # Próximo item
+                
+                # ============================================================
+                # TIPO 2: ITEM CLASSIFICÁVEL - Gera EXTRA + MEDIO
+                # ============================================================
+                extra_cx = float(item.get('extra_cx', 0) or 0)
+                extra_total = float(item.get('extra_total', 0) or 0)
+                medio_cx = float(item.get('medio_cx', 0) or 0)
+                medio_total = float(item.get('medio_total', 0) or 0)
+                codvol = str(item.get('codvol', 'CX')).upper()
+                
+                print(f'[GERAR VALE] Item CLASSIFICÁVEL: codprod={codprod}, extra_cx={extra_cx}, medio_cx={medio_cx}, lote={codagregacao}')
+                
+                # Buscar códigos EXTRA e MÉDIO para este produto IN NATURA
+                produtos_map = get_produtos_extra_medio(codprod)
+                codprod_extra = produtos_map.get('extra')
+                codprod_medio = produtos_map.get('medio')
+                fabricante = produtos_map.get('fabricante')
+                
+                print(f'[GERAR VALE] Mapeamento produtos: IN NATURA={codprod} ({fabricante}) → EXTRA={codprod_extra}, MEDIO={codprod_medio}')
+                
+                # Obter fator de conversão CX -> KG para calcular VLRUNIT correto
+                from sankhya_integration.services.oracle_conn import get_base_unit_and_factor
+                base_unit_extra, fator_extra = get_base_unit_and_factor(codprod_extra, codvol) if codprod_extra else (None, None)
+                base_unit_medio, fator_medio = get_base_unit_and_factor(codprod_medio, codvol) if codprod_medio else (None, None)
+                
+                print(f'[GERAR VALE] Fator conversão EXTRA: {fator_extra} (base: {base_unit_extra})')
+                print(f'[GERAR VALE] Fator conversão MÉDIO: {fator_medio} (base: {base_unit_medio})')
+                
+                # Criar linha EXTRA (se houver quantidade)
+                if extra_cx > 0 and extra_total > 0 and codprod_extra:
+                    sequencia += 1
+                    
+                    # Calcular QTDNEG em KG (unidade base)
+                    qtdneg_extra_kg = extra_cx * fator_extra if fator_extra else extra_cx
+                    
+                    # Calcular VLRUNIT por KG (não por caixa!)
+                    vlrunit_extra = extra_total / qtdneg_extra_kg if qtdneg_extra_kg > 0 else 0
+                    
+                    print(f'[GERAR VALE] Criando item EXTRA: seq={sequencia}, codprod={codprod_extra}, qtd_cx={extra_cx}, qtd_kg={qtdneg_extra_kg}, vlrunit={vlrunit_extra}, total={extra_total}')
+                    
+                    item_data = {
+                        'NUNOTA': nunota_vale,
+                        'SEQUENCIA': sequencia,
+                        'CODPROD': codprod_extra,
+                        'QTDNEG': qtdneg_extra_kg,  # Em KG!
+                        'VLRUNIT': vlrunit_extra,    # Por KG!
+                        'VLRTOT': extra_total,
+                        'CODVOL': 'KG',  # Unidade base
+                        'CODAGREGACAO': codagregacao,  # Lote do item origem
+                        'OBSERVACAO': f'{int(extra_cx)} cx'  # Quantidade de caixas
+                    }
+                    
+                    result = insert_item_fast(item_data, dry_run=False)
+                    
+                    print(f'[GERAR VALE] Resultado insert EXTRA: {result}')
+                    
+                    if result.get('ok'):
+                        items_criados.append({
+                            'sequencia': sequencia,
+                            'codprod': codprod_extra,
+                            'tipo': 'EXTRA',
+                            'qtdneg': extra_cx,
+                            'vlrunit': vlrunit_extra,
+                            'vlrtot': extra_total
+                        })
+                    else:
+                        print(f'[GERAR VALE] *** FALHA ao criar item EXTRA: {result.get("error")}')
+                else:
+                    print(f'[GERAR VALE] Pulando EXTRA: cx={extra_cx}, total={extra_total}, codprod={codprod_extra}')
+                
+                # Criar linha MÉDIO (se houver quantidade)
+                if medio_cx > 0 and medio_total > 0 and codprod_medio:
+                    sequencia += 1
+                    
+                    # Calcular QTDNEG em KG (unidade base)
+                    qtdneg_medio_kg = medio_cx * fator_medio if fator_medio else medio_cx
+                    
+                    # Calcular VLRUNIT por KG (não por caixa!)
+                    vlrunit_medio = medio_total / qtdneg_medio_kg if qtdneg_medio_kg > 0 else 0
+                    
+                    print(f'[GERAR VALE] Criando item MÉDIO: seq={sequencia}, codprod={codprod_medio}, qtd_cx={medio_cx}, qtd_kg={qtdneg_medio_kg}, vlrunit={vlrunit_medio}, total={medio_total}')
+                    
+                    item_data = {
+                        'NUNOTA': nunota_vale,
+                        'SEQUENCIA': sequencia,
+                        'CODPROD': codprod_medio,
+                        'QTDNEG': qtdneg_medio_kg,  # Em KG!
+                        'VLRUNIT': vlrunit_medio,    # Por KG!
+                        'VLRTOT': medio_total,
+                        'CODVOL': 'KG',  # Unidade base
+                        'CODAGREGACAO': codagregacao,  # Lote do item origem
+                        'OBSERVACAO': f'{int(medio_cx)} cx'  # Quantidade de caixas
+                    }
+                    
+                    result = insert_item_fast(item_data, dry_run=False)
+                    
+                    print(f'[GERAR VALE] Resultado insert MÉDIO: {result}')
+                    
+                    if result.get('ok'):
+                        items_criados.append({
+                            'sequencia': sequencia,
+                            'codprod': codprod_medio,
+                            'tipo': 'MEDIO',
+                            'qtdneg': medio_cx,
+                            'vlrunit': vlrunit_medio,
+                            'vlrtot': medio_total
+                        })
+                    else:
+                        print(f'[GERAR VALE] *** FALHA ao criar item MÉDIO: {result.get("error")}')
+                else:
+                    print(f'[GERAR VALE] Pulando MÉDIO: cx={medio_cx}, total={medio_total}, codprod={codprod_medio}')
+            
+            # 5. Atualizar VLRNOTA no cabeçalho (soma dos VLRTOT dos itens)
+            print(f'[GERAR VALE] Calculando VLRNOTA total de {len(items_criados)} itens...')
+            
+            vlrnota_total = 0.0
+            for item in items_criados:
+                vlrtot_item = float(item.get('vlrtot', 0) or 0)
+                vlrnota_total += vlrtot_item
+                print(f'[GERAR VALE] Item seq={item.get("sequencia")}, tipo={item.get("tipo")}, vlrtot={vlrtot_item}')
+            
+            print(f'[GERAR VALE] VLRNOTA calculado: {vlrnota_total}')
+            
+            if vlrnota_total > 0:
+                try:
+                    cur.execute("""
+                        UPDATE TGFCAB 
+                        SET VLRNOTA = :vlrnota 
+                        WHERE NUNOTA = :nunota
+                    """, vlrnota=vlrnota_total, nunota=nunota_vale)
+                    
+                    conn.commit()  # Commit aqui para garantir que VLRNOTA seja salvo
+                    
+                    print(f'[GERAR VALE] VLRNOTA atualizado no cabeçalho: R$ {vlrnota_total:.2f} para NUNOTA {nunota_vale}')
+                    
+                    # Verificar se foi gravado
+                    cur.execute("SELECT VLRNOTA FROM TGFCAB WHERE NUNOTA = :n", n=nunota_vale)
+                    row_check = cur.fetchone()
+                    if row_check:
+                        print(f'[GERAR VALE] Verificação: VLRNOTA no banco = {row_check[0]}')
+                    
+                except Exception as e:
+                    print(f'[GERAR VALE] ⚠️ ERRO ao atualizar VLRNOTA: {e}')
+                    import traceback
+                    traceback.print_exc()
+            else:
+                print(f'[GERAR VALE] ⚠️ VLRNOTA é zero, não atualizando cabeçalho')
+            
+            return JsonResponse({
+                'ok': True,
+                'nunota_13': nunota_vale,
+                'items_criados': len(items_criados),
+                'vlrnota': vlrnota_total,
+                'detalhes': items_criados
+            })
+    
+    except Exception as e:
+        logger.exception('comercial_vale_gerar failed')
+        return JsonResponse({
+            'ok': False,
+            'error': str(e)
+        }, status=500)
+
+
 @ensure_csrf_cookie
 def comercial_dashboard(request: HttpRequest) -> HttpResponse:
     """Render a página do Painel Comercial (template localizado em templates/sankhya_integration/comercial_dashboard.html)."""
@@ -2933,7 +3340,7 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
             rows = [r for r in rows if _ok(r)]
         out = []
         for r in rows:
-            # (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2)
+            # (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2, CODAGREGACAO, CODTIPOPER, NUMPEDIDO)
             parc = r[0] if len(r) > 0 else ''
             prod = r[1] if len(r) > 1 else ''
             qtd = r[2] if len(r) > 2 else 0
@@ -2951,6 +3358,9 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
             ad_simqtd2_val = (r[14] if len(r) > 14 else None)
             ad_simvlr1_val = (r[15] if len(r) > 15 else None)
             ad_simvlr2_val = (r[16] if len(r) > 16 else None)
+            codagregacao_val = (r[17] if len(r) > 17 else None)
+            codtipoper_val = (r[18] if len(r) > 18 else None)
+            numpedido_val = (r[19] if len(r) > 19 else None)
             try:
                 # compact date for UI: send DD/MM
                 if hasattr(dt, 'strftime'):
@@ -2975,6 +3385,7 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
             out.append({
                 'parceiro': parc or '',
                 'produto': prod or '',
+                'codprod': int(codprod_val) if codprod_val is not None else None,
                 'qtdneg': float(disp_qtd or 0),
                 'dtneg': dt_iso,
                 'nunota': int(nunota_val) if nunota_val is not None else None,
@@ -2998,6 +3409,9 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                 'ad_simqtd2': (float(ad_simqtd2_val) if ad_simqtd2_val not in (None, '') else None),
                 'ad_simvlr1': (float(ad_simvlr1_val) if ad_simvlr1_val not in (None, '') else None),
                 'ad_simvlr2': (float(ad_simvlr2_val) if ad_simvlr2_val not in (None, '') else None),
+                'codagregacao': (str(codagregacao_val) if codagregacao_val not in (None, '') else None),
+                'codtipoper': (int(codtipoper_val) if codtipoper_val is not None else None),
+                'numpedido': (int(numpedido_val) if numpedido_val is not None else None),
             })
         return JsonResponse({ 'ok': True, 'rows': out, 'limit': limit, 'offset': offset })
     except Exception as e:

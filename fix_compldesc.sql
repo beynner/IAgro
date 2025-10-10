@@ -1,0 +1,17 @@
+﻿-- CORREÇÃO: Vincular produtos EXTRA/MÉDIO ao produto IN NATURA
+
+-- 1. Produto IN NATURA não deve apontar para ninguém
+UPDATE TGFPRO 
+SET COMPLDESC = NULL 
+WHERE CODPROD = 31;
+
+-- 2. Produtos EXTRA e MÉDIO devem apontar para o IN NATURA
+UPDATE TGFPRO 
+SET COMPLDESC = 31 
+WHERE CODPROD IN (351, 352);
+
+-- 3. Verificar resultado
+SELECT CODPROD, DESCRPROD, PRODUTONFE, COMPLDESC 
+FROM TGFPRO 
+WHERE CODPROD IN (31, 351, 352)
+ORDER BY CODPROD;

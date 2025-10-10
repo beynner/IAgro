@@ -298,7 +298,7 @@
       </div>
       <div class="panel panel--results">
         <header>Notas</header>
-        <div class="list" id="notasList" tabindex="0">
+        <div class="list" id="notasList">
             <table id="notasTable" class="ph-selectable-table" style="width:100%; border-collapse:collapse; table-layout:fixed;">
             <colgroup>
               <col style="width: 90px;">  <!-- Vale -->
@@ -398,7 +398,7 @@
         <input type="hidden" id="cab_codemp" value="1" />
         <div>
           <label>Nº Único</label>
-          <input type="text" id="cab_nunota" disabled />
+          <input type="text" id="cab_nunota" disabled readonly style="background-color:#e9ecef; cursor:not-allowed;" />
         </div>
         <div>
           <label>Nº Documento</label>
@@ -420,7 +420,7 @@
           <label>Tipo Operação</label>
           <div style="position:relative;">
             <input type="hidden" id="cab_top_cod" value="11" />
-            <input type="text" id="cab_top" placeholder="Código ou descrição" autocomplete="off" value="11 — Pedido de Compra" disabled />
+            <input type="text" id="cab_top" placeholder="Código ou descrição" autocomplete="off" value="11 — Pedido de Compra" disabled readonly style="background-color:#e9ecef; cursor:not-allowed;" />
             <div id="cab_top_dd" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:6px; max-height:180px; overflow:auto; display:none; z-index:120;"></div>
           </div>
         </div>
@@ -428,7 +428,7 @@
           <label>Natureza</label>
           <div style="position:relative;">
             <input type="hidden" id="cab_nat_cod" value="20010100" />
-            <input type="text" id="cab_nat" placeholder="Código ou descrição" autocomplete="off" value="20010100 — Produtos para Venda" disabled />
+            <input type="text" id="cab_nat" placeholder="Código ou descrição" autocomplete="off" value="20010100 — Produtos para Venda" disabled readonly style="background-color:#e9ecef; cursor:not-allowed;" />
             <div id="cab_nat_dd" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:6px; max-height:180px; overflow:auto; display:none; z-index:120;"></div>
           </div>
         </div>
@@ -436,7 +436,7 @@
           <label>Centro Resultado</label>
           <div style="position:relative;">
             <input type="hidden" id="cab_cencus_cod" value="10100" />
-            <input type="text" id="cab_cencus" placeholder="Código ou descrição" autocomplete="off" value="10100 — Comercialização" disabled />
+            <input type="text" id="cab_cencus" placeholder="Código ou descrição" autocomplete="off" value="10100 — Comercialização" disabled readonly style="background-color:#e9ecef; cursor:not-allowed;" />
             <div id="cab_cencus_dd" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:6px; max-height:180px; overflow:auto; display:none; z-index:120;"></div>
           </div>
         </div>
@@ -545,6 +545,13 @@
           </div>
         </div>
         <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:6px;">
+          <button id="cabItemsEditHeader" type="button" title="Editar Cabeçalho" style="padding:8px 12px; border:1px solid #cbd5e1; background:#fff; border-radius:6px; cursor:pointer; color:#475569; display:inline-flex; align-items:center; gap:6px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width:16px;height:16px;">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+            Editar Cabeçalho
+          </button>
           <button id="itemsSave" type="button" title="Fechar" style="padding:8px 12px; border:1px solid var(--border); background:#f3f4f6; border-radius:6px; cursor:pointer; color: var(--muted);">
             Fechar
           </button>
@@ -782,8 +789,6 @@
           applySelection();
         }
       });
-      // Foco inicial na lista para já permitir setas
-      try { listEl && listEl.focus(); } catch(_) {}
 
       // Prefetch items for the first few notes in view (instant first clicks)
       try {
@@ -1224,6 +1229,10 @@
         if (cabCard) {
           cabCard.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
+              const target = e.target;
+              // Skip if Enter is on a button (let button handle it)
+              if (target && target.tagName === 'BUTTON') return;
+              
               // Check if any dropdown is currently visible
               const dropdowns = [
                 document.getElementById('cab_parcDropdown'),
@@ -1233,8 +1242,15 @@
               ];
               const anyDropdownVisible = dropdowns.some(dd => dd && dd.style.display !== 'none');
               
-              // If no dropdown is visible, trigger save
-              if (!anyDropdownVisible) {
+              // Only trigger save if no dropdown visible AND not in a regular input field
+              // (allow Enter in textarea for line breaks, but trigger save after)
+              const isTextarea = target && target.tagName === 'TEXTAREA';
+              const isRegularInput = target && target.tagName === 'INPUT' && target.type !== 'button' && target.type !== 'submit';
+              
+              if (!anyDropdownVisible && !isRegularInput) {
+                // For textarea, let the Enter create a line break but DON'T trigger save
+                if (isTextarea) return;
+                
                 e.preventDefault();
                 const saveBtn = document.getElementById('cabSave');
                 if (saveBtn && !saveBtn.hasAttribute('disabled')) {
@@ -1386,14 +1402,77 @@
       }
 
       // Items modal buttons
-  // Top close (X): fechar ambos modais (Itens e Cabeçalho)
-  document.getElementById('cabItemsClose')?.addEventListener('click', ()=>{ try{ const nunRaw = document.getElementById('items_nunota')?.value; const nun = normalizeNunota(nunRaw); if(nun){ try{ if(window.__ITEMS_CACHE) delete window.__ITEMS_CACHE[String(nun)]; }catch(_){ } try{ panelLoadItems(nun); }catch(_){ } } hideItemsModal(); }catch(_){ } try{ hideCabModal(); }catch(_){ } });
-  // Salvar: fechar os dois modais (Itens e Cabeçalho)
+  // Editar Cabeçalho: fechar apenas modal de Itens, deixar Cabeçalho aberto para edição
+  document.getElementById('cabItemsEditHeader')?.addEventListener('click', ()=>{
+    try{
+      const nunRaw = document.getElementById('items_nunota')?.value;
+      const nun = normalizeNunota(nunRaw);
+      if(!nun){
+        showToast('Não é possível editar cabeçalho de nota nova sem NUNOTA','error');
+        return;
+      }
+      // Refresh items cache and panel
+      try{ if(window.__ITEMS_CACHE) delete window.__ITEMS_CACHE[String(nun)]; }catch(_){ }
+      try{ panelLoadItems(nun); }catch(_){ }
+      // Hide items modal only, keep header modal open
+      hideItemsModal();
+      // Ensure header modal is in edit mode
+      cabEditingNunota = nun;
+      // Re-enable header inputs that were disabled when Items opened
+      try{
+        const header = document.getElementById('cabCard');
+        if (header){
+          const inputs = header.querySelectorAll('input, textarea, select, button');
+          inputs.forEach(el => {
+            // restore previous disabled state if tracked
+            if (el.dataset && el.dataset.wasDisabled){
+              const was = el.dataset.wasDisabled === '1';
+              el.disabled = was;
+              delete el.dataset.wasDisabled;
+            } else {
+              // default: enable
+              el.disabled = false;
+            }
+          });
+        }
+      }catch(_){ }
+      showToast('Modo de edição do cabeçalho ativado','info');
+    }catch(_){ }
+  });
+  // Top close (X): fechar ambos modais (Itens e Cabeçalho) e atualizar lista
+  document.getElementById('cabItemsClose')?.addEventListener('click', ()=>{ 
+    try{ 
+      const nunRaw = document.getElementById('items_nunota')?.value; 
+      const nun = normalizeNunota(nunRaw); 
+      if(nun){ 
+        try{ if(window.__ITEMS_CACHE) delete window.__ITEMS_CACHE[String(nun)]; }catch(_){ } 
+        try{ panelLoadItems(nun); }catch(_){ } 
+      } 
+      hideItemsModal(); 
+    }catch(_){ } 
+    try{ hideCabModal(); }catch(_){ }
+    // Reload page to refresh the notes list
+    try{
+      const url = new URL(window.location.href);
+      url.searchParams.delete('new');
+      window.location.href = url.pathname + '?' + url.searchParams.toString();
+    }catch(_){
+      window.location.reload();
+    }
+  });
+  // Salvar: fechar os dois modais (Itens e Cabeçalho) e atualizar lista
   document.getElementById('itemsSave')?.addEventListener('click', ()=>{
         try{ const nunRaw = document.getElementById('items_nunota')?.value; const nun = normalizeNunota(nunRaw); if(nun){ try{ if(window.__ITEMS_CACHE) delete window.__ITEMS_CACHE[String(nun)]; }catch(_){ } try{ panelLoadItems(nun); }catch(_){ } } }catch(_){ }
         try{ hideItemsModal(); }catch(_){ }
         try{ hideCabModal(); }catch(_){ }
-        showToast('Itens salvos. Modais fechados.','success');
+        // Reload page to refresh the notes list
+        try{
+          const url = new URL(window.location.href);
+          url.searchParams.delete('new');
+          window.location.href = url.pathname + '?' + url.searchParams.toString();
+        }catch(_){
+          window.location.reload();
+        }
       });
 
       // Rodape modal show/hide

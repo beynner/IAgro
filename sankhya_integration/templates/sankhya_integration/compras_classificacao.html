@@ -208,10 +208,10 @@
           <input type="checkbox" data-filter="green" id="filterGreen" style="cursor:pointer; accent-color:#10b981;">
           <label for="filterGreen" style="cursor:pointer; font-size:13px; color:#10b981;">Classificação Finalizada</label>
           
-          <input type="checkbox" data-filter="yellow" id="filterYellow" style="cursor:pointer; accent-color:#f59e0b;">
+          <input type="checkbox" data-filter="yellow" id="filterYellow" checked style="cursor:pointer; accent-color:#f59e0b;">
           <label for="filterYellow" style="cursor:pointer; font-size:13px; color:#f59e0b;">Classificando</label>
           
-          <input type="checkbox" data-filter="red" id="filterRed" style="cursor:pointer; accent-color:#ef4444;">
+          <input type="checkbox" data-filter="red" id="filterRed" checked style="cursor:pointer; accent-color:#ef4444;">
           <label for="filterRed" style="cursor:pointer; font-size:13px; color:#ef4444;">A Classificar</label>
         </div>
       </div>
@@ -219,7 +219,7 @@
       <form id="filtersForm" class="filters-grid" style="padding:0 14px;">
           <div>
             <label>Últimos dias (fallback)</label>
-            <input type="number" name="days" value="{{ params.days }}" />
+            <input type="number" name="days" value="{% if params.days %}{{ params.days }}{% endif %}" placeholder="Todos" />
           </div>
           <div>
             <label>Data da negociação</label>
@@ -290,7 +290,7 @@
       </div>
       <div class="panel panel--results">
         <header>LOTES</header>
-        <div class="list" id="notasList" tabindex="0">
+        <div class="list" id="notasList">
           <style>
             .status-dot{display:inline-block;width:10px;height:10px;border-radius:9999px;background:#ef4444}
             .status--red{background:#ef4444}
@@ -401,6 +401,9 @@
                   applyStatusFilter();
                 }
               });
+              
+              // Apply initial filter on page load to show only yellow and red
+              applyStatusFilter();
               
               // Add hidden inputs to form on submit
               if(filtersForm){
@@ -1201,7 +1204,6 @@
   try{ const first = getRows().slice(0,12); first.forEach((r,i)=>{ const c = r && r.dataset && r.dataset.nunota; if(c) schedulePrefetch(c, 150 + i*120); }); }catch(_){ }
       function isTypingTarget(el){ const t = (el && el.tagName) ? el.tagName.toLowerCase() : ''; return t === 'input' || t === 'textarea' || el.isContentEditable; }
       (listEl || document).addEventListener('keydown', (e) => { if (isTypingTarget(e.target)) return; if (e.key === 'ArrowDown'){ e.preventDefault(); setActive(currentIndex()+1, true); } else if (e.key === 'ArrowUp'){ e.preventDefault(); setActive(currentIndex()-1, true); } else if (e.key === 'Enter'){ e.preventDefault(); applySelection(); } });
-  try{ listEl && listEl.focus(); }catch(_){}
   // Initial formatting for LOTES numeric columns on page load
   try{ Array.from(tbl.querySelectorAll('tbody tr.row--click')).forEach(tr=> formatLotesRow(tr)); }catch(_){ }
     updateDeleteBtn();

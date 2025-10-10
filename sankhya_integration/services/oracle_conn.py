@@ -1026,6 +1026,7 @@ def insert_cabecalho_fast(d: dict, dry_run: bool = False) -> dict:
             observacao = d.get('OBSERVACAO') or d.get('OBS')
             pendente = d.get('PENDENTE', 'S')
             statusnota = d.get('STATUSNOTA', 'A')
+            numpedido = int(d.get('NUMPEDIDO', 0)) if d.get('NUMPEDIDO') else None
             
             # Construir INSERT dinâmico com campos opcionais
             cols = ['NUNOTA', 'CODEMP', 'CODEMPNEGOC', 'CODPARC', 'CODTIPOPER', 'DHTIPOPER', 'TIPMOV',
@@ -1052,6 +1053,10 @@ def insert_cabecalho_fast(d: dict, dry_run: bool = False) -> dict:
             }
             
             # Adicionar campos opcionais se fornecidos
+            if numpedido:
+                cols.append('NUMPEDIDO')
+                vals.append(':NUMPEDIDO')
+                binds['NUMPEDIDO'] = numpedido
             if codcencus:
                 cols.append('CODCENCUS')
                 vals.append(':CODCENCUS')
@@ -3175,7 +3180,7 @@ def listar_lotes_entradas_classificaveis(
 
         dtini = _to_date(date_start)
         dtfim = _to_date(date_end)
-        if dtini is None and dtfim is None:
+        if dtini is None and dtfim is None and days is not None:
             dtini = (_date.today() - timedelta(days=days))
             dtfim = _date.today()
 
@@ -3705,7 +3710,7 @@ def listar_itens_portal_basico(
     offset: int = 0,
 ):
     """Lista itens de TOP 11 (Portal) com colunas básicas para o painel Comercial.
-    Retorna tuplas: (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2)
+    Retorna tuplas: (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2, CODAGREGACAO, CODTIPOPER, NUMPEDIDO)
     Suporta filtros por data, parceiro e produto, com paginação segura via ROW_NUMBER.
     """
     from datetime import datetime, date as _date
@@ -3752,7 +3757,7 @@ def listar_itens_portal_basico(
         binds["codprod"] = int(codprod)
 
     inner = (
-        "SELECT p.NOMEPARC, NVL(pr.FABRICANTE, pr.DESCRPROD) AS PRODNAME, i.QTDNEG, c.DTNEG, i.CODVOL, i.CODPROD, c.NUNOTA, i.SEQUENCIA, NVL(i.GERAPRODUCAO, 'S') AS GP, i.PESO AS PESO, i.PRECOBASE AS PRECOBASE, i.VLRUNIT AS VLRUNIT, i.VLRTOT AS VLRTOT, i.AD_SIMQTD1, i.AD_SIMQTD2, i.AD_SIMVLR1, i.AD_SIMVLR2 "
+        "SELECT p.NOMEPARC, NVL(pr.FABRICANTE, pr.DESCRPROD) AS PRODNAME, i.QTDNEG, c.DTNEG, i.CODVOL, i.CODPROD, c.NUNOTA, i.SEQUENCIA, NVL(i.GERAPRODUCAO, 'S') AS GP, i.PESO AS PESO, i.PRECOBASE AS PRECOBASE, i.VLRUNIT AS VLRUNIT, i.VLRTOT AS VLRTOT, i.AD_SIMQTD1, i.AD_SIMQTD2, i.AD_SIMVLR1, i.AD_SIMVLR2, i.CODAGREGACAO, c.CODTIPOPER, c.NUMPEDIDO "
         "  FROM TGFITE i "
         "  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA "
         "  LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC "
@@ -3761,7 +3766,7 @@ def listar_itens_portal_basico(
         "  ORDER BY c.DTNEG DESC, c.NUNOTA DESC, i.SEQUENCIA ASC"
     )
     sql = (
-        "SELECT NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2 FROM ("
+        "SELECT NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2, CODAGREGACAO, CODTIPOPER, NUMPEDIDO FROM ("
         "  SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.DTNEG DESC, t.NUNOTA DESC, t.SEQUENCIA ASC) rn FROM (" + inner + ") t"
         ") WHERE rn BETWEEN :start_row AND :end_row ORDER BY rn"
     )
@@ -3816,6 +3821,98 @@ def buscar_parceiros(q: str, limit: int = 10):
             )
             cur.execute(sql, q=f"%{q.upper()}%", lim=lim)
         return cur.fetchall()
+
+
+def get_produtos_extra_medio(codprod_in_natura: int):
+    """
+    Busca os códigos de produtos EXTRA e MÉDIO relacionados ao produto IN NATURA.
+    
+    Lógica:
+    - Busca produtos do mesmo FABRICANTE
+    - Filtra por PRODUTONFE contendo 'EXTRA' ou 'MEDIO'/'MÉDIO'
+    - Exclui o próprio produto IN NATURA da busca
+    
+    Args:
+        codprod_in_natura: Código do produto IN NATURA (ex: 31)
+    
+    Returns:
+        dict com as chaves:
+        - 'extra': CODPROD do produto EXTRA (ou None)
+        - 'medio': CODPROD do produto MÉDIO (ou None)
+        - 'fabricante': FABRICANTE do produto (ou None)
+        
+    Exemplo de retorno:
+        {'extra': 351, 'medio': 352, 'fabricante': 'ABACATE HASS'}
+    """
+    print(f'[get_produtos_extra_medio] Iniciando busca para codprod_in_natura={codprod_in_natura}')
+    
+    if not codprod_in_natura:
+        print('[get_produtos_extra_medio] codprod_in_natura é None/vazio')
+        return {'extra': None, 'medio': None, 'fabricante': None}
+    
+    with get_connection() as conn:
+        cur = conn.cursor()
+        
+        # Primeiro, buscar o FABRICANTE do produto IN NATURA
+        sql_fabricante = """
+            SELECT FABRICANTE
+            FROM TGFPRO
+            WHERE CODPROD = :codprod
+        """
+        print(f'[get_produtos_extra_medio] Buscando FABRICANTE do CODPROD {codprod_in_natura}')
+        cur.execute(sql_fabricante, codprod=int(codprod_in_natura))
+        row_fab = cur.fetchone()
+        
+        if not row_fab or not row_fab[0]:
+            print(f'[get_produtos_extra_medio] FABRICANTE não encontrado para CODPROD {codprod_in_natura}')
+            return {'extra': None, 'medio': None, 'fabricante': None}
+        
+        fabricante = row_fab[0]
+        print(f'[get_produtos_extra_medio] FABRICANTE encontrado: "{fabricante}"')
+        
+        # Buscar produtos do mesmo fabricante com EXTRA ou MEDIO na DESCRIÇÃO
+        # Ordena por CODPROD para priorizar códigos menores (convenção)
+        sql = """
+            SELECT CODPROD, UPPER(DESCRPROD) AS NOME
+            FROM TGFPRO
+            WHERE FABRICANTE = :fabricante
+              AND CODPROD != :codprod_in_natura
+              AND (
+                  UPPER(DESCRPROD) LIKE '%EXTRA%' 
+                  OR UPPER(DESCRPROD) LIKE '%MEDIO%'
+                  OR UPPER(DESCRPROD) LIKE '%MÉDIO%'
+                  OR UPPER(DESCRPROD) LIKE '%MEDIA%'
+                  OR UPPER(DESCRPROD) LIKE '%MÉDIA%'
+              )
+            ORDER BY CODPROD
+        """
+        
+        print(f'[get_produtos_extra_medio] Buscando produtos EXTRA/MEDIO do fabricante "{fabricante}"')
+        cur.execute(sql, fabricante=fabricante, codprod_in_natura=int(codprod_in_natura))
+        rows = cur.fetchall()
+        
+        print(f'[get_produtos_extra_medio] Encontrados {len(rows)} produtos candidatos')
+        for r in rows:
+            print(f'[get_produtos_extra_medio]   - CODPROD={r[0]}, NOME={r[1]}')
+        
+        resultado = {'extra': None, 'medio': None, 'fabricante': fabricante}
+        
+        for codprod, nome in rows:
+            nome_upper = str(nome or '').upper()
+            # Prioriza o primeiro encontrado de cada tipo
+            if 'EXTRA' in nome_upper and resultado['extra'] is None:
+                resultado['extra'] = int(codprod)
+                print(f'[get_produtos_extra_medio] EXTRA definido como {codprod}')
+            elif ('MEDIO' in nome_upper or 'MÉDIO' in nome_upper or 'MEDIA' in nome_upper or 'MÉDIA' in nome_upper) and resultado['medio'] is None:
+                resultado['medio'] = int(codprod)
+                print(f'[get_produtos_extra_medio] MEDIO definido como {codprod}')
+            
+            # Se já encontrou ambos, pode parar
+            if resultado['extra'] and resultado['medio']:
+                break
+        
+        print(f'[get_produtos_extra_medio] Resultado final: {resultado}')
+        return resultado
 
 
 def listar_notas_compra(

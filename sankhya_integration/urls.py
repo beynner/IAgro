@@ -51,8 +51,7 @@ urlpatterns = [
     path("comercial/sim/list/", views.comercial_sim_list, name="comercial_sim_list"),
     path("comercial/dist/save/", views.comercial_dist_save, name="comercial_dist_save"),
     path("comercial/dist/reset/", views.comercial_dist_reset, name="comercial_dist_reset"),
-    path("comercial/vale/save/", views.comercial_vale_save, name="comercial_vale_save"),
-    path("comercial/vale/gerar/", views.gerar_vale_compra, name="comercial_vale_gerar"),
+    path("comercial/vale/gerar/", views.comercial_vale_gerar, name="comercial_vale_gerar"),
     path("classificacao/resumo/", views.classificacao_resumo, name="classificacao_resumo"),
     # Duplicação automática/rotas removidas a pedido: sem duplicar TOP 11→26 via portal
 ]

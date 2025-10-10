@@ -20,8 +20,9 @@
   .appbar .home-btn{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;background:#fff;border:1px solid #e5e7eb;color:#334155;text-decoration:none;transition:all .2s ease;box-shadow:0 2px 4px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)}
   .appbar .home-btn:hover{background:#f8fafb;color:#0a3392;box-shadow:0 4px 8px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.08);transform:translateY(-1px)}
   .appbar .home-btn svg{width:20px;height:20px}
-  .appbar h1{margin:0;font-size:1.1rem;line-height:1.2}
-  .appbar .sup-name{font-family:"Courgette", cursive;font-size:.9rem;font-weight:400;color:#0a3392;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0;max-width:45%}
+  .appbar h1{margin:0;font-size:1.1rem;line-height:1.2;display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+  .appbar .page-title{font-weight:700;color:#0a3392;white-space:nowrap}
+  .appbar .sup-name{font-family:"Courgette", cursive;font-size:.9rem;font-weight:400;color:#0a3392;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0;flex:1;min-width:0}
 
   /* Group section helpers */
   .section-head{margin:0 0 8px 0;padding:6px 8px;font-size:.75rem;font-weight:800;color:#334155;letter-spacing:.04em;text-transform:uppercase;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafb}
@@ -553,7 +554,7 @@
           <polyline points="9 22 9 12 15 12 15 22"></polyline>
         </svg>
       </a>
-      <h1><span class="sup-name" id="supplierName"></span></h1>
+      <h1><span class="page-title">COMERCIAL</span><span class="sup-name" id="supplierName"></span></h1>
     </div>
 
     <div class="layout">
@@ -1646,7 +1647,13 @@
           if(!isFinite(n)) return;
           const normalized = n >= 0 ? n : 0;
           
-          console.log('[DIST] __setDistribTotal chamado com:', normalized, 'opts:', opts);
+          console.log('═══════════════════════════════════════════════════════');
+          console.log('[DIST] __setDistribTotal CHAMADO');
+          console.log('[DIST] Valor:', normalized);
+          console.log('[DIST] Origem:', opts?.source || 'desconhecida');
+          console.log('[DIST] Opts:', opts);
+          console.trace('[DIST] Call stack');
+          console.log('═══════════════════════════════════════════════════════');
           
           // Integra com o sistema de sincronização (se não vier da própria sync)
           const skipSync = opts && opts.skipCallbacks;
@@ -1913,8 +1920,14 @@
         try{
           bodyEl.innerHTML = '<tr><td colspan="5" style="padding:8px; color:#64748b;">Carregando…</td></tr>';
           const qs = parseFilters(ev);
-          const url = '/sankhya/comercial/lista/' + (qs ? ('?' + qs) : '');
-          const r = await fetch(url, { credentials: 'same-origin' });
+          const timestamp = new Date().getTime();
+          const separator = qs ? '&' : '?';
+          const url = '/sankhya/comercial/lista/' + (qs ? ('?' + qs) : '') + `${separator}_t=${timestamp}`;
+          const r = await fetch(url, { 
+            credentials: 'same-origin',
+            cache: 'no-cache',
+            headers: { 'Cache-Control': 'no-cache' }
+          });
           let j = {}; try{ j = await r.json(); }catch(_){ j = {}; }
           if(!j.ok){ bodyEl.innerHTML = '<tr><td colspan="5" style="padding:8px; color:#b91c1c;">Falha ao carregar.</td></tr>'; return; }
           const rows = Array.isArray(j.rows) ? j.rows : [];
@@ -2374,6 +2387,11 @@
               // Inicializa estado Extra/Médio
               if (window.__DIST_EXTRA_MEDIO_STATE) {
                 const state = window.__DIST_EXTRA_MEDIO_STATE;
+                
+                // Identifica qual item está aberto
+                state.codprod = Number(item?.codprod || 0);
+                state.sequencia = Number(item?.sequencia || 0);
+                
                 state.qtdCxInNatura = qtyCx;
                 state.precoBase = precoBaseVal;
                 
@@ -2392,16 +2410,10 @@
                   state.extraCustoCx = 0;
                 }
                 
-                // Por enquanto, sem classificação, assume tudo é Extra
-                state.extraCx = qtyCx;
-                state.extraKg = 0;
-                state.medioCx = 0;
-                state.medioKg = 0;
+                // NÃO inicializa quantidades aqui - deixa a classificação fazer isso
+                // As quantidades serão setadas pela função updateQuantitiesFromClassification
                 
-                // Dispara Cenário 1 (carga inicial)
-                if (typeof window.__syncExtraMedio === 'function') {
-                  window.__syncExtraMedio('initial');
-                }
+                console.log('[ITEM SELECT] Item selecionado - aguardando classificação para setar quantidades');
               }
             }
           }catch{}
@@ -2665,8 +2677,16 @@
       // (removido) Função antiga openOutrosModal
 
       // Modal: Resumo do Vale (Classificáveis + Não Classificáveis)
-      function openValeResumo(nunota){
+      async function openValeResumo(nunota){
         console.log('[DEBUG] openValeResumo chamada com nunota:', nunota);
+        
+        // 🔥 ARMAZENAR NUNOTA no botão para evitar closure problem
+        const btnGerarVale = document.getElementById('btnGerarVale');
+        if(btnGerarVale){
+          btnGerarVale.setAttribute('data-nunota-atual', String(nunota));
+          console.log('[MODAL] NUNOTA armazenada no botão:', nunota);
+        }
+        
         try{
           const modal = document.getElementById('valeResumoModal');
           const title = document.getElementById('valeResumoTitle');
@@ -2697,9 +2717,70 @@
             pedidoEl.style.display = 'block';
           }
           
-          // Vale (TOP 13) - buscar se existe (não temos essa info ainda, então deixar oculto por enquanto)
-          // TODO: buscar NUNOTA 13 relacionado se necessário
-          if(valeEl) valeEl.style.display = 'none';
+          // Vale (TOP 13) - buscar se existe NUNOTA relacionado via NUMPEDIDO
+          console.log('[VALE MODAL] Iniciando busca de vale para pedido:', nunota);
+          console.log('[VALE MODAL] Elementos:', { valeEl: !!valeEl, valeNumEl: !!valeNumEl });
+          
+          if(valeEl && valeNumEl && nunota){
+            try {
+              console.log('[VALE MODAL] Buscando lista de vales para pedido:', nunota);
+              // Buscar vale vinculado a este pedido (com cache-busting)
+              const timestamp = new Date().getTime();
+              const respVale = await fetch(`/sankhya/comercial/lista/?days=365&_t=${timestamp}`, {
+                cache: 'no-cache',
+                headers: { 'Cache-Control': 'no-cache' }
+              });
+              console.log('[VALE MODAL] Resposta recebida:', respVale.ok);
+              
+              if(respVale.ok){
+                const dataVale = await respVale.json();
+                console.log('[VALE MODAL] Total de registros:', dataVale.rows?.length);
+                
+                // Debug: mostrar todos os TOP 13 (vales)
+                const vales = (dataVale.rows || []).filter(r => Number(r.codtipoper) === 13);
+                console.log('[VALE MODAL] Total de vales (TOP 13):', vales.length);
+                vales.forEach(v => {
+                  console.log('[VALE MODAL] Vale:', {
+                    nunota: v.nunota,
+                    numpedido: v.numpedido,
+                    codtipoper: v.codtipoper
+                  });
+                });
+                
+                // Procurar vale (TOP 13) que tenha NUMPEDIDO = nunota atual
+                const vale = (dataVale.rows || []).find(r => {
+                  const isTOP13 = Number(r.codtipoper) === 13;
+                  const matchPedido = Number(r.numpedido) === Number(nunota);
+                  console.log('[VALE MODAL] Verificando:', {
+                    nunota: r.nunota,
+                    isTOP13,
+                    numpedido: r.numpedido,
+                    numpedidoNum: Number(r.numpedido),
+                    nunota_busca: Number(nunota),
+                    matchPedido
+                  });
+                  return isTOP13 && matchPedido;
+                });
+                
+                console.log('[VALE MODAL] Vale encontrado:', vale);
+                
+                if(vale && vale.nunota){
+                  valeNumEl.textContent = vale.nunota;
+                  valeEl.style.display = 'block';
+                  console.log('[VALE MODAL] ✅ Vale exibido:', vale.nunota, 'para pedido:', nunota);
+                } else {
+                  valeEl.style.display = 'none';
+                  console.log('[VALE MODAL] ❌ Nenhum vale encontrado para pedido:', nunota);
+                }
+              }
+            } catch(err){
+              console.error('[VALE MODAL] ⚠️ Erro ao buscar vale:', err);
+              valeEl.style.display = 'none';
+            }
+          } else {
+            console.log('[VALE MODAL] Condições não atendidas - ocultando vale');
+            if(valeEl) valeEl.style.display = 'none';
+          }
           
           const fmtMoney = (n)=> {
             if(isNaN(n)) return '<span class="valor-monetario"><span class="cifrao">R$</span> 0,00</span>';
@@ -2770,6 +2851,24 @@
           }else{
             outrosBody.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>';
           }
+          
+          // Validar status: habilitar GERAR VALE apenas se todos classificáveis tiverem status verde (VLRTOT > 0)
+          const btnGerarVale = document.getElementById('btnGerarVale');
+          if(btnGerarVale){
+            const todosVerdes = classifs.every(r=> Number(r.vlrtot||0) > 0);
+            if(todosVerdes){
+              btnGerarVale.disabled = false;
+              btnGerarVale.style.opacity = '1';
+              btnGerarVale.style.cursor = 'pointer';
+              btnGerarVale.title = '';
+            }else{
+              btnGerarVale.disabled = true;
+              btnGerarVale.style.opacity = '0.5';
+              btnGerarVale.style.cursor = 'not-allowed';
+              btnGerarVale.title = 'Todos os produtos classificáveis devem ter negociação salva (status verde) para gerar vale';
+            }
+          }
+          
           modal.style.display = 'flex';
           // Tooltip de distribuição no ícone olho (usa estado corrente de distribuição)
           const ensureDistTooltip = () => {
@@ -2888,6 +2987,44 @@
               recompute(); 
             }
           });
+          
+          classBody.addEventListener('focus', (ev)=>{
+            if(ev.target && ev.target.classList.contains('vcl-preco-inicial')){
+              const editableDiv = ev.target;
+              const val = parsePT(editableDiv.textContent || '');
+              
+              // Sempre selecionar todo o conteúdo (funciona tanto para valores zerados quanto preenchidos)
+              setTimeout(() => {
+                const range = document.createRange();
+                range.selectNodeContents(editableDiv);
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+              }, 0);
+            }
+          }, true);
+          
+          classBody.addEventListener('keydown', (ev)=>{
+            if(ev.target && ev.target.classList.contains('vcl-preco-inicial')){
+              if(ev.key === 'Enter'){
+                ev.preventDefault();
+                ev.target.blur(); // Aciona o salvamento
+                
+                // Encontrar próximo campo editável
+                const currentTr = ev.target.closest('tr');
+                if(currentTr){
+                  let nextTr = currentTr.nextElementSibling;
+                  if(nextTr){
+                    const nextField = nextTr.querySelector('.vcl-preco-inicial');
+                    if(nextField){
+                      setTimeout(() => nextField.focus(), 50);
+                    }
+                  }
+                }
+              }
+            }
+          }, true);
+          
           classBody.addEventListener('blur', (ev)=>{
             if(ev.target && ev.target.classList.contains('vcl-preco-inicial')){
               // Reformatar ao perder foco
@@ -2898,10 +3035,147 @@
               }
             }
           }, true);
+          
+          // Event listeners para itens NÃO CLASSIFICÁVEIS (salvar VLRUNIT no banco)
+          outrosBody.addEventListener('focus', (ev)=>{
+            if(ev.target && ev.target.classList.contains('vop-price')){
+              const editableDiv = ev.target;
+              
+              // Sempre selecionar todo o conteúdo (funciona tanto para valores zerados quanto preenchidos)
+              setTimeout(() => {
+                const range = document.createRange();
+                range.selectNodeContents(editableDiv);
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+              }, 0);
+            }
+          }, true);
+          
+          outrosBody.addEventListener('keydown', (ev)=>{
+            if(ev.target && ev.target.classList.contains('vop-price')){
+              if(ev.key === 'Enter'){
+                ev.preventDefault();
+                ev.target.blur(); // Aciona o salvamento
+                
+                // Encontrar próximo campo editável
+                const currentTr = ev.target.closest('tr');
+                if(currentTr){
+                  let nextTr = currentTr.nextElementSibling;
+                  if(nextTr){
+                    const nextField = nextTr.querySelector('.vop-price');
+                    if(nextField){
+                      setTimeout(() => nextField.focus(), 50);
+                    }
+                  }
+                }
+              }
+            }
+          }, true);
+          
+          outrosBody.addEventListener('input', (ev)=>{ 
+            if(ev.target && ev.target.classList.contains('vop-price')) {
+              // Atualizar Total dinamicamente
+              const tr = ev.target.closest('tr');
+              if(tr){
+                const qtd = Number(tr.getAttribute('data-q') || 0);
+                const val = parsePT(ev.target.textContent || '');
+                const totalCell = tr.querySelector('.vop-total');
+                if(totalCell && val > 0){
+                  const total = qtd * val;
+                  totalCell.innerHTML = fmtMoney(total);
+                }
+              }
+              recompute(); 
+            }
+          });
+          
+          outrosBody.addEventListener('blur', async (ev)=>{
+            if(ev.target && ev.target.classList.contains('vop-price')){
+              const editableDiv = ev.target;
+              const tr = editableDiv.closest('tr');
+              if(!tr) return;
+              
+              const nunota_val = Number(tr.getAttribute('data-nun') || 0);
+              const seq_val = Number(tr.getAttribute('data-seq') || 0);
+              const qtd = Number(tr.getAttribute('data-q') || 0);
+              const val = parsePT(editableDiv.textContent || '');
+              
+              // Reformatar ao perder foco
+              if(val > 0){
+                editableDiv.innerHTML = fmtMoney(val);
+                
+                // Salvar VLRUNIT no banco (endpoint /sankhya/item/save/)
+                if(nunota_val && seq_val){
+                  try{
+                    const payload = { 
+                      nunota: nunota_val, 
+                      sequencia: seq_val, 
+                      vlrunit: val,
+                      vlrtot: val * qtd  // Calcular VLRTOT também
+                    };
+                    
+                    console.log('[SAVE NAO CLASSIFICAVEL] Salvando:', payload);
+                    
+                    const result = await window.__postJSON('/sankhya/item/save/', payload);
+                    
+                    if(result.ok){
+                      // Atualizar cache local para persistir o valor
+                      if(window.__COM_LIST_ROWS){
+                        const item = window.__COM_LIST_ROWS.find(r => 
+                          Number(r.nunota||0) === nunota_val && 
+                          Number(r.sequencia||0) === seq_val
+                        );
+                        if(item){
+                          item.vlrunit = val;
+                          item.vlrtot = val * qtd;
+                          console.log('[CACHE UPDATE] Item não classificável atualizado:', item);
+                        }
+                      }
+                      
+                      // Atualizar Total na célula
+                      const totalCell = tr.querySelector('.vop-total');
+                      if(totalCell){
+                        totalCell.innerHTML = fmtMoney(val * qtd);
+                      }
+                      
+                      recompute();
+                    } else {
+                      console.error('[SAVE ERROR] Falha ao salvar item não classificável:', result);
+                      alert('❌ Erro ao salvar: ' + (result.body?.error || 'erro desconhecido'));
+                    }
+                  } catch(err){
+                    console.error('[SAVE ERROR] Exceção ao salvar item não classificável:', err);
+                    alert('❌ Erro ao salvar: ' + err.message);
+                  }
+                }
+              } else if(val === 0 || isNaN(val)){
+                // Se valor for zerado, manter formatação vazia
+                editableDiv.innerHTML = '<span style="color:#94a3b8;">R$ 0,00</span>';
+              }
+            }
+          }, true);
+          
           recompute();
           // Close handlers
-          document.getElementById('valeResumoClose')?.addEventListener('click', ()=>{ modal.style.display='none'; });
-          modal.addEventListener('click', (ev)=>{ if(ev.target === modal) modal.style.display='none'; });
+          document.getElementById('valeResumoClose')?.addEventListener('click', ()=>{ 
+            modal.style.display='none'; 
+            window.__GERANDO_VALE = false; // Limpar flag ao fechar
+            // Limpar display do vale para não mostrar dados antigos
+            const valeEl = document.getElementById('valeResumoVale');
+            if(valeEl) valeEl.style.display = 'none';
+            console.log('[MODAL] Modal fechado, flag __GERANDO_VALE resetada e dados limpos');
+          });
+          modal.addEventListener('click', (ev)=>{ 
+            if(ev.target === modal) {
+              modal.style.display='none'; 
+              window.__GERANDO_VALE = false; // Limpar flag ao fechar
+              // Limpar display do vale para não mostrar dados antigos
+              const valeEl = document.getElementById('valeResumoVale');
+              if(valeEl) valeEl.style.display = 'none';
+              console.log('[MODAL] Modal fechado (click fora), flag __GERANDO_VALE resetada e dados limpos');
+            }
+          });
           // Salvar/Faturar emit
           // Build payload with sequences for precise updates (inclui preco_inicial para ambas tabelas)
           const buildValeItems = () => {
@@ -2923,26 +3197,243 @@
             return items;
           };
 
-          document.getElementById('btnGerarVale')?.addEventListener('click', async ()=>{
-            const items = buildValeItems().map(it=>({ sequencia: it.sequencia, preco: it.preco || it.preco_inicial || 0 }));
+          // Remover listener antigo se existir
+          const btnGerar = document.getElementById('btnGerarVale');
+          if(btnGerar){
+            // Clonar e substituir para remover todos os listeners
+            const newBtn = btnGerar.cloneNode(true);
+            btnGerar.parentNode.replaceChild(newBtn, btnGerar);
+            console.log('[MODAL] Event listeners do botão GERAR VALE removidos');
+          }
+
+          document.getElementById('btnGerarVale')?.addEventListener('click', async function gerarValeHandler(){
+            // ⚠️ PROTEÇÃO: Impedir múltiplas execuções simultâneas
+            if(window.__GERANDO_VALE){
+              console.warn('[GERAR VALE] ⚠️ Geração já em andamento, ignorando clique duplicado');
+              return;
+            }
+            window.__GERANDO_VALE = true;
+            
+            // 🔥 CRÍTICO: Ler NUNOTA do atributo data-nunota-atual do botão
+            const btn = document.getElementById('btnGerarVale');
+            const nunota_atual = btn ? Number(btn.getAttribute('data-nunota-atual') || '0') : 0;
+            console.log('[GERAR VALE] NUNOTA lida do botão:', nunota_atual);
+            
+            if(!nunota_atual){
+              console.error('[GERAR VALE] ❌ NUNOTA não encontrada no botão!');
+              window.__GERANDO_VALE = false;
+              alert('❌ Erro: NUNOTA não identificada. Feche e abra o modal novamente.');
+              return;
+            }
+            
+            // Validação: verificar se TODOS os itens têm preço salvo (vlrtot > 0)
+            const rows = (window.__COM_LIST_ROWS||[]).filter(r=> String(r.nunota||'') === String(nunota_atual||''));
+            const todosVerdes = rows.every(r=> Number(r.vlrtot||0) > 0);
+            
+            if(!todosVerdes){
+              window.__GERANDO_VALE = false;
+              alert('❌ Não é possível gerar vale!\n\nTodos os produtos devem ter negociação salva (vlrtot > 0).\n\nVerifique se todos os itens foram processados.');
+              return;
+            }
+            
+            // Separar itens classificáveis e não classificáveis
+            const classifs = rows.filter(r=> r.classificavel !== false);
+            const naoClassifs = rows.filter(r=> r.classificavel === false);
+            
+            console.log(`[GERAR VALE] Total: ${rows.length} itens | Classificáveis: ${classifs.length} | Não classificáveis: ${naoClassifs.length}`);
+            
+            const items = [];
+            
+            // 1. Processar itens CLASSIFICÁVEIS (geram EXTRA + MEDIO com distribuição)
+            for(const item of classifs){
+              const codprod = Number(item.codprod || 0);
+              const sequencia = Number(item.sequencia || 0);
+              const codvol = String(item.codvol || 'CX').toUpperCase();
+              const codagregacao = String(item.codagregacao || '');
+              const vlrtot = Number(item.vlrtot || 0);
+              
+              // Buscar quantidades da classificação via API
+              const lote = codagregacao;
+              let extra_cx = 0, extra_total = 0, medio_cx = 0, medio_total = 0;
+              
+              try {
+                // Buscar classificação
+                const respClass = await fetch(`/sankhya/classificacao/resumo/?lote=${encodeURIComponent(lote)}`);
+                if(!respClass.ok) throw new Error('Erro ao buscar classificação');
+                
+                const dataClass = await respClass.json();
+                
+                if(dataClass && dataClass.ok && Array.isArray(dataClass.linhas) && dataClass.linhas.length > 0){
+                  const linhas = dataClass.linhas;
+                  
+                  console.log(`[GERAR VALE] Classificação encontrada para lote ${lote}:`, linhas);
+                  
+                  // Separar EXTRA e MEDIO/MÉDIA
+                  const extraLine = linhas.find(l => {
+                    const prod = (l.produto || '').toUpperCase();
+                    console.log(`[GERAR VALE] Verificando se "${prod}" é EXTRA:`, prod.includes('EXTRA'));
+                    return prod.includes('EXTRA');
+                  });
+                  
+                  const medioLine = linhas.find(l => {
+                    const prod = (l.produto || '').toUpperCase();
+                    const isMedio = prod.includes('MEDIO') || prod.includes('MÉDIO') || prod.includes('MÉDIA') || prod.includes('MEDIA');
+                    console.log(`[GERAR VALE] Verificando se "${prod}" é MEDIO:`, isMedio);
+                    return isMedio;
+                  });
+                  
+                  console.log(`[GERAR VALE] Extra line encontrada:`, extraLine);
+                  console.log(`[GERAR VALE] Medio line encontrada:`, medioLine);
+                  
+                  const extraKg = Number(extraLine?.kg || 0);
+                  const extraCx = Number(extraLine?.cx || 0);
+                  const medioKg = Number(medioLine?.kg || 0);
+                  const medioCx = Number(medioLine?.cx || 0);
+                  
+                  console.log(`[GERAR VALE] Classificação do lote ${lote}:`, {
+                    linhas,
+                    extra: { kg: extraKg, cx: extraCx },
+                    medio: { kg: medioKg, cx: medioCx }
+                  });
+                  
+                  // Calcular distribuição usando VLRTOT e a mesma lógica do cenário 2
+                  // Fórmula: valorTotal = (extraKg × X) + (medioKg × X/2)
+                  //         X = valorTotal / (extraKg + medioKg/2)
+                  
+                  if(extraKg > 0 || medioKg > 0){
+                    const divisor = extraKg + (medioKg / 2);
+                    
+                    if(divisor > 0){
+                      // Custo por kg do Extra
+                      const extraCustoKg = vlrtot / divisor;
+                      const extraCustoTotal = extraKg * extraCustoKg;
+                      
+                      // Médio = metade do custo do Extra
+                      const medioCustoKg = extraCustoKg / 2;
+                      const medioCustoTotal = medioKg * medioCustoKg;
+                      
+                      extra_cx = extraCx;
+                      extra_total = extraCustoTotal;
+                      medio_cx = medioCx;
+                      medio_total = medioCustoTotal;
+                      
+                      console.log(`[GERAR VALE] Item ${codprod} (seq ${sequencia}) - CALCULADO:`, {
+                        vlrtot,
+                        extraKg, extraCx, extraCustoKg: extraCustoKg.toFixed(2), extraCustoTotal: extraCustoTotal.toFixed(2),
+                        medioKg, medioCx, medioCustoKg: medioCustoKg.toFixed(2), medioCustoTotal: medioCustoTotal.toFixed(2),
+                        soma: (extraCustoTotal + medioCustoTotal).toFixed(2)
+                      });
+                    }
+                  }
+                } else {
+                  console.warn(`[GERAR VALE] Classificação não encontrada para lote ${lote}`);
+                }
+              } catch(err) {
+                console.error(`[GERAR VALE] Erro ao buscar classificação do item ${codprod}:`, err);
+              }
+              
+              console.log(`[GERAR VALE] Item CLASSIFICÁVEL ${codprod} (seq ${sequencia}):`, {
+                extra_cx, extra_total, medio_cx, medio_total, codagregacao
+              });
+              
+              items.push({
+                tipo: 'classificavel',
+                codprod: codprod,
+                sequencia_origem: sequencia,
+                extra_cx: extra_cx,
+                extra_total: extra_total,
+                medio_cx: medio_cx,
+                medio_total: medio_total,
+                codvol: codvol,
+                codagregacao: codagregacao
+              });
+            }
+            
+            // 2. Processar itens NÃO CLASSIFICÁVEIS (duplicam o produto original com mesmos valores)
+            for(const item of naoClassifs){
+              const codprod = Number(item.codprod || 0);
+              const sequencia = Number(item.sequencia || 0);
+              const qtdneg = Number(item.qtdneg || 0);
+              const vlrunit = Number(item.vlrunit || 0);
+              const vlrtot = Number(item.vlrtot || 0);
+              const codvol = String(item.codvol || 'CX').toUpperCase();
+              const codagregacao = String(item.codagregacao || '');
+              
+              console.log(`[GERAR VALE] Item NÃO CLASSIFICÁVEL ${codprod} (seq ${sequencia}):`, {
+                qtdneg, vlrunit, vlrtot, codvol, codagregacao
+              });
+              
+              items.push({
+                tipo: 'nao_classificavel',
+                codprod: codprod,
+                sequencia_origem: sequencia,
+                qtdneg: qtdneg,
+                vlrunit: vlrunit,
+                vlrtot: vlrtot,
+                codvol: codvol,
+                codagregacao: codagregacao
+              });
+            }
+            
+            if(items.length === 0){
+              alert('❌ Nenhum item encontrado para gerar o vale!');
+              return;
+            }
+            
+            console.log('[GERAR VALE] Payload completo:', { nunota_origem: Number(nunota_atual), items });
+            
+            // Desabilitar botão e mostrar loading
+            const btnGV = document.getElementById('btnGerarVale');
+            const btnOrigText = btnGV?.textContent;
+            if(btnGV){
+              btnGV.disabled = true;
+              btnGV.textContent = 'GERANDO...';
+              btnGV.style.opacity = '0.6';
+            }
+            
             try{
-              const res = await window.__postJSON('/sankhya/comercial/vale/gerar/', { nunota: Number(nunota), items });
+              const res = await window.__postJSON('/sankhya/comercial/vale/gerar/', { 
+                nunota_origem: Number(nunota_atual), 
+                items 
+              });
+              
               if(res.ok){
-                alert('Vale criado: NUNOTA 13 = ' + (res.body?.nunota_13 || '')); 
+                const valeNum = res.body?.nunota_13 || '';
+                const itemsCriados = res.body?.items_criados || 0;
+                
+                // Limpar flag ANTES de fechar modal
+                window.__GERANDO_VALE = false;
+                
+                alert(`✅ Vale criado com sucesso!\n\nNUNOTA: ${valeNum}\nItens criados: ${itemsCriados}`); 
                 modal.style.display = 'none';
-                // Atualizar lista para refletir o vale gerado
-                if(typeof loadLista === 'function') loadLista();
+                
+                // Atualizar lista para refletir o vale gerado (force reload com cache-busting)
+                if(typeof loadLista === 'function') {
+                  console.log('[GERAR VALE] Forçando reload da lista...');
+                  loadLista();
+                }
               }else{
                 // Verifica se é um erro de vale duplicado
                 if(res.body?.vale_existente){
                   const valeNum = res.body.vale_existente;
-                  const msg = `Este pedido já possui um vale gerado:\n\nVale NUNOTA: ${valeNum}\n\nNão é possível gerar outro vale para o mesmo pedido.`;
+                  const msg = `⚠️ Este pedido já possui um vale gerado:\n\nVale NUNOTA: ${valeNum}\n\nNão é possível gerar outro vale para o mesmo pedido.`;
                   alert(msg);
                 }else{
-                  alert('Falha ao gerar vale: ' + (res.body?.error || 'erro desconhecido'));
+                  alert('❌ Falha ao gerar vale:\n\n' + (res.body?.error || 'erro desconhecido'));
                 }
               }
-            }catch(e){ alert('Erro ao gerar vale: ' + e); }
+            }catch(e){ 
+              console.error('[GERAR VALE] Erro:', e);
+              alert('❌ Erro ao gerar vale:\n\n' + e); 
+            }finally{
+              // Restaurar botão e liberar flag
+              if(btnGV){
+                btnGV.disabled = false;
+                btnGV.textContent = btnOrigText;
+                btnGV.style.opacity = '1';
+              }
+              window.__GERANDO_VALE = false;
+            }
           });
           document.getElementById('valeResumoFaturar')?.addEventListener('click', async ()=>{
             const items = buildValeItems();
@@ -4299,7 +4790,11 @@
         }
 
         try {
-          console.log('[SYNC] Iniciando:', source, '=', newValue);
+          console.log('▼▼▼ [SYNC] INICIANDO ▼▼▼');
+          console.log('[SYNC] Source:', source);
+          console.log('[SYNC] New Value:', newValue);
+          console.trace('[SYNC] Call stack');
+          
           window.__DIST_SYNC_STATE.isUpdating = true;
           window.__DIST_SYNC_STATE.lastSource = source;
 
@@ -4537,6 +5032,10 @@
       window.__DIST_EXTRA_MEDIO_STATE = {
         isUpdating: false,
         
+        // Identificação do item atual
+        codprod: null,
+        sequencia: null,
+        
         // Quantidades (vem da classificação)
         extraCx: 0,
         extraKg: 0,
@@ -4577,28 +5076,34 @@
         state.extraCustoTotal = 0;
         state.extraCustoKg = 0;
         
-        // Médio usa precoBase/2
+        // Médio usa metade do precoBase
         if (state.precoBase > 0) {
           state.medioCustoCx = state.precoBase / 2;
         } else {
           state.medioCustoCx = 0;
         }
         
-        state.medioCustoKg = state.medioCustoCx; // Assume cx = kg
-        
         // Calcula total do Médio
         if (state.medioCx > 0) {
           state.medioCustoTotal = state.medioCx * state.medioCustoCx;
+          // Calcula custoKg baseado no total e no kg real
+          state.medioCustoKg = state.medioKg > 0 ? (state.medioCustoTotal / state.medioKg) : state.medioCustoCx;
         } else if (state.medioKg > 0) {
+          // Se não tem cx mas tem kg, assume custoCx como base
+          state.medioCustoKg = state.medioCustoCx;
           state.medioCustoTotal = state.medioKg * state.medioCustoKg;
         } else {
+          state.medioCustoKg = 0;
           state.medioCustoTotal = 0;
         }
         
-        console.log('[SEM EXTRA] Médio calculado:', {
+        console.log('[SEM EXTRA] Médio calculado (metade do preço):', {
+          precoBase: state.precoBase,
           custoCx: state.medioCustoCx,
           custoKg: state.medioCustoKg,
-          custoTotal: state.medioCustoTotal
+          custoTotal: state.medioCustoTotal,
+          medioCx: state.medioCx,
+          medioKg: state.medioKg
         });
       };
 
@@ -4667,6 +5172,13 @@
         const custoCxEl = card.querySelector('[data-field="custoCx"]');
         const custoEl = card.querySelector('[data-field="custo"]');
         
+        console.log('[EXTRA/MÉDIO] Atualizando Card Médio:', {
+          medioCustoKg: state.medioCustoKg,
+          medioCustoCx: state.medioCustoCx,
+          medioCustoTotal: state.medioCustoTotal,
+          elements: { custoKgEl: !!custoKgEl, custoCxEl: !!custoCxEl, custoEl: !!custoEl }
+        });
+        
         if (custoKgEl) custoKgEl.textContent = formatDecimal(state.medioCustoKg);
         if (custoCxEl) custoCxEl.textContent = formatDecimal(state.medioCustoCx);
         if (custoEl) custoEl.textContent = formatMoney(state.medioCustoTotal);
@@ -4685,7 +5197,71 @@
         const savedVlrtot = Number(window.__SAVED_VLRTOT);
         const hasNegociacaoSalva = isFinite(savedVlrtot) && savedVlrtot > 0;
         
-        console.log('[CENÁRIO 1] Carga Inicial - precoBase:', precoBase, 'VLRTOT salvo:', savedVlrtot);
+        // Verifica se já existem valores de simulação carregados do banco
+        const hasSimulacaoSalva = (state.extraCustoTotal > 0 || state.medioCustoTotal > 0) &&
+                                   (state.extraCx > 0 || state.medioCx > 0);
+        
+        console.log('[CENÁRIO 1] Carga Inicial - precoBase:', precoBase, 'VLRTOT salvo:', savedVlrtot, 'Simulação salva:', hasSimulacaoSalva);
+        
+        if (hasSimulacaoSalva) {
+          // ✅ TEM SIMULAÇÃO SALVA: Usar valores carregados do banco (ad_simqtd1/2, ad_simvlr1/2)
+          console.log('[CENÁRIO 1] Simulação salva detectada! Usando valores do banco:', {
+            extraCx: state.extraCx,
+            extraTotal: state.extraCustoTotal,
+            medioCx: state.medioCx,
+            medioTotal: state.medioCustoTotal
+          });
+          
+          // Recalcular custos unitários com base nos totais salvos
+          if (state.extraCx > 0) {
+            state.extraCustoCx = state.extraCustoTotal / state.extraCx;
+            state.extraCustoKg = state.extraKg > 0 ? (state.extraCustoTotal / state.extraKg) : 0;
+          } else {
+            state.extraCustoCx = 0;
+            state.extraCustoKg = 0;
+          }
+          
+          if (state.medioCx > 0) {
+            state.medioCustoCx = state.medioCustoTotal / state.medioCx;
+            state.medioCustoKg = state.medioKg > 0 ? (state.medioCustoTotal / state.medioKg) : 0;
+          } else {
+            state.medioCustoCx = 0;
+            state.medioCustoKg = 0;
+          }
+          
+          // Calcular Valor Total e Custo Global
+          const valorTotal = state.extraCustoTotal + state.medioCustoTotal;
+          const totalCx = state.extraCx + state.medioCx;
+          const totalKg = state.extraKg + state.medioKg;
+          
+          const totalCustoCx = totalCx > 0 ? (valorTotal / totalCx) : 0;
+          const totalCustoKg = totalKg > 0 ? (valorTotal / totalKg) : 0;
+          
+          console.log('[CENÁRIO 1] Resultado com simulação salva:', {
+            valorTotal,
+            totalCustoCx,
+            totalCustoKg,
+            extra: { cx: state.extraCustoCx, kg: state.extraCustoKg, total: state.extraCustoTotal },
+            medio: { cx: state.medioCustoCx, kg: state.medioCustoKg, total: state.medioCustoTotal }
+          });
+          
+          // Atualiza UI
+          updateExtraCard();
+          updateMedioCard();
+          
+          if (typeof window.__setDistribTotal === 'function') {
+            window.__setDistribTotal(valorTotal, { source: 'cenario1-simulacao', skipCallbacks: true, allowUI: true });
+          }
+          
+          const custoCxEl = document.getElementById('costCxDisplay');
+          const custoKgEl = document.getElementById('costKgDisplay');
+          const formatDecimal = (v) => (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          
+          if (custoCxEl) custoCxEl.textContent = formatDecimal(totalCustoCx);
+          if (custoKgEl) custoKgEl.textContent = formatDecimal(totalCustoKg);
+          
+          return; // Sai aqui para não executar o resto da função
+        }
         
         if (hasNegociacaoSalva) {
           // ✅ TEM NEGOCIAÇÃO SALVA: Carrega VLRTOT e redistribui via Cenário 2
@@ -4721,16 +5297,37 @@
         } else {
           // ❌ NÃO TEM NEGOCIAÇÃO: Fluxo normal
           console.log('[CENÁRIO 1] Sem negociação salva, usando fluxo padrão');
+          console.log('[CENÁRIO 1] Estado atual das quantidades:', {
+            extraCx: state.extraCx,
+            extraKg: state.extraKg,
+            medioCx: state.medioCx,
+            medioKg: state.medioKg
+          });
           
           if (hasExtra()) {
             // Fluxo COM Extra
+            console.log('[CENÁRIO 1] TEM EXTRA - calculando com precoBase:', precoBase);
             state.extraCustoCx = precoBase;
             state.extraCustoTotal = state.extraCx * state.extraCustoCx;
             state.extraCustoKg = state.extraKg > 0 ? (state.extraCustoTotal / state.extraKg) : 0;
             
+            console.log('[CENÁRIO 1] Extra calculado:', {
+              custoCx: state.extraCustoCx,
+              custoTotal: state.extraCustoTotal,
+              custoKg: state.extraCustoKg
+            });
+            
             state.medioCustoKg = state.extraCustoKg / 2;
             state.medioCustoTotal = state.medioKg * state.medioCustoKg;
-            state.medioCustoCx = state.extraCustoCx / 2;
+            state.medioCustoCx = state.medioCx > 0 ? (state.medioCustoTotal / state.medioCx) : 0;
+            
+            console.log('[CENÁRIO 1] Médio calculado (metade do Extra):', {
+              custoKg: state.medioCustoKg,
+              custoTotal: state.medioCustoTotal,
+              custoCx: state.medioCustoCx,
+              medioKg: state.medioKg,
+              medioCx: state.medioCx
+            });
           } else {
             // Fluxo SEM Extra
             calcMedioSemExtra();
@@ -4756,8 +5353,9 @@
           updateExtraCard();
           updateMedioCard();
           
+          // CRÍTICO: Atualizar Valor Total COM sincronização para atualizar campo de input
           if (typeof window.__setDistribTotal === 'function') {
-            window.__setDistribTotal(valorTotal, { source: 'cenario1', skipCallbacks: true, allowUI: true });
+            window.__setDistribTotal(valorTotal, { source: 'cenario1', allowUI: true, syncInput: true });
           }
           
           const custoCxEl = document.getElementById('costCxDisplay');
@@ -4766,6 +5364,8 @@
           
           if (custoCxEl) custoCxEl.textContent = formatDecimal(totalCustoCx);
           if (custoKgEl) custoKgEl.textContent = formatDecimal(totalCustoKg);
+          
+          console.log('[CENÁRIO 1] ✅ UI atualizada - Valor Total:', valorTotal);
         }
       };
 
@@ -4794,31 +5394,41 @@
           if (custoKgEl) custoKgEl.textContent = formatDecimal(totalCustoKg);
         }
         
-        // Distribuição Proporcional
+        // Distribuição seguindo regra: Médio = metade do Extra (em R$/kg)
         if (hasExtra()) {
-          // COM Extra: distribui proporcionalmente
-          const somaAtual = state.extraCustoTotal + state.medioCustoTotal;
+          // COM Extra: médio sempre metade do custo do extra
+          // Formula: valorTotal = (extraKg * X) + (medioKg * X/2)
+          //         valorTotal = X * (extraKg + medioKg/2)
+          //         X = valorTotal / (extraKg + medioKg/2)
           
-          if (somaAtual > 0) {
-            const propExtra = state.extraCustoTotal / somaAtual;
-            const propMedio = state.medioCustoTotal / somaAtual;
+          const divisor = state.extraKg + (state.medioKg / 2);
+          
+          if (divisor > 0) {
+            // X = custo por kg do Extra
+            state.extraCustoKg = valorTotal / divisor;
+            state.extraCustoTotal = state.extraKg * state.extraCustoKg;
+            state.extraCustoCx = state.extraCx > 0 ? (state.extraCustoTotal / state.extraCx) : 0;
             
-            state.extraCustoTotal = valorTotal * propExtra;
-            state.medioCustoTotal = valorTotal * propMedio;
+            // Médio recebe metade do custo do Extra
+            state.medioCustoKg = state.extraCustoKg / 2;
+            state.medioCustoTotal = state.medioKg * state.medioCustoKg;
+            state.medioCustoCx = state.medioCx > 0 ? (state.medioCustoTotal / state.medioCx) : 0;
             
-            console.log('[CENÁRIO 2] Proporção - Extra:', (propExtra*100).toFixed(1), '% Médio:', (propMedio*100).toFixed(1), '%');
+            const somaTotal = state.extraCustoTotal + state.medioCustoTotal;
+            
+            console.log('[CENÁRIO 2] Distribuição Extra/Médio (Médio = metade do Extra):', {
+              formula: `${valorTotal} = (${state.extraKg} * X) + (${state.medioKg} * X/2)`,
+              divisor: divisor,
+              extraCustoKg: state.extraCustoKg,
+              medioCustoKg: state.medioCustoKg,
+              extraTotal: state.extraCustoTotal,
+              medioTotal: state.medioCustoTotal,
+              somaTotal: somaTotal,
+              diferenca: Math.abs(valorTotal - somaTotal)
+            });
           } else {
-            // Se não tem proporção, assume 75% Extra, 25% Médio
-            state.extraCustoTotal = valorTotal * 0.75;
-            state.medioCustoTotal = valorTotal * 0.25;
-            console.log('[CENÁRIO 2] Sem proporção, usando padrão 75/25');
+            console.warn('[CENÁRIO 2] Divisor zero, não pode distribuir');
           }
-          
-          // Recalcula custos unitários
-          state.extraCustoCx = state.extraCx > 0 ? (state.extraCustoTotal / state.extraCx) : 0;
-          state.extraCustoKg = state.extraKg > 0 ? (state.extraCustoTotal / state.extraKg) : 0;
-          state.medioCustoCx = state.medioCx > 0 ? (state.medioCustoTotal / state.medioCx) : 0;
-          state.medioCustoKg = state.medioKg > 0 ? (state.medioCustoTotal / state.medioKg) : 0;
         } else {
           // SEM Extra: todo valor vai para Médio
           state.extraCustoTotal = 0;
@@ -4829,7 +5439,13 @@
           state.medioCustoCx = state.medioCx > 0 ? (valorTotal / state.medioCx) : 0;
           state.medioCustoKg = state.medioKg > 0 ? (valorTotal / state.medioKg) : 0;
           
-          console.log('[CENÁRIO 2] SEM Extra - todo valor para Médio');
+          console.log('[CENÁRIO 2] SEM Extra - todo valor para Médio:', {
+            medioCx: state.medioCx,
+            medioKg: state.medioKg,
+            medioCustoTotal: state.medioCustoTotal,
+            medioCustoCx: state.medioCustoCx,
+            medioCustoKg: state.medioCustoKg
+          });
         }
         
         console.log('[CENÁRIO 2] Resultado:', {
@@ -5135,31 +5751,81 @@
             state.medioKg = medioKg;
             state.medioCx = medioCx;
             
+            console.log('[CLASSIFICAÇÃO] Estado após atualização:', {
+              extraKg: state.extraKg,
+              extraCx: state.extraCx,
+              medioKg: state.medioKg,
+              medioCx: state.medioCx
+            });
+            
             // Verifica se tem valores salvos (VLRUNIT do backend)
             const savedVlrunit = window.__SAVED_VLRUNIT;
             
-            if (savedVlrunit && isFinite(savedVlrunit) && savedVlrunit > 0) {
-              // Cenário 3: Usa VLRUNIT salvo
-              console.log('[CLASSIFICAÇÃO] Usando VLRUNIT salvo:', savedVlrunit);
-              state.extraCustoCx = savedVlrunit;
-            } else if (state.extraCustoCx <= 0) {
-              // Se não tem custo definido, inicializa com PRECOBASE
-              if (state.precoBase > 0) {
-                console.log('[CLASSIFICAÇÃO] Inicializando com PRECOBASE:', state.precoBase);
-                state.extraCustoCx = state.precoBase;
-              }
-            }
-            // Se já tem extraCustoCx > 0, mantém (caso tenha sido editado)
+            // Verifica se já tem valores de simulação salvos
+            const hasSimulacaoSalva = (state.extraCustoTotal > 0 || state.medioCustoTotal > 0);
             
-            // Recalcula tudo com as novas quantidades
-            if (typeof window.__syncExtraMedio === 'function') {
-              // Se tinha valor editado, mantém; senão usa Cenário 1
-              if (state.extraCustoCx > 0 && savedVlrunit > 0) {
-                // Mantém valor editado e recalcula
-                window.__syncExtraMedio('extraCustoCx', state.extraCustoCx);
+            console.log('[CLASSIFICAÇÃO] hasSimulacaoSalva:', hasSimulacaoSalva, 'extraCustoTotal:', state.extraCustoTotal, 'medioCustoTotal:', state.medioCustoTotal);
+            
+            if (hasSimulacaoSalva) {
+              // TEM SIMULAÇÃO SALVA: Recalcula apenas custos unitários com as novas quantidades
+              console.log('[CLASSIFICAÇÃO] Usando valores salvos - recalculando custos unitários');
+              
+              if (state.extraCx > 0) {
+                state.extraCustoCx = state.extraCustoTotal / state.extraCx;
+                state.extraCustoKg = state.extraKg > 0 ? (state.extraCustoTotal / state.extraKg) : 0;
+              }
+              
+              if (state.medioCx > 0) {
+                state.medioCustoCx = state.medioCustoTotal / state.medioCx;
+                state.medioCustoKg = state.medioKg > 0 ? (state.medioCustoTotal / state.medioKg) : 0;
+              }
+              
+              // Atualiza apenas os cards visuais
+              if (typeof updateExtraCard === 'function') updateExtraCard();
+              if (typeof updateMedioCard === 'function') updateMedioCard();
+              
+            } else {
+              // Cenário padrão: verifica se tem VLRTOT salvo
+              const savedVlrtot = window.__SAVED_VLRTOT;
+              const hasVlrtot = isFinite(savedVlrtot) && Math.abs(savedVlrtot) > 1e-6;
+              
+              if (hasVlrtot) {
+                // TEM VLRTOT: Usa Cenário 2 (redistribuir valor total) - PRIORIDADE MÁXIMA
+                console.log('[CLASSIFICAÇÃO] Usando VLRTOT salvo:', savedVlrtot, '- redistribuindo via Cenário 2');
+                console.log('[CLASSIFICAÇÃO] IGNORANDO VLRUNIT - VLRTOT tem prioridade!');
+                
+                // Inicializa custos base com PRECOBASE
+                if (state.precoBase > 0) {
+                  state.extraCustoCx = state.precoBase;
+                }
+                
+                // Redistribui VLRTOT proporcionalmente
+                if (typeof window.__syncExtraMedio === 'function') {
+                  window.__syncExtraMedio('valorTotal', savedVlrtot);
+                }
+                
+              } else if (savedVlrunit && isFinite(savedVlrunit) && savedVlrunit > 0) {
+                // NÃO TEM VLRTOT, MAS TEM VLRUNIT: Usa Cenário 4 (recalcular com VLRUNIT)
+                console.log('[CLASSIFICAÇÃO] Usando VLRUNIT salvo:', savedVlrunit);
+                state.extraCustoCx = savedVlrunit;
+                
+                // Recalcula tudo com o VLRUNIT
+                if (typeof window.__syncExtraMedio === 'function') {
+                  window.__syncExtraMedio('extraCustoCx', state.extraCustoCx);
+                }
+                
               } else {
+                // NÃO TEM NADA: Usa Cenário 1 (carga inicial com PRECOBASE)
+                console.log('[CLASSIFICAÇÃO] Sem VLRTOT e sem VLRUNIT - usando PRECOBASE:', state.precoBase);
+                
+                if (state.extraCustoCx <= 0 && state.precoBase > 0) {
+                  state.extraCustoCx = state.precoBase;
+                }
+                
                 // Recalcula do zero (Cenário 1)
-                window.__syncExtraMedio('initial');
+                if (typeof window.__syncExtraMedio === 'function') {
+                  window.__syncExtraMedio('initial');
+                }
               }
             }
           }
@@ -5261,14 +5927,34 @@
             window.dispatchEvent(new CustomEvent('dist:salvo', { detail: { nunota, sequencia, payload, response: res.body } }));
             try{
               const savedTotal = Number(payload.valor_total);
+              const savedVlrunit = Number(payload.custo_kg);
               const rows = Array.isArray(window.__COM_LIST_ROWS) ? window.__COM_LIST_ROWS : [];
               const match = rows.find(r=> Number(r?.nunota||0) === Number(nunota) && Number(r?.sequencia||0) === Number(sequencia));
+              
+              console.log('[SAVE] Atualizando cache com valores salvos:', {
+                nunota,
+                sequencia,
+                vlrtot_salvo: savedTotal,
+                vlrunit_salvo: savedVlrunit
+              });
+              
               if(match){
                 match.vlrtot = Number.isFinite(savedTotal) ? savedTotal : 0;
+                match.vlrunit = Number.isFinite(savedVlrunit) ? savedVlrunit : 0;
+                console.log('[SAVE] Cache atualizado:', match);
               }
-              if(typeof window.__setDistribTotal === 'function' && Number.isFinite(savedTotal)){
-                window.__setDistribTotal(savedTotal, { source: 'dist-save', allowUI: true, syncInput: true });
-              }
+              
+              // CRÍTICO: Atualizar __SAVED_VLRTOT para refletir o valor salvo
+              window.__SAVED_VLRTOT = Number.isFinite(savedTotal) ? savedTotal : 0;
+              window.__SAVED_VLRUNIT = Number.isFinite(savedVlrunit) ? savedVlrunit : 0;
+              
+              console.log('[SAVE] Globais atualizadas:', {
+                __SAVED_VLRTOT: window.__SAVED_VLRTOT,
+                __SAVED_VLRUNIT: window.__SAVED_VLRUNIT
+              });
+              
+              // NÃO chamar __setDistribTotal aqui - deixa o valor como está na UI
+              // A UI já está mostrando o valor correto, não precisa redistribuir
             }catch(_){ }
           }else{
             const errMsg = res.body?.error || (Array.isArray(res.body?.errors) ? res.body.errors.join('; ') : '') || 'Falha ao salvar os valores.';
@@ -5790,30 +6476,78 @@
               totalEl.textContent = (new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(total));
               const precoKg = (getPesoTotal()>0) ? total / getPesoTotal() : 0;
               precoKgEl.textContent = fmtMoney(precoKg);
+              
+              console.log('[PREÇO INICIAL] Valor editado:', {
+                precoCx: n,
+                total: total,
+                precoKg: precoKg,
+                pesoTotal: getPesoTotal()
+              });
+              
               if(precoKg > 0 && typeof window.__DIST_seedExtraCustoKg === 'function'){
                 window.__DIST_seedExtraCustoKg(precoKg, true);
                 if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh();
               }
+              
               // Sincronizar Distribuição (Etapa 1) usando Preço Inicial/cx como precoBase
               try{
+                console.log('[PREÇO INICIAL] Sincronizando Extra/Médio com precoBase:', n);
+                
                 if(window.__DIST_EXTRA_MEDIO_STATE){
                   window.__DIST_EXTRA_MEDIO_STATE.precoBase = Number(n) || 0;
+                  console.log('[PREÇO INICIAL] Estado atualizado:', window.__DIST_EXTRA_MEDIO_STATE);
                 }
+                
                 if(typeof window.__syncExtraMedio === 'function'){
+                  console.log('[PREÇO INICIAL] Chamando __syncExtraMedio(initial)');
                   // Recalcula defaults (Extra com precoBase; Médio = metade), atualiza total e custos globais
                   window.__syncExtraMedio('initial');
+                  console.log('[PREÇO INICIAL] ✅ Distribuição recalculada');
+                } else {
+                  console.warn('[PREÇO INICIAL] ⚠️ __syncExtraMedio não está disponível!');
                 }
-              }catch{}
-              // Persistir PRECOBASE no backend, se houver contexto (nunota/seq)
+              }catch(err){
+                console.error('[PREÇO INICIAL] ❌ Erro ao sincronizar:', err);
+              }
+              
+              // Atualizar cache local IMEDIATAMENTE (antes do save assíncrono)
+              try{
+                const nun = card.getAttribute('data-nunota');
+                const seq = card.getAttribute('data-seq');
+                if(nun && seq && window.__COM_LIST_ROWS){
+                  const rows = window.__COM_LIST_ROWS;
+                  const item = rows.find(r=> Number(r.nunota||0)===Number(nun) && Number(r.sequencia||0)===Number(seq));
+                  if(item){
+                    item.preco_inicial = Number(n);
+                    item.precobase = Number(n);
+                    console.log('[CACHE UPDATE] preco_inicial atualizado no cache ANTES do save:', item);
+                  }
+                }
+              }catch(err){
+                console.error('[CACHE UPDATE] Erro ao atualizar cache:', err);
+              }
+              
+              // Persistir PRECOBASE no backend (assíncrono, não bloqueia UI)
               try{
                 const nun = card.getAttribute('data-nunota');
                 const seq = card.getAttribute('data-seq');
                 if(nun && seq){
-                  // n já é número; garantir número cru sem formatação
                   const payload = { nunota: Number(nun), sequencia: Number(seq), preco_inicial: Number(n) };
-                  await window.__postJSON('/sankhya/item/save/', payload);
+                  
+                  // Save assíncrono - não espera resposta
+                  window.__postJSON('/sankhya/item/save/', payload).then(result => {
+                    if(result.ok){
+                      console.log('[SAVE] ✅ preco_inicial salvo no banco');
+                    } else {
+                      console.error('[SAVE] ❌ Falha ao salvar:', result);
+                    }
+                  }).catch(err => {
+                    console.error('[SAVE ERROR] Erro ao salvar preco_inicial:', err);
+                  });
                 }
-              }catch{}
+              }catch(err){
+                console.error('[SAVE ERROR] Erro ao iniciar save:', err);
+              }
             }
           }
           card.classList.remove('editing-cx');
