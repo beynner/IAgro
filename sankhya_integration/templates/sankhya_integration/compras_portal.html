@@ -106,8 +106,12 @@
     .ph-selectable-table tbody tr.selected,
     .ph-selectable-table tbody tr.row--active,
     tbody tr.ph-row-selected {
-      background: var(--ph-selected-bg, #e8edff);
-      box-shadow: inset 3px 0 0 var(--ph-selected-border, #6366f1);
+      background: #FEF3C7 !important;
+      box-shadow: inset 4px 0 0 #F59E0B !important;
+      border-left: 2px solid #F59E0B !important;
+      font-weight: 600 !important;
+      outline: 2px solid #FCD34D !important;
+      outline-offset: -2px !important;
     }
       /* Compact rows: reduce cell padding and line-height */
       .ph-selectable-table th,
@@ -138,7 +142,14 @@
   .icon-btn.success .icon { color: #065F46; }
     .dd-item { padding:6px 8px; cursor:pointer; }
     .dd-item:hover { background:#f1f5f9; }
-    .dd-item.active { background:#eef2ff; }
+    .dd-item.active { 
+      background: #FEF3C7 !important;
+      box-shadow: inset 4px 0 0 #F59E0B !important;
+      border-left: 2px solid #F59E0B !important;
+      font-weight: 600 !important;
+      outline: 2px solid #FCD34D !important;
+      outline-offset: -2px !important;
+    }
     .vsugg-item { padding:6px 8px; cursor:pointer; }
     .vsugg-item:hover { background:#f1f5f9; }
     .vsugg-item.active { background:#eef2ff; }
@@ -392,17 +403,12 @@
   <div id="cabCard" style="position:fixed; left:-1200px; top:64px; background:linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 25%, #ffffff 50%, #e8e8e8 75%, #f5f5f5 100%); border:none; border-radius:8px; box-shadow:inset 0 2px 4px rgba(0, 0, 0, 0.15), inset 0 -2px 4px rgba(255, 255, 255, 0.8), inset 2px 0 4px rgba(0, 0, 0, 0.12), inset -2px 0 4px rgba(255, 255, 255, 0.7), 0 1px 2px rgba(0, 0, 0, 0.05); width:380px; max-width:95vw; max-height:90vh; overflow:auto; transition:left .28s ease, opacity .18s ease; z-index:71;">
       <div style="padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
   <strong>Cabeçalho</strong>
-        <button class="icon-btn" type="button" id="cabClose" title="Fechar">×</button>
       </div>
       <div style="padding:12px; display:grid; gap:10px;">
         <input type="hidden" id="cab_codemp" value="1" />
         <div>
           <label>Nº Único</label>
           <input type="text" id="cab_nunota" disabled readonly style="background-color:#e9ecef; cursor:not-allowed;" />
-        </div>
-        <div>
-          <label>Nº Documento</label>
-          <input type="text" id="cab_nronota" />
         </div>
         <div>
           <label>Dt. Neg.</label>
@@ -467,9 +473,6 @@
   <div id="cabItemsCard" style="position:fixed; left:100%; top:64px; background:linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 25%, #ffffff 50%, #e8e8e8 75%, #f5f5f5 100%); border:none; border-radius:8px; box-shadow:inset 0 2px 4px rgba(0, 0, 0, 0.15), inset 0 -2px 4px rgba(255, 255, 255, 0.8), inset 2px 0 4px rgba(0, 0, 0, 0.12), inset -2px 0 4px rgba(255, 255, 255, 0.7), 0 1px 2px rgba(0, 0, 0, 0.05); width:820px; max-width:95vw; max-height:90vh; overflow:auto; transition:left .28s ease; z-index:76;">
       <div style="padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
         <strong>Itens — Nota</strong>
-        <div style="display:flex; gap:8px; align-items:center;">
-          <button id="cabItemsClose" class="icon-btn danger" title="Fechar">×</button>
-        </div>
       </div>
       <div style="padding:12px; display:grid; gap:8px;">
         <input type="hidden" id="items_nunota" />
@@ -1138,7 +1141,6 @@
               document.getElementById('cab_codemp').value = j.form.codemp || '1';
               // nunota (unique key) - show in disabled field
               try{ document.getElementById('cab_nunota').value = j.form.nunota ? String(j.form.nunota) : ''; }catch(_){ }
-              document.getElementById('cab_nronota').value = j.form.nronota || '';
               document.getElementById('cab_dtneg').value = j.form.dtneg || '';
               // parceiro (hidden code + visible label)
               document.getElementById('cab_codparc').value = j.form.codparc || '';
@@ -1461,8 +1463,28 @@
     }
   });
   // Salvar: fechar os dois modais (Itens e Cabeçalho) e atualizar lista
-  document.getElementById('itemsSave')?.addEventListener('click', ()=>{
-        try{ const nunRaw = document.getElementById('items_nunota')?.value; const nun = normalizeNunota(nunRaw); if(nun){ try{ if(window.__ITEMS_CACHE) delete window.__ITEMS_CACHE[String(nun)]; }catch(_){ } try{ panelLoadItems(nun); }catch(_){ } } }catch(_){ }
+  document.getElementById('itemsSave')?.addEventListener('click', async ()=>{
+        try{ 
+          const nunRaw = document.getElementById('items_nunota')?.value; 
+          const nun = normalizeNunota(nunRaw); 
+          
+          if(nun){ 
+            // Finalizar itens: atualizar DTFATUR, STATUSNOTA='L', DTALTER
+            try {
+              const finalizeRes = await postJSON('/sankhya/item/finalize/', { nunota: nun });
+              if(finalizeRes.ok && finalizeRes.body && finalizeRes.body.ok){
+                console.log(`✅ Itens finalizados: ${finalizeRes.body.rows_updated} item(ns)`);
+              } else {
+                console.error('❌ Erro ao finalizar itens:', finalizeRes.body?.error || 'Erro desconhecido');
+              }
+            } catch(e) {
+              console.error('❌ Exceção ao finalizar itens:', e);
+            }
+            
+            try{ if(window.__ITEMS_CACHE) delete window.__ITEMS_CACHE[String(nun)]; }catch(_){ } 
+            try{ panelLoadItems(nun); }catch(_){ } 
+          } 
+        }catch(_){ }
         try{ hideItemsModal(); }catch(_){ }
         try{ hideCabModal(); }catch(_){ }
         // Reload page to refresh the notes list
@@ -1986,7 +2008,7 @@
       });
 
       cabSave?.addEventListener('click', async ()=>{
-        // Validar obrigatórios com borda vermelha (todos exceto Nº Documento e Observação)
+        // Validar obrigatórios com borda vermelha (todos exceto Observação)
         const fldDtNeg = document.getElementById('cab_dtneg');
         const fldParcCode = document.getElementById('cab_codparc');
         const fldParcVis = document.getElementById('cab_parcSearch');
@@ -2021,7 +2043,6 @@
         // build payload like central saveForm expects
         const payload = {
           codemp: codemp,
-          nronota: (document.getElementById('cab_nronota')?.value||'').trim()||null,
           dtneg: dtneg,
           dtmov: dtneg,
           dtentsai: dtneg,

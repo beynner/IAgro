@@ -128,7 +128,14 @@
     .icon-btn svg,
     .icon-btn .icon { width:18px !important; height:18px !important; color:#374151; flex-shrink: 0; }
     .dd-item { padding:6px 8px; cursor:pointer; }
-    .dd-item.active { background:#eef2ff; }
+    .dd-item.active { 
+      background: #FEF3C7 !important;
+      box-shadow: inset 4px 0 0 #F59E0B !important;
+      border-left: 2px solid #F59E0B !important;
+      font-weight: 600 !important;
+      outline: 2px solid #FCD34D !important;
+      outline-offset: -2px !important;
+    }
     .icon-btn[disabled] { opacity: 0.5; cursor: not-allowed; background:#f3f4f6; }
     /* Lixeira habilitada fica vermelha */
     .icon-btn.danger:not([disabled]) .icon { color:#b91c1c; }
@@ -311,16 +318,17 @@
               </tr>
             </thead>
             <tbody>
-              {% for controle, parceiro, produto_descr, qtd_cx, peso, qtd_kg, qtd_class, statusnota, exemplo_nunota, exemplo_seq, produtos_entrada, codparc in lotes %}
+              {% for controle, parceiro, produto_descr, qtd_cx, peso, qtd_kg, qtd_class, pendente, exemplo_nunota, exemplo_seq, produtos_entrada, codparc, nunota_portal in lotes %}
               {% with is_sel=sel|default:0 %}
         <tr class="row--click{% if controle == is_sel %} row--active{% endif %}"
           data-nunota="{{ controle }}"
+          data-nunota-portal="{{ nunota_portal|default:'' }}"
           data-seq="{{ exemplo_seq }}"
           data-codparc="{{ codparc|default:'' }}"
           data-central-url="/sankhya/packing/central/?nunota={{ exemplo_nunota }}">
                 <td>
-                  {% with st=statusnota|stringformat:'s' %}
-                    {% if st and st|upper == 'L' %}
+                  {% with st=pendente|stringformat:'s' %}
+                    {% if st and st|upper == 'N' %}
                       <span class="status-dot status--green"></span>
                     {% elif qtd_class and qtd_class|floatformat:1 != '0.0' %}
                       <span class="status-dot status--yellow"></span>
@@ -1046,10 +1054,10 @@
               // Also fill Qtde Classificado (sum(qtd * peso) dos classificados)
               const qClassVal = computeClassificadoFromClassificacoes(j);
               if (isFinite(qClassVal)) setQClassCellForControle(c, qClassVal);
-              // Set status dot color (TOP 26 only): Verde se STATUSNOTA == 'L'; caso contrário, amarelo se classificado>0, senão vermelho.
+              // Set status dot color (TOP 26 only): Verde se PENDENTE == 'N' (finalizado); caso contrário, amarelo se classificado>0, senão vermelho.
               try{
-                const st = (j.statusnota_class||'').toString().toUpperCase();
-                const state = st==='L' ? 'green' : ((qClassVal>0)?'yellow':'red');
+                const st = (j.pendente_class||'').toString().toUpperCase();
+                const state = st==='N' ? 'green' : ((qClassVal>0)?'yellow':'red');
                 setStatusForControle(c, state);
               }catch(_){ }
             }
@@ -1252,12 +1260,12 @@
           window.PH_INNATURA_CODPROD = innCod || null;
         }catch(_){ }
   try{ const badge = document.getElementById('nunotaClassBadge'); if(badge){ if(j.nunota_class){ badge.textContent = 'NUNOTA ' + j.nunota_class; badge.style.display = 'inline-block'; } else { badge.style.display = 'none'; } } }catch(_){ }
-        // Sync toggle with STATUSNOTA (prefer server-provided status; fallback to GET by nunota_class)
+        // Sync toggle with PENDENTE (prefer server-provided status; fallback to GET by nunota_class)
         try{
           const tgl = document.getElementById('toggleStatusNota');
           if(tgl){
-            const st = (j.statusnota_class||'').toString().toUpperCase();
-            if(st){ tgl.checked = (st === 'L'); }
+            const st = (j.pendente_class||'').toString().toUpperCase();
+            if(st){ tgl.checked = (st === 'N'); }
             else if(j.nunota_class){ try{ if (typeof window.initHeaderStatusToggle === 'function') window.initHeaderStatusToggle(j.nunota_class); }catch(_){ } }
           }
         }catch(_){ }
@@ -1333,8 +1341,8 @@
             activeRow.cells[7].textContent = formatNum1BR(sumClassKg || 0);
             // Update status dot
             try{
-              const st = (j.statusnota_class||'').toString().toUpperCase();
-              const state = st==='L' ? 'green' : ((sumClassKg>0)?'yellow':'red');
+              const st = (j.pendente_class||'').toString().toUpperCase();
+              const state = st==='N' ? 'green' : ((sumClassKg>0)?'yellow':'red');
               const ctrl = activeRow.dataset.nunota; if(ctrl) setStatusForControle(ctrl, state);
             }catch(_){ }
             try{ formatLotesRow(activeRow); }catch(_){ }
@@ -2075,6 +2083,8 @@
               if(j0 && j0.ok){
                 // Preencher lista com classificacoes existentes
                 try{ const rows = j0.classificacoes || []; itemsListBody.innerHTML = ''; if(rows.length){ for(const row of rows){ addItemRowToList({ nunota: row.nunota, sequencia: row.sequencia, cod: row.cod, descr: row.descr, codvol: row.codvol, qtd: row.qtd, peso: row.peso, total: row.vlt || (row.qtd && row.peso ? row.qtd * row.peso : null), lote: ctrl, geraproducao: null }); } } else { clearItemsList(); } }catch(_){ }
+                // Atualizar toggle com base em pendente_class
+                try{ const tgl = document.getElementById('toggleStatusNota'); if(tgl && j0.pendente_class){ const st = (j0.pendente_class||'').toString().toUpperCase(); tgl.checked = (st === 'N'); } }catch(_){ }
                 // Se houver nunota_class, setar no hidden e habilitar adicionar
                 if(j0.nunota_class){ try{ itemsNunota.value = String(parseInt(j0.nunota_class,10)); }catch(_){ itemsNunota.value = String(j0.nunota_class); }
                   if(addBtn){ addBtn.removeAttribute('disabled'); addBtn.setAttribute('title','Adicionar'); }
@@ -2088,6 +2098,7 @@
                       const inferred = first.nunota;
                       itemsNunota.value = String(inferred);
                       if(addBtn){ addBtn.removeAttribute('disabled'); addBtn.setAttribute('title','Adicionar'); }
+                      try{ if (typeof window.initHeaderStatusToggle === 'function') window.initHeaderStatusToggle(inferred); }catch(_){ }
                       try{ if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(inferred); }catch(_){ }
                       try { window.__NUNOTA_CLASS_BY_CTRL = window.__NUNOTA_CLASS_BY_CTRL || {}; window.__NUNOTA_CLASS_BY_CTRL[ctrl] = String(inferred); } catch(_){ }
                     } else {
@@ -2390,11 +2401,11 @@
           let j = {}; try{ j = await r.json(); }catch(_){ j = {}; }
           if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="7">Erro: ${j.error||'falha'}</td></tr>`; return; }
           const rows = j.classificacoes || [];
-          // Reflect current STATUSNOTA from TGFCAB TOP 26, if there is a nunota_class
+          // Reflect current PENDENTE from TGFCAB TOP 26, if there is a nunota_class
           try{
-            const st = (j.statusnota_class||'').toString().toUpperCase();
+            const st = (j.pendente_class||'').toString().toUpperCase();
             const tgl = document.getElementById('toggleStatusNota');
-            if(tgl){ tgl.checked = (st === 'L'); }
+            if(tgl){ tgl.checked = (st === 'N'); }
           }catch(_){ }
           if(!rows.length){ clearItemsList(); return; }
           itemsListBody.innerHTML = '';
@@ -2580,6 +2591,16 @@
         let selectedControle = null;
         try{ const cabLote = document.getElementById('cab_lote_text'); const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : ''; if (cabeLoteText) { selectedControle = cabeLoteText; } }catch(_){ }
         if(!selectedControle){ try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedControle = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ } }
+        
+        // 🔗 BUSCAR NUNOTA ORIGEM (TOP 11) para copiar NUMNOTA e NUMPEDIDO
+        let nunotaOrigem = null;
+        try{
+          const active = document.querySelector('#notasTable tbody tr.row--active');
+          const nunotaPortal = active ? (active.dataset.nunotaPortal || active.dataset.nunota) : null;
+          if(nunotaPortal) nunotaOrigem = String(nunotaPortal);
+          console.log('🔗 [CREATE TOP 26] NUNOTA Origem (TOP 11):', nunotaOrigem);
+        }catch(e){ console.error('Erro ao buscar NUNOTA origem:', e); }
+        
         const payload = {
           codemp: '1',
           codparc: String(codparc),
@@ -2591,7 +2612,8 @@
           dtentsai: new Date().toISOString().slice(0,10),
           nronota: '',
           obs: '',
-          codagregacao: selectedControle
+          codagregacao: selectedControle,
+          nunota_origem: nunotaOrigem  // 🔗 Passar NUNOTA do TOP 11 para copiar NUMNOTA/NUMPEDIDO
         };
         const res = await postJSON('/sankhya/packing/central/salvar/', payload);
         if(!res.ok || !res.body || !res.body.executed || !res.body.nunota){
@@ -2671,19 +2693,19 @@
     });
   })();
 
-    // Helper: initialize toggle STATUSNOTA from header (TGFCAB) given a nunota
+    // Helper: initialize toggle PENDENTE from header (TGFCAB) given a nunota
     try {
       window.initHeaderStatusToggle = function(nun){
         const n = parseInt(nun,10); if(!n) return;
         const tgl = document.getElementById('toggleStatusNota'); if(!tgl) return;
         fetch('/sankhya/header/status/get/?nunota=' + encodeURIComponent(n), { credentials: 'same-origin' })
           .then(r=>r.json())
-          .then(h=>{ if(h && h.ok){ const s=(h.statusnota||'').toUpperCase(); tgl.checked = (s === 'L'); } })
+          .then(h=>{ if(h && h.ok){ const s=(h.pendente||'').toUpperCase(); tgl.checked = (s === 'N'); } })
           .catch(()=>{});
       };
     } catch(_) {}
 
-    // Wire toggle STATUSNOTA save: checkbox on -> 'L'; off -> 'A'
+    // Wire toggle PENDENTE save: checkbox on -> 'N' (não pendente/finalizado); off -> 'S' (sim pendente)
     (function(){
       const tgl = document.getElementById('toggleStatusNota');
       if(!tgl) return;
@@ -2695,7 +2717,7 @@
           const status = tgl.checked ? 'L' : 'A';
           const res = await postJSON('/sankhya/header/status/', { nunota: nun, status });
           if(!res.ok){
-            const msg = (res.body?.error) || (res.body?.errors||[]).join('\n') || 'Falha ao atualizar STATUSNOTA';
+            const msg = (res.body?.error) || (res.body?.errors||[]).join('\n') || 'Falha ao atualizar PENDENTE';
             alert(msg);
             // revert UI state
             tgl.checked = !tgl.checked;
@@ -2716,7 +2738,7 @@
                   setStatusForControle(ctrl, state);
                 }
               }catch(_){ }
-        }catch(e){ console.error('toggle STATUSNOTA failed', e); }
+        }catch(e){ console.error('toggle PENDENTE failed', e); }
       }
       tgl.addEventListener('change', saveStatus);
       // Initialize toggle from header if available later: we assume default 'A' unchecked.

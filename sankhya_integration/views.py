@@ -662,11 +662,12 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
             (float(info.get('peso_inn')) if info.get('peso_inn') is not None else 0.0),
             float(info.get('qtd_kg') or 0.0),
             0.0,  # qtde classificado (adiado/mix down)
-            (info.get('statusnota_class') or ''),  # reutiliza o slot para STATUSNOTA (TOP 26)
+            (info.get('pendente_class') or ''),  # reutiliza o slot para PENDENTE (TOP 26)
             None,  # exemplo_nunota (não necessário por enquanto)
             None,  # exemplo_seq
             produtos_list,
             info.get('codparc'),
+            info.get('nunota_portal'),  # 🔗 NUNOTA do TOP 11 para copiar NUMNOTA/NUMPEDIDO
         ))
         exemplo_map[ctrl] = {'nunota': info.get('exemplo_nunota'), 'sequencia': info.get('exemplo_seq')}
 
@@ -1051,6 +1052,10 @@ def packing_central_salvar(request: HttpRequest) -> HttpResponse:
         vis = _first(request.POST.get('central_cencus'))
         if vis and str(vis).strip().isdigit():
             form['codcencus'] = str(int(str(vis).strip()))
+    
+    # 🔗 Buscar NUNOTA_ORIGEM do payload para copiar NUMNOTA/NUMPEDIDO do TOP 11
+    nunota_origem = gv('nunota_origem', None)
+    
     payload = {
         'CODEMP': _to_int_or(form['codemp']),
         'CODPARC': _to_int_or(form['codparc']),
@@ -1066,6 +1071,7 @@ def packing_central_salvar(request: HttpRequest) -> HttpResponse:
         'HRMOV': form['hrmov'],
         'NUMNOTA': form['nronota'] or None,
         'OBSERVACAO': form['obs'] or None,
+        'NUNOTA_ORIGEM': _to_int_or(nunota_origem, None),  # 🔗 Passar para insert_cabecalho_fast
     }
     # Usar versão OTIMIZADA para alta performance (~5x mais rápido)
     plan = insert_cabecalho_fast(payload, dry_run=False)
@@ -1572,7 +1578,15 @@ def header_update(request: HttpRequest) -> JsonResponse:
 
 
 def header_status_toggle(request: HttpRequest) -> JsonResponse:
-    """Define STATUSNOTA do TGFCAB ('A' Atendimento, 'L' Liberado).
+    """Atualiza PENDENTE e DTALTER do TGFCAB (NÃO atualiza STATUSNOTA).
+    Quando marcado como finalizado:
+    - PENDENTE = 'N'
+    - DTALTER = SYSDATE
+    
+    Quando desmarcado:
+    - PENDENTE = 'S'
+    - DTALTER = SYSDATE
+    
     POST JSON: { nunota: int, status: 'A'|'L' }
     """
     if request.method != 'POST':
@@ -1589,15 +1603,41 @@ def header_status_toggle(request: HttpRequest) -> JsonResponse:
     if status not in ('A','L'):
         return JsonResponse({"ok": False, "error": "status inválido (use 'A' ou 'L')"}, status=400)
     try:
-        plan = update_cabecalho({'NUNOTA': nunota, 'STATUSNOTA': status}, dry_run=False)
-        ok = bool(plan.get('executed')) or bool(plan.get('ok'))
-        return JsonResponse({"ok": ok, **plan}, status=200 if ok else 400)
+        # Definir PENDENTE baseado no status (L=finalizado, A=em andamento)
+        pendente = 'N' if status == 'L' else 'S'
+        
+        # Atualizar apenas PENDENTE e DTALTER (NÃO atualiza STATUSNOTA)
+        from sankhya_integration.services.oracle_conn import get_connection
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE TGFCAB 
+                SET PENDENTE = :pendente,
+                    DTALTER = SYSDATE
+                WHERE NUNOTA = :nunota
+            """, pendente=pendente, nunota=nunota)
+            
+            rows_updated = cur.rowcount
+            conn.commit()
+            
+            ok = rows_updated > 0
+            result = {
+                "ok": ok,
+                "executed": ok,
+                "rows_updated": rows_updated,
+                "nunota": nunota,
+                "pendente": pendente,
+                "message": f"Atualizado: PENDENTE='{pendente}', DTALTER=SYSDATE"
+            }
+            return JsonResponse(result, status=200 if ok else 400)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
 
 
 def header_status_get(request: HttpRequest) -> JsonResponse:
-    """GET STATUSNOTA atual do TGFCAB para um NUNOTA."""
+    """GET PENDENTE atual do TGFCAB para um NUNOTA."""
     if request.method != 'GET':
         return JsonResponse({"ok": False, "error": "Use GET"}, status=405)
     try:
@@ -1609,12 +1649,12 @@ def header_status_get(request: HttpRequest) -> JsonResponse:
     try:
         with get_connection() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT STATUSNOTA FROM TGFCAB WHERE NUNOTA=:n", n=nunota)
+            cur.execute("SELECT PENDENTE FROM TGFCAB WHERE NUNOTA=:n", n=nunota)
             row = cur.fetchone()
             if not row:
                 return JsonResponse({"ok": False, "error": "Cabeçalho não encontrado"}, status=404)
-            status = (row[0] or '').strip().upper()
-            return JsonResponse({"ok": True, "nunota": nunota, "statusnota": status})
+            pendente = (row[0] or '').strip().upper()
+            return JsonResponse({"ok": True, "nunota": nunota, "pendente": pendente})
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
 
@@ -2030,40 +2070,42 @@ def item_save(request: HttpRequest) -> JsonResponse:
         print(f'🔍 ========================================\n')
         
         if plan.get('executed'):
-            # Recalcular VLRNOTA do cabeçalho após atualizar item (soma dos VLRTOT)
+            # Recalcular VLRNOTA e QTDVOL do cabeçalho após atualizar item
             try:
                 nunota_update = update_dict['NUNOTA']
                 with get_connection() as conn:
                     cur = conn.cursor()
                     
-                    # Somar todos os VLRTOT dos itens desta nota
+                    # Somar todos os VLRTOT e QTDNEG dos itens desta nota
                     cur.execute("""
-                        SELECT NVL(SUM(VLRTOT), 0) 
+                        SELECT NVL(SUM(VLRTOT), 0), NVL(SUM(QTDNEG), 0)
                         FROM TGFITE 
                         WHERE NUNOTA = :nunota
                     """, nunota=nunota_update)
                     
                     row_sum = cur.fetchone()
                     vlrnota_total = float(row_sum[0]) if row_sum else 0.0
+                    qtdvol_total = float(row_sum[1]) if row_sum else 0.0
                     
-                    print(f'🔍 [VLRNOTA] Recalculando para NUNOTA {nunota_update}: {vlrnota_total}')
+                    print(f'🔍 [UPDATE] Recalculando para NUNOTA {nunota_update}: VLRNOTA={vlrnota_total}, QTDVOL={qtdvol_total}')
                     
-                    # Atualizar VLRNOTA no cabeçalho
+                    # Atualizar VLRNOTA e QTDVOL no cabeçalho
                     cur.execute("""
                         UPDATE TGFCAB 
-                        SET VLRNOTA = :vlrnota 
+                        SET VLRNOTA = :vlrnota, QTDVOL = :qtdvol
                         WHERE NUNOTA = :nunota
-                    """, vlrnota=vlrnota_total, nunota=nunota_update)
+                    """, vlrnota=vlrnota_total, qtdvol=qtdvol_total, nunota=nunota_update)
                     
                     conn.commit()
                     
-                    print(f'🔍 [VLRNOTA] Atualizado com sucesso: R$ {vlrnota_total:.2f}')
+                    print(f'🔍 [UPDATE] Atualizado com sucesso: VLRNOTA=R$ {vlrnota_total:.2f}, QTDVOL={qtdvol_total:.2f}')
                     
                     # Adicionar ao response para o frontend saber
                     plan['vlrnota'] = vlrnota_total
+                    plan['qtdvol'] = qtdvol_total
                     
             except Exception as e:
-                print(f'🔍 [VLRNOTA] Erro ao recalcular: {e}')
+                print(f'🔍 [UPDATE] Erro ao recalcular: {e}')
                 import traceback
                 traceback.print_exc()
             
@@ -2236,6 +2278,45 @@ def item_save(request: HttpRequest) -> JsonResponse:
         except Exception:
             pass
     if plan.get('executed'):
+        # Recalcular VLRNOTA e QTDVOL do cabeçalho após inserir item
+        try:
+            nunota_insert = plan.get('nunota') or nun
+            with get_connection() as conn:
+                cur = conn.cursor()
+                
+                # Somar todos os VLRTOT e QTDNEG dos itens desta nota
+                cur.execute("""
+                    SELECT NVL(SUM(VLRTOT), 0), NVL(SUM(QTDNEG), 0)
+                    FROM TGFITE 
+                    WHERE NUNOTA = :nunota
+                """, nunota=nunota_insert)
+                
+                row_sum = cur.fetchone()
+                vlrnota_total = float(row_sum[0]) if row_sum else 0.0
+                qtdvol_total = float(row_sum[1]) if row_sum else 0.0
+                
+                print(f'🔍 [INSERT] Recalculando para NUNOTA {nunota_insert}: VLRNOTA={vlrnota_total}, QTDVOL={qtdvol_total}')
+                
+                # Atualizar VLRNOTA e QTDVOL no cabeçalho
+                cur.execute("""
+                    UPDATE TGFCAB 
+                    SET VLRNOTA = :vlrnota, QTDVOL = :qtdvol
+                    WHERE NUNOTA = :nunota
+                """, vlrnota=vlrnota_total, qtdvol=qtdvol_total, nunota=nunota_insert)
+                
+                conn.commit()
+                
+                print(f'🔍 [INSERT] Atualizado com sucesso: VLRNOTA=R$ {vlrnota_total:.2f}, QTDVOL={qtdvol_total:.2f}')
+                
+                # Adicionar ao response para o frontend saber
+                plan['vlrnota'] = vlrnota_total
+                plan['qtdvol'] = qtdvol_total
+                
+        except Exception as e:
+            print(f'🔍 [INSERT] Erro ao recalcular: {e}')
+            import traceback
+            traceback.print_exc()
+        
         # Removido: duplicação/upsync automática de TOP 11→26 no Portal
         return JsonResponse(plan, status=200)
     err_msg = plan.get('db_error', {}).get('message') if isinstance(plan.get('db_error'), dict) else None
@@ -2265,6 +2346,46 @@ def item_delete(request: HttpRequest) -> JsonResponse:
     except Exception:
         return JsonResponse({"ok": False, "error": "Sequencias inválidas"}, status=400)
     res = delete_itens(nunota, seqs, dry_run=False)
+    
+    # Recalcular VLRNOTA e QTDVOL do cabeçalho após excluir itens
+    if res.get('ok'):
+        try:
+            with get_connection() as conn:
+                cur = conn.cursor()
+                
+                # Somar todos os VLRTOT e QTDNEG dos itens restantes desta nota
+                cur.execute("""
+                    SELECT NVL(SUM(VLRTOT), 0), NVL(SUM(QTDNEG), 0)
+                    FROM TGFITE 
+                    WHERE NUNOTA = :nunota
+                """, nunota=nunota)
+                
+                row_sum = cur.fetchone()
+                vlrnota_total = float(row_sum[0]) if row_sum else 0.0
+                qtdvol_total = float(row_sum[1]) if row_sum else 0.0
+                
+                print(f'🔍 [DELETE] Recalculando para NUNOTA {nunota}: VLRNOTA={vlrnota_total}, QTDVOL={qtdvol_total}')
+                
+                # Atualizar VLRNOTA e QTDVOL no cabeçalho
+                cur.execute("""
+                    UPDATE TGFCAB 
+                    SET VLRNOTA = :vlrnota, QTDVOL = :qtdvol
+                    WHERE NUNOTA = :nunota
+                """, vlrnota=vlrnota_total, qtdvol=qtdvol_total, nunota=nunota)
+                
+                conn.commit()
+                
+                print(f'🔍 [DELETE] Atualizado com sucesso: VLRNOTA=R$ {vlrnota_total:.2f}, QTDVOL={qtdvol_total:.2f}')
+                
+                # Adicionar ao response para o frontend saber
+                res['vlrnota'] = vlrnota_total
+                res['qtdvol'] = qtdvol_total
+                
+        except Exception as e:
+            print(f'🔍 [DELETE] Erro ao recalcular: {e}')
+            import traceback
+            traceback.print_exc()
+    
     # HTTP 200 if service completed evaluation; include partial info
     status_code = 200 if res.get('ok') else 400
     return JsonResponse(res, status=status_code)
@@ -2305,6 +2426,58 @@ def item_get_lote(request: HttpRequest) -> JsonResponse:
             lote = (row[0] if row else None) or ''
             return JsonResponse({"ok": True, "nunota": nunota, "sequencia": seq, "lote": lote})
     except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+
+def item_finalize(request: HttpRequest) -> JsonResponse:
+    """POST /sankhya/item/finalize/ - Finaliza uma nota
+    Atualiza DTFATUR, STATUSNOTA='L' e DTALTER em TGFCAB.
+    Payload: { nunota: number }
+    """
+    if request.method != 'POST':
+        return JsonResponse({"ok": False, "error": "Use POST"}, status=405)
+    
+    try:
+        import json
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except Exception:
+        payload = {}
+    
+    nunota = _to_int_or(payload.get('nunota'))
+    if not nunota:
+        return JsonResponse({"ok": False, "error": "Informe nunota válido"}, status=400)
+    
+    if not is_write_enabled():
+        return JsonResponse({"ok": False, "error": "Escrita desabilitada"}, status=403)
+    
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            
+            # Atualizar o cabeçalho (TGFCAB)
+            cur.execute("""
+                UPDATE TGFCAB 
+                SET DTFATUR = SYSDATE,
+                    STATUSNOTA = 'L',
+                    DTALTER = SYSDATE
+                WHERE NUNOTA = :nunota
+            """, nunota=nunota)
+            
+            rows_updated = cur.rowcount
+            conn.commit()
+            
+            print(f'🔍 [FINALIZE] Cabeçalho finalizado para NUNOTA {nunota}: DTFATUR=SYSDATE, STATUSNOTA=L')
+            
+            return JsonResponse({
+                "ok": True,
+                "nunota": nunota,
+                "rows_updated": rows_updated,
+                "message": f"Nota {nunota} finalizada e liberada"
+            })
+            
+    except Exception as e:
+        print(f'🔍 [FINALIZE] Erro: {e}')
+        import traceback
+        traceback.print_exc()
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
 
 def classificacao_resumo(request: HttpRequest) -> JsonResponse:
@@ -2506,7 +2679,7 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
             "classificaveis": classif_out,
             "entradas": entradas_out,
             "nunota_class": info.get('nunota_class'),
-            "statusnota_class": info.get('statusnota_class'),
+            "pendente_class": info.get('pendente_class'),
             "prod_in_natura": _prod_inn,
             "timings": timings,
         })

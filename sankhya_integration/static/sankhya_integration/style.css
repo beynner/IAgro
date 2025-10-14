@@ -1,6 +1,6 @@
 /* Global compact table styling for current and future tables */
 :root{
-  --ph-selected-bg:#FEF9C3; /* yellow highlight */
+  --ph-selected-bg:#FEF3C7; /* yellow highlight - more vibrant */
   --ph-selected-border:#F59E0B;
   --ph-border:#e5e7eb;
 }
@@ -19,6 +19,22 @@ th{ background:#f3f4f6; position:sticky; top:0; z-index:1; }
 .ph-selectable-table tbody tr.selected,
 .ph-selectable-table tbody tr.row--active,
 tbody tr.ph-row-selected{
-  background:var(--ph-selected-bg);
-  box-shadow: inset 3px 0 0 var(--ph-selected-border);
+  background:var(--ph-selected-bg) !important;
+  box-shadow: inset 4px 0 0 var(--ph-selected-border) !important;
+  border-left: 2px solid var(--ph-selected-border) !important;
+  font-weight: 600 !important;
+  outline: 2px solid #FCD34D !important;
+  outline-offset: -2px !important;
+}
+
+/* Autocomplete dropdown items - para campos Produto, Parceiro, Vol */
+.ac-dropdown .ac-item.active,
+.ac-item.active,
+.dd-item.active{
+  background:var(--ph-selected-bg) !important;
+  box-shadow: inset 4px 0 0 var(--ph-selected-border) !important;
+  border-left: 2px solid var(--ph-selected-border) !important;
+  font-weight: 600 !important;
+  outline: 2px solid #FCD34D !important;
+  outline-offset: -2px !important;
 }

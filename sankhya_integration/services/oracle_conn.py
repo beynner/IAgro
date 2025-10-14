@@ -1004,7 +1004,7 @@ def insert_cabecalho_fast(d: dict, dry_run: bool = False) -> dict:
             tipmov = top_row[0]
             dhtipoper = top_row[1]
             
-            # Gerar NUNOTA
+            # Gerar NUNOTA para a nova TOP 26
             cur.execute("SELECT NVL(MAX(NUNOTA),0)+1 FROM TGFCAB")
             nunota = int(cur.fetchone()[0])
             
@@ -1022,18 +1022,85 @@ def insert_cabecalho_fast(d: dict, dry_run: bool = False) -> dict:
             dtmov = d.get('DTMOV') or dtneg
             dtentsai = d.get('DTENTSAI') or dtneg
             hrmov = d.get('HRMOV') or '0'
-            numnota = d.get('NUMNOTA') or 0
             observacao = d.get('OBSERVACAO') or d.get('OBS')
             pendente = d.get('PENDENTE', 'S')
             statusnota = d.get('STATUSNOTA', 'A')
-            numpedido = int(d.get('NUMPEDIDO', 0)) if d.get('NUMPEDIDO') else None
             
-            # Construir INSERT dinâmico com campos opcionais
+            # REGRA: Ao criar TOP 26 (Classificação), copiar NUMNOTA e NUMPEDIDO do TOP 11 vinculado
+            p = get_params()
+            TOP_ENTRADA = int(p['TOP_ENTRADA'])  # TOP 11
+            TOP_CLASS = int(p['TOP_CLASS'])      # TOP 26
+            
+            # Inicializar com valores fornecidos ou None
+            numnota_final = d.get('NUMNOTA')
+            numpedido_final = int(d.get('NUMPEDIDO', 0)) if d.get('NUMPEDIDO') else None
+            
+            print(f'🔍 [insert_cabecalho_fast] CODTIPOPER={codtipoper}, TOP_CLASS={TOP_CLASS}')
+            print(f'🔍 [insert_cabecalho_fast] NUNOTA_ORIGEM no payload: {d.get("NUNOTA_ORIGEM")}')
+            print(f'🔍 [insert_cabecalho_fast] NUMNOTA no payload: {d.get("NUMNOTA")}')
+            print(f'🔍 [insert_cabecalho_fast] NUMPEDIDO no payload: {d.get("NUMPEDIDO")}')
+            
+            if codtipoper == TOP_CLASS:
+                print(f'✅ [TOP 26 DETECTADO] Iniciando busca do TOP 11 de origem...')
+                # Buscar NUMNOTA e NUMPEDIDO do pedido origem (TOP 11) via NUNOTA_ORIGEM
+                nunota_origem = d.get('NUNOTA_ORIGEM')
+                if nunota_origem:
+                    try:
+                        print(f'🔍 Buscando TOP 11 NUNOTA={nunota_origem}...')
+                        cur.execute("""
+                            SELECT NUMNOTA, NUMPEDIDO
+                            FROM TGFCAB
+                            WHERE NUNOTA = :nunota AND CODTIPOPER = :top
+                        """, nunota=int(nunota_origem), top=TOP_ENTRADA)
+                        
+                        row_origem = cur.fetchone()
+                        if row_origem:
+                            print(f'✅ TOP 11 encontrado! NUMNOTA={row_origem[0]}, NUMPEDIDO={row_origem[1]}')
+                            print(f'🔍 Tipos: NUMNOTA type={type(row_origem[0])}, NUMPEDIDO type={type(row_origem[1])}')
+                            print(f'🔍 NUMPEDIDO is None? {row_origem[1] is None}')
+                            print(f'🔍 NUMPEDIDO == 0? {row_origem[1] == 0}')
+                            
+                            # Copiar valores do TOP 11 para o TOP 26
+                            if row_origem[0] is not None:
+                                numnota_final = row_origem[0]
+                                print(f'🔗 [TOP 26] Copiado NUMNOTA={numnota_final} do TOP 11 (NUNOTA {nunota_origem})')
+                            else:
+                                print(f'⚠️ [TOP 26] NUMNOTA do TOP 11 é None')
+                            
+                            # NUMPEDIDO: Se TOP 11 tiver, copiar. Senão, usar NUNOTA do TOP 11 como referência
+                            if row_origem[1] is not None:
+                                numpedido_final = int(row_origem[1])
+                                print(f'🔗 [TOP 26] Copiado NUMPEDIDO={numpedido_final} do TOP 11 (NUNOTA {nunota_origem})')
+                            else:
+                                # Se TOP 11 não tem NUMPEDIDO, usar o próprio NUNOTA do TOP 11 como referência
+                                numpedido_final = int(nunota_origem)
+                                print(f'🔗 [TOP 26] TOP 11 não tem NUMPEDIDO, usando NUNOTA do TOP 11 como referência: NUMPEDIDO={numpedido_final}')
+                        else:
+                            print(f'⚠️ [TOP 26] Pedido origem (TOP 11) NUNOTA {nunota_origem} não encontrado')
+                    except Exception as e:
+                        print(f'⚠️ [TOP 26] Erro ao buscar dados do TOP 11: {e}')
+                        import traceback
+                        traceback.print_exc()
+                else:
+                    print(f'⚠️ [TOP 26] NUNOTA_ORIGEM não fornecido no payload')
+            
+            # Se NUMNOTA não foi copiado do TOP 11, usar o NUNOTA gerado
+            if not numnota_final:
+                numnota_final = nunota
+                print(f'ℹ️ NUMNOTA não copiado, usando NUNOTA gerado: {numnota_final}')
+            
+            numnota = numnota_final
+            numpedido = numpedido_final
+            print(f'📋 Valores finais: NUMNOTA={numnota}, NUMPEDIDO={numpedido}')
+            
+            # Construir INSERT dinâmico com campos obrigatórios e padrões
             cols = ['NUNOTA', 'CODEMP', 'CODEMPNEGOC', 'CODPARC', 'CODTIPOPER', 'DHTIPOPER', 'TIPMOV',
-                   'CODNAT', 'DTNEG', 'DTMOV', 'DTENTSAI', 'HRMOV', 'NUMNOTA', 'PENDENTE', 'STATUSNOTA', 'DTALTER']
+                   'CODNAT', 'DTNEG', 'DTMOV', 'DTENTSAI', 'HRMOV', 'NUMNOTA', 'PENDENTE', 'STATUSNOTA', 'DTALTER',
+                   'TIPFRETE', 'CIF_FOB', 'ISSRETIDO', 'APROVADO', 'IRFRETIDO', 'DIGITAL', 'CANCELADO']
             vals = [':NUNOTA', ':CODEMP', ':CODEMP', ':CODPARC', ':CODTIPOPER', ':DHTIPOPER', ':TIPMOV',
                    ':CODNAT', 'TO_DATE(:DTNEG,\'DD/MM/YYYY\')', 'TO_DATE(:DTMOV,\'DD/MM/YYYY\')', 
-                   'TO_DATE(:DTENTSAI,\'DD/MM/YYYY\')', ':HRMOV', ':NUMNOTA', ':PENDENTE', ':STATUSNOTA', 'SYSDATE']
+                   'TO_DATE(:DTENTSAI,\'DD/MM/YYYY\')', ':HRMOV', ':NUMNOTA', ':PENDENTE', ':STATUSNOTA', 'SYSDATE',
+                   ':TIPFRETE', ':CIF_FOB', ':ISSRETIDO', ':APROVADO', ':IRFRETIDO', ':DIGITAL', ':CANCELADO']
             
             binds = {
                 'NUNOTA': nunota,
@@ -1050,6 +1117,13 @@ def insert_cabecalho_fast(d: dict, dry_run: bool = False) -> dict:
                 'NUMNOTA': numnota,
                 'PENDENTE': pendente,
                 'STATUSNOTA': statusnota,
+                'TIPFRETE': 'N',
+                'CIF_FOB': 'C',
+                'ISSRETIDO': 'N',
+                'APROVADO': 'N',
+                'IRFRETIDO': 'S',
+                'DIGITAL': 'N',
+                'CANCELADO': 'N',
             }
             
             # Adicionar campos opcionais se fornecidos
@@ -2665,17 +2739,17 @@ def consultar_lote(controle: str) -> dict:
                     resultado['nunota_class'] = int(row_nc[0])
                 except Exception:
                     resultado['nunota_class'] = row_nc[0]
-                # Fetch STATUSNOTA for this header
+                # Fetch PENDENTE for this header
                 try:
-                    cur.execute("SELECT STATUSNOTA FROM TGFCAB WHERE NUNOTA=:n", n=resultado['nunota_class'])
+                    cur.execute("SELECT PENDENTE FROM TGFCAB WHERE NUNOTA=:n", n=resultado['nunota_class'])
                     row_st = cur.fetchone()
                     if row_st and row_st[0] is not None:
                         try:
-                            resultado['statusnota_class'] = str(row_st[0]).strip()
+                            resultado['pendente_class'] = str(row_st[0]).strip()
                         except Exception:
-                            resultado['statusnota_class'] = row_st[0]
+                            resultado['pendente_class'] = row_st[0]
                 except Exception:
-                    resultado['statusnota_class'] = None
+                    resultado['pendente_class'] = None
             t_nc1 = time.perf_counter()
         except Exception:
             resultado['nunota_class'] = None
@@ -2779,9 +2853,9 @@ def consultar_lote_light(controle: str) -> dict:
         try:
             cur.execute(
                 """
-                SELECT MAX(CASE WHEN c.STATUSNOTA='L' THEN 1 ELSE 0 END) AS has_l,
+                SELECT MAX(CASE WHEN c.PENDENTE='N' THEN 1 ELSE 0 END) AS has_n,
                        MAX(c.NUNOTA) AS nunota_any,
-                       MAX(c.STATUSNOTA) AS status_any
+                       MAX(c.PENDENTE) AS pendente_any
                   FROM TGFITE i
                   JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
                  WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top
@@ -2790,22 +2864,22 @@ def consultar_lote_light(controle: str) -> dict:
             )
             row_nc = cur.fetchone()
             if row_nc:
-                has_l, nun_any, status_any = row_nc
+                has_n, nun_any, pendente_any = row_nc
                 try:
                     resultado['nunota_class'] = int(nun_any) if nun_any is not None else None
                 except Exception:
                     resultado['nunota_class'] = nun_any
                 try:
-                    hl = int(has_l or 0)
+                    hn = int(has_n or 0)
                 except Exception:
-                    hl = 0
-                if hl > 0:
-                    resultado['statusnota_class'] = 'L'
+                    hn = 0
+                if hn > 0:
+                    resultado['pendente_class'] = 'N'
                 else:
                     try:
-                        resultado['statusnota_class'] = (status_any or '').strip()
+                        resultado['pendente_class'] = (pendente_any or '').strip()
                     except Exception:
-                        resultado['statusnota_class'] = status_any
+                        resultado['pendente_class'] = pendente_any
         except Exception:
             pass
         t_nc1 = time.perf_counter()
@@ -3254,6 +3328,7 @@ def consultar_lotes_sumario_top11_classificaveis(controles: list[str]) -> dict[s
         'nunota_class': None,
         'statusnota_class': None,
         'produtos_entrada': [],  # classifiable products only
+        'nunota_portal': None,  # 🔗 NUNOTA do TOP 11 (Portal) para copiar NUMNOTA/NUMPEDIDO
     } for c in keys}
     with get_connection() as conn:
         cur = conn.cursor()
@@ -3266,6 +3341,7 @@ def consultar_lotes_sumario_top11_classificaveis(controles: list[str]) -> dict[s
                 SELECT i.CODAGREGACAO AS CTRL,
                          MAX(UPPER(NVL(pr.RAZAOSOCIAL, pr.NOMEPARC))) AS PARCEIRO,
                          MAX(c.CODPARC) AS CODPARC,
+                         MAX(c.NUNOTA) AS NUNOTA_PORTAL,
                          SUM(
                                  CASE WHEN UPPER(NVL(i.CODVOL,''))='CX' THEN i.QTDNEG
                                             ELSE
@@ -3326,7 +3402,7 @@ def consultar_lotes_sumario_top11_classificaveis(controles: list[str]) -> dict[s
                  GROUP BY i.CODAGREGACAO
         """
         cur.execute(sql_q, {**binds, 'top_ent': TOP_ENTRADA})
-        for ctrl, parceiro, codparc, qcx, qkg in cur.fetchall():
+        for ctrl, parceiro, codparc, nunota_portal, qcx, qkg in cur.fetchall():
             d = out.get(ctrl)
             if not d:
                 continue
@@ -3335,6 +3411,10 @@ def consultar_lotes_sumario_top11_classificaveis(controles: list[str]) -> dict[s
                 d['codparc'] = int(codparc) if codparc is not None else None
             except Exception:
                 d['codparc'] = codparc
+            try:
+                d['nunota_portal'] = int(nunota_portal) if nunota_portal is not None else None
+            except Exception:
+                d['nunota_portal'] = nunota_portal
             try:
                 d['qtd_cx'] = float(qcx or 0)
             except Exception:
@@ -3391,16 +3471,16 @@ def consultar_lotes_sumario_top11_classificaveis(controles: list[str]) -> dict[s
                 d['peso_inn'] = peso
 
         # TOP 26 (Classificação) status per controle:
-        # Prefer 'L' if ANY classification note for that control is liberated; otherwise use any status available.
+        # Prefer 'N' if ANY classification note for that control is not pending; otherwise use any pendente available.
         # TAMBÉM soma a quantidade de caixas classificadas (soma de todos os itens TOP 26 desse lote)
         # LÓGICA SANKHYA: QTDNEG sempre armazenado na unidade BASE (KG), mesmo quando lançado em CX.
         # NOSSA NORMALIZAÇÃO: sempre dividir QTDNEG pelo fator de conversão (TGFVOA.QUANTIDADE) para obter CX.
         sql_nc = (
             f"""
             SELECT i.CODAGREGACAO AS ctrl,
-                   MAX(CASE WHEN c.STATUSNOTA = 'L' THEN 1 ELSE 0 END) AS has_l,
+                   MAX(CASE WHEN c.PENDENTE = 'N' THEN 1 ELSE 0 END) AS has_n,
                    MAX(c.NUNOTA) AS nunota_any,
-                   MAX(c.STATUSNOTA) AS status_any,
+                   MAX(c.PENDENTE) AS pendente_any,
                    SUM(
                        CASE
                            WHEN (vcx.QUANTIDADE > 0 AND UPPER(NVL(vcx.DIVIDEMULTIPLICA,'M'))='M') 
@@ -3417,7 +3497,7 @@ def consultar_lotes_sumario_top11_classificaveis(controles: list[str]) -> dict[s
             """
         )
         cur.execute(sql_nc, {**binds, 'top_class': TOP_CLASS})
-        for ctrl, has_l, nun_any, status_any, qtd_cx_classif in cur.fetchall():
+        for ctrl, has_n, nun_any, pendente_any, qtd_cx_classif in cur.fetchall():
             d = out.get(ctrl)
             if not d:
                 continue
@@ -3427,16 +3507,16 @@ def consultar_lotes_sumario_top11_classificaveis(controles: list[str]) -> dict[s
             except Exception:
                 d['qtd_cx_classificado'] = 0.0
             try:
-                hl = int(has_l or 0)
+                hn = int(has_n or 0)
             except Exception:
-                hl = 0
-            if hl > 0:
-                d['statusnota_class'] = 'L'
+                hn = 0
+            if hn > 0:
+                d['pendente_class'] = 'N'
             else:
                 try:
-                    d['statusnota_class'] = (status_any or '').strip()
+                    d['pendente_class'] = (pendente_any or '').strip()
                 except Exception:
-                    d['statusnota_class'] = status_any
+                    d['pendente_class'] = pendente_any
 
     return out
 
@@ -5242,7 +5322,7 @@ def duplicate_to_classification(nunota_11: int, dry_run: bool = True) -> dict:
                 # Primeiro, obter dados da nota original
                 cur.execute("""
                     SELECT CODEMP, CODPARC, CODNAT, CODCENCUS, DTNEG, DTMOV, DTENTSAI,
-                           CODVEND, CODPARCTRANSP, CODPROJ, NUMNOTA, OBSERVACAO
+                           CODVEND, CODPARCTRANSP, CODPROJ, NUMNOTA, NUMPEDIDO, OBSERVACAO
                     FROM TGFCAB WHERE NUNOTA = :n
                 """, n=nunota_11)
                 orig_data = cur.fetchone()
@@ -5251,7 +5331,7 @@ def duplicate_to_classification(nunota_11: int, dry_run: bool = True) -> dict:
                     res['errors'].append('Cabeçalho da nota original não encontrado')
                     return res
                 
-                # Criar dados para TOP 26
+                # Criar dados para TOP 26 - Copiar NUMNOTA e NUMPEDIDO do TOP 11
                 cab_data = {
                     'CODEMP': orig_data[0],
                     'CODPARC': orig_data[1], 
@@ -5264,7 +5344,9 @@ def duplicate_to_classification(nunota_11: int, dry_run: bool = True) -> dict:
                     'CODVEND': orig_data[7] if orig_data[7] else 0,
                     'CODPARCTRANSP': orig_data[8] if orig_data[8] else 0,
                     'CODPROJ': orig_data[9] if orig_data[9] else 0,
-                    'NUMNOTA': orig_data[10] if orig_data[10] else None,
+                    'NUMNOTA': orig_data[10] if orig_data[10] else None,      # Copiado do TOP 11
+                    'NUMPEDIDO': orig_data[11] if orig_data[11] else None,     # Copiado do TOP 11
+                    'NUNOTA_ORIGEM': nunota_11,  # Para referência na insert_cabecalho_fast
                     'OBSERVACAO': f'Auto-duplicado de TOP 11 NUNOTA {nunota_11}'
                 }
                 
@@ -5583,7 +5665,7 @@ def sync_item_to_classification(nunota_11: int, codprod: int, dry_run: bool = Fa
                 cur.execute(
                     """
                     SELECT CODEMP, CODPARC, CODNAT, CODCENCUS, DTNEG, DTMOV, DTENTSAI,
-                           CODVEND, CODPARCTRANSP, CODPROJ, NUMNOTA, OBSERVACAO
+                           CODVEND, CODPARCTRANSP, CODPROJ, NUMNOTA, NUMPEDIDO, OBSERVACAO
                       FROM TGFCAB WHERE NUNOTA = :n
                     """,
                     n=nun
@@ -5604,7 +5686,9 @@ def sync_item_to_classification(nunota_11: int, codprod: int, dry_run: bool = Fa
                     'CODVEND': cab11[7] if cab11[7] else 0,
                     'CODPARCTRANSP': cab11[8] if cab11[8] else 0,
                     'CODPROJ': cab11[9] if cab11[9] else 0,
-                    'NUMNOTA': cab11[10] if cab11[10] else None,
+                    'NUMNOTA': cab11[10] if cab11[10] else None,       # Copiado do TOP 11
+                    'NUMPEDIDO': cab11[11] if cab11[11] else None,     # Copiado do TOP 11
+                    'NUNOTA_ORIGEM': nun,  # Para referência na insert_cabecalho
                     'OBSERVACAO': f'Sync (auto) de TOP 11 NUNOTA {nun}'
                 }
                 if dry_run or not is_write_enabled():

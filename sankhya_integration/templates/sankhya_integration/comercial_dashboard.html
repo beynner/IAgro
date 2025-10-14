@@ -155,7 +155,14 @@
   #filtersCard .btn-clear{border-color:#f59e0b;color:#b45309;background:#fff}
   #filtersCard .btn-clear:hover{background:#fff7ed}
   /* Autocomplete dropdown highlight for active row */
-  .ac-dropdown .ac-item.active{background:#e5e7eb}
+  .ac-dropdown .ac-item.active{
+    background: #FEF3C7 !important;
+    box-shadow: inset 4px 0 0 #F59E0B !important;
+    border-left: 2px solid #F59E0B !important;
+    font-weight: 600 !important;
+    outline: 2px solid #FCD34D !important;
+    outline-offset: -2px !important;
+  }
   .ac-dropdown .ac-item:hover{background:#f3f4f6}
   /* make tableCard grow to fill remaining height in the sidebar */
   #tableCard{flex:1 1 auto;min-height:0;margin-top:8px;display:flex;flex-direction:column}
@@ -378,16 +385,16 @@
   }
   #classCard .kpi.kpi--warn .kpi-value{
     color:#b45309;
-    font-size:1.5rem;
+    font-size:1.1rem;
     font-weight:900;
     letter-spacing:0.5px;
     display:flex;
     align-items:center;
     justify-content:center;
-    gap:10px;
+    gap:6px;
   }
   #classCard .kpi.kpi--warn .kpi-label{color:#b45309; font-weight:700;}
-  #classCard .kpi.kpi--warn .estoque-alert{font-size:1.5rem; margin-right:6px; vertical-align:middle;}
+  #classCard .kpi.kpi--warn .estoque-alert{font-size:1.2rem; margin-right:6px; vertical-align:middle;}
   /* Muted state for zero stock (0 kg): make text subdued */
   #classCard .kpi.kpi--muted .kpi-value{color:#94a3b8}
   #classCard .kpi.kpi--muted .kpi-label{color:#94a3b8}
@@ -418,6 +425,8 @@
   #classCard .kpi.kpi--estoque .kpi-value{display:flex; align-items:baseline; justify-content:center; gap:10px; flex-wrap:nowrap; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   #classCard .gauge .gauge-label{font-size:.7rem;font-weight:400;color:#94a3b8;fill:currentColor}
   #classCard .gauge .gauge-val{font-weight:800;color:#0a3392;font-size:22px}
+  /* Altura fixa para o card de estoque evitar que o gauge mude de tamanho */
+  #classCard .kpi.kpi--estoque{min-height:65px; max-height:65px; padding:8px 10px !important}
   /* Mostrar somente o gráfico (com legenda) no card Aproveitamento */
   #classCard .summary .kpi:nth-child(1) .kpi-label,
   #classCard .summary .kpi:nth-child(1) .kpi-value,
@@ -933,6 +942,16 @@
                 <line x1="6" y1="6" x2="18" y2="18"></line>
               </svg>
             </button>
+          </div>
+          <div style="padding:10px 16px; border-bottom:1px solid #3f3f3f; background:#262626; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+            <label for="printModelSelect" style="color:#d1d5db; font-size:0.85rem; font-weight:600;">Modelo</label>
+            <select id="printModelSelect" style="flex:0 0 180px; max-width:100%; padding:6px 10px; border-radius:6px; border:1px solid #4b5563; background:#111827; color:#e5e7eb; font-size:0.85rem;">
+              <option value="modelo1">Modelo 1 — In Natura</option>
+              <option value="modelo2">Modelo 2 — Simulação</option>
+              <option value="modelo3">Modelo 3 — Distribuição</option>
+              <option value="modelo4">Modelo 4 — Classificação</option>
+            </select>
+            <span style="color:#9ca3af; font-size:0.8rem;">A visualização atualiza conforme a seleção.</span>
           </div>
           <div style="padding:16px; overflow:auto; background:#1f1f1f;">
             <!-- Simulação de papel térmico 80mm -->
@@ -2541,6 +2560,10 @@
           const prodFull = String(produto||'').trim();
           const fabEl = document.getElementById('classFabricanteName');
           if(fabEl){ fabEl.textContent = prodFull || '—'; fabEl.title = prodFull || ''; }
+          
+          // Armazenar fabricante em variável global para uso na impressão
+          window.__CURRENT_FABRICANTE = prodFull || 'N/A';
+          
           // Badges
           const tipoEl = document.getElementById('entBadgeTipo');
           const loteEl = document.getElementById('entBadgeLote');
@@ -2804,6 +2827,20 @@
           const linhas = Array.isArray(data.linhas) ? data.linhas : [];
           if(!linhas.length){ body.innerHTML = '<div class="placeholder">Sem classificações para este lote.</div>'; }
           renderClassificacaoCard(linhas, lote);
+          
+          // Buscar PENDENTE do lote para atualizar o gauge
+          try{
+            const rdet = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(lote), { credentials: 'same-origin' });
+            const jdet = await rdet.json();
+            console.log('[COMERCIAL] Busca PENDENTE para lote:', lote, 'pendente_class:', jdet?.pendente_class);
+            if(jdet && jdet.ok && jdet.pendente_class){
+              card.setAttribute('data-pendente-class', String(jdet.pendente_class).toUpperCase());
+              console.log('[COMERCIAL] data-pendente-class setado:', card.getAttribute('data-pendente-class'));
+              // Re-renderizar gauge após setar PENDENTE
+              if(typeof window.recalcClassificacaoMetrics === 'function') window.recalcClassificacaoMetrics();
+            }
+          }catch(e){ console.error('[COMERCIAL] Erro ao buscar PENDENTE:', e); }
+          
           // Calcular alvo (targetKg) a partir do card Entrada
           try{
             const cxTxt = document.getElementById('quantidadeInn')?.textContent || '0';
@@ -2880,7 +2917,16 @@
               try{
                 const rdet = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(lote), { credentials: 'same-origin' });
                 const jdet = await rdet.json();
+                console.log('[RESUMO] Busca PENDENTE para lote:', lote, 'pendente_class:', jdet?.pendente_class);
                 if(jdet && jdet.ok && Array.isArray(jdet.classificacoes)){
+                  // Armazenar pendente_class para uso no gauge
+                  const card = document.getElementById('classCard');
+                  if(card && jdet.pendente_class){
+                    card.setAttribute('data-pendente-class', String(jdet.pendente_class).toUpperCase());
+                    console.log('[RESUMO] data-pendente-class setado:', card.getAttribute('data-pendente-class'));
+                    // Re-renderizar gauge após setar PENDENTE
+                    if(typeof window.recalcClassificacaoMetrics === 'function') window.recalcClassificacaoMetrics();
+                  }
                   classCx = jdet.classificacoes.reduce((s,it)=>{
                     const q = parseFloat(it && (it.qtd != null ? it.qtd : it.QTDNEG));
                     const p = parseFloat(it && (it.peso != null ? it.peso : it.PESO));
@@ -2930,6 +2976,11 @@
 
       // Função de impressão térmica 80mm
       function printVale(){
+        // Obter modelo selecionado
+        const modelSelect = document.getElementById('printModelSelect');
+        const selectedModel = modelSelect ? modelSelect.value : 'modelo1';
+        console.log('[PRINT DEBUG] Gerando relatório para modelo:', selectedModel);
+        
         const title = document.getElementById('valeResumoTitle')?.textContent || '—';
         const pedidoNum = document.getElementById('valeResumoPedidoNum')?.textContent || ''; // TOP 11
         const valeNum = document.getElementById('valeResumoValeNum')?.textContent || ''; // TOP 13
@@ -2954,83 +3005,293 @@
           }
         }
         
-        const classBody = document.getElementById('valeClassBody');
-        const outrosBody = document.getElementById('valeOutrosBody');
-        
+        // GERAR TABELA DE PRODUTOS CONFORME MODELO SELECIONADO
         let itemsHTML = '';
         let totalItens = 0;
         let pesoTotal = 0;
+        let qtdTotalGeral = 0;
+        let valorTotalGeral = 0;
         
-        // Itens Classificáveis
-        if(classBody){
-          const rows = classBody.querySelectorAll('tr');
-          rows.forEach(tr => {
-            const cells = tr.querySelectorAll('td');
-            if(cells.length >= 5){
-              const produto = cells[0]?.textContent?.trim() || '';
-              const qtd = cells[1]?.textContent?.trim() || '';
-              const vlrUn = cells[2]?.textContent?.trim() || '';
-              const vlrTotal = cells[4]?.textContent?.trim() || '';
-              
-              if(produto && produto !== '—'){
-                // Extrair quantidade e unidade corretamente
-                const qtdCompleta = qtd.trim();
-                // Separa número da unidade (ex: "100 CX" ou "50,5 KG")
-                const matchQtd = qtdCompleta.match(/([0-9.,]+)\s*([A-Za-zÀ-ÿ]+)?/);
-                const qtdNumero = matchQtd ? matchQtd[1] : qtdCompleta;
-                const volUnitRaw = matchQtd && matchQtd[2] ? matchQtd[2] : '';
-                const volUnit = volUnitRaw ? volUnitRaw.toUpperCase() : '';
-                const nomeProduto = produto; // Nome completo do produto
+        if(selectedModel === 'modelo1'){
+          // MODELO 1 - IN NATURA
+          // Lista TODOS os produtos do vale com suas quantidades e valores individuais
+          const classBody = document.getElementById('valeClassBody');
+          const outrosBody = document.getElementById('valeOutrosBody');
+          
+          let totalItensCount = 0;
+          let qtdTotalGeral = 0;
+          let valorTotalGeral = 0;
+          
+          // Processar produtos classificáveis
+          if(classBody){
+            const rows = classBody.querySelectorAll('tr');
+            rows.forEach(tr => {
+              const cells = tr.querySelectorAll('td');
+              if(cells.length >= 5){
+                const produto = cells[0]?.textContent?.trim() || '';
+                const qtdAttr = tr.getAttribute('data-q');
+                const unitAttr = tr.getAttribute('data-unit') || 'CX';
+                const qtdTxt = cells[1]?.textContent?.trim() || '0';
+                const vlrInicialTxt = cells[2]?.textContent?.trim() || '0';
+                const vlrTotalTxt = cells[4]?.textContent?.trim() || '0';
                 
-                itemsHTML += `
-                  <tr>
-                    <td style="border:1px solid #000; border-right:0; padding:0; text-align:left; font-size:8pt; line-height:1.05;">${nomeProduto}</td>
-                    <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:0; text-align:center; font-size:8pt; line-height:1.05;">${qtdNumero}${volUnit ? ' <span style="font-size:6pt; font-family:Arial, sans-serif;">' + volUnit + '</span>' : ''}</td>
-                    <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:0; text-align:right; font-size:8pt; line-height:1.05;"><span style="font-size:6pt;">R$</span> ${vlrUn.replace('R$', '').trim()}</td>
-                    <td style="border:1px solid #000; border-left:0; padding:0; text-align:right; font-size:8pt; font-weight:bold; line-height:1.05;"><span style="font-size:6pt;">R$</span> ${vlrTotal.replace('R$', '').trim()}</td>
-                  </tr>
-                `;
-                totalItens++;
-                const peso = parseFloat(qtd.replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
-                pesoTotal += peso;
+                if(produto && produto !== '—'){
+                  const qtd = parseFloat(qtdAttr) || parseFloat(qtdTxt.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+                  const vlrTotal = parseFloat(vlrTotalTxt.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+                  const vlrUnit = qtd > 0 ? (vlrTotal / qtd) : 0;
+                  
+                  // Extrair apenas o número da quantidade
+                  const qtdNumero = qtd.toLocaleString('pt-BR', {maximumFractionDigits:0});
+                  const unit = unitAttr.toUpperCase();
+                  
+                  itemsHTML += `
+                    <tr>
+                      <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">${produto}</td>
+                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${qtdNumero} <span style="font-size:6pt;">${unit}</span></td>
+                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${vlrUnit.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                      <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${vlrTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                    </tr>
+                  `;
+                  totalItensCount++;
+                  qtdTotalGeral += qtd;
+                  valorTotalGeral += vlrTotal;
+                }
               }
-            }
-          });
-        }
-        
-        // Itens Não Classificáveis
-        if(outrosBody){
-          const rows = outrosBody.querySelectorAll('tr');
-          rows.forEach(tr => {
-            const cells = tr.querySelectorAll('td');
-            if(cells.length >= 4){
-              const produto = cells[0]?.textContent?.trim() || '';
-              const qtd = cells[1]?.textContent?.trim() || '';
-              const vlr = cells[2]?.textContent?.trim() || '';
-              const vlrTotal = cells[3]?.textContent?.trim() || '';
-              
-              if(produto && produto !== '—'){
-                // Extrair quantidade e unidade corretamente
-                const qtdCompleta = qtd.trim();
-                const matchQtd = qtdCompleta.match(/([0-9.,]+)\s*([A-Za-zÀ-ÿ]+)?/);
-                const qtdNumero = matchQtd ? matchQtd[1] : qtdCompleta;
-                const volUnitRaw = matchQtd && matchQtd[2] ? matchQtd[2] : '';
-                const volUnit = volUnitRaw ? volUnitRaw.toUpperCase() : '';
+            });
+          }
+          
+          // Processar produtos não classificáveis
+          if(outrosBody){
+            const rows = outrosBody.querySelectorAll('tr');
+            rows.forEach(tr => {
+              const cells = tr.querySelectorAll('td');
+              if(cells.length >= 4){
+                const produto = cells[0]?.textContent?.trim() || '';
+                const qtdAttr = tr.getAttribute('data-q');
+                const unitAttr = tr.getAttribute('data-unit') || 'CX';
+                const qtdTxt = cells[1]?.textContent?.trim() || '0';
+                const vlrUnitTxt = cells[2]?.textContent?.trim() || '0';
+                const vlrTotalTxt = cells[3]?.textContent?.trim() || '0';
                 
-                itemsHTML += `
-                  <tr>
-                    <td style="border:1px solid #000; border-right:0; padding:0; text-align:left; font-size:8pt; line-height:1.05;">${produto}</td>
-                    <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:0; text-align:center; font-size:8pt; line-height:1.05;">${qtdNumero}${volUnit ? ' <span style="font-size:6pt; font-family:Arial, sans-serif;">' + volUnit + '</span>' : ''}</td>
-                    <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:0; text-align:right; font-size:8pt; line-height:1.05;"><span style="font-size:6pt;">R$</span> ${vlr.replace('R$', '').trim()}</td>
-                    <td style="border:1px solid #000; border-left:0; padding:0; text-align:right; font-size:8pt; font-weight:bold; line-height:1.05;"><span style="font-size:6pt;">R$</span> ${vlrTotal.replace('R$', '').trim()}</td>
-                  </tr>
-                `;
-                totalItens++;
-                const peso = parseFloat(qtd.replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
-                pesoTotal += peso;
+                if(produto && produto !== '—'){
+                  const qtd = parseFloat(qtdAttr) || parseFloat(qtdTxt.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+                  const vlrTotal = parseFloat(vlrTotalTxt.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+                  const vlrUnit = qtd > 0 ? (vlrTotal / qtd) : parseFloat(vlrUnitTxt.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+                  
+                  const qtdNumero = qtd.toLocaleString('pt-BR', {maximumFractionDigits:0});
+                  const unit = unitAttr.toUpperCase();
+                  
+                  itemsHTML += `
+                    <tr>
+                      <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">${produto}</td>
+                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${qtdNumero} <span style="font-size:6pt;">${unit}</span></td>
+                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${vlrUnit.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                      <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${vlrTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                    </tr>
+                  `;
+                  totalItensCount++;
+                  qtdTotalGeral += qtd;
+                  valorTotalGeral += vlrTotal;
+                }
               }
-            }
-          });
+            });
+          }
+          
+          totalItens = totalItensCount;
+          qtdTotalGeral = qtdTotalGeral;
+          valorTotalGeral = valorTotalGeral;
+          
+        } else if(selectedModel === 'modelo2'){
+          // MODELO 2 - SIMULAÇÃO
+          // Dados vêm da simulação (Extra e Médio)
+          const extraQtd = parseFloat(document.getElementById('sim-extra-qty')?.value || '0');
+          const extraUnit = parseFloat(document.getElementById('sim-extra-unit')?.value?.replace(',', '.') || '0');
+          const extraTotal = extraQtd * extraUnit;
+          
+          const medioQtd = parseFloat(document.getElementById('sim-medio-qty')?.value || '0');
+          const medioUnit = parseFloat(document.getElementById('sim-medio-unit')?.value?.replace(',', '.') || '0');
+          const medioTotal = medioQtd * medioUnit;
+          
+          if(extraQtd > 0){
+            itemsHTML += `
+              <tr>
+                <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">EXTRA</td>
+                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${extraQtd.toLocaleString('pt-BR', {maximumFractionDigits:0})} <span style="font-size:6pt;">CX</span></td>
+                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${extraUnit.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${extraTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+              </tr>
+            `;
+            totalItens++;
+            qtdTotalGeral += extraQtd;
+            valorTotalGeral += extraTotal;
+          }
+          
+          if(medioQtd > 0){
+            itemsHTML += `
+              <tr>
+                <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">MÉDIO</td>
+                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${medioQtd.toLocaleString('pt-BR', {maximumFractionDigits:0})} <span style="font-size:6pt;">CX</span></td>
+                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${medioUnit.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${medioTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+              </tr>
+            `;
+            totalItens++;
+            qtdTotalGeral += medioQtd;
+            valorTotalGeral += medioTotal;
+          }
+          
+        } else if(selectedModel === 'modelo3'){
+          // MODELO 3 - DISTRIBUIÇÃO
+          // Dados da distribuição: Extra e Médio com qtd CX, custo unit e custo total
+          const extraCxTxt = document.querySelector('#distMiniExtra [data-field="cx"]')?.textContent || '0';
+          const extraCx = parseFloat(extraCxTxt.replace(/\./g, '').replace(',', '.')) || 0;
+          const extraCustoCxTxt = document.getElementById('extraCustoCxDisplay')?.textContent || '0';
+          const extraCustoCx = parseFloat(extraCustoCxTxt.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+          const extraCustoTotal = extraCx * extraCustoCx;
+          
+          const medioCxTxt = document.querySelector('#distMiniMedio [data-field="cx"]')?.textContent || '0';
+          const medioCx = parseFloat(medioCxTxt.replace(/\./g, '').replace(',', '.')) || 0;
+          const medioCustoCxTxt = document.querySelector('#distMiniMedio [data-field="custoCx"]')?.textContent || '0';
+          const medioCustoCx = parseFloat(medioCustoCxTxt.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+          const medioCustoTotal = medioCx * medioCustoCx;
+          
+          if(extraCx > 0){
+            itemsHTML += `
+              <tr>
+                <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">EXTRA</td>
+                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${extraCx.toLocaleString('pt-BR', {maximumFractionDigits:0})} <span style="font-size:6pt;">CX</span></td>
+                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${extraCustoCx.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${extraCustoTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+              </tr>
+            `;
+            totalItens++;
+            qtdTotalGeral += extraCx;
+            valorTotalGeral += extraCustoTotal;
+          }
+          
+          if(medioCx > 0){
+            itemsHTML += `
+              <tr>
+                <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">MÉDIO</td>
+                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${medioCx.toLocaleString('pt-BR', {maximumFractionDigits:0})} <span style="font-size:6pt;">CX</span></td>
+                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${medioCustoCx.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${medioCustoTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+              </tr>
+            `;
+            totalItens++;
+            qtdTotalGeral += medioCx;
+            valorTotalGeral += medioCustoTotal;
+          }
+          
+          // Linha de resumo geral
+          if(totalItens > 0){
+            itemsHTML += `
+              <tr style="background:#f0f0f0; font-weight:bold;">
+                <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">TOTAL GERAL</td>
+                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${qtdTotalGeral.toLocaleString('pt-BR', {maximumFractionDigits:0})} <span style="font-size:6pt;">CX</span></td>
+                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;">—</td>
+                <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${valorTotalGeral.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+              </tr>
+            `;
+          }
+          
+        } else if(selectedModel === 'modelo4'){
+          // MODELO 4 - CLASSIFICAÇÃO COMPLETA
+          // Todos os produtos da classificação + distribuição (Extra/Médio) + porcentagens
+          const classBody = document.getElementById('valeClassBody');
+          const outrosBody = document.getElementById('valeOutrosBody');
+          
+          // Classificáveis
+          if(classBody){
+            const rows = classBody.querySelectorAll('tr');
+            rows.forEach(tr => {
+              const cells = tr.querySelectorAll('td');
+              if(cells.length >= 5){
+                const produto = cells[0]?.textContent?.trim() || '';
+                const qtd = cells[1]?.textContent?.trim() || '';
+                const vlrUn = cells[2]?.textContent?.trim() || '';
+                const vlrTotal = cells[4]?.textContent?.trim() || '';
+                
+                if(produto && produto !== '—'){
+                  const qtdCompleta = qtd.trim();
+                  const matchQtd = qtdCompleta.match(/([0-9.,]+)\s*([A-Za-zÀ-ÿ]+)?/);
+                  const qtdNumero = matchQtd ? matchQtd[1] : qtdCompleta;
+                  const volUnitRaw = matchQtd && matchQtd[2] ? matchQtd[2] : '';
+                  const volUnit = volUnitRaw ? volUnitRaw.toUpperCase() : '';
+                  
+                  itemsHTML += `
+                    <tr>
+                      <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">${produto}</td>
+                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${qtdNumero}${volUnit ? ' <span style="font-size:6pt;">' + volUnit + '</span>' : ''}</td>
+                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${vlrUn.replace('R$', '').trim()}</td>
+                      <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${vlrTotal.replace('R$', '').trim()}</td>
+                    </tr>
+                  `;
+                  totalItens++;
+                  const peso = parseFloat(qtd.replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
+                  pesoTotal += peso;
+                  const valor = parseFloat(vlrTotal.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+                  valorTotalGeral += valor;
+                }
+              }
+            });
+          }
+          
+          // Não classificáveis
+          if(outrosBody){
+            const rows = outrosBody.querySelectorAll('tr');
+            rows.forEach(tr => {
+              const cells = tr.querySelectorAll('td');
+              if(cells.length >= 4){
+                const produto = cells[0]?.textContent?.trim() || '';
+                const qtd = cells[1]?.textContent?.trim() || '';
+                const vlr = cells[2]?.textContent?.trim() || '';
+                const vlrTotal = cells[3]?.textContent?.trim() || '';
+                
+                if(produto && produto !== '—'){
+                  const qtdCompleta = qtd.trim();
+                  const matchQtd = qtdCompleta.match(/([0-9.,]+)\s*([A-Za-zÀ-ÿ]+)?/);
+                  const qtdNumero = matchQtd ? matchQtd[1] : qtdCompleta;
+                  const volUnitRaw = matchQtd && matchQtd[2] ? matchQtd[2] : '';
+                  const volUnit = volUnitRaw ? volUnitRaw.toUpperCase() : '';
+                  
+                  itemsHTML += `
+                    <tr>
+                      <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">${produto}</td>
+                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${qtdNumero}${volUnit ? ' <span style="font-size:6pt;">' + volUnit + '</span>' : ''}</td>
+                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${vlr.replace('R$', '').trim()}</td>
+                      <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${vlrTotal.replace('R$', '').trim()}</td>
+                    </tr>
+                  `;
+                  totalItens++;
+                  const peso = parseFloat(qtd.replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
+                  pesoTotal += peso;
+                  const valor = parseFloat(vlrTotal.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+                  valorTotalGeral += valor;
+                }
+              }
+            });
+          }
+          
+          // Adicionar resumo Distribuição (Extra/Médio) e porcentagens
+          const extraShareTxt = document.querySelector('#distMiniExtra .class-share')?.textContent || '0%';
+          const medioShareTxt = document.querySelector('#distMiniMedio .class-share')?.textContent || '0%';
+          
+          itemsHTML += `
+            <tr style="background:#e8f4f8;">
+              <td colspan="4" style="border:1px solid #000; padding:1.5mm 0.5mm; text-align:center; font-size:8pt; font-weight:bold; line-height:1.2;">DISTRIBUIÇÃO</td>
+            </tr>
+            <tr style="background:#f0f0f0;">
+              <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">EXTRA</td>
+              <td colspan="2" style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${extraShareTxt}</td>
+              <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;">—</td>
+            </tr>
+            <tr style="background:#f0f0f0;">
+              <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">MÉDIO</td>
+              <td colspan="2" style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${medioShareTxt}</td>
+              <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;">—</td>
+            </tr>
+          `;
         }
         
         const now = new Date();
@@ -3168,6 +3429,14 @@
       });
       document.getElementById('printPreviewCancel')?.addEventListener('click', ()=>{
         document.getElementById('printPreviewModal').style.display = 'none';
+      });
+      
+      // Listener para o dropdown de modelo - atualizar preview automaticamente
+      document.getElementById('printModelSelect')?.addEventListener('change', (e)=>{
+        const selectedModel = e.target.value;
+        console.log('[PRINT DEBUG] Modelo selecionado:', selectedModel);
+        // Regenerar o preview com o novo modelo
+        printVale();
       });
       document.getElementById('printPreviewConfirm')?.addEventListener('click', ()=>{
         document.getElementById('printPreviewModal').style.display = 'none';
@@ -3363,6 +3632,11 @@
           const rows = (window.__COM_LIST_ROWS||[]).filter(r=> String(r.nunota||'') === String(nunota||''));
           console.log('[DEBUG] Linhas filtradas:', rows.length);
           const parc = rows[0]?.parceiro || '';
+          
+          // Armazenar fabricante do primeiro produto para uso na impressão
+          const fabricanteProduto = rows[0]?.produto || 'N/A';
+          window.__CURRENT_FABRICANTE = fabricanteProduto;
+          console.log('[DEBUG] Fabricante armazenado:', fabricanteProduto);
           
           // Atualizar título: só o parceiro
           title.textContent = parc || 'Parceiro';
@@ -3687,13 +3961,61 @@
             }
           }, true);
           
-          classBody.addEventListener('blur', (ev)=>{
+          classBody.addEventListener('blur', async (ev)=>{
             if(ev.target && ev.target.classList.contains('vcl-preco-inicial')){
               // Reformatar ao perder foco
               const editableDiv = ev.target;
+              const tr = editableDiv.closest('tr');
+              if(!tr) return;
+              
+              const nunota_val = Number(tr.getAttribute('data-nun') || 0);
+              const seq_val = Number(tr.getAttribute('data-seq') || 0);
               const val = parsePT(editableDiv.textContent||'');
+              
               if(val>0){
                 editableDiv.innerHTML = fmtMoney(val);
+                
+                // Salvar PRECOBASE no banco (endpoint /sankhya/item/save/)
+                if(nunota_val && seq_val){
+                  try{
+                    const payload = { 
+                      nunota: nunota_val, 
+                      sequencia: seq_val, 
+                      preco_inicial: val  // Backend mapeia para PRECOBASE
+                    };
+                    
+                    console.log('[SAVE VALOR INICIAL] Salvando PRECOBASE:', payload);
+                    
+                    const result = await window.__postJSON('/sankhya/item/save/', payload);
+                    
+                    if(result.ok){
+                      console.log('[SAVE VALOR INICIAL] ✅ PRECOBASE salvo com sucesso');
+                      
+                      // Atualizar cache local para persistir o valor
+                      if(window.__COM_LIST_ROWS){
+                        const row = window.__COM_LIST_ROWS.find(r => 
+                          Number(r.nunota||0) === nunota_val && 
+                          Number(r.sequencia||0) === seq_val
+                        );
+                        if(row){
+                          row.preco_inicial = val;
+                          row.precobase = val;
+                          console.log('[SAVE VALOR INICIAL] Cache local atualizado');
+                        }
+                      }
+                      
+                    } else {
+                      console.error('[SAVE VALOR INICIAL] ❌ Erro ao salvar:', result.error || result.errors || 'Erro desconhecido');
+                      alert('Erro ao salvar Valor Inicial: ' + (result.error || (result.errors ? result.errors.join('; ') : 'Erro desconhecido')));
+                    }
+                  } catch(err){
+                    console.error('[SAVE VALOR INICIAL] ⚠️ Exceção ao salvar:', err);
+                    alert('Erro ao salvar Valor Inicial: ' + err.message);
+                  }
+                }
+              } else {
+                // Se valor for 0 ou inválido, mostrar placeholder
+                editableDiv.innerHTML = '<span style="color:#94a3b8;">R$ 0,00</span>';
               }
             }
           }, true);
@@ -6957,7 +7279,17 @@
         if(gauge && gArc && gPct){
           const classified = Number(card.getAttribute('data-classified') || String(totalKg));
           const target = Number(card.getAttribute('data-target') || String(totalKg));
-          const p = target > 0 ? Math.max(0, Math.min(1, classified / target)) : 0;
+          const pendenteClass = (card.getAttribute('data-pendente-class') || '').toUpperCase();
+          console.log('[GAUGE] classified:', classified, 'target:', target, 'pendenteClass:', pendenteClass);
+          // Se PENDENTE='N' (finalizado), forçar 100%
+          let p = 0;
+          if(pendenteClass === 'N'){
+            console.log('[GAUGE] PENDENTE=N detectado - forçando 100%');
+            p = 1; // 100% classificado
+          } else {
+            p = target > 0 ? Math.max(0, Math.min(1, classified / target)) : 0;
+            console.log('[GAUGE] Cálculo normal - p:', p);
+          }
           const pct = p * 100;
           const arcLen = Math.PI * 90;
           requestAnimationFrame(()=>{

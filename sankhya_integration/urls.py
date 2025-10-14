@@ -38,6 +38,7 @@ urlpatterns = [
     path("item/delete/", views.item_delete, name="item_delete"),
     path("item/duplicate/", views.item_duplicate, name="item_duplicate"),
     path("item/get_lote/", views.item_get_lote, name="item_get_lote"),
+    path("item/finalize/", views.item_finalize, name="item_finalize"),
     path("nota/delete/", views.nota_delete, name="nota_delete"),
     path("nota/diagnose/", views.nota_diagnose, name="nota_diagnose"),
     path("class/plan/", views.class_plan, name="class_plan"),
