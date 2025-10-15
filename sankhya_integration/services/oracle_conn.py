@@ -1042,39 +1042,30 @@ def insert_cabecalho_fast(d: dict, dry_run: bool = False) -> dict:
             
             if codtipoper == TOP_CLASS:
                 print(f'✅ [TOP 26 DETECTADO] Iniciando busca do TOP 11 de origem...')
-                # Buscar NUMNOTA e NUMPEDIDO do pedido origem (TOP 11) via NUNOTA_ORIGEM
+                # Buscar NUNOTA do pedido origem (TOP 11) 
                 nunota_origem = d.get('NUNOTA_ORIGEM')
                 if nunota_origem:
                     try:
-                        print(f'🔍 Buscando TOP 11 NUNOTA={nunota_origem}...')
+                        print(f'🔍 Verificando se TOP 11 NUNOTA={nunota_origem} existe...')
                         cur.execute("""
-                            SELECT NUMNOTA, NUMPEDIDO
+                            SELECT NUNOTA
                             FROM TGFCAB
                             WHERE NUNOTA = :nunota AND CODTIPOPER = :top
                         """, nunota=int(nunota_origem), top=TOP_ENTRADA)
                         
                         row_origem = cur.fetchone()
                         if row_origem:
-                            print(f'✅ TOP 11 encontrado! NUMNOTA={row_origem[0]}, NUMPEDIDO={row_origem[1]}')
-                            print(f'🔍 Tipos: NUMNOTA type={type(row_origem[0])}, NUMPEDIDO type={type(row_origem[1])}')
-                            print(f'🔍 NUMPEDIDO is None? {row_origem[1] is None}')
-                            print(f'🔍 NUMPEDIDO == 0? {row_origem[1] == 0}')
+                            print(f'✅ TOP 11 encontrado! NUNOTA={row_origem[0]}')
                             
-                            # Copiar valores do TOP 11 para o TOP 26
-                            if row_origem[0] is not None:
-                                numnota_final = row_origem[0]
-                                print(f'🔗 [TOP 26] Copiado NUMNOTA={numnota_final} do TOP 11 (NUNOTA {nunota_origem})')
-                            else:
-                                print(f'⚠️ [TOP 26] NUMNOTA do TOP 11 é None')
+                            # CRÍTICO: TOP 26 deve referenciar o TOP 11
+                            # NUMNOTA = NUNOTA do TOP 11
+                            # NUMPEDIDO = NUNOTA do TOP 11
+                            numnota_final = int(nunota_origem)
+                            numpedido_final = int(nunota_origem)
                             
-                            # NUMPEDIDO: Se TOP 11 tiver, copiar. Senão, usar NUNOTA do TOP 11 como referência
-                            if row_origem[1] is not None:
-                                numpedido_final = int(row_origem[1])
-                                print(f'🔗 [TOP 26] Copiado NUMPEDIDO={numpedido_final} do TOP 11 (NUNOTA {nunota_origem})')
-                            else:
-                                # Se TOP 11 não tem NUMPEDIDO, usar o próprio NUNOTA do TOP 11 como referência
-                                numpedido_final = int(nunota_origem)
-                                print(f'🔗 [TOP 26] TOP 11 não tem NUMPEDIDO, usando NUNOTA do TOP 11 como referência: NUMPEDIDO={numpedido_final}')
+                            print(f'🔗 [TOP 26] Configurado para vincular ao TOP 11:')
+                            print(f'🔗 [TOP 26]   NUMNOTA = {numnota_final} (NUNOTA do TOP 11)')
+                            print(f'🔗 [TOP 26]   NUMPEDIDO = {numpedido_final} (NUNOTA do TOP 11)')
                         else:
                             print(f'⚠️ [TOP 26] Pedido origem (TOP 11) NUNOTA {nunota_origem} não encontrado')
                     except Exception as e:
@@ -3328,7 +3319,8 @@ def consultar_lotes_sumario_top11_classificaveis(controles: list[str]) -> dict[s
         'nunota_class': None,
         'statusnota_class': None,
         'produtos_entrada': [],  # classifiable products only
-        'nunota_portal': None,  # 🔗 NUNOTA do TOP 11 (Portal) para copiar NUMNOTA/NUMPEDIDO
+        'nunota_portal': None,  # 🔗 NUNOTA do TOP 11 (Portal/Entrada)
+        'nunota_top26': None,  # 🔗 NUNOTA da TOP 26 (Classificação) para verificação de negociação
     } for c in keys}
     with get_connection() as conn:
         cur = conn.cursor()
@@ -3502,6 +3494,7 @@ def consultar_lotes_sumario_top11_classificaveis(controles: list[str]) -> dict[s
             if not d:
                 continue
             d['nunota_class'] = nun_any
+            d['nunota_top26'] = nun_any  # NUNOTA da TOP 26 para verificação de negociação
             try:
                 d['qtd_cx_classificado'] = float(qtd_cx_classif or 0)
             except Exception:
@@ -5331,7 +5324,9 @@ def duplicate_to_classification(nunota_11: int, dry_run: bool = True) -> dict:
                     res['errors'].append('Cabeçalho da nota original não encontrado')
                     return res
                 
-                # Criar dados para TOP 26 - Copiar NUMNOTA e NUMPEDIDO do TOP 11
+                # Criar dados para TOP 26
+                # CRÍTICO: Passar NUNOTA_ORIGEM para que insert_cabecalho_fast
+                # copie automaticamente NUMPEDIDO e NUMNOTA do TOP 11
                 cab_data = {
                     'CODEMP': orig_data[0],
                     'CODPARC': orig_data[1], 
@@ -5344,9 +5339,7 @@ def duplicate_to_classification(nunota_11: int, dry_run: bool = True) -> dict:
                     'CODVEND': orig_data[7] if orig_data[7] else 0,
                     'CODPARCTRANSP': orig_data[8] if orig_data[8] else 0,
                     'CODPROJ': orig_data[9] if orig_data[9] else 0,
-                    'NUMNOTA': orig_data[10] if orig_data[10] else None,      # Copiado do TOP 11
-                    'NUMPEDIDO': orig_data[11] if orig_data[11] else None,     # Copiado do TOP 11
-                    'NUNOTA_ORIGEM': nunota_11,  # Para referência na insert_cabecalho_fast
+                    'NUNOTA_ORIGEM': nunota_11,  # insert_cabecalho_fast usará isso para copiar NUMPEDIDO e NUMNOTA
                     'OBSERVACAO': f'Auto-duplicado de TOP 11 NUNOTA {nunota_11}'
                 }
                 

@@ -847,9 +847,45 @@
         const active = tbl.querySelector('tbody tr.row--click.row--active');
         if (!active) return;
         const nun = active.getAttribute('data-nunota');
-        // Confirm FIRST for instant response
+        
+        console.log('[DELETE] Verificando classificação para NUNOTA:', nun);
+        
+        // CRÍTICO: Verificar se tem classificação antes de permitir exclusão
+        try {
+          const checkRes = await fetch(`/sankhya/nota/check-classificacao/?nunota=${encodeURIComponent(nun)}`, {credentials:'same-origin'});
+          
+          console.log('[DELETE] Status da resposta:', checkRes.status, checkRes.statusText);
+          
+          if (!checkRes.ok) {
+            const errorText = await checkRes.text();
+            console.error('[DELETE] Erro na resposta:', errorText);
+            showToast('Erro ao verificar classificação. Tente novamente.', 'error');
+            return;
+          }
+          
+          const checkData = await checkRes.json();
+          console.log('[DELETE] Dados recebidos:', JSON.stringify(checkData));
+          
+          if (checkData.tem_classificacao === true) {
+            console.log('[DELETE] BLOQUEADO - Vale tem classificação!');
+            showToast('Entrada não pode ser excluída. Existe classificação.', 'error');
+            return; // BLOQUEIA exclusão
+          }
+          
+          console.log('[DELETE] OK - Vale não tem classificação, pode excluir');
+          
+        } catch(e) {
+          console.error('[DELETE] Exception ao verificar classificação:', e);
+          console.error('[DELETE] Stack:', e.stack);
+          showToast('Erro ao verificar classificação: ' + e.message, 'error');
+          return; // BLOQUEIA por segurança
+        }
+        
+        // Só chega aqui se NÃO tiver classificação
+        console.log('[DELETE] Mostrando confirmação...');
         const ok = confirm(`Confirma excluir a nota ${nun} e todos os itens?`);
         if (!ok) return;
+        
         // Delete immediately - diagnostic in background (non-blocking)
         const deletePromise = postJSON('/sankhya/nota/delete/', { nunota: parseInt(nun,10) });
         // Diagnostic fetch in parallel (don't await - just for console log)
@@ -1269,12 +1305,15 @@
         try{
           const id = 'portalToast';
           let el = document.getElementById(id);
-          if(!el){ el = document.createElement('div'); el.id = id; el.style.position = 'fixed'; el.style.right = '16px'; el.style.bottom = '18px'; el.style.minWidth = '220px'; el.style.maxWidth = '420px'; el.style.zIndex = '10050'; el.style.fontSize = '13px'; document.body.appendChild(el); }
-          const msg = document.createElement('div'); msg.style.marginTop='8px'; msg.style.padding='10px 12px'; msg.style.borderRadius='6px'; msg.style.color = type === 'error' ? '#fff' : '#111'; msg.style.background = type === 'error' ? '#e55353' : (type === 'success' ? '#2ea44f' : '#ffd966'); msg.style.boxShadow = '0 6px 18px rgba(0,0,0,0.12)'; msg.textContent = message;
+          if(!el){ el = document.createElement('div'); el.id = id; el.style.position = 'fixed'; el.style.right = '20px'; el.style.bottom = '20px'; el.style.minWidth = '220px'; el.style.maxWidth = '420px'; el.style.zIndex = '99999'; el.style.fontSize = '14px'; document.body.appendChild(el); }
+          const msg = document.createElement('div'); msg.style.marginTop='8px'; msg.style.padding='12px 16px'; msg.style.borderRadius='8px'; msg.style.color = '#fff'; msg.style.background = type === 'error' ? '#dc2626' : (type === 'success' ? '#16a34a' : '#f59e0b'); msg.style.boxShadow = '0 8px 24px rgba(0,0,0,0.18), 0 4px 8px rgba(0,0,0,0.12)'; msg.style.fontWeight = '600'; msg.textContent = message;
           el.appendChild(msg);
-          setTimeout(()=>{ try{ msg.style.transition='opacity .4s ease, transform .35s ease'; msg.style.opacity='0'; msg.style.transform='translateY(6px)'; setTimeout(()=> msg.remove(), 420); }catch(_){ msg.remove(); } }, 3600);
+          setTimeout(()=>{ try{ msg.style.transition='opacity .4s ease, transform .35s ease'; msg.style.opacity='0'; msg.style.transform='translateY(8px)'; setTimeout(()=> msg.remove(), 420); }catch(_){ msg.remove(); } }, 3600);
         }catch(e){ console.error('showToast', e); }
       }
+      
+      // Expose showToast globally for use in modals and other contexts
+      try { window.showToast = showToast; } catch(_) { }
 
       // Animation helpers for sliding header left and showing items modal
       // Positioning helpers for docked modals: cabCard (left), cabItemsCard (middle), rodapeCard (right)
@@ -1604,15 +1643,79 @@
           // Handle delete button clicks - check button OR any element inside it (SVG/path)
           const delBtn = e.target.classList?.contains('item-del') ? e.target : e.target.closest?.('button.item-del');
           if(delBtn){
+            console.log('[DELETE ITEM] Botão de delete clicado!', delBtn);
             e.stopPropagation();
             e.preventDefault();
-            if(!confirm('Excluir este item?')) return;
+            
             const seq = delBtn.dataset.seq;
             const nunRaw = document.getElementById('items_nunota')?.value;
-            if(!nunRaw || !seq) return;
+            console.log('[DELETE ITEM] SEQ:', seq, 'NUNOTA:', nunRaw);
+            if(!nunRaw || !seq) {
+              console.log('[DELETE ITEM] Faltando nunRaw ou seq, abortando');
+              return;
+            }
+            
+            // CRÍTICO: Verificar se tem classificação antes de permitir exclusão
+            console.log('[DELETE ITEM] Verificando classificação para NUNOTA:', nunRaw, 'SEQ:', seq);
+            try {
+              const checkRes = await fetch(`/sankhya/nota/check-classificacao/?nunota=${encodeURIComponent(nunRaw)}&seq=${encodeURIComponent(seq)}`, {credentials:'same-origin'});
+              
+              if (!checkRes.ok) {
+                if(typeof window.showToast === 'function'){
+                  showToast('Erro ao verificar classificação. Tente novamente.', 'error');
+                } else {
+                  alert('Erro ao verificar classificação. Tente novamente.');
+                }
+                return;
+              }
+              
+              const checkData = await checkRes.json();
+              console.log('[DELETE ITEM] Dados recebidos:', checkData);
+              
+              if (checkData.tem_classificacao === true) {
+                console.log('[DELETE ITEM] BLOQUEADO - Vale tem classificação!');
+                if(typeof window.showToast === 'function'){
+                  showToast('Item não pode ser excluído. Existe classificação.', 'error');
+                } else {
+                  alert('Item não pode ser excluído. Existe classificação.');
+                }
+                return; // BLOQUEIA exclusão
+              }
+              
+              console.log('[DELETE ITEM] OK - Vale não tem classificação, pode excluir item');
+              
+            } catch(e) {
+              console.error('[DELETE ITEM] Erro ao verificar classificação:', e);
+              if(typeof window.showToast === 'function'){
+                showToast('Erro ao verificar classificação. Tente novamente.', 'error');
+              } else {
+                alert('Erro ao verificar classificação. Tente novamente.');
+              }
+              return; // BLOQUEIA por segurança
+            }
+            
+            // Só chega aqui se NÃO tiver classificação
+            if(!confirm('Excluir este item?')) return;
+            
             const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nunRaw,10), sequencias: [parseInt(seq,10)] });
-            if(res.ok){ alert('Item excluído'); try{ const n=String(nunRaw); if(window.__ITEMS_CACHE) delete window.__ITEMS_CACHE[n]; }catch(_){} try{ loadItems(nunRaw); }catch(_){} try{ panelLoadItems(nunRaw); }catch(_){} }
-            else { alert('Falha: '+(res.body?.errors||[]).join('\n')); }
+            if(res.ok){ 
+              if(typeof window.showToast === 'function'){
+                showToast('Item excluído.', 'success');
+              } else {
+                alert('Item excluído');
+              }
+              try{ const n=String(nunRaw); if(window.__ITEMS_CACHE) delete window.__ITEMS_CACHE[n]; }catch(_){} 
+              try{ loadItems(nunRaw); }catch(_){} 
+              try{ panelLoadItems(nunRaw); }catch(_){} 
+            }
+            else { 
+              const errMsg = 'Falha: '+(res.body?.errors||[]).join('\n');
+              if(typeof window.showToast === 'function'){
+                showToast(errMsg, 'error');
+              } else {
+                alert(errMsg);
+              }
+            }
             return;
           }
           // Handle row selection

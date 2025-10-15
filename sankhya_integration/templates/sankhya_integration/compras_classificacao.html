@@ -318,11 +318,12 @@
               </tr>
             </thead>
             <tbody>
-              {% for controle, parceiro, produto_descr, qtd_cx, peso, qtd_kg, qtd_class, pendente, exemplo_nunota, exemplo_seq, produtos_entrada, codparc, nunota_portal in lotes %}
+              {% for controle, parceiro, produto_descr, qtd_cx, peso, qtd_kg, qtd_class, pendente, exemplo_nunota, exemplo_seq, produtos_entrada, codparc, nunota_portal, nunota_top26 in lotes %}
               {% with is_sel=sel|default:0 %}
         <tr class="row--click{% if controle == is_sel %} row--active{% endif %}"
           data-nunota="{{ controle }}"
           data-nunota-portal="{{ nunota_portal|default:'' }}"
+          data-nunota-top26="{{ nunota_top26|default:'' }}"
           data-seq="{{ exemplo_seq }}"
           data-codparc="{{ codparc|default:'' }}"
           data-central-url="/sankhya/packing/central/?nunota={{ exemplo_nunota }}">
@@ -1220,25 +1221,100 @@
   const btnDeleteNota = document.getElementById('btnDeleteNota');
   function getCookie(name){ const m=document.cookie.match(new RegExp('(^| )'+name+'=([^;]+)')); return m? decodeURIComponent(m[2]) : null; }
   async function postJSON(url, body){ const csrftoken = getCookie('csrftoken'); const headers = {'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'}; if (csrftoken) headers['X-CSRFToken'] = csrftoken; const r = await fetch(url, {method:'POST', headers, body: JSON.stringify(body), credentials:'same-origin'}); let j={}; try{ j=await r.json(); }catch(_){ j={}; } return {ok:r.ok, body:j, status:r.status}; }
+  
+  // Toast notification helper - bottom-right corner
+  function showToast(message, type){ // type: info|success|error
+    try{
+      const id = 'classificacaoToast';
+      let el = document.getElementById(id);
+      if(!el){ el = document.createElement('div'); el.id = id; el.style.position = 'fixed'; el.style.right = '20px'; el.style.bottom = '20px'; el.style.minWidth = '220px'; el.style.maxWidth = '420px'; el.style.zIndex = '99999'; el.style.fontSize = '14px'; document.body.appendChild(el); }
+      const msg = document.createElement('div'); msg.style.marginTop='8px'; msg.style.padding='12px 16px'; msg.style.borderRadius='8px'; msg.style.color = '#fff'; msg.style.background = type === 'error' ? '#dc2626' : (type === 'success' ? '#16a34a' : '#f59e0b'); msg.style.boxShadow = '0 8px 24px rgba(0,0,0,0.18), 0 4px 8px rgba(0,0,0,0.12)'; msg.style.fontWeight = '600'; msg.textContent = message;
+      el.appendChild(msg);
+      setTimeout(()=>{ try{ msg.style.transition='opacity .4s ease, transform .35s ease'; msg.style.opacity='0'; msg.style.transform='translateY(8px)'; setTimeout(()=> msg.remove(), 420); }catch(_){ msg.remove(); } }, 3600);
+    }catch(e){ console.error('showToast', e); }
+  }
+  
   // Expose helpers globally so other modules/IIFEs in this page can reuse them
-  try { window.getCookie = getCookie; window.postJSON = postJSON; } catch(_) {}
+  try { window.getCookie = getCookie; window.postJSON = postJSON; window.showToast = showToast; } catch(_) {}
       (function(){
         const b = document.getElementById('btnDeleteNota');
         if(!b) return;
         b.addEventListener('click', async function (){
           const active = tbl.querySelector('tbody tr.row--click.row--active');
           if(!active) return;
-          const nun = active.getAttribute('data-nunota');
-          const ok = confirm(`Confirma excluir o lote ${nun} e todos os itens?`);
+          const controle = active.getAttribute('data-nunota'); // Este é o CONTROLE/LOTE
+          const nunotaTop26 = active.getAttribute('data-nunota-top26'); // Este é o NUNOTA da TOP 26 (Classificação)
+          const nunotaPortal = active.getAttribute('data-nunota-portal'); // Este é o NUNOTA do TOP 11 (Portal/Entrada)
+          
+          console.log('[DELETE CLASSIF] Controle:', controle, 'NUNOTA TOP 26:', nunotaTop26, 'NUNOTA Portal:', nunotaPortal);
+          
+          // Se não tem TOP 26 ainda, usa o controle diretamente
+          const hasNunota = nunotaTop26 && Number.isFinite(Number(nunotaTop26));
+          const nunota = nunotaTop26; // Para usar na exclusão
+          const queryParam = hasNunota 
+            ? `nunota=${encodeURIComponent(nunota)}` 
+            : `controle=${encodeURIComponent(controle)}`;
+          
+          console.log('[DELETE CLASSIF] Verificando negociação com:', queryParam);
+          
+          // CRÍTICO: Verificar se tem negociação comercial (VLRTOT > 0)
+          try {
+            const checkRes = await fetch(`/sankhya/nota/check-negociacao/?${queryParam}`, {credentials:'same-origin'});
+            
+            console.log('[DELETE CLASSIF] Status da resposta:', checkRes.status, checkRes.statusText);
+            
+            if (!checkRes.ok) {
+              const errorText = await checkRes.text();
+              console.error('[DELETE CLASSIF] Erro na resposta:', errorText);
+              if(typeof showToast === 'function'){
+                showToast('Erro ao verificar negociação. Tente novamente.', 'error');
+              } else {
+                alert('Erro ao verificar negociação. Tente novamente.');
+              }
+              return;
+            }
+            
+            const checkData = await checkRes.json();
+            console.log('[DELETE CLASSIF] Dados recebidos:', JSON.stringify(checkData));
+            
+            if (checkData.tem_negociacao === true) {
+              console.log('[DELETE CLASSIF] BLOQUEADO - Classificação tem negociação!');
+              if(typeof showToast === 'function'){
+                showToast('Classificação não pode ser excluída. Existe negociação do Comercial.', 'error');
+              } else {
+                alert('Classificação não pode ser excluída. Existe negociação do Comercial.');
+              }
+              return; // BLOQUEIA exclusão
+            }
+            
+            console.log('[DELETE CLASSIF] OK - Classificação não tem negociação, pode excluir');
+            
+          } catch(e) {
+            console.error('[DELETE CLASSIF] Exception ao verificar negociação:', e);
+            console.error('[DELETE CLASSIF] Stack:', e.stack);
+            if(typeof showToast === 'function'){
+              showToast('Erro ao verificar negociação: ' + e.message, 'error');
+            } else {
+              alert('Erro ao verificar negociação. Tente novamente.');
+            }
+            return; // BLOQUEIA por segurança
+          }
+          
+          // Só chega aqui se NÃO tiver negociação
+          console.log('[DELETE CLASSIF] Mostrando confirmação...');
+          const ok = confirm(`Confirma excluir o lote ${controle} e todos os itens?`);
           if(!ok) return;
-          const res = await postJSON('/sankhya/nota/delete/', { nunota: parseInt(nun,10) });
+          const res = await postJSON('/sankhya/nota/delete/', { nunota: parseInt(nunota,10) });
           if (res.ok && (res.body?.deleted_cab || 0) > 0){
-            alert(`Lote ${nun} excluído com sucesso.`);
-            try{ const url = new URL(window.location.href); url.searchParams.delete('sel'); window.location.href = url.pathname + '?' + url.searchParams.toString(); }catch(_){ window.location.reload(); }
+            showToast('Excluído.', 'success');
+            setTimeout(() => {
+              try{ const url = new URL(window.location.href); url.searchParams.delete('sel'); window.location.href = url.pathname + '?' + url.searchParams.toString(); }catch(_){ window.location.reload(); }
+            }, 800);
           } else {
             const errs = (res.body?.errors||[]).join('\n') || 'Falha ao excluir lote.';
             const warns = (res.body?.warnings||[]).join('\n');
-            alert([errs, warns].filter(Boolean).join('\n'));
+            const errMsg = [errs, warns].filter(Boolean).join('\n');
+            showToast(errMsg, 'error');
           }
         });
       })();
@@ -1435,7 +1511,14 @@
       let currentEditing = null; // { nunota, sequencia }
 
       async function openItemModal(data){ // data: { nunota, sequencia, codprod }
-        currentEditing = { nunota: data.nunota, sequencia: data.sequencia };
+        // Buscar controle (CODAGREGACAO) da linha ativa
+        let controle = null;
+        try {
+          const activeRow = tbl.querySelector('tbody tr.row--active');
+          controle = activeRow ? activeRow.dataset.nunota : null;
+        } catch(_) {}
+        
+        currentEditing = { nunota: data.nunota, sequencia: data.sequencia, codagregacao: controle };
         itemTitle.textContent = data.sequencia ? 'Editar Item' : 'Novo Item';
         // reset fields
         itemProdCod.value = data.codprod || '';
@@ -1498,7 +1581,85 @@
 
   async function confirmDeleteItem(nunota, sequencia){ if(!confirm(`Confirma excluir item ${sequencia} da nota ${nunota}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nunota,10), sequencias: [ parseInt(sequencia,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(window.__LOTES_CACHE){ const activeRow = tbl.querySelector('tbody tr.row--active'); const ctrl = activeRow ? activeRow.dataset.nunota : null; if(ctrl) delete window.__LOTES_CACHE[String(ctrl)]; } }catch(_){ } const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Falha: ' + (res.body?.error || (res.body?.errors||[]).join('\n') || 'Erro')); } }
 
-  itemDeleteBtn.addEventListener('click', async function(){ if(!currentEditing || !currentEditing.nunota || !currentEditing.sequencia) return; if(!confirm('Confirmar exclusão do item?')) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(currentEditing.nunota,10), sequencias: [ parseInt(currentEditing.sequencia,10) ] }); if(res.ok){ alert('Item excluído'); try{ if(window.__LOTES_CACHE){ const activeRow = tbl.querySelector('tbody tr.row--active'); const ctrl = activeRow ? activeRow.dataset.nunota : null; if(ctrl) delete window.__LOTES_CACHE[String(ctrl)]; } }catch(_){ } itemModal.style.display='none'; const activeRow = tbl.querySelector('tbody tr.row--active'); if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); } else { alert('Erro: ' + (res.body?.error || (res.body?.errors||[]).join('\n') || 'Falha')); } });
+  itemDeleteBtn.addEventListener('click', async function(){
+    if(!currentEditing || !currentEditing.nunota || !currentEditing.sequencia) return;
+    
+    const nunota = parseInt(currentEditing.nunota, 10);
+    const seq = parseInt(currentEditing.sequencia, 10);
+    const controle = currentEditing.codagregacao || null;
+    
+    console.log('[DELETE ITEM CLASSIF] NUNOTA:', nunota, 'SEQ:', seq, 'CODAGREGACAO:', controle);
+    
+    // CRÍTICO: Verificar se tem negociação comercial (VLRTOT > 0) antes de permitir exclusão
+    if (controle) {
+      try {
+        const checkRes = await fetch(`/sankhya/nota/check-negociacao/?controle=${encodeURIComponent(controle)}`, {credentials:'same-origin'});
+        
+        if (!checkRes.ok) {
+          if(typeof window.showToast === 'function'){
+            window.showToast('Erro ao verificar negociação. Tente novamente.', 'error');
+          } else {
+            alert('Erro ao verificar negociação. Tente novamente.');
+          }
+          return;
+        }
+        
+        const checkData = await checkRes.json();
+        console.log('[DELETE ITEM CLASSIF] Dados recebidos:', checkData);
+        
+        if (checkData.tem_negociacao === true) {
+          console.log('[DELETE ITEM CLASSIF] BLOQUEADO - Item tem negociação!');
+          if(typeof window.showToast === 'function'){
+            window.showToast('Item não pode ser excluído. Existe negociação do Comercial.', 'error');
+          } else {
+            alert('Item não pode ser excluído. Existe negociação do Comercial.');
+          }
+          return; // BLOQUEIA exclusão
+        }
+        
+        console.log('[DELETE ITEM CLASSIF] OK - Item não tem negociação, pode excluir');
+        
+      } catch(e) {
+        console.error('[DELETE ITEM CLASSIF] Erro ao verificar negociação:', e);
+        if(typeof window.showToast === 'function'){
+          window.showToast('Erro ao verificar negociação. Tente novamente.', 'error');
+        } else {
+          alert('Erro ao verificar negociação. Tente novamente.');
+        }
+        return; // BLOQUEIA por segurança
+      }
+    }
+    
+    // Só chega aqui se NÃO tiver negociação
+    if(!confirm('Confirmar exclusão do item?')) return;
+    
+    const res = await postJSON('/sankhya/item/delete/', { nunota: nunota, sequencias: [seq] });
+    
+    if(res.ok){
+      if(typeof window.showToast === 'function'){
+        window.showToast('Item excluído.', 'success');
+      } else {
+        alert('Item excluído');
+      }
+      try{ 
+        if(window.__LOTES_CACHE){ 
+          const activeRow = tbl.querySelector('tbody tr.row--active'); 
+          const ctrl = activeRow ? activeRow.dataset.nunota : null; 
+          if(ctrl) delete window.__LOTES_CACHE[String(ctrl)]; 
+        } 
+      }catch(_){ } 
+      itemModal.style.display='none'; 
+      const activeRow = tbl.querySelector('tbody tr.row--active'); 
+      if(activeRow) loadClassifiedFor(activeRow.dataset.nunota); 
+    } else { 
+      const errMsg = res.body?.error || (res.body?.errors||[]).join('\n') || 'Falha';
+      if(typeof window.showToast === 'function'){
+        window.showToast('Erro: ' + errMsg, 'error');
+      } else {
+        alert('Erro: ' + errMsg);
+      }
+    }
+  });
 
       itemModalSave.addEventListener('click', async function(){ const nun = currentEditing?.nunota; const seq = currentEditing?.sequencia; if(!nun){ alert('Nota desconhecida'); return; }
         // normalize numeric inputs (comma -> dot)
@@ -2367,7 +2528,81 @@
         }catch(_){ }
         // Modal "Editar Item" removido - edição inline desabilitada para melhor UX
         // tr.addEventListener('dblclick', function(){ ... });
-  tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunFromRow = tr.dataset.nunota ? parseInt(tr.dataset.nunota,10) : null; if(!nunFromRow || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: nunFromRow, sequencias: [ parseInt(seq,10) ] }); if(res.ok){ try{ refreshItemsList(); }catch(_){ } try{ if(window.__LOTES_CACHE && it.lote && window.__LOTES_CACHE[it.lote]){ delete window.__LOTES_CACHE[it.lote]; } }catch(_){} try{ refreshClassifiedCard(it.lote); }catch(_){ } try{ resetItemForm(); }catch(_){ } try{ const prodVis = document.getElementById('item_prod_vis'); if(prodVis) prodVis.focus(); }catch(_){ } try{ updateHeaderQuantities(it.lote); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
+  tr.querySelector('.item-del')?.addEventListener('click', async function(e){
+    const seq = e.currentTarget.dataset.seq;
+    const nunFromRow = tr.dataset.nunota ? parseInt(tr.dataset.nunota,10) : null;
+    const lote = it.lote || null; // CODAGREGACAO
+    
+    if(!nunFromRow || !seq) return;
+    
+    console.log('[DELETE ITEM LISTA] NUNOTA:', nunFromRow, 'SEQ:', seq, 'CODAGREGACAO:', lote);
+    
+    // CRÍTICO: Verificar se tem negociação comercial (VLRTOT > 0) antes de permitir exclusão
+    if (lote) {
+      try {
+        const checkRes = await fetch(`/sankhya/nota/check-negociacao/?controle=${encodeURIComponent(lote)}`, {credentials:'same-origin'});
+        
+        if (!checkRes.ok) {
+          if(typeof window.showToast === 'function'){
+            window.showToast('Erro ao verificar negociação. Tente novamente.', 'error');
+          } else {
+            alert('Erro ao verificar negociação. Tente novamente.');
+          }
+          return;
+        }
+        
+        const checkData = await checkRes.json();
+        console.log('[DELETE ITEM LISTA] Dados recebidos:', checkData);
+        
+        if (checkData.tem_negociacao === true) {
+          console.log('[DELETE ITEM LISTA] BLOQUEADO - Item tem negociação!');
+          if(typeof window.showToast === 'function'){
+            window.showToast('Item não pode ser excluído. Existe negociação do Comercial.', 'error');
+          } else {
+            alert('Item não pode ser excluído. Existe negociação do Comercial.');
+          }
+          return; // BLOQUEIA exclusão
+        }
+        
+        console.log('[DELETE ITEM LISTA] OK - Item não tem negociação, pode excluir');
+        
+      } catch(e) {
+        console.error('[DELETE ITEM LISTA] Erro ao verificar negociação:', e);
+        if(typeof window.showToast === 'function'){
+          window.showToast('Erro ao verificar negociação. Tente novamente.', 'error');
+        } else {
+          alert('Erro ao verificar negociação. Tente novamente.');
+        }
+        return; // BLOQUEIA por segurança
+      }
+    }
+    
+    // Só chega aqui se NÃO tiver negociação
+    const productLabel = `${it.cod||''} ${it.descr||''}`;
+    const loteLabel = it.lote ? ` Lote ${it.lote}` : '';
+    if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return;
+    
+    const res = await postJSON('/sankhya/item/delete/', { nunota: nunFromRow, sequencias: [ parseInt(seq,10) ] });
+    
+    if(res.ok){
+      if(typeof window.showToast === 'function'){
+        window.showToast('Item excluído.', 'success');
+      }
+      try{ refreshItemsList(); }catch(_){ }
+      try{ if(window.__LOTES_CACHE && it.lote && window.__LOTES_CACHE[it.lote]){ delete window.__LOTES_CACHE[it.lote]; } }catch(_){}
+      try{ refreshClassifiedCard(it.lote); }catch(_){ }
+      try{ resetItemForm(); }catch(_){ }
+      try{ const prodVis = document.getElementById('item_prod_vis'); if(prodVis) prodVis.focus(); }catch(_){ }
+      try{ updateHeaderQuantities(it.lote); }catch(_){ }
+    } else {
+      const errMsg = (res.body?.errors||[]).join('\n') || 'Falha ao excluir';
+      if(typeof window.showToast === 'function'){
+        window.showToast(errMsg, 'error');
+      } else {
+        alert('Falha ao excluir: ' + errMsg);
+      }
+    }
+  });
   tr.addEventListener('dblclick', function(){ try{ const seq = tr.dataset.seq; if(!seq) return; const seqInp = document.getElementById('item_seq_edit'); if(seqInp) seqInp.value = seq; const prodH = document.getElementById('item_prod_hidden'); const prodV = document.getElementById('item_prod_vis'); if(prodH) prodH.value = tr.dataset.cod || ''; if(prodV) prodV.value = tr.dataset.cod ? `${tr.dataset.cod} — ${tr.dataset.descr||''}` : ''; const volH = document.getElementById('item_vol_hidden'); const volV = document.getElementById('item_vol'); if(volH) volH.value = tr.dataset.codvol || ''; if(volV) volV.value = tr.dataset.codvol || ''; const qtd = document.getElementById('item_qtd'); if(qtd) qtd.value = tr.dataset.qtd || ''; const peso = document.getElementById('item_peso'); if(peso) peso.value = tr.dataset.peso || ''; const obs = document.getElementById('item_obs'); if(obs) obs.value = tr.dataset.obs || ''; const chk = document.getElementById('item_classifica'); if(chk) chk.checked = (String(tr.dataset.gp||'S').toUpperCase() !== 'N'); const addBtn = document.getElementById('itemAddBtn'); if(addBtn){ addBtn.setAttribute('title','Atualizar'); addBtn.dataset.mode = 'edit'; try{ const icon = addBtn.querySelector('svg'); if(icon){ icon.innerHTML = '<path d="M20 6L9 17l-5-5" />'; icon.setAttribute('viewBox','0 0 24 24'); } addBtn.classList.add('success'); }catch(_){ } } try{ recalcItemTotal(); }catch(_){ } try{ prodV && prodV.focus(); }catch(_){ } }catch(e){ console.error('editLoad failed', e); } });
       }
 

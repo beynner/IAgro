@@ -174,6 +174,11 @@
   /* grid de mini-cards dentro do distMain */
   #distGrid{flex:1 1 auto;min-height:0;height:100%;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:104px auto auto;gap:8px;align-content:start;align-items:stretch}
   .dist-mini{background:var(--card);border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px 8px calc(var(--mini-label-w) + 6px);display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.04)}
+  /* Toggle Projeção/Real */
+  .value-toggle{display:inline-flex;background:#f1f5f9;border-radius:6px;padding:2px;gap:2px}
+  .toggle-btn{flex:1;padding:4px 16px;font-size:.75rem;font-weight:600;color:#64748b;background:transparent;border:none;border-radius:4px;cursor:pointer;transition:all 0.2s ease;letter-spacing:.02em;text-transform:uppercase}
+  .toggle-btn.active{background:#fff;color:#0a3392;box-shadow:0 1px 3px rgba(0,0,0,0.1)}
+  .toggle-btn:hover:not(.active){color:#475569}
   #distHistory{grid-column:1/3;grid-row:2 / 4;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.04), 0 6px 18px -14px rgba(15,23,42,0.25);min-height:220px}
   #distHistory .hist-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
   #distHistory .hist-title{font-size:.82rem;font-weight:700;color:#0f172a;letter-spacing:.05em;text-transform:uppercase}
@@ -1045,6 +1050,15 @@
               <div id="distMain">
                 <h3 style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
                   <span>Distribuição</span>
+                  <!-- Toggle Projeção/Real -->
+                  <div class="value-toggle" role="radiogroup" aria-label="Modo de exibição do valor">
+                    <button id="toggleProjecao" class="toggle-btn" role="radio" aria-checked="false" data-mode="projecao">
+                      Projeção
+                    </button>
+                    <button id="toggleReal" class="toggle-btn" role="radio" aria-checked="false" data-mode="real">
+                      Real
+                    </button>
+                  </div>
                 </h3>
                 <!-- grade interna de mini-cards: KPIs superiores, histórico e cards Extra/Médio -->
                 <div id="distGrid">
@@ -1342,6 +1356,23 @@
                     <div class="big" id="quantidadeInn"></div>
                     <div class="unit">CX</div>
                   </div>
+                  <!-- Preços abaixo da quantidade, na mesma linha -->
+                  <div class="kpi-row" style="display: flex; gap: 1rem; justify-content: center; margin-top: 0.5rem;">
+                    <div class="value" style="display: flex; align-items: baseline; gap: 0.25rem;">
+                      <span style="font-size: 0.75rem; opacity: 0.6;">R$</span>
+                      <span id="entPrecoCxDisplay" class="editable" role="button" tabindex="0" aria-label="Editar preço por caixa" style="font-weight: 700; font-size: 1.1rem;"></span><span class="unit" style="margin-left: 0;">/cx</span>
+                      <input id="entPrecoCxInput" class="preco-input" type="text" inputmode="decimal" aria-label="Preço por caixa" />
+                    </div>
+                    <div class="value" style="display: flex; align-items: baseline; gap: 0.25rem;">
+                      <span style="font-size: 0.75rem; opacity: 0.6;">R$</span>
+                      <span id="entPrecoKg" style="font-weight: 700; font-size: 1.1rem;"></span><span class="unit" style="margin-left: 0;">/kg</span>
+                    </div>
+                  </div>
+                  <div class="kpi-row total" style="margin-top: 0.5rem; border-top: none;">
+                    <div class="metric-label">Valor Total</div>
+                    <div class="value"><span class="currency">R$</span><span id="entTotalIn"></span></div>
+                  </div>
+                  <div class="divider" role="separator" aria-hidden="true"></div>
                   <div class="peso-row">
                     <div class="metric-label">Peso In Natura</div>
                     <div class="value">
@@ -1352,24 +1383,6 @@
                   <div class="peso-row">
                     <div class="metric-label">Peso Total Aproximado</div>
                     <div class="value"><span id="totalInn"></span> <span class="unit">kg</span></div>
-                  </div>
-                  <!-- Divisor para separar seção de preço -->
-                  <div class="divider" role="separator" aria-hidden="true"></div>
-                  <div class="kpi-row">
-                    <div class="metric-label">Preço Inicial</div>
-                    <div class="value">
-                      <span id="entPrecoCxDisplay" class="editable" role="button" tabindex="0" aria-label="Editar preço por caixa"></span>
-                      <input id="entPrecoCxInput" class="preco-input" type="text" inputmode="decimal" aria-label="Preço por caixa" />
-                      <span class="unit">/cx</span>
-                    </div>
-                  </div>
-                  <div class="kpi-row">
-                    <div class="metric-label"></div>
-                    <div class="value"><span id="entPrecoKg"></span> <span class="unit">/kg</span></div>
-                  </div>
-                  <div class="kpi-row total">
-                    <div class="metric-label">Valor Total</div>
-                    <div class="value"><span class="currency">R$</span><span id="entTotalIn"></span></div>
                   </div>
                 </div>
               </div>
@@ -1963,6 +1976,104 @@
       }catch{}
     })();
 
+    // Toggle Projeção/Real handler
+    (function(){
+      const toggleProjecao = document.getElementById('toggleProjecao');
+      const toggleReal = document.getElementById('toggleReal');
+      const btnReset = document.getElementById('dist-btn-reset');
+      const btnSave = document.getElementById('dist-btn-save');
+      
+      if(!toggleProjecao || !toggleReal) return;
+
+      // Estado inicial (será definido baseado em pendenteClass)
+      window.__VALOR_TOTAL_MODE = 'projecao';
+
+      const setActiveToggle = (mode, isAutomatic = false) => {
+        window.__VALOR_TOTAL_MODE = mode;
+        
+        if(mode === 'projecao'){
+          toggleProjecao.classList.add('active');
+          toggleProjecao.setAttribute('aria-checked', 'true');
+          toggleReal.classList.remove('active');
+          toggleReal.setAttribute('aria-checked', 'false');
+          
+          // Desativar botões zerar e salvar
+          if(btnReset){
+            btnReset.disabled = true;
+            btnReset.style.opacity = '0.4';
+            btnReset.style.cursor = 'not-allowed';
+          }
+          if(btnSave){
+            btnSave.disabled = true;
+            btnSave.style.opacity = '0.4';
+            btnSave.style.cursor = 'not-allowed';
+          }
+        } else {
+          toggleReal.classList.add('active');
+          toggleReal.setAttribute('aria-checked', 'true');
+          toggleProjecao.classList.remove('active');
+          toggleProjecao.setAttribute('aria-checked', 'false');
+          
+          // Reativar botões zerar e salvar
+          if(btnReset){
+            btnReset.disabled = false;
+            btnReset.style.opacity = '0.8';
+            btnReset.style.cursor = 'pointer';
+          }
+          if(btnSave){
+            btnSave.disabled = false;
+            btnSave.style.opacity = '0.85';
+            btnSave.style.cursor = 'pointer';
+          }
+        }
+
+        console.log('[TOGGLE] Modo alterado para:', mode, isAutomatic ? '(automático)' : '(manual)');
+        console.log('[TOGGLE] Botões desativados:', mode === 'projecao');
+      };
+
+      // Função para atualizar toggle baseado em pendenteClass
+      const updateToggleFromPendenteClass = () => {
+        // PRIORIDADE 1: Verificar se existe VLRTOT salvo (valor já negociado/salvo)
+        const savedVlrtot = window.__SAVED_VLRTOT;
+        if(savedVlrtot != null && isFinite(savedVlrtot) && savedVlrtot > 0){
+          console.log('[TOGGLE] VLRTOT salvo detectado:', savedVlrtot, '- ativando modo Real');
+          setActiveToggle('real', true);
+          return;
+        }
+        
+        // PRIORIDADE 2: Verificar pendenteClass (classificação finalizada)
+        const classCard = document.getElementById('classCard');
+        if(!classCard) {
+          console.log('[TOGGLE] classCard não encontrado, usando modo Projeção');
+          setActiveToggle('projecao', true);
+          return;
+        }
+        
+        const pendenteClass = (classCard.getAttribute('data-pendente-class') || '').toUpperCase();
+        console.log('[TOGGLE] pendenteClass detectado:', pendenteClass);
+        
+        if(pendenteClass === 'N'){
+          // Finalizado - usar modo Real
+          console.log('[TOGGLE] PENDENTE=N (finalizado) - ativando modo Real');
+          setActiveToggle('real', true);
+        } else {
+          // Não finalizado - usar modo Projeção
+          console.log('[TOGGLE] PENDENTE!="N" (não finalizado) - ativando modo Projeção');
+          setActiveToggle('projecao', true);
+        }
+      };
+
+      // Eventos de clique manual
+      toggleProjecao.addEventListener('click', () => setActiveToggle('projecao', false));
+      toggleReal.addEventListener('click', () => setActiveToggle('real', false));
+      
+      // Expor função global para ser chamada após carregamento de dados
+      window.__updateToggleFromPendenteClass = updateToggleFromPendenteClass;
+      
+      // Inicializar com verificação de pendenteClass
+      updateToggleFromPendenteClass();
+    })();
+
     // Comercial: carregar tabela 'Lista' (Parceiro, Produto, Qtde, Data) e suportar seleção + agrupamento de não-classificáveis
     (function(){
       const bodyEl = document.getElementById('listaBody');
@@ -2402,9 +2513,9 @@
               const totalTxt = document.getElementById('entTotalIn')?.textContent || '0';
               const totalNum = Number((totalTxt||'0').replace(/\./g,'').replace(',','.')) || 0;
               const precoKgEl = document.getElementById('entPrecoKg');
-              const fmtMoney = (n)=> new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n||0);
+              const fmtNumber = (n) => isNaN(n) ? '0,00' : new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(n);
               const precoKgNum = (total>0)? (totalNum / total) : 0;
-                if(precoKgEl) precoKgEl.textContent = fmtMoney(precoKgNum);
+                if(precoKgEl) precoKgEl.textContent = fmtNumber(precoKgNum);
                 if(precoKgNum > 0 && typeof window.__DIST_seedExtraCustoKg === 'function'){
                   window.__DIST_seedExtraCustoKg(precoKgNum, true);
                   if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh();
@@ -2422,10 +2533,10 @@
             const precoDisp = document.getElementById('entPrecoCxDisplay');
             const totalEl = document.getElementById('entTotalIn');
             const precoKgEl = document.getElementById('entPrecoKg');
-            const fmtMoney = (n)=> new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n||0);
+            const fmtNumber = (n) => isNaN(n) ? '0,00' : new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(n);
             let precoAgg = 0;
             if(weightedPrecoCx > 0){ precoAgg = weightedPrecoNum / weightedPrecoCx; }
-            if(precoDisp){ precoDisp.textContent = precoAgg>0 ? fmtMoney(precoAgg) : '-'; }
+            if(precoDisp){ precoDisp.textContent = precoAgg>0 ? fmtNumber(precoAgg) : '-'; }
             if(precoAgg>0 && (sumCx||0) > 0){
               const totalVal = (sumCx||0) * precoAgg;
               if(totalEl) totalEl.textContent = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(totalVal);
@@ -2433,7 +2544,7 @@
                 const totKgTxt = pesoTotalApproxEl?.textContent || '0';
                 const totKg = Number(totKgTxt.replace(/\./g,'').replace(',','.')) || 0;
                 const precoKgNum = totKg>0 ? (totalVal / totKg) : 0;
-                if(precoKgEl) precoKgEl.textContent = fmtMoney(precoKgNum);
+                if(precoKgEl) precoKgEl.textContent = fmtNumber(precoKgNum);
                 if(precoKgNum > 0 && typeof window.__DIST_seedExtraCustoKg === 'function'){
                   window.__DIST_seedExtraCustoKg(precoKgNum, true);
                   if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh();
@@ -2602,9 +2713,9 @@
           if(precoCxDisp){
             const raw = (item.preco_inicial == null ? null : item.preco_inicial);
             const v0 = Number(raw == null ? 0 : raw);
-            const fmtMoney = (n)=> new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(isFinite(n)?n:0);
+            const fmtNumber = (n) => isNaN(n) ? '0,00' : new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(n);
             try{ console.debug('applyItemToEntrada preco_inicial=', raw, 'parsed=', v0); }catch{}
-            precoCxDisp.textContent = fmtMoney(v0);
+            precoCxDisp.textContent = fmtNumber(v0);
             // Se houver valor inicial e unidade em CX, calcular Valor Total e R$/kg
             try{
               const totalEl = document.getElementById('entTotalIn');
@@ -2619,7 +2730,7 @@
                 const updatePrecoKg = (totalNumber)=>{
                   const pesoTot = getPesoTotal();
                   const precoKgNum = pesoTot>0 ? (totalNumber / pesoTot) : 0;
-                  if(precoKgEl) precoKgEl.textContent = fmtMoney(precoKgNum);
+                  if(precoKgEl) precoKgEl.textContent = fmtNumber(precoKgNum);
                   let triggered = false;
                   if(precoKgNum > 0 && typeof window.__DIST_seedExtraCustoKg === 'function'){
                     window.__DIST_seedExtraCustoKg(precoKgNum, true);
@@ -2674,6 +2785,11 @@
                 const savedVlrunit = Number(item?.vlrunit);
                 window.__SAVED_VLRUNIT = savedVlrunit;
                 window.__SAVED_VLRTOT = rawVlrtot; // Salva VLRTOT para verificação no Cenário 1
+                
+                // Atualizar toggle quando VLRTOT é definido
+                if(typeof window.__updateToggleFromPendenteClass === 'function'){
+                  setTimeout(() => window.__updateToggleFromPendenteClass(), 100);
+                }
                 
                 if (isFinite(savedVlrunit) && savedVlrunit > 0) {
                   console.log('[ITEM SELECT] Usando VLRUNIT salvo:', savedVlrunit);
@@ -2838,6 +2954,8 @@
               console.log('[COMERCIAL] data-pendente-class setado:', card.getAttribute('data-pendente-class'));
               // Re-renderizar gauge após setar PENDENTE
               if(typeof window.recalcClassificacaoMetrics === 'function') window.recalcClassificacaoMetrics();
+              // Atualizar toggle baseado em pendenteClass
+              if(typeof window.__updateToggleFromPendenteClass === 'function') window.__updateToggleFromPendenteClass();
             }
           }catch(e){ console.error('[COMERCIAL] Erro ao buscar PENDENTE:', e); }
           
@@ -2926,6 +3044,8 @@
                     console.log('[RESUMO] data-pendente-class setado:', card.getAttribute('data-pendente-class'));
                     // Re-renderizar gauge após setar PENDENTE
                     if(typeof window.recalcClassificacaoMetrics === 'function') window.recalcClassificacaoMetrics();
+                    // Atualizar toggle baseado em pendenteClass
+                    if(typeof window.__updateToggleFromPendenteClass === 'function') window.__updateToggleFromPendenteClass();
                   }
                   classCx = jdet.classificacoes.reduce((s,it)=>{
                     const q = parseFloat(it && (it.qtd != null ? it.qtd : it.QTDNEG));
@@ -5942,6 +6062,24 @@
         }
       };
 
+      // ========================================================================
+      // NOTIFICAÇÃO TOAST
+      // ========================================================================
+      
+      function showToast(message, type){ // type: info|success|error
+        try{
+          const id = 'comercialToast';
+          let el = document.getElementById(id);
+          if(!el){ el = document.createElement('div'); el.id = id; el.style.position = 'fixed'; el.style.right = '16px'; el.style.top = '18px'; el.style.minWidth = '220px'; el.style.maxWidth = '420px'; el.style.zIndex = '10050'; el.style.fontSize = '13px'; document.body.appendChild(el); }
+          const msg = document.createElement('div'); msg.style.marginTop='8px'; msg.style.padding='10px 12px'; msg.style.borderRadius='6px'; msg.style.color = type === 'error' ? '#fff' : '#111'; msg.style.background = type === 'error' ? '#e55353' : (type === 'success' ? '#2ea44f' : '#ffd966'); msg.style.boxShadow = '0 6px 18px rgba(0,0,0,0.12)'; msg.textContent = message;
+          el.appendChild(msg);
+          setTimeout(()=>{ try{ msg.style.transition='opacity .4s ease, transform .35s ease'; msg.style.opacity='0'; msg.style.transform='translateY(-6px)'; setTimeout(()=> msg.remove(), 420); }catch(_){ msg.remove(); } }, 3600);
+        }catch(e){ console.error('showToast', e); }
+      }
+      
+      // Expõe globalmente para reutilização
+      window.showToast = showToast;
+
       /**
        * Recalcula Extra e Médio com base no novo Valor Total
        */
@@ -6828,7 +6966,8 @@
   try{ renderClassCardsFromClassification(); }catch{}
 
       async function handleSave(){
-        try { if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh(); } catch(_){ }
+        // NÃO chamar refresh aqui - pode recalcular valores incorretamente
+        // try { if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh(); } catch(_){ }
         const st = getState();
         const card = document.getElementById('quantidadeInnCard');
         const nunota = card ? Number(card.getAttribute('data-nunota') || '0') : 0;
@@ -6839,13 +6978,63 @@
         }
 
         const totalRaw = Number(st?.custo?.total);
+        const custoCxRaw = Number(st?.custo?.porCx);
         const custoKgRaw = Number(st?.custo?.porKg);
-        if(!Number.isFinite(totalRaw)){
+        
+        // Pegar valor correto dos displays visuais se o estado estiver errado
+        const costCxDisplay = document.getElementById('costCxDisplay');
+        const costKgDisplay = document.getElementById('costKgDisplay');
+        const totalValueDisplay = document.getElementById('totalValueDisplay');
+        
+        const parsePTfromDisplay = (text) => {
+          if(!text) return NaN;
+          const cleaned = text.toString().trim()
+            .replace(/[^0-9,\.-]/g, '')
+            .replace(/\.(?=\d{3}(\D|$))/g, '')
+            .replace(',', '.');
+          return Number(cleaned);
+        };
+        
+        // PRIORIDADE: Usar valores dos DISPLAYS (o que o usuário vê)
+        const totalFromDisplay = parsePTfromDisplay(totalValueDisplay?.textContent);
+        const custoCxFromDisplay = parsePTfromDisplay(costCxDisplay?.textContent);
+        const custoKgFromDisplay = parsePTfromDisplay(costKgDisplay?.textContent);
+        
+        // Usar display como fonte de verdade, fallback para estado
+        const totalParaSalvar = Number.isFinite(totalFromDisplay) ? totalFromDisplay : totalRaw;
+        const custoCxParaSalvar = Number.isFinite(custoCxFromDisplay) ? custoCxFromDisplay : custoCxRaw;
+        const custoKgParaSalvar = Number.isFinite(custoKgFromDisplay) ? custoKgFromDisplay : custoKgRaw;
+        
+        console.log('[SAVE] Valores do ESTADO:', {
+          total: totalRaw,
+          custoCx: custoCxRaw,
+          custoKg: custoKgRaw
+        });
+        
+        console.log('[SAVE] Valores dos DISPLAYS (fonte de verdade):', {
+          total: totalFromDisplay,
+          custoCx: custoCxFromDisplay,
+          custoKg: custoKgFromDisplay
+        });
+        
+        console.log('[SAVE] Valores que SERÃO SALVOS:', {
+          total: totalParaSalvar,
+          custoCx: custoCxParaSalvar,
+          custoKg: custoKgParaSalvar
+        });
+        
+        if(!Number.isFinite(totalParaSalvar)){
           alert('Valor total indisponível para salvar no momento.');
           return;
         }
-        if(!Number.isFinite(custoKgRaw)){
-          alert('Custo por kg indisponível para salvar.');
+        
+        // CRÍTICO: VLRUNIT no Sankhya deve ser o custo por CAIXA, não por KG!
+        const vlrunitParaSalvar = Number.isFinite(custoCxParaSalvar) && custoCxParaSalvar > 0 
+          ? custoCxParaSalvar 
+          : custoKgParaSalvar;
+        
+        if(!Number.isFinite(vlrunitParaSalvar)){
+          alert('Custo unitário indisponível para salvar.');
           return;
         }
 
@@ -6888,8 +7077,8 @@
         const payload = {
           nunota,
           sequencia,
-          valor_total: Number(totalRaw.toFixed(2)),
-          custo_kg: Number(custoKgRaw.toFixed(6)),
+          valor_total: Number(totalParaSalvar.toFixed(2)),
+          custo_kg: Number(vlrunitParaSalvar.toFixed(6)),  // Este vai para VLRUNIT (valor por CX!)
           custo_extra_total: Number.isFinite(extraTotalRaw) ? Number(extraTotalRaw.toFixed(2)) : null,
           custo_medio_total: Number.isFinite(medioTotalRaw) ? Number(medioTotalRaw.toFixed(2)) : null,
           custo_extra_kg: Number.isFinite(extraKgRaw) ? Number(extraKgRaw.toFixed(6)) : null,
@@ -6901,7 +7090,11 @@
           sim_vlr2: Number.isFinite(medioTotalFromInput) ? Number(medioTotalFromInput.toFixed(2)) : null,
         };
         
-        console.log('[SAVE DEBUG] Payload montado:', payload);
+        console.log('[SAVE DEBUG] ========================================');
+        console.log('[SAVE DEBUG] Payload final montado:', payload);
+        console.log('[SAVE DEBUG] IMPORTANTE: custo_kg no payload = R$', vlrunitParaSalvar, '/cx');
+        console.log('[SAVE DEBUG] Isso vai para VLRUNIT (valor por CAIXA no banco)');
+        console.log('[SAVE DEBUG] ========================================');
 
         let originalLabel = '';
         if(btnSave){
@@ -6913,11 +7106,11 @@
         try{
           const res = await window.__postJSON('/sankhya/comercial/dist/save/', payload);
           if(res.ok){
-            alert('Distribuição salva com sucesso.');
+            showToast('Salvo.', 'success');
             window.dispatchEvent(new CustomEvent('dist:salvo', { detail: { nunota, sequencia, payload, response: res.body } }));
             try{
               const savedTotal = Number(payload.valor_total);
-              const savedVlrunit = Number(payload.custo_kg);
+              const savedVlrunit = Number(payload.custo_kg);  // Este é o custo por CX
               const rows = Array.isArray(window.__COM_LIST_ROWS) ? window.__COM_LIST_ROWS : [];
               const match = rows.find(r=> Number(r?.nunota||0) === Number(nunota) && Number(r?.sequencia||0) === Number(sequencia));
               
@@ -6925,7 +7118,8 @@
                 nunota,
                 sequencia,
                 vlrtot_salvo: savedTotal,
-                vlrunit_salvo: savedVlrunit
+                vlrunit_salvo: savedVlrunit,
+                observacao: 'vlrunit é o custo por CAIXA'
               });
               
               if(match){
@@ -6945,6 +7139,7 @@
               
               // NÃO chamar __setDistribTotal aqui - deixa o valor como está na UI
               // A UI já está mostrando o valor correto, não precisa redistribuir
+              // NÃO chamar __syncExtraMedio ou qualquer recálculo - valores já estão corretos
             }catch(_){ }
           }else{
             const errMsg = res.body?.error || (Array.isArray(res.body?.errors) ? res.body.errors.join('; ') : '') || 'Falha ao salvar os valores.';
@@ -6970,7 +7165,7 @@
           return;
         }
 
-        const confirmMsg = 'Deseja zerar a negociação? O valor total e o preço unitário serão definidos como R$ 0,00.';
+        const confirmMsg = 'Deseja zerar a negociação? Os valores serão recalculados baseando no Preço Inicial.';
         if(typeof window.confirm === 'function' && !window.confirm(confirmMsg)){
           return;
         }
@@ -7007,82 +7202,145 @@
               }
             }catch{}
 
+            // Zera estado local COMPLETAMENTE
             let resetMatch = null;
-            const calcFallbackTotal = () => {
-              try{
-                const rows = Array.isArray(window.__COM_LIST_ROWS) ? window.__COM_LIST_ROWS : [];
-                if(!rows.length) return 0;
-                const match = rows.find(r => Number(r?.nunota||0) === Number(nunota) && Number(r?.sequencia||0) === Number(sequencia));
-                resetMatch = match || null;
-                if(!match) return 0;
-                const unitRaw = match?.codvol ?? match?.unidade ?? match?.unid ?? '';
-                const unit = String(unitRaw || '').trim().toUpperCase();
-                if(unit && unit !== 'CX' && unit !== 'CAIXA') return 0;
-                const qty = Number(match?.qtdneg ?? match?.qtde ?? match?.quantidade ?? 0);
-                const precoBase = Number(match?.precobase ?? match?.preco_inicial ?? 0);
-                if(!(qty > 0) || !(precoBase > 0)) return 0;
-                const total = qty * precoBase;
-                return Number.isFinite(total) ? Number(total.toFixed(2)) : 0;
-              }catch(err){
-                try{ console.error('dist reset fallback calc failed', err); }catch{}
-                return 0;
-              }
-            };
-            const fallbackTotal = calcFallbackTotal();
-
-            try{ if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh(); }catch{}
-            try{ if(typeof window.updateResumoFinanceiro === 'function') window.updateResumoFinanceiro(); }catch{}
-
-            const normalizedFallback = Number.isFinite(fallbackTotal) && fallbackTotal > 0 ? fallbackTotal : 0;
             try{
               const st = getState();
               if(st){
                 st.hydrated = false;
                 if(st.custo){
-                  st.custo.total = normalizedFallback;
+                  st.custo.total = 0;
                   st.custo.porKg = 0;
                   st.custo.porCx = 0;
                 }
+                if(st.categorias){
+                  const resetBucket = (bucket) => {
+                    if(!bucket || typeof bucket !== 'object') return;
+                    bucket.custoKg = 0;
+                    bucket.custoCx = 0;
+                    bucket.custoTotal = 0;
+                  };
+                  resetBucket(st.categorias.extra);
+                  resetBucket(st.categorias.medio);
+                }
               }
-            }catch{}
-
-            try{
-              if(typeof window.__DIST_updateTotalCard === 'function'){
-                window.__DIST_updateTotalCard(normalizedFallback, { allowUI: true, syncInput: true });
-              }else{
-                const display = document.getElementById('totalValueDisplay');
-                if(display) display.textContent = formatMoney(normalizedFallback);
+              
+              // CRÍTICO: Zera estado Extra/Médio para forçar recálculo do zero
+              const extraMedioState = window.__DIST_EXTRA_MEDIO_STATE;
+              if(extraMedioState){
+                console.log('[ZERAR] Zerando estado Extra/Médio completamente');
+                extraMedioState.extraCustoTotal = 0;
+                extraMedioState.medioCustoTotal = 0;
+                extraMedioState.extraCustoCx = 0;
+                extraMedioState.medioCustoCx = 0;
+                extraMedioState.extraCustoKg = 0;
+                extraMedioState.medioCustoKg = 0;
               }
-            }catch{}
-
-            try{
-              if(resetMatch){
-                resetMatch.vlrtot = 0;
-                if(Object.prototype.hasOwnProperty.call(resetMatch, 'valor_total')){
-                  resetMatch.valor_total = 0;
+              
+              // Busca o item na lista para pegar dados originais
+              const rows = Array.isArray(window.__COM_LIST_ROWS) ? window.__COM_LIST_ROWS : [];
+              if(rows.length > 0){
+                const match = rows.find(r => Number(r?.nunota||0) === Number(nunota) && Number(r?.sequencia||0) === Number(sequencia));
+                resetMatch = match || null;
+                if(resetMatch){
+                  // Zera VLRTOT no cache local também
+                  resetMatch.vlrtot = 0;
+                  resetMatch.vlrunit = 0;
+                  if(Object.prototype.hasOwnProperty.call(resetMatch, 'valor_total')){
+                    resetMatch.valor_total = 0;
+                  }
+                  console.log('[ZERAR] Cache local zerado para item');
                 }
               }
             }catch{}
+
+            try{ if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh(); }catch{}
+            try{ if(typeof window.updateResumoFinanceiro === 'function') window.updateResumoFinanceiro(); }catch{}
             
             // Zera VLRTOT salvo globalmente para Cenário 1 não detectar negociação
             try{
               window.__SAVED_VLRTOT = 0;
-              console.log('[ZERAR] VLRTOT global zerado');
+              window.__SAVED_VLRUNIT = 0;
+              console.log('[ZERAR] VLRTOT e VLRUNIT globais zerados');
+            }catch{}
+            
+            // Atualizar toggle após zerar (volta para modo Projeção)
+            try{
+              if(typeof window.__updateToggleFromPendenteClass === 'function'){
+                console.log('[ZERAR] Atualizando toggle após zerar negociação');
+                window.__updateToggleFromPendenteClass();
+              }
             }catch{}
 
             try{
               window.dispatchEvent(new CustomEvent('dist:reset', { detail: { nunota, sequencia, response: res.body } }));
             }catch{}
 
-            // Dispara Cenário 1 para recalcular tudo com precoBase
+            // CRÍTICO: Dispara Cenário 1 para recalcular tudo com precoBase
             try{
               if(typeof window.__syncExtraMedio === 'function'){
-                console.log('[ZERAR] Recalculando Extra/Médio (Cenário 1)');
+                console.log('[ZERAR] Executando Cenário 1 - recalculando com preço base');
                 window.__syncExtraMedio('reset');
               }
             }catch{}
+            
+            // Atualiza cards de classificação para refletir novos valores
+            try{
+              if(typeof window.__DIST_renderClassCardsFromClassification === 'function'){
+                console.log('[ZERAR] Renderizando cards Extra/Médio');
+                window.__DIST_renderClassCardsFromClassification();
+              }
+            }catch{}
+            
+            // CRÍTICO: Força atualização dos displays após recalcular
+            try{
+              setTimeout(() => {
+                const state = window.__DIST_EXTRA_MEDIO_STATE;
+                if(!state){
+                  console.warn('[ZERAR] Estado Extra/Médio não encontrado');
+                  return;
+                }
+                
+                // Calcula totais do estado
+                const valorTotal = (state.extraCustoTotal || 0) + (state.medioCustoTotal || 0);
+                const totalCx = (state.extraCx || 0) + (state.medioCx || 0);
+                const totalKg = (state.extraKg || 0) + (state.medioKg || 0);
+                
+                const totalCustoCx = totalCx > 0 ? (valorTotal / totalCx) : 0;
+                const totalCustoKg = totalKg > 0 ? (valorTotal / totalKg) : 0;
+                
+                console.log('[ZERAR] Atualizando displays após Cenário 1:', {
+                  valorTotal,
+                  totalCustoCx,
+                  totalCustoKg,
+                  estado: state
+                });
+                
+                // Atualiza displays
+                const totalValueDisplay = document.getElementById('totalValueDisplay');
+                const costCxDisplay = document.getElementById('costCxDisplay');
+                const costKgDisplay = document.getElementById('costKgDisplay');
+                const formatDecimal = (v) => (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                
+                if(totalValueDisplay){
+                  totalValueDisplay.textContent = formatMoney(valorTotal);
+                  console.log('[ZERAR] ✅ Valor Total display atualizado:', valorTotal);
+                }
+                if(costCxDisplay){
+                  costCxDisplay.textContent = formatDecimal(totalCustoCx);
+                  console.log('[ZERAR] ✅ Custo/CX display atualizado:', totalCustoCx);
+                }
+                if(costKgDisplay){
+                  costKgDisplay.textContent = formatDecimal(totalCustoKg);
+                  console.log('[ZERAR] ✅ Custo/KG display atualizado:', totalCustoKg);
+                }
+                
+              }, 200); // Delay maior para garantir que tudo finalizou
+            }catch(e){
+              console.error('[ZERAR] Erro ao atualizar displays:', e);
+            }
 
-            alert('Negociação zerada com sucesso.');
+            showToast('Negociação zerada!!!', 'success');
           }else{
             const errMsg = res.body?.error || (Array.isArray(res.body?.errors) ? res.body.errors.join('; ') : '') || 'Falha ao zerar a negociação.';
             alert(errMsg);
@@ -7386,6 +7644,7 @@
         // Peso In Natura por caixa (inicial): se fornecido por atributo data-preco-kg? não; calcular como kgIn / cx
         const perBox = (cx>0 && kgIn>0) ? (kgIn / cx) : 0;
         const fmtOneDecimal = (n)=> isNaN(n) ? '0,0' : n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+        const fmtNumber = (n) => isNaN(n) ? '0,00' : new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(n);
   if(pesoInDisp) pesoInDisp.textContent = fmtOneDecimal(perBox || 0);
         const recomputeTotalApprox = (perBoxVal)=>{
           const total = (cx||0) * (perBoxVal||0);
@@ -7396,7 +7655,7 @@
             const totalTxt = totalInEl?.textContent || '0';
             const totalNum = ((t)=> Number(t.replace(/\./g,'').replace(',','.')))(totalTxt);
             const precoKgNum = totalInt > 0 ? (totalNum / totalInt) : 0;
-            if(precoKgEl) precoKgEl.textContent = fmtMoney(precoKgNum);
+            if(precoKgEl) precoKgEl.textContent = fmtNumber(precoKgNum);
             if(precoKgNum > 0 && typeof window.__DIST_seedExtraCustoKg === 'function'){
               window.__DIST_seedExtraCustoKg(precoKgNum, true);
               if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh();
@@ -7405,7 +7664,12 @@
         };
         recomputeTotalApprox(perBox);
 
-  if(precoCxDisplay) precoCxDisplay.textContent = fmtMoney(precoCx || 0);
+  console.log('[PREÇO CX] Inicializando:', { precoCx, fmtNumber: typeof fmtNumber, precoCxDisplay });
+  if(precoCxDisplay) {
+    const formatted = fmtNumber(precoCx || 0);
+    console.log('[PREÇO CX] Valor formatado:', formatted);
+    precoCxDisplay.textContent = formatted;
+  }
         // Total inicial: se preço por cx informado, calcula por cx; senão, por kg
         const calcTotalFromCx = (cxVal, precoCxVal)=> (cxVal||0) * (precoCxVal||0);
         const calcPrecoKgFromTotal = (totalVal, pesoTotal)=> (pesoTotal>0 ? totalVal / pesoTotal : 0);
@@ -7416,7 +7680,7 @@
     let totalInicial = !isNaN(precoCx) && precoCx>0 ? calcTotalFromCx(cx, precoCx) : ((kgIn||0) * (precoKg||0));
   if(totalInEl) totalInEl.textContent = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}).format(totalInicial || 0);
         const precoKgInicial = calcPrecoKgFromTotal(totalInicial, pesoTotalApproxNum);
-        if(precoKgEl) precoKgEl.textContent = fmtMoney(precoKgInicial);
+        if(precoKgEl) precoKgEl.textContent = fmtNumber(precoKgInicial);
         if(precoKgInicial > 0 && typeof window.__DIST_seedExtraCustoKg === 'function'){
           window.__DIST_seedExtraCustoKg(precoKgInicial, true);
           if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh();
@@ -7445,7 +7709,8 @@
           const n = Number(cleaned);
           return isFinite(n) ? n : NaN;
         };
-        const fmtMoney = (n) => isNaN(n) ? 'R$ 0,00' : new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n);
+        const fmtMoney = (n) => isNaN(n) ? 'R$ 0,00' : new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n);
+        const fmtNumber = (n) => isNaN(n) ? '0,00' : new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(n);
         const getCx = () => parsePT(cxEl.textContent);
         const getPesoTotal = () => {
           const t = pesoTotalApproxEl.textContent || '0';
@@ -7471,11 +7736,11 @@
           if(commit){
             const n = parsePT(precoCxInput.value);
             if(!isNaN(n)){
-              precoCxDisplay.textContent = n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+              precoCxDisplay.textContent = fmtNumber(n);
               const total = (getCx()||0) * n;
               totalEl.textContent = (new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(total));
               const precoKg = (getPesoTotal()>0) ? total / getPesoTotal() : 0;
-              precoKgEl.textContent = fmtMoney(precoKg);
+              precoKgEl.textContent = fmtNumber(precoKg);
               
               console.log('[PREÇO INICIAL] Valor editado:', {
                 precoCx: n,

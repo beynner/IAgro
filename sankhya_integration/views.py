@@ -667,7 +667,8 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
             None,  # exemplo_seq
             produtos_list,
             info.get('codparc'),
-            info.get('nunota_portal'),  # 🔗 NUNOTA do TOP 11 para copiar NUMNOTA/NUMPEDIDO
+            info.get('nunota_portal'),  # 🔗 NUNOTA da TOP 11 (Portal/Entrada) para vincular classificação
+            info.get('nunota_top26'),   # 🔗 NUNOTA da TOP 26 (Classificação) para exclusão
         ))
         exemplo_map[ctrl] = {'nunota': info.get('exemplo_nunota'), 'sequencia': info.get('exemplo_seq')}
 
@@ -1055,6 +1056,8 @@ def packing_central_salvar(request: HttpRequest) -> HttpResponse:
     
     # 🔗 Buscar NUNOTA_ORIGEM do payload para copiar NUMNOTA/NUMPEDIDO do TOP 11
     nunota_origem = gv('nunota_origem', None)
+    print(f'🔍 [packing_central_salvar] NUNOTA_ORIGEM recebido do frontend: {nunota_origem}')
+    print(f'🔍 [packing_central_salvar] Payload JSON completo: {payload_json}')
     
     payload = {
         'CODEMP': _to_int_or(form['codemp']),
@@ -2355,7 +2358,7 @@ def item_delete(request: HttpRequest) -> JsonResponse:
                 
                 # Somar todos os VLRTOT e QTDNEG dos itens restantes desta nota
                 cur.execute("""
-                    SELECT NVL(SUM(VLRTOT), 0), NVL(SUM(QTDNEG), 0)
+                    SELECT NVL(SUM(VLRTOT), 0), NVL(SUM(QTDNEG), 0), COUNT(*)
                     FROM TGFITE 
                     WHERE NUNOTA = :nunota
                 """, nunota=nunota)
@@ -2363,26 +2366,37 @@ def item_delete(request: HttpRequest) -> JsonResponse:
                 row_sum = cur.fetchone()
                 vlrnota_total = float(row_sum[0]) if row_sum else 0.0
                 qtdvol_total = float(row_sum[1]) if row_sum else 0.0
+                itens_restantes = int(row_sum[2]) if row_sum else 0
                 
-                print(f'🔍 [DELETE] Recalculando para NUNOTA {nunota}: VLRNOTA={vlrnota_total}, QTDVOL={qtdvol_total}')
+                print(f'🔍 [DELETE] NUNOTA {nunota}: VLRNOTA={vlrnota_total}, QTDVOL={qtdvol_total}, Itens restantes={itens_restantes}')
                 
-                # Atualizar VLRNOTA e QTDVOL no cabeçalho
-                cur.execute("""
-                    UPDATE TGFCAB 
-                    SET VLRNOTA = :vlrnota, QTDVOL = :qtdvol
-                    WHERE NUNOTA = :nunota
-                """, vlrnota=vlrnota_total, qtdvol=qtdvol_total, nunota=nunota)
-                
-                conn.commit()
-                
-                print(f'🔍 [DELETE] Atualizado com sucesso: VLRNOTA=R$ {vlrnota_total:.2f}, QTDVOL={qtdvol_total:.2f}')
+                # Se não há mais itens, excluir o cabeçalho também
+                if itens_restantes == 0:
+                    print(f'🔍 [DELETE] NUNOTA {nunota} sem itens - excluindo cabeçalho')
+                    cur.execute("DELETE FROM TGFCAB WHERE NUNOTA = :nunota", nunota=nunota)
+                    conn.commit()
+                    res['cab_deleted'] = True
+                    res['message'] = 'Último item excluído - cabeçalho também foi removido'
+                    print(f'✅ [DELETE] Cabeçalho NUNOTA {nunota} excluído com sucesso')
+                else:
+                    # Atualizar VLRNOTA e QTDVOL no cabeçalho
+                    cur.execute("""
+                        UPDATE TGFCAB 
+                        SET VLRNOTA = :vlrnota, QTDVOL = :qtdvol
+                        WHERE NUNOTA = :nunota
+                    """, vlrnota=vlrnota_total, qtdvol=qtdvol_total, nunota=nunota)
+                    
+                    conn.commit()
+                    
+                    print(f'✅ [DELETE] Atualizado com sucesso: VLRNOTA=R$ {vlrnota_total:.2f}, QTDVOL={qtdvol_total:.2f}')
                 
                 # Adicionar ao response para o frontend saber
                 res['vlrnota'] = vlrnota_total
                 res['qtdvol'] = qtdvol_total
+                res['itens_restantes'] = itens_restantes
                 
         except Exception as e:
-            print(f'🔍 [DELETE] Erro ao recalcular: {e}')
+            print(f'❌ [DELETE] Erro ao recalcular: {e}')
             import traceback
             traceback.print_exc()
     
@@ -2528,6 +2542,236 @@ def nota_diagnose(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"ok": False, "error": "nunota inválido"}, status=400)
     out = diagnose_nota_delete(nunota)
     return JsonResponse({"ok": True, **out})
+
+def nota_check_classificacao(request: HttpRequest) -> JsonResponse:
+    """Verifica se um item específico de uma nota (TOP 11) possui classificação (TOP 26).
+    
+    Parâmetros:
+    - nunota: NUNOTA da TOP 11 (obrigatório)
+    - seq: SEQUENCIA do item (opcional - se não informado, verifica a nota toda)
+    
+    Se SEQ for informado, verifica se existe classificação para o CODAGREGACAO específico do item.
+    Se SEQ não for informado, verifica se existe classificação para qualquer item da nota.
+    """
+    if request.method != 'GET':
+        return JsonResponse({"ok": False, "error": "Use GET"}, status=405)
+    try:
+        nunota = int(request.GET.get('nunota'))
+    except Exception:
+        return JsonResponse({"ok": False, "error": "nunota inválido"}, status=400)
+    
+    seq = request.GET.get('seq', None)
+    
+    try:
+        from sankhya_integration.services.oracle_conn import get_connection
+        
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            
+            if seq:
+                # Verificação específica para um item (CODAGREGACAO)
+                # 1. Buscar CODAGREGACAO do item na TOP 11
+                query_item = """
+                    SELECT i.CODAGREGACAO
+                    FROM TGFITE i
+                    WHERE i.NUNOTA = :nunota
+                      AND i.SEQUENCIA = :seq
+                """
+                cursor.execute(query_item, {'nunota': nunota, 'seq': int(seq)})
+                result = cursor.fetchone()
+                
+                if not result or not result[0]:
+                    cursor.close()
+                    return JsonResponse({
+                        "ok": True,
+                        "tem_classificacao": False,
+                        "total_registros": 0,
+                        "observacao": "Item não encontrado ou sem CODAGREGACAO"
+                    })
+                
+                codagregacao = result[0]
+                
+                # 2. Verificar se existe TOP 26 com item que tem esse CODAGREGACAO
+                query_class = """
+                    SELECT COUNT(DISTINCT c26.NUNOTA)
+                    FROM TGFCAB c26
+                    INNER JOIN TGFITE i26 ON i26.NUNOTA = c26.NUNOTA
+                    WHERE c26.CODTIPOPER = 26
+                      AND (c26.NUMPEDIDO = :nunota OR c26.NUMNOTA = :nunota)
+                      AND i26.CODAGREGACAO = :codagregacao
+                """
+                cursor.execute(query_class, {'nunota': nunota, 'codagregacao': codagregacao})
+                count = cursor.fetchone()[0]
+            else:
+                # Verificação geral da nota inteira
+                query = """
+                    SELECT COUNT(*) 
+                    FROM TGFCAB c26
+                    WHERE c26.CODTIPOPER = 26
+                      AND (c26.NUMPEDIDO = :nunota OR c26.NUMNOTA = :nunota)
+                """
+                cursor.execute(query, {'nunota': nunota})
+                count = cursor.fetchone()[0]
+            
+            cursor.close()
+        
+        return JsonResponse({
+            "ok": True,
+            "tem_classificacao": count > 0,
+            "total_registros": count
+        })
+    except Exception as e:
+        return JsonResponse({
+            "ok": False,
+            "error": f"Erro ao verificar classificação: {str(e)}"
+        }, status=500)
+
+def nota_check_negociacao(request: HttpRequest) -> JsonResponse:
+    """Verifica se um controle possui negociação comercial.
+    
+    Pode receber:
+    - nunota: NUNOTA da TOP 26 (classificação) - busca TOP 11 vinculada
+    - controle: CODAGREGACAO - busca diretamente nos itens da TOP 11
+    
+    Retorna se existe VLRTOT > 0 nos itens da TOP 11 (entrada).
+    """
+    if request.method != 'GET':
+        return JsonResponse({"ok": False, "error": "Use GET"}, status=405)
+    
+    nunota_param = request.GET.get('nunota', '')
+    controle_param = request.GET.get('controle', '')
+    
+    print(f"🔍 [CHECK_NEGOCIACAO] Recebido - NUNOTA: {nunota_param}, Controle: {controle_param}")
+    
+    try:
+        from sankhya_integration.services.oracle_conn import get_connection
+        
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            nunota_top11 = None
+            
+            # Variável para armazenar o CODAGREGACAO a ser verificado
+            codagregacao = None
+            
+            # Opção 1: Se recebeu controle, busca diretamente pela TOP 11
+            if controle_param:
+                codagregacao = controle_param
+                print(f"📋 [CHECK_NEGOCIACAO] Buscando pela CODAGREGACAO: {codagregacao}")
+                query_top11_by_ctrl = """
+                    SELECT c.NUNOTA
+                    FROM TGFITE i
+                    JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                    WHERE i.CODAGREGACAO = :controle
+                      AND c.CODTIPOPER = 11
+                      AND ROWNUM = 1
+                """
+                cursor.execute(query_top11_by_ctrl, {'controle': codagregacao})
+                row = cursor.fetchone()
+                if row:
+                    nunota_top11 = row[0]
+                    print(f"📦 [CHECK_NEGOCIACAO] TOP 11 encontrada via CODAGREGACAO - NUNOTA={nunota_top11}")
+            
+            # Opção 2: Se não encontrou por controle e recebeu nunota da TOP 26
+            if not nunota_top11 and nunota_param:
+                try:
+                    nunota_top26 = int(nunota_param)
+                    print(f"📋 [CHECK_NEGOCIACAO] Buscando pela NUNOTA TOP 26: {nunota_top26}")
+                    
+                    # Busca o NUMPEDIDO/NUMNOTA da TOP 26 E o CODAGREGACAO dos itens
+                    query_cab = """
+                        SELECT c.NUMPEDIDO, c.NUMNOTA, i.CODAGREGACAO
+                        FROM TGFCAB c
+                        LEFT JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+                        WHERE c.NUNOTA = :nunota_top26
+                          AND c.CODTIPOPER = 26
+                          AND ROWNUM = 1
+                    """
+                    cursor.execute(query_cab, {'nunota_top26': nunota_top26})
+                    row = cursor.fetchone()
+                    
+                    if row:
+                        numpedido_top26 = row[0]
+                        codagregacao = row[2]  # CODAGREGACAO do item da TOP 26
+                        print(f"📋 [CHECK_NEGOCIACAO] TOP 26 - NUMPEDIDO={numpedido_top26}, CODAGREGACAO={codagregacao}")
+                        
+                        # Busca o NUNOTA da TOP 11
+                        query_top11 = """
+                            SELECT NUNOTA
+                            FROM TGFCAB
+                            WHERE CODTIPOPER = 11
+                              AND NUMNOTA = :numnota_top11
+                              AND ROWNUM = 1
+                        """
+                        cursor.execute(query_top11, {'numnota_top11': numpedido_top26})
+                        row_top11 = cursor.fetchone()
+                        
+                        if row_top11:
+                            nunota_top11 = row_top11[0]
+                            print(f"📦 [CHECK_NEGOCIACAO] TOP 11 encontrada via TOP 26 - NUNOTA={nunota_top11}")
+                except Exception as e:
+                    print(f"⚠️ [CHECK_NEGOCIACAO] Erro ao processar NUNOTA TOP 26: {e}")
+            
+            # Se não encontrou a TOP 11 ou CODAGREGACAO, não tem negociação
+            if not nunota_top11 or not codagregacao:
+                print(f"⚠️ [CHECK_NEGOCIACAO] TOP 11 ou CODAGREGACAO não encontrado")
+                cursor.close()
+                return JsonResponse({
+                    "ok": True,
+                    "tem_negociacao": False,
+                    "total_registros": 0,
+                    "info": "TOP 11 ou CODAGREGACAO não encontrado"
+                })
+            
+            # Verifica se existe VLRTOT > 0 NO ITEM ESPECÍFICO (CODAGREGACAO) da TOP 11
+            query_vlrtot = """
+                SELECT COUNT(*), SUM(VLRTOT)
+                FROM TGFITE
+                WHERE NUNOTA = :nunota_top11
+                  AND CODAGREGACAO = :codagregacao
+                  AND VLRTOT > 0
+            """
+            cursor.execute(query_vlrtot, {'nunota_top11': nunota_top11, 'codagregacao': codagregacao})
+            row_vlr = cursor.fetchone()
+            count = row_vlr[0] if row_vlr else 0
+            total_vlrtot = row_vlr[1] if row_vlr and row_vlr[1] else 0
+            
+            # Query adicional para mostrar o item ESPECÍFICO (debug)
+            query_debug = """
+                SELECT SEQUENCIA, CODPROD, CODAGREGACAO, QTDNEG, VLRUNIT, VLRTOT
+                FROM TGFITE
+                WHERE NUNOTA = :nunota_top11
+                  AND CODAGREGACAO = :codagregacao
+                ORDER BY SEQUENCIA
+            """
+            cursor.execute(query_debug, {'nunota_top11': nunota_top11, 'codagregacao': codagregacao})
+            debug_rows = cursor.fetchall()
+            print(f"📊 [CHECK_NEGOCIACAO] Item específico TOP 11 (NUNOTA={nunota_top11}, CODAGREGACAO={codagregacao}):")
+            for seq, cod, codagr, qtd, vlu, vlt in debug_rows:
+                print(f"   SEQ={seq} COD={cod} LOTE={codagr} QTD={qtd} VLRU={vlu} VLRT={vlt}")
+            
+            cursor.close()
+            
+            print(f"💰 [CHECK_NEGOCIACAO] Item com VLRTOT > 0: {count} (Total: R$ {total_vlrtot})")
+        
+        result = {
+            "ok": True,
+            "tem_negociacao": count > 0,
+            "total_registros": count,
+            "nunota_top11": nunota_top11,
+            "codagregacao": codagregacao,
+            "total_vlrtot": float(total_vlrtot) if total_vlrtot else 0.0
+        }
+        print(f"✅ [CHECK_NEGOCIACAO] Resultado: tem_negociacao={count > 0}, count={count}, lote={codagregacao}, total=R$ {total_vlrtot}")
+        return JsonResponse(result)
+        
+    except Exception as e:
+        print(f"❌ [CHECK_NEGOCIACAO] Exception: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({
+            "ok": False,
+            "error": f"Erro ao verificar negociação: {str(e)}"
+        }, status=500)
 
 def class_plan(request: HttpRequest) -> JsonResponse:
     if request.method != 'POST':
