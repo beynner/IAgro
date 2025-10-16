@@ -3896,6 +3896,156 @@ def buscar_parceiros(q: str, limit: int = 10):
         return cur.fetchall()
 
 
+def get_nunota_vale_from_pedido(nunota_pedido: int):
+    """
+    Busca o NUNOTA do VALE (TOP 13) vinculado ao PEDIDO (TOP 11).
+    Usa a coluna NUMPEDIDO em TGFCAB.
+    
+    Args:
+        nunota_pedido: NUNOTA do PEDIDO (TOP 11)
+    
+    Returns:
+        int: NUNOTA do VALE ou None se não encontrado
+    """
+    sql = """
+        SELECT NUNOTA 
+        FROM TGFCAB 
+        WHERE NUMPEDIDO = :pedido_num 
+          AND CODTIPOPER = 13
+        ORDER BY NUNOTA DESC
+    """
+    
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, pedido_num=int(nunota_pedido))
+        rows = cur.fetchall()
+        return int(rows[0][0]) if rows and rows[0] else None
+
+
+def upsert_vale_item(nunota_vale: int, codprod: int, qtdneg: float,
+                     vlrunit: float, lote: str, produto_tipo: str) -> dict:
+    """
+    INSERT ou UPDATE item no VALE (TGFITE).
+    
+    - Se item já existe (mesmo CODPROD + LOTE): UPDATE
+    - Se não existe: INSERT com MAX(SEQUENCIA)+1
+    
+    Args:
+        nunota_vale: NUNOTA do VALE (TOP 13)
+        codprod: CODPROD do produto EXTRA ou MÉDIO
+        qtdneg: Quantidade em KG
+        vlrunit: Valor unitário (R$/KG)
+        lote: LOTE (CONTROLE/CODAGREGACAO) - obrigatório
+        produto_tipo: 'EXTRA' ou 'MEDIO' (para log)
+    
+    Returns:
+        dict com status da operação
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # 1. Verificar se item já existe (mesmo CODPROD + LOTE)
+    sql_check = """
+        SELECT SEQUENCIA, QTDNEG, VLRUNIT, VLRTOT
+        FROM TGFITE
+        WHERE NUNOTA = :nunota 
+          AND CODPROD = :codprod
+          AND CONTROLE = :lote
+    """
+    
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql_check, nunota=int(nunota_vale), codprod=int(codprod), lote=str(lote))
+        existing = cur.fetchone()
+        
+        vlrtot = float(qtdneg) * float(vlrunit)
+        
+        if existing:
+            # UPDATE item existente
+            sequencia = int(existing[0])
+            
+            update_payload = {
+                'NUNOTA': int(nunota_vale),
+                'SEQUENCIA': sequencia,
+                'QTDNEG': float(qtdneg),
+                'VLRUNIT': float(vlrunit),
+                'VLRTOT': vlrtot
+            }
+            
+            plan = update_item(update_payload, dry_run=False)
+            
+            logger.info(f'[VALE] UPDATE {produto_tipo} - NUNOTA={nunota_vale} SEQ={sequencia} CODPROD={codprod}')
+            
+            return {
+                'action': 'UPDATE',
+                'sequencia': sequencia,
+                'codprod': codprod,
+                'qtdneg': qtdneg,
+                'vlrunit': vlrunit,
+                'vlrtot': vlrtot,
+                'success': plan.get('executed', False),
+                'plan': plan
+            }
+        else:
+            # INSERT novo item (MAX(SEQUENCIA)+1)
+            sql_max_seq = """
+                SELECT COALESCE(MAX(SEQUENCIA), 0) + 1
+                FROM TGFITE
+                WHERE NUNOTA = :nunota
+            """
+            cur.execute(sql_max_seq, nunota=int(nunota_vale))
+            nova_sequencia = int(cur.fetchone()[0])
+            
+            # Buscar dados do cabeçalho
+            sql_cab = """
+                SELECT CODPARC, CODVEND, DTNEG, CODNAT, CODCENCUS, CODEMP
+                FROM TGFCAB
+                WHERE NUNOTA = :nunota
+            """
+            cur.execute(sql_cab, nunota=int(nunota_vale))
+            cab_row = cur.fetchone()
+            
+            if not cab_row:
+                return {
+                    'action': 'INSERT',
+                    'success': False,
+                    'error': f'Cabeçalho não encontrado para NUNOTA {nunota_vale}'
+                }
+            
+            codparc = cab_row[0]
+            codvend = cab_row[1]
+            dtneg = cab_row[2]
+            codnat = cab_row[3]
+            codcencus = cab_row[4]
+            codemp = cab_row[5]
+            
+            # Montar payload para insert_item_fast
+            insert_payload = {
+                'NUNOTA': int(nunota_vale),
+                'CODPROD': int(codprod),
+                'QTDNEG': float(qtdneg),
+                'VLRUNIT': float(vlrunit),
+                'CODVOL': 'KG',  # Sempre KG
+                'CODAGREGACAO': str(lote),  # LOTE obrigatório
+                'CONTROLE': str(lote),
+            }
+            
+            result = insert_item_fast(insert_payload, dry_run=False)
+            
+            logger.info(f'[VALE] INSERT {produto_tipo} - NUNOTA={nunota_vale} SEQ={nova_sequencia} CODPROD={codprod}')
+            
+            return {
+                'action': 'INSERT',
+                'sequencia': nova_sequencia,
+                'codprod': codprod,
+                'qtdneg': qtdneg,
+                'vlrunit': vlrunit,
+                'vlrtot': vlrtot,
+                'success': result.get('executed', False),
+                'result': result
+            }
+
+
 def get_produtos_extra_medio(codprod_in_natura: int):
     """
     Busca os códigos de produtos EXTRA e MÉDIO relacionados ao produto IN NATURA.

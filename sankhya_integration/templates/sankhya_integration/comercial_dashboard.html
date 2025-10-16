@@ -1264,6 +1264,7 @@
             <h3 class="class-header">
               <span class="class-left">Classificação</span>
               <span id="classFabricanteName" class="prod-name"></span>
+              <span id="classLoteBadge" class="badge badge--lote" style="display:none; margin-left:8px; padding:3px 8px; background:#f59e0b; color:#fff; font-size:.7rem; font-weight:700; border-radius:4px;"></span>
               <a id="classOpenLink" href="#" target="_blank" rel="noopener" class="class-open-link" style="font-size:.78rem; font-weight:700; color:#0ea5e9; text-decoration:none; display:none">Abrir Classificação</a>
             </h3>
             <div class="class-wrap">
@@ -2998,6 +2999,14 @@
         const card = document.getElementById('classCard');
         const body = document.getElementById('classBody');
         if(!card || !body) return;
+        
+        // Atualizar badge do LOTE
+        const loteBadge = document.getElementById('classLoteBadge');
+        if(loteBadge && lote){
+          loteBadge.textContent = `Lote ${lote}`;
+          loteBadge.style.display = '';
+        }
+        
         // Loader
         body.innerHTML = '<div class="placeholder">Carregando…</div>';
         try{
@@ -7062,6 +7071,48 @@
       window.__DIST_renderClassCardsFromClassification = renderClassCardsFromClassification;
   try{ renderClassCardsFromClassification(); }catch{}
 
+      /**
+       * Helper: Busca LOTE do item atual
+       */
+      async function getLoteFromPedido(nunota, sequencia) {
+        try {
+          // Buscar do cache primeiro
+          const rows = Array.isArray(window.__COM_LIST_ROWS) ? window.__COM_LIST_ROWS : [];
+          const match = rows.find(r => 
+            Number(r?.nunota || 0) === Number(nunota) && 
+            Number(r?.sequencia || 0) === Number(sequencia)
+          );
+          
+          // Tentar campos: codagregacao, controle, lote
+          if (match) {
+            const lote = match.codagregacao || match.controle || match.lote;
+            if (lote) {
+              console.log('[LOTE] Encontrado no cache:', lote);
+              return lote;
+            }
+          }
+          
+          // Se não tem no cache, buscar do backend
+          console.log('[LOTE] Não encontrado no cache, buscando do backend...');
+          const res = await fetch(
+            `/sankhya/comercial/item/lote/?nunota=${nunota}&sequencia=${sequencia}`,
+            { credentials: 'same-origin' }
+          );
+          const data = await res.json();
+          
+          if (data?.lote) {
+            console.log('[LOTE] Encontrado no backend:', data.lote);
+            return data.lote;
+          }
+          
+          console.warn('[LOTE] Não encontrado');
+          return null;
+        } catch (err) {
+          console.error('[LOTE] Erro ao buscar:', err);
+          return null;
+        }
+      }
+
       async function handleSave(){
         // NÃO chamar refresh aqui - pode recalcular valores incorretamente
         // try { if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh(); } catch(_){ }
@@ -7069,182 +7120,113 @@
         const card = document.getElementById('quantidadeInnCard');
         const nunota = card ? Number(card.getAttribute('data-nunota') || '0') : 0;
         const sequencia = card ? Number(card.getAttribute('data-seq') || '0') : 0;
+        const codprod = card ? Number(card.getAttribute('data-codprod') || '0') : 0;
+        
         if(!(nunota > 0) || !(sequencia > 0)){
           alert('Selecione um vale da lista antes de salvar os valores.');
           return;
         }
 
-        const totalRaw = Number(st?.custo?.total);
-        const custoCxRaw = Number(st?.custo?.porCx);
-        const custoKgRaw = Number(st?.custo?.porKg);
+        // Acessar estado Extra/Médio
+        const state = window.__DIST_EXTRA_MEDIO_STATE;
         
-        // Pegar valor correto dos displays visuais se o estado estiver errado
-        const costCxDisplay = document.getElementById('costCxDisplay');
-        const costKgDisplay = document.getElementById('costKgDisplay');
-        const totalValueDisplay = document.getElementById('totalValueDisplay');
-        
-        const parsePTfromDisplay = (text) => {
-          if(!text) return NaN;
-          const cleaned = text.toString().trim()
-            .replace(/[^0-9,\.-]/g, '')
-            .replace(/\.(?=\d{3}(\D|$))/g, '')
-            .replace(',', '.');
-          return Number(cleaned);
-        };
-        
-        // PRIORIDADE: Usar valores dos DISPLAYS (o que o usuário vê)
-        const totalFromDisplay = parsePTfromDisplay(totalValueDisplay?.textContent);
-        const custoCxFromDisplay = parsePTfromDisplay(costCxDisplay?.textContent);
-        const custoKgFromDisplay = parsePTfromDisplay(costKgDisplay?.textContent);
-        
-        // Usar display como fonte de verdade, fallback para estado
-        const totalParaSalvar = Number.isFinite(totalFromDisplay) ? totalFromDisplay : totalRaw;
-        const custoCxParaSalvar = Number.isFinite(custoCxFromDisplay) ? custoCxFromDisplay : custoCxRaw;
-        const custoKgParaSalvar = Number.isFinite(custoKgFromDisplay) ? custoKgFromDisplay : custoKgRaw;
-        
-        console.log('[SAVE] Valores do ESTADO:', {
-          total: totalRaw,
-          custoCx: custoCxRaw,
-          custoKg: custoKgRaw
-        });
-        
-        console.log('[SAVE] Valores dos DISPLAYS (fonte de verdade):', {
-          total: totalFromDisplay,
-          custoCx: custoCxFromDisplay,
-          custoKg: custoKgFromDisplay
-        });
-        
-        console.log('[SAVE] Valores que SERÃO SALVOS:', {
-          total: totalParaSalvar,
-          custoCx: custoCxParaSalvar,
-          custoKg: custoKgParaSalvar
-        });
-        
-        if(!Number.isFinite(totalParaSalvar)){
-          alert('Valor total indisponível para salvar no momento.');
+        // Validações
+        if (!state || state.isUpdating) {
+          alert('Aguarde... dados estão sendo processados.');
           return;
         }
         
-        // CRÍTICO: VLRUNIT no Sankhya deve ser o custo por CAIXA, não por KG!
-        const vlrunitParaSalvar = Number.isFinite(custoCxParaSalvar) && custoCxParaSalvar > 0 
-          ? custoCxParaSalvar 
-          : custoKgParaSalvar;
-        
-        if(!Number.isFinite(vlrunitParaSalvar)){
-          alert('Custo unitário indisponível para salvar.');
+        if (!(state.extraKg > 0 || state.medioKg > 0)) {
+          alert('Não há quantidades Extra/Médio para salvar.');
           return;
         }
-
-        const extraTotalRaw = Number(st?.categorias?.extra?.custoTotal ?? NaN);
-        const medioTotalRaw = Number(st?.categorias?.medio?.custoTotal ?? NaN);
-        const extraKgRaw = Number(st?.categorias?.extra?.custoKg ?? NaN);
-        const medioKgRaw = Number(st?.categorias?.medio?.custoKg ?? NaN);
-
-        // Simulation fields: Pegar valores DIRETOS dos campos de input (não usar valores calculados!)
-        const parsePT = (text) => {
-          if(!text) return NaN;
-          const cleaned = text.toString().trim()
-            .replace(/[^0-9,\.-]/g, '')
-            .replace(/\.(?=\d{3}(\D|$))/g, '')
-            .replace(',', '.');
-          const n = Number(cleaned);
-          return isFinite(n) ? n : NaN;
-        };
         
-        // Ler valores REAIS dos campos da simulação (não do estado calculado)
-        const simExtraQtyInput = document.querySelector('#sim-extra-qty');
-        const simExtraTotalInput = document.querySelector('#sim-extra-total');
-        const simMedioQtyInput = document.querySelector('#sim-medio-qty');
-        const simMedioTotalInput = document.querySelector('#sim-medio-total');
-        
-        const extraCxRaw = simExtraQtyInput ? parsePT(simExtraQtyInput.value) : NaN;
-        const extraTotalFromInput = simExtraTotalInput ? parsePT(simExtraTotalInput.value) : NaN;
-        const medioCxRaw = simMedioQtyInput ? parsePT(simMedioQtyInput.value) : NaN;
-        const medioTotalFromInput = simMedioTotalInput ? parsePT(simMedioTotalInput.value) : NaN;
-
-        // DEBUG: Log dos valores que serão enviados
-        console.log('[SAVE DEBUG] Valores DIRETOS dos inputs:', {
-          extraCx: extraCxRaw,
-          extraTotal: extraTotalFromInput,
-          medioCx: medioCxRaw,
-          medioTotal: medioTotalFromInput
+        console.log('[VALE SAVE] Estado Extra/Médio:', {
+          extraKg: state.extraKg,
+          extraCx: state.extraCx,
+          extraCustoKg: state.extraCustoKg,
+          medioKg: state.medioKg,
+          medioCx: state.medioCx,
+          medioCustoKg: state.medioCustoKg
         });
-        console.log('[SAVE DEBUG] Estado completo (NÃO usar para save):', st);
-
-        const payload = {
-          nunota,
-          sequencia,
-          valor_total: Number(totalParaSalvar.toFixed(2)),
-          custo_kg: Number(vlrunitParaSalvar.toFixed(6)),  // Este vai para VLRUNIT (valor por CX!)
-          custo_extra_total: Number.isFinite(extraTotalRaw) ? Number(extraTotalRaw.toFixed(2)) : null,
-          custo_medio_total: Number.isFinite(medioTotalRaw) ? Number(medioTotalRaw.toFixed(2)) : null,
-          custo_extra_kg: Number.isFinite(extraKgRaw) ? Number(extraKgRaw.toFixed(6)) : null,
-          custo_medio_kg: Number.isFinite(medioKgRaw) ? Number(medioKgRaw.toFixed(6)) : null,
-          // Usar valores DIRETOS dos inputs (não calculados)
-          sim_qtd1: Number.isFinite(extraCxRaw) ? Number(extraCxRaw.toFixed(2)) : null,
-          sim_vlr1: Number.isFinite(extraTotalFromInput) ? Number(extraTotalFromInput.toFixed(2)) : null,
-          sim_qtd2: Number.isFinite(medioCxRaw) ? Number(medioCxRaw.toFixed(2)) : null,
-          sim_vlr2: Number.isFinite(medioTotalFromInput) ? Number(medioTotalFromInput.toFixed(2)) : null,
-        };
         
-        console.log('[SAVE DEBUG] ========================================');
-        console.log('[SAVE DEBUG] Payload final montado:', payload);
-        console.log('[SAVE DEBUG] IMPORTANTE: custo_kg no payload = R$', vlrunitParaSalvar, '/cx');
-        console.log('[SAVE DEBUG] Isso vai para VLRUNIT (valor por CAIXA no banco)');
-        console.log('[SAVE DEBUG] ========================================');
-
+        // Buscar LOTE do item atual
         let originalLabel = '';
         if(btnSave){
           originalLabel = btnSave.textContent || 'Salvar';
           btnSave.disabled = true;
-          btnSave.textContent = 'Salvando…';
+          btnSave.textContent = 'Buscando lote...';
         }
-
+        
+        const lote = await getLoteFromPedido(nunota, sequencia);
+        if (!lote) {
+          alert('Não foi possível determinar o LOTE do produto.');
+          if(btnSave){
+            btnSave.disabled = false;
+            btnSave.textContent = originalLabel;
+          }
+          return;
+        }
+        
+        console.log('[VALE SAVE] LOTE encontrado:', lote);
+        
+        // Montar payload para sincronização do VALE
+        const payload = {
+          nunota_pedido: nunota,
+          sequencia_pedido: sequencia,
+          codprod_in_natura: codprod || state.codprod,
+          lote: lote,
+          
+          // EXTRA (quantidades da classificação, valores editados pelo comercial)
+          extra_kg: state.extraKg || 0,
+          extra_vlrunit_kg: state.extraCustoKg || 0,
+          
+          // MÉDIO (quantidades da classificação, valores editados pelo comercial)
+          medio_kg: state.medioKg || 0,
+          medio_vlrunit_kg: state.medioCustoKg || 0,
+        };
+        
+        console.log('[VALE SAVE] Payload:', payload);
+        
+        if(btnSave){
+          btnSave.textContent = 'Salvando no Vale...';
+        }
+        
         try{
-          const res = await window.__postJSON('/sankhya/comercial/dist/save/', payload);
+          const res = await window.__postJSON('/sankhya/comercial/vale/sync/', payload);
+          
           if(res.ok){
-            showToast('Salvo.', 'success');
-            window.dispatchEvent(new CustomEvent('dist:salvo', { detail: { nunota, sequencia, payload, response: res.body } }));
+            showToast('Salvo no Vale com sucesso', 'success');
+            
+            // Atualizar badge se NUNOTA do VALE mudou
+            if (res.body?.nunota_vale) {
+              const valeEl = document.getElementById('entBadgeVale13');
+              if (valeEl) {
+                valeEl.textContent = `Vale ${res.body.nunota_vale}`;
+                valeEl.style.display = '';
+              }
+            }
+            
+            console.log('[VALE SAVE] Sucesso:', res.body);
+            console.log('[VALE SAVE] Itens processados:', res.body?.items_processed);
+            
+            // Atualizar cache com NUNOTA do VALE
             try{
-              const savedTotal = Number(payload.valor_total);
-              const savedVlrunit = Number(payload.custo_kg);  // Este é o custo por CX
               const rows = Array.isArray(window.__COM_LIST_ROWS) ? window.__COM_LIST_ROWS : [];
               const match = rows.find(r=> Number(r?.nunota||0) === Number(nunota) && Number(r?.sequencia||0) === Number(sequencia));
-              
-              console.log('[SAVE] Atualizando cache com valores salvos:', {
-                nunota,
-                sequencia,
-                vlrtot_salvo: savedTotal,
-                vlrunit_salvo: savedVlrunit,
-                observacao: 'vlrunit é o custo por CAIXA'
-              });
-              
-              if(match){
-                match.vlrtot = Number.isFinite(savedTotal) ? savedTotal : 0;
-                match.vlrunit = Number.isFinite(savedVlrunit) ? savedVlrunit : 0;
-                console.log('[SAVE] Cache atualizado:', match);
+              if(match && res.body?.nunota_vale){
+                match.nunota_13 = res.body.nunota_vale;
+                console.log('[VALE SAVE] Cache atualizado com nunota_13:', match);
               }
-              
-              // CRÍTICO: Atualizar __SAVED_VLRTOT para refletir o valor salvo
-              window.__SAVED_VLRTOT = Number.isFinite(savedTotal) ? savedTotal : 0;
-              window.__SAVED_VLRUNIT = Number.isFinite(savedVlrunit) ? savedVlrunit : 0;
-              
-              console.log('[SAVE] Globais atualizadas:', {
-                __SAVED_VLRTOT: window.__SAVED_VLRTOT,
-                __SAVED_VLRUNIT: window.__SAVED_VLRUNIT
-              });
-              
-              // NÃO chamar __setDistribTotal aqui - deixa o valor como está na UI
-              // A UI já está mostrando o valor correto, não precisa redistribuir
-              // NÃO chamar __syncExtraMedio ou qualquer recálculo - valores já estão corretos
-            }catch(_){ }
+            }catch(_){}
+            
           }else{
-            const errMsg = res.body?.error || (Array.isArray(res.body?.errors) ? res.body.errors.join('; ') : '') || 'Falha ao salvar os valores.';
+            const errMsg = res.body?.error || 'Falha ao salvar no Vale';
             alert(errMsg);
           }
         }catch(err){
-          console.error('dist save failed', err);
-          alert('Erro ao salvar a distribuição. Verifique a conexão e tente novamente.');
+          console.error('[VALE SAVE] Erro:', err);
+          alert('Erro ao salvar no Vale. Verifique a conexão.');
         }finally{
           if(btnSave){
             btnSave.disabled = false;

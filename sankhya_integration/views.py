@@ -3180,6 +3180,171 @@ def comercial_dist_save(request: HttpRequest) -> JsonResponse:
     return JsonResponse(plan, status=status_code)
 
 
+def comercial_item_lote(request: HttpRequest) -> JsonResponse:
+    """Retorna o LOTE (CONTROLE) de um item do PEDIDO."""
+    nunota = _to_int_or(request.GET.get('nunota'))
+    sequencia = _to_int_or(request.GET.get('sequencia'))
+    
+    if not nunota or not sequencia:
+        return JsonResponse({'ok': False, 'error': 'Parâmetros inválidos'}, status=400)
+    
+    sql = """
+        SELECT CONTROLE
+        FROM TGFITE
+        WHERE NUNOTA = :nunota AND SEQUENCIA = :sequencia
+    """
+    
+    try:
+        from .services.oracle_conn import get_cursor
+        with get_cursor() as cursor:
+            cursor.execute(sql, {'nunota': nunota, 'sequencia': sequencia})
+            row = cursor.fetchone()
+            
+            if not row or not row[0]:
+                return JsonResponse({'ok': False, 'error': 'LOTE não encontrado'}, status=404)
+            
+            return JsonResponse({'ok': True, 'lote': row[0]})
+    except Exception as e:
+        logger.exception('Erro ao buscar LOTE')
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+
+def comercial_vale_sync(request: HttpRequest) -> JsonResponse:
+    """Sincroniza itens EXTRA/MÉDIO no VALE (TOP 13) a partir da classificação."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'Use POST'}, status=405)
+    
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except Exception as e:
+        logger.exception('Erro ao parsear JSON')
+        return JsonResponse({'ok': False, 'error': f'JSON inválido: {str(e)}'}, status=400)
+    
+    # Extrair dados
+    nunota_pedido = _to_int_or(payload.get('nunota_pedido'))
+    sequencia_pedido = _to_int_or(payload.get('sequencia_pedido'))
+    codprod_in_natura = _to_int_or(payload.get('codprod_in_natura'))
+    lote = payload.get('lote')  # String
+    
+    extra_kg = _to_float_or(payload.get('extra_kg', 0))
+    extra_vlrunit_kg = _to_float_or(payload.get('extra_vlrunit_kg', 0))
+    
+    medio_kg = _to_float_or(payload.get('medio_kg', 0))
+    medio_vlrunit_kg = _to_float_or(payload.get('medio_vlrunit_kg', 0))
+    
+    # Validações
+    if not all([nunota_pedido, sequencia_pedido, codprod_in_natura, lote]):
+        return JsonResponse({
+            'ok': False,
+            'error': 'Parâmetros obrigatórios: nunota_pedido, sequencia_pedido, codprod_in_natura, lote'
+        }, status=400)
+    
+    if not (extra_kg > 0 or medio_kg > 0):
+        return JsonResponse({
+            'ok': False,
+            'error': 'Pelo menos um dos produtos (Extra ou Médio) deve ter quantidade > 0'
+        }, status=400)
+    
+    from .services.oracle_conn import (
+        get_nunota_vale_from_pedido,
+        get_produtos_extra_medio,
+        upsert_vale_item
+    )
+    
+    # 1. Buscar NUNOTA do VALE
+    try:
+        nunota_vale = get_nunota_vale_from_pedido(nunota_pedido)
+    except Exception as e:
+        logger.exception(f'Erro ao buscar NUNOTA do VALE para pedido {nunota_pedido}')
+        return JsonResponse({
+            'ok': False,
+            'error': f'Erro ao buscar VALE: {str(e)}'
+        }, status=500)
+    
+    if not nunota_vale:
+        return JsonResponse({
+            'ok': False,
+            'error': f'VALE (TOP 13) não encontrado para PEDIDO {nunota_pedido}'
+        }, status=404)
+    
+    # 2. Mapear produtos
+    try:
+        produtos_map = get_produtos_extra_medio(codprod_in_natura)
+    except Exception as e:
+        logger.exception(f'Erro ao mapear produtos EXTRA/MÉDIO para CODPROD {codprod_in_natura}')
+        return JsonResponse({
+            'ok': False,
+            'error': f'Erro ao mapear produtos: {str(e)}'
+        }, status=500)
+    
+    if not produtos_map:
+        return JsonResponse({
+            'ok': False,
+            'error': f'Não foi possível mapear produtos EXTRA/MÉDIO para CODPROD {codprod_in_natura}'
+        }, status=400)
+    
+    codprod_extra = produtos_map.get('extra')
+    codprod_medio = produtos_map.get('medio')
+    
+    results = []
+    
+    # 3. Processar EXTRA
+    if extra_kg > 0 and codprod_extra:
+        try:
+            result_extra = upsert_vale_item(
+                nunota_vale=nunota_vale,
+                codprod=codprod_extra,
+                qtdneg=extra_kg,
+                vlrunit=extra_vlrunit_kg,
+                lote=lote,
+                produto_tipo='EXTRA'
+            )
+            results.append({'tipo': 'EXTRA', **result_extra})
+        except Exception as e:
+            logger.exception(f'Erro ao processar item EXTRA (codprod={codprod_extra})')
+            results.append({
+                'tipo': 'EXTRA',
+                'success': False,
+                'error': str(e)
+            })
+    
+    # 4. Processar MÉDIO
+    if medio_kg > 0 and codprod_medio:
+        try:
+            result_medio = upsert_vale_item(
+                nunota_vale=nunota_vale,
+                codprod=codprod_medio,
+                qtdneg=medio_kg,
+                vlrunit=medio_vlrunit_kg,
+                lote=lote,
+                produto_tipo='MEDIO'
+            )
+            results.append({'tipo': 'MEDIO', **result_medio})
+        except Exception as e:
+            logger.exception(f'Erro ao processar item MÉDIO (codprod={codprod_medio})')
+            results.append({
+                'tipo': 'MEDIO',
+                'success': False,
+                'error': str(e)
+            })
+    
+    # 5. Atualizar VLRNOTA
+    vlrnota_result = None
+    if any(r.get('success') for r in results):
+        try:
+            vlrnota_result = update_vlrnota_for_nota(nunota_vale)
+        except Exception as e:
+            logger.exception(f'Erro ao atualizar VLRNOTA do VALE {nunota_vale}')
+            vlrnota_result = {'error': str(e)}
+    
+    return JsonResponse({
+        'ok': True,
+        'nunota_vale': nunota_vale,
+        'items_processed': results,
+        'vlrnota_update': vlrnota_result
+    })
+
+
 def comercial_dist_reset(request: HttpRequest) -> JsonResponse:
     """Zerar valores de VLRUNIT e VLRTOT do item selecionado na distribuição."""
     if request.method != 'POST':
