@@ -3745,6 +3745,40 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
             limit=limit,
             offset=offset,
         )
+        
+        # Buscar vales (TOP 13) associados aos pedidos (TOP 11)
+        nunota_to_vale = {}
+        if rows:
+            from sankhya_integration.services.oracle_conn import get_connection, get_params
+            try:
+                with get_connection() as conn:
+                    cur = conn.cursor()
+                    params = get_params()
+                    top_13 = int(params.get('TOP_VALE_COMPRA', 13))
+                    
+                    # Coletar todos os NUNOTAs únicos dos pedidos
+                    nunotas_pedidos = list(set([r[6] for r in rows if r[6]]))
+                    
+                    if nunotas_pedidos:
+                        # Buscar TOP 13 vinculadas via NUMPEDIDO
+                        placeholders = ','.join([':n' + str(i) for i in range(len(nunotas_pedidos))])
+                        sql = f"""
+                            SELECT NUMPEDIDO, NUNOTA 
+                            FROM TGFCAB 
+                            WHERE CODTIPOPER = :top 
+                              AND NUMPEDIDO IN ({placeholders})
+                        """
+                        bind_vars = {'top': top_13}
+                        for i, nunota in enumerate(nunotas_pedidos):
+                            bind_vars[f'n{i}'] = nunota
+                        
+                        cur.execute(sql, bind_vars)
+                        for numpedido, nunota_vale in cur.fetchall():
+                            if numpedido and nunota_vale:
+                                nunota_to_vale[int(numpedido)] = int(nunota_vale)
+            except Exception as e:
+                logger.warning(f'Erro ao buscar vales associados: {e}')
+        
         # Filtrar por FABRICANTE em memória, se solicitado (para evitar alterar a SQL base)
         if fabricante:
             f = fabricante.upper()
@@ -3799,6 +3833,10 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                         fator_conversao = float(fator)  # salvar para conversão de preço
             except Exception:
                 disp_qtd = qtd
+            
+            # Buscar vale associado a este pedido
+            nunota_13_val = nunota_to_vale.get(int(nunota_val)) if nunota_val else None
+            
             out.append({
                 'parceiro': parc or '',
                 'produto': prod or '',
@@ -3806,6 +3844,7 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                 'qtdneg': float(disp_qtd or 0),
                 'dtneg': dt_iso,
                 'nunota': int(nunota_val) if nunota_val is not None else None,
+                'nunota_13': nunota_13_val,  # NUNOTA da TOP 13 (vale) se existir
                 'sequencia': int(sequencia_val) if sequencia_val is not None else None,
                 'classificavel': (None if gp_val is None else (str(gp_val).upper() != 'N')),
                 'codvol': (str(codvol).upper() if codvol is not None else None),
@@ -3834,3 +3873,63 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
     except Exception as e:
         logger.exception('comercial_lista failed')
         return JsonResponse({ 'ok': False, 'error': str(e) }, status=500)
+
+
+def comercial_vale_verificar_ou_criar_cabecalho(request: HttpRequest) -> JsonResponse:
+    """
+    Verifica se existe TOP 13 vinculada à TOP 11.
+    Se não existir: cria cabeçalho (sem itens).
+    Se existir: atualiza PRECOBASE do item (se existir).
+    
+    POST JSON:
+    {
+        "nunota_11": int,      # NUNOTA da TOP 11 (pedido de compra)
+        "codprod": int,        # Código do produto editado
+        "novo_preco": float    # Novo PRECOBASE a gravar
+    }
+    
+    Retorna:
+    {
+        "ok": True,
+        "nunota_13": 123456,
+        "criou_cabecalho": True/False,
+        "atualizou_item": True/False,
+        "item_nao_existe": True/False
+    }
+    """
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'Use POST'}, status=405)
+    
+    try:
+        import json
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except Exception as e:
+        return JsonResponse({'ok': False, 'error': f'JSON inválido: {str(e)}'}, status=400)
+    
+    nunota_11 = payload.get('nunota_11')
+    codprod = payload.get('codprod')
+    novo_preco = payload.get('novo_preco')
+    
+    if not nunota_11:
+        return JsonResponse({'ok': False, 'error': 'nunota_11 obrigatório'}, status=400)
+    if not codprod:
+        return JsonResponse({'ok': False, 'error': 'codprod obrigatório'}, status=400)
+    if not novo_preco:
+        return JsonResponse({'ok': False, 'error': 'novo_preco obrigatório'}, status=400)
+    
+    try:
+        from sankhya_integration.services.faturamento import verificar_ou_criar_cabecalho_vale
+        resultado = verificar_ou_criar_cabecalho_vale(
+            nunota_11=nunota_11,
+            codprod=codprod,
+            novo_preco=novo_preco
+        )
+        
+        logger.info(f'[VALE API] Resultado: {resultado}')
+        
+        status_code = 200 if resultado.get('ok') else 400
+        return JsonResponse(resultado, status=status_code)
+    except Exception as e:
+        logger.exception('comercial_vale_verificar_ou_criar_cabecalho failed')
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+

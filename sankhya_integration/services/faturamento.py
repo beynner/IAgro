@@ -83,17 +83,14 @@ def gerar_vale_compra_top13(nunota_11: int, itens_precos: List[Dict[str, Any]]) 
         return out
     with get_connection() as conn:
         cur = conn.cursor()
-        # Buscar dados do pedido em uma única query, incluindo NUMNOTA
-        cur.execute("SELECT CODEMP, CODPARC, CODNAT, CODCENCUS, CODTIPOPER, DHTIPOPER, DTNEG, NUMNOTA FROM TGFCAB WHERE NUNOTA=:n", n=nunota_11)
+        # Buscar dados do pedido
+        cur.execute("SELECT CODEMP, CODPARC, CODNAT, CODCENCUS, CODTIPOPER, DHTIPOPER, DTNEG FROM TGFCAB WHERE NUNOTA=:n", n=nunota_11)
         row = cur.fetchone()
         if not row:
             out['error'] = 'NUNOTA 11 nao encontrada'
             return out
-        CODEMP, CODPARC, CODNAT, CODCENCUS, _ct, _dh, _dt, numnota_orig = row
+        CODEMP, CODPARC, CODNAT, CODCENCUS, _ct, _dh, _dt = row
         CODAGREGACAO = None  # Será reutilizado dos itens origem (cada item tem seu CODAGREGACAO)
-        
-        # Se NUMNOTA for 0 ou nulo, usamos o próprio NUNOTA como referência
-        numnota_pedido = numnota_orig if (numnota_orig and numnota_orig != 0) else nunota_11
         
         params = get_params()
         top_13 = int(params.get('TOP_VALE_COMPRA', 13))
@@ -119,11 +116,11 @@ def gerar_vale_compra_top13(nunota_11: int, itens_precos: List[Dict[str, Any]]) 
             INSERT INTO TGFCAB (
                 NUNOTA, CODEMP, CODEMPNEGOC, CODPARC, CODTIPOPER, DHTIPOPER, TIPMOV,
                 CODNAT, CODCENCUS, DTNEG, DTMOV, DTENTSAI,
-                NUMNOTA, NUMPEDIDO, PENDENTE, STATUSNOTA, DTALTER
+                NUMNOTA, NUMPEDIDO, PENDENTE, STATUSNOTA, HRMOV, APROVADO, DTALTER
             ) VALUES (
                 :NUNOTA, :CODEMP, :CODEMP, :CODPARC, :CODTIPOPER, :DHTIPOPER, :TIPMOV,
                 :CODNAT, :CODCENCUS, TO_DATE(:DTNEG,'DD/MM/YYYY'), TO_DATE(:DTMOV,'DD/MM/YYYY'), TO_DATE(:DTENTSAI,'DD/MM/YYYY'),
-                :NUMNOTA, :NUMPEDIDO, :PENDENTE, :STATUSNOTA, SYSDATE
+                :NUMNOTA, :NUMPEDIDO, :PENDENTE, :STATUSNOTA, TO_CHAR(SYSDATE,'HH24MISS'), 'N', SYSDATE
             )
         """, {
             'NUNOTA': nunota_13,
@@ -137,8 +134,8 @@ def gerar_vale_compra_top13(nunota_11: int, itens_precos: List[Dict[str, Any]]) 
             'DTNEG': hoje,
             'DTMOV': hoje,
             'DTENTSAI': hoje,
-            'NUMNOTA': 0,
-            'NUMPEDIDO': numnota_pedido,
+            'NUMNOTA': nunota_11,
+            'NUMPEDIDO': nunota_11,
             'PENDENTE': 'S',
             'STATUSNOTA': 'A'
         })
@@ -231,4 +228,226 @@ def gerar_vale_compra_top13(nunota_11: int, itens_precos: List[Dict[str, Any]]) 
         conn.commit()
         out.update({'ok': True, 'nunota_11': nunota_11, 'nunota_13': nunota_13, 'dtfatur': dtfatur, 'status': 'A', 'total': total, 'itens': len(origem), 'items_breakdown': breakdown, 'lote_column_used': lote_col})
         return out
+    return out
+
+
+def criar_cabecalho_vale_top13_apenas(nunota_11: int) -> Dict[str, Any]:
+    """Cria SOMENTE o cabeçalho da TOP 13 (vale de compra) sem itens.
+    
+    Args:
+        nunota_11: NUNOTA da TOP 11 (pedido de compra)
+    
+    Returns:
+        {
+            'ok': True,
+            'nunota_13': 123456,
+            'dtfatur': '23/10/2025',
+            'criou': True
+        }
+    """
+    out: Dict[str, Any] = {'ok': False}
+    if not is_write_enabled():
+        out['error'] = 'Escrita desabilitada'
+        return out
+    
+    try:
+        nunota_11 = int(nunota_11)
+    except Exception:
+        out['error'] = 'nunota_11 invalido'
+        return out
+    
+    with get_connection() as conn:
+        cur = conn.cursor()
+        
+        # Buscar dados do pedido TOP 11
+        cur.execute("SELECT CODEMP, CODPARC, CODNAT, CODCENCUS FROM TGFCAB WHERE NUNOTA=:n", n=nunota_11)
+        row = cur.fetchone()
+        if not row:
+            out['error'] = 'NUNOTA 11 nao encontrada'
+            return out
+        CODEMP, CODPARC, CODNAT, CODCENCUS = row
+        
+        params = get_params()
+        top_13 = int(params.get('TOP_VALE_COMPRA', 13))
+        
+        # Buscar TIPMOV da TOP 13
+        cur.execute("SELECT TIPMOV, DHALTER FROM (SELECT TIPMOV, DHALTER FROM TGFTOP WHERE CODTIPOPER=:k ORDER BY DHALTER DESC) WHERE ROWNUM=1", k=top_13)
+        r = cur.fetchone()
+        if not r:
+            out['error'] = f'TOP {top_13} nao encontrada'
+            return out
+        tipmov_13 = r[0] if r[0] else 'C'
+        dhtipoper_13 = r[1]
+        
+        hoje = datetime.now().strftime('%d/%m/%Y')
+        dtfatur = _next_wednesday().strftime('%d/%m/%Y')
+        
+        # Gerar NUNOTA manualmente (MAX+1)
+        cur.execute("SELECT NVL(MAX(NUNOTA),0)+1 FROM TGFCAB")
+        nunota_13 = int(cur.fetchone()[0])
+        
+        # INSERT cabeçalho TOP 13
+        cur.execute("""
+            INSERT INTO TGFCAB (
+                NUNOTA, CODEMP, CODEMPNEGOC, CODPARC, CODTIPOPER, DHTIPOPER, TIPMOV,
+                CODNAT, CODCENCUS, DTNEG, DTMOV, DTENTSAI,
+                NUMNOTA, NUMPEDIDO, PENDENTE, STATUSNOTA, HRMOV, APROVADO, DTALTER
+            ) VALUES (
+                :NUNOTA, :CODEMP, :CODEMP, :CODPARC, :CODTIPOPER, :DHTIPOPER, :TIPMOV,
+                :CODNAT, :CODCENCUS, TO_DATE(:DTNEG,'DD/MM/YYYY'), TO_DATE(:DTMOV,'DD/MM/YYYY'), TO_DATE(:DTENTSAI,'DD/MM/YYYY'),
+                :NUMNOTA, :NUMPEDIDO, :PENDENTE, :STATUSNOTA, TO_CHAR(SYSDATE,'HH24MISS'), 'N', SYSDATE
+            )
+        """, {
+            'NUNOTA': nunota_13,
+            'CODEMP': CODEMP,
+            'CODPARC': CODPARC,
+            'CODTIPOPER': top_13,
+            'DHTIPOPER': dhtipoper_13,
+            'TIPMOV': tipmov_13,
+            'CODNAT': CODNAT,
+            'CODCENCUS': CODCENCUS,
+            'DTNEG': hoje,
+            'DTMOV': hoje,
+            'DTENTSAI': hoje,
+            'NUMNOTA': nunota_11,
+            'NUMPEDIDO': nunota_11,
+            'PENDENTE': 'S',
+            'STATUSNOTA': 'A'
+        })
+        
+        # Atualizar DTFATUR
+        try:
+            cur.execute("UPDATE TGFCAB SET DTFATUR=TO_DATE(:d,'DD/MM/YYYY') WHERE NUNOTA=:n", d=dtfatur, n=nunota_13)
+        except Exception:
+            pass
+        
+        conn.commit()
+        out.update({'ok': True, 'nunota_13': nunota_13, 'dtfatur': dtfatur, 'criou': True})
+        return out
+    return out
+
+
+def verificar_ou_criar_cabecalho_vale(nunota_11: int, codprod: int, novo_preco: float) -> Dict[str, Any]:
+    """Verifica se existe TOP 13 vinculada à TOP 11.
+    Se não existir: cria cabeçalho.
+    Se existir: atualiza PRECOBASE do item (se existir).
+    
+    Args:
+        nunota_11: NUNOTA da TOP 11 (pedido de compra)
+        codprod: Código do produto editado
+        novo_preco: Novo PRECOBASE a gravar
+    
+    Returns:
+        {
+            'ok': True,
+            'nunota_13': 123456,
+            'criou_cabecalho': True/False,
+            'atualizou_item': True/False,
+            'item_nao_existe': True/False
+        }
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    out: Dict[str, Any] = {'ok': False}
+    if not is_write_enabled():
+        out['error'] = 'Escrita desabilitada'
+        return out
+    
+    try:
+        nunota_11 = int(nunota_11)
+        codprod = int(codprod)
+        novo_preco = float(novo_preco)
+    except Exception:
+        out['error'] = 'Parametros invalidos'
+        return out
+    
+    if novo_preco <= 0:
+        out['error'] = 'Preco deve ser maior que zero'
+        return out
+    
+    logger.info(f'[VERIFICAR VALE] nunota_11={nunota_11} codprod={codprod} novo_preco={novo_preco}')
+    
+    with get_connection() as conn:
+        cur = conn.cursor()
+        
+        params = get_params()
+        top_13 = int(params.get('TOP_VALE_COMPRA', 13))
+        
+        # 1. Buscar TOP 13 vinculada via NUMPEDIDO
+        cur.execute("""
+            SELECT NUNOTA FROM TGFCAB 
+            WHERE CODTIPOPER = :top AND NUMPEDIDO = :pedido
+        """, top=top_13, pedido=nunota_11)
+        row = cur.fetchone()
+        
+        logger.info(f'[VERIFICAR VALE] Busca TOP 13: row={row}')
+        
+        if not row:
+            # 2. Não existe TOP 13 - criar cabeçalho
+            logger.info('[VERIFICAR VALE] TOP 13 não existe - criando cabeçalho')
+            resultado = criar_cabecalho_vale_top13_apenas(nunota_11)
+            if not resultado.get('ok'):
+                logger.error(f'[VERIFICAR VALE] Erro ao criar cabeçalho: {resultado}')
+                return resultado
+            
+            out.update({
+                'ok': True,
+                'nunota_13': resultado['nunota_13'],
+                'dtfatur': resultado['dtfatur'],
+                'criou_cabecalho': True,
+                'atualizou_item': False,
+                'item_nao_existe': True
+            })
+            logger.info(f'[VERIFICAR VALE] Retornando (criou): {out}')
+            return out
+        
+        # 3. TOP 13 já existe - tentar atualizar item
+        nunota_13 = int(row[0])
+        logger.info(f'[VERIFICAR VALE] TOP 13 existe: {nunota_13}')
+        
+        # 3.1 Verificar se item existe
+        cur.execute("""
+            SELECT SEQUENCIA FROM TGFITE 
+            WHERE NUNOTA = :n AND CODPROD = :p
+        """, n=nunota_13, p=codprod)
+        item_row = cur.fetchone()
+        
+        logger.info(f'[VERIFICAR VALE] Item existe? item_row={item_row}')
+        
+        if not item_row:
+            # Item não existe ainda - retornar sucesso sem atualizar
+            out.update({
+                'ok': True,
+                'nunota_13': nunota_13,
+                'criou_cabecalho': False,
+                'atualizou_item': False,
+                'item_nao_existe': True
+            })
+            logger.info(f'[VERIFICAR VALE] Retornando (item não existe): {out}')
+            return out
+        
+        # 3.2 Item existe - atualizar PRECOBASE
+        try:
+            cur.execute("""
+                UPDATE TGFITE SET PRECOBASE = :preco 
+                WHERE NUNOTA = :n AND CODPROD = :p
+            """, preco=novo_preco, n=nunota_13, p=codprod)
+            conn.commit()
+            
+            out.update({
+                'ok': True,
+                'nunota_13': nunota_13,
+                'criou_cabecalho': False,
+                'atualizou_item': True,
+                'item_nao_existe': False
+            })
+            logger.info(f'[VERIFICAR VALE] Retornando (atualizou): {out}')
+            return out
+        except Exception as e:
+            conn.rollback()
+            out['error'] = f'Falha ao atualizar PRECOBASE: {e}'
+            logger.error(f'[VERIFICAR VALE] Erro ao atualizar: {out}')
+            return out
+    
     return out

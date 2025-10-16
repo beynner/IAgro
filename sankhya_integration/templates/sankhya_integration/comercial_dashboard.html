@@ -831,8 +831,8 @@
             </table>
           </div>
         </div>
-        <!-- Modal: Resumo do Vale (por NUNOTA) -->
-        <div id="valeResumoModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:1000; align-items:center; justify-content:center;">
+        <!-- Modal: Faturamento (por NUNOTA) -->
+        <div id="modalFaturamento" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:1000; align-items:center; justify-content:center;">
           <div style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; width:min(600px, 60vw); max-height:88vh; display:flex; flex-direction:column;">
             <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #e5e7eb;">
               <div style="display:flex; align-items:center; gap:10px; flex:1;">
@@ -1335,7 +1335,8 @@
           <div class="zcell z-br panel group group--entrada" id="entradaCard" data-supplier="" data-product="" data-doc="" data-serie="" data-date="" data-tipo="" data-lote="" data-cx="" data-kg-in="" data-kg-class="" data-preco-kg="" data-preco-cx="">
             <h3 class="entrada-title">Entrada
               <span class="title-right">
-                <span class="badge" id="entBadgeLote"></span>
+                <span class="badge" id="entBadgePedido"></span>
+                <span class="badge" id="entBadgeVale13"></span>
                 <span class="badge" id="entBadgeTipo"></span>
               </span>
             </h3>
@@ -1565,7 +1566,7 @@
 
         const clearIds = [
           '#supplierName','#classFabricanteName','#entPartner','#entProduct',
-          '#entBadgeLote','#entBadgeTipo','#rfMargem','#costCxDisplay',
+          '#entBadgePedido','#entBadgeVale13','#entBadgeTipo','#rfMargem','#costCxDisplay',
           '#costKgDisplay','#totalValueDisplay','#kpiAproveitamento',
           '#kpiRendimento','#kpiEstoque','#kpiEstoqueApprox','#gPct',
           '#gaugeLabel','#resInnKg','#resInnCx','#resClassKg','#resClassCx',
@@ -2487,8 +2488,27 @@
           }catch{}
           // Atualizar badges
           const tipoEl = document.getElementById('entBadgeTipo');
-          const loteEl = document.getElementById('entBadgeLote');
-          if(loteEl) loteEl.textContent = `Vale ${nunota}`;
+          const pedidoEl = document.getElementById('entBadgePedido');
+          const valeEl = document.getElementById('entBadgeVale13');
+          if(pedidoEl) pedidoEl.textContent = `Pedido ${nunota}`;
+          if(valeEl) {
+            // Verificar se existe TOP 13 vinculada via busca no cache ou item
+            let nunota13 = item.nunota_13 || '';
+            
+            // Se não tem no item, buscar no cache de outros itens do mesmo pedido
+            if(!nunota13 && window.__COM_LIST_ROWS){
+              const itemsDoMesmoPedido = window.__COM_LIST_ROWS.filter(r => Number(r.nunota || 0) === Number(nunota));
+              const itemComVale = itemsDoMesmoPedido.find(r => r.nunota_13);
+              if(itemComVale){
+                nunota13 = itemComVale.nunota_13;
+              }
+            }
+            
+            console.log('[BADGE VALE] nunota:', nunota, 'nunota_13:', nunota13, 'item:', item);
+            
+            valeEl.textContent = nunota13 ? `Vale ${nunota13}` : '';
+            valeEl.style.display = nunota13 ? '' : 'none';
+          }
           if(tipoEl) tipoEl.textContent = dt || '—';
           // Cabeçalho do card (produto, doc/serie/data)
           const productEl = document.getElementById('entProduct');
@@ -2554,6 +2574,23 @@
           }catch{}
 
           recomputeTotalApprox(perBox||0);
+          
+          // Guardar contexto do primeiro item para persistência (modo Diversos)
+          try{
+            const firstItem = pool[0];
+            const card = document.getElementById('quantidadeInnCard');
+            const entCard = document.getElementById('entradaCard');
+            if(card && firstItem){ 
+              card.setAttribute('data-nunota', String(firstItem.nunota||'')); 
+              card.setAttribute('data-seq', String(firstItem.sequencia||''));
+              card.setAttribute('data-codprod', String(firstItem.codprod||''));
+            }
+            if(entCard && firstItem){
+              entCard.setAttribute('data-nunota', String(firstItem.nunota||'')); 
+              entCard.setAttribute('data-seq', String(firstItem.sequencia||''));
+              entCard.setAttribute('data-codprod', String(firstItem.codprod||''));
+            }
+          }catch{}
         }catch{}
       }
 
@@ -2562,6 +2599,7 @@
           if(!item) return;
           const parceiro = item.parceiro || '';
           const produto = item.produto || '';
+          const codprod = item.codprod || '';
           const nunota = item.nunota || '';
           const sequencia = item.sequencia || '';
           const dt = item.dtneg || '';
@@ -2579,10 +2617,21 @@
             ad_simqtd2: simMedioCx,
             ad_simvlr2: simMedioTotal
           });
-          // Guardar contexto atual (nunota/seq) para persistência do Preço Inicial
+          // Guardar contexto atual (nunota/seq/codprod) para persistência do Preço Inicial
           try{
             const card = document.getElementById('quantidadeInnCard');
-            if(card){ card.setAttribute('data-nunota', String(nunota||'')); card.setAttribute('data-seq', String(sequencia||'')); }
+            if(card){ 
+              card.setAttribute('data-nunota', String(nunota||'')); 
+              card.setAttribute('data-seq', String(sequencia||''));
+              card.setAttribute('data-codprod', String(codprod||''));
+            }
+            // Também adicionar ao entradaCard para facilitar acesso
+            const entCard = document.getElementById('entradaCard');
+            if(entCard){
+              entCard.setAttribute('data-nunota', String(nunota||'')); 
+              entCard.setAttribute('data-seq', String(sequencia||''));
+              entCard.setAttribute('data-codprod', String(codprod||''));
+            }
           }catch{}
           
           // Limpar campos da simulação ANTES de aplicar novos valores
@@ -2677,8 +2726,27 @@
           
           // Badges
           const tipoEl = document.getElementById('entBadgeTipo');
-          const loteEl = document.getElementById('entBadgeLote');
-          if(loteEl) loteEl.textContent = `Vale ${nunota}`;
+          const pedidoEl = document.getElementById('entBadgePedido');
+          const valeEl = document.getElementById('entBadgeVale13');
+          if(pedidoEl) pedidoEl.textContent = `Pedido ${nunota}`;
+          if(valeEl) {
+            // Verificar se existe TOP 13 vinculada via busca no cache ou item
+            let nunota13 = item.nunota_13 || '';
+            
+            // Se não tem no item, buscar no cache de outros itens do mesmo pedido
+            if(!nunota13 && window.__COM_LIST_ROWS){
+              const itemsDoMesmoPedido = window.__COM_LIST_ROWS.filter(r => Number(r.nunota || 0) === Number(nunota));
+              const itemComVale = itemsDoMesmoPedido.find(r => r.nunota_13);
+              if(itemComVale){
+                nunota13 = itemComVale.nunota_13;
+              }
+            }
+            
+            console.log('[BADGE VALE] nunota:', nunota, 'nunota_13:', nunota13, 'item:', item);
+            
+            valeEl.textContent = nunota13 ? `Vale ${nunota13}` : '';
+            valeEl.style.display = nunota13 ? '' : 'none';
+          }
           if(tipoEl) tipoEl.textContent = dt || '—';
           // Cabeçalho do card
           const productEl = document.getElementById('entProduct'); if(productEl) productEl.textContent = produto || '-';
@@ -3739,7 +3807,7 @@
         }
         
         try{
-          const modal = document.getElementById('valeResumoModal');
+          const modal = document.getElementById('modalFaturamento');
           const title = document.getElementById('valeResumoTitle');
           const classBody = document.getElementById('valeClassBody');
           const outrosBody = document.getElementById('valeOutrosBody');
@@ -3848,6 +3916,36 @@
           const nclass = rows.filter(r=> r.classificavel === false);
           // Classificáveis: com valores editáveis
           if(classifs.length){
+            // Calcular totais dos produtos classificáveis
+            let totalCxClassif = 0;
+            let totalKgClassif = 0;
+            let totalVlrClassif = 0;
+            
+            classifs.forEach(r => {
+              const qtd = Number(r.qtdneg || 0);
+              const unit = ((r.codvol || '') + '').toUpperCase();
+              const vlrtot = Number(r.vlrtot || 0);
+              
+              if(unit === 'CX'){
+                totalCxClassif += qtd;
+              } else if(unit === 'KG'){
+                totalKgClassif += qtd;
+              }
+              totalVlrClassif += vlrtot;
+            });
+            
+            // Pegar custo/cx da distribuição (se disponível)
+            const distState = window.__DIST_STATE || {};
+            const distCusto = distState.custo || {};
+            const custoPorCxDist = Number(distCusto.porCx || 0);
+            
+            // Calcular custo/cx baseado no total ou usar da distribuição
+            const custoPorCx = custoPorCxDist > 0 
+              ? custoPorCxDist 
+              : (totalCxClassif > 0 ? (totalVlrClassif / totalCxClassif) : 0);
+            
+            console.log('[MODAL DEBUG] totalCx:', totalCxClassif, 'totalKg:', totalKgClassif, 'totalVlr:', totalVlrClassif, 'custoPorCx:', custoPorCx);
+            
             classBody.innerHTML = classifs.map(r=>{
               const prod = r.produto||'';
               const unit = ((r.codvol||'')+'').toUpperCase();
@@ -3861,9 +3959,8 @@
                 ? `<span title="OK: negociação salva" style="display:inline-block;width:8px;height:8px;border-radius:999px;background:#16a34a;opacity:.85"></span>`
                 : `<span title="Alerta: VLRTOT = 0 (não salvo)" style="display:inline-block;width:8px;height:8px;border-radius:999px;background:#f59e0b;opacity:.9"></span>`;
               const nun = Number(r.nunota||0), seq = Number(r.sequencia||0);
-              // Valor Final: converter VLRUNIT (R$/kg) para R$/cx multiplicando pelo fator
-              const valorFinalCx = (vlrunit > 0 && fatorConv > 0) ? (vlrunit * fatorConv) : precoIni;
-              console.log('[MODAL DEBUG] vlrunit:', vlrunit, 'fatorConv:', fatorConv, 'valorFinalCx:', valorFinalCx, 'precoIni:', precoIni);
+              // Valor Final: usar custo/cx calculado
+              const valorFinalCx = custoPorCx > 0 ? custoPorCx : (vlrunit > 0 && fatorConv > 0 ? (vlrunit * fatorConv) : precoIni);
               const abrir = (nun && seq) ? `
                 <a class="eye-open" href="/sankhya/comercial/?sel_nunota=${nun}&sel_seq=${seq}" target="_blank" rel="noopener" data-nun="${nun}" data-seq="${seq}" style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;color:#94a3b8;text-decoration:none;">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -5239,7 +5336,7 @@
         .map(id => document.getElementById(id))
         .forEach(attachSelectAll);
       // Modal Valor Inicial inputs
-      document.querySelectorAll('#valeResumoModal input.vcl-preco-inicial, #valeResumoModal input.vop-preco-inicial, #parceiroResumoModal input.pcl-preco-inicial, #parceiroResumoModal input.pop-preco-inicial')
+      document.querySelectorAll('#modalFaturamento input.vcl-preco-inicial, #modalFaturamento input.vop-preco-inicial, #parceiroResumoModal input.pcl-preco-inicial, #parceiroResumoModal input.pop-preco-inicial')
         .forEach(attachSelectAll);
     })();
 
@@ -7623,7 +7720,7 @@
   const productEl = $('#entProduct');
   const partnerEl = document.getElementById('entPartner');
   const tipoEl = document.getElementById('entBadgeTipo');
-  const loteEl = document.getElementById('entBadgeLote');
+  const loteEl = document.getElementById('entLote');
   const cxEl = document.getElementById('quantidadeInn');
   // Peso card elements
   const pesoCard = document.getElementById('quantidadeInnCard');
@@ -7691,6 +7788,7 @@
 
     // Preço (no card unificado): editar R$ / CX, recalcular Valor Total e R$ / KG
       (function(){
+  console.log('[PREÇO INICIAL] Inicializando sistema de edição...');
   const card = document.getElementById('quantidadeInnCard');
   const cxEl = document.getElementById('quantidadeInn');
         const precoCxDisplay = document.getElementById('entPrecoCxDisplay');
@@ -7698,7 +7796,23 @@
         const totalEl = document.getElementById('entTotalIn');
         const precoKgEl = document.getElementById('entPrecoKg');
   const pesoTotalApproxEl = document.getElementById('totalInn');
-        if(!card || !precoCxDisplay || !precoCxInput || !totalEl || !precoKgEl || !pesoTotalApproxEl || !cxEl) return;
+        
+        console.log('[PREÇO INICIAL] Elementos encontrados:', {
+          card: !!card,
+          cxEl: !!cxEl,
+          precoCxDisplay: !!precoCxDisplay,
+          precoCxInput: !!precoCxInput,
+          totalEl: !!totalEl,
+          precoKgEl: !!precoKgEl,
+          pesoTotalApproxEl: !!pesoTotalApproxEl
+        });
+        
+        if(!card || !precoCxDisplay || !precoCxInput || !totalEl || !precoKgEl || !pesoTotalApproxEl || !cxEl) {
+          console.error('[PREÇO INICIAL] ❌ Algum elemento não foi encontrado! Sistema de edição NÃO inicializado.');
+          return;
+        }
+        
+        console.log('[PREÇO INICIAL] ✅ Todos os elementos encontrados. Inicializando eventos...');
 
         const parsePT = (text) => {
           if(!text) return NaN;
@@ -7725,6 +7839,7 @@
 
         let prev = precoCxDisplay.textContent || '';
         const enter = () => {
+          console.log('[PREÇO INICIAL] Enter chamado - começando edição');
           prev = precoCxDisplay.textContent || prev;
           const n = parsePT(prev);
           card.classList.add('editing-cx');
@@ -7732,7 +7847,8 @@
           autosize();
           setTimeout(()=>{ precoCxInput.focus(); precoCxInput.select(); },0);
         };
-        const exit = async (commit) => {
+        const exit = (commit) => {
+          console.log('[PREÇO INICIAL] Exit chamado - commit:', commit);
           if(commit){
             const n = parsePT(precoCxInput.value);
             if(!isNaN(n)){
@@ -7792,26 +7908,119 @@
                 console.error('[CACHE UPDATE] Erro ao atualizar cache:', err);
               }
               
-              // Persistir PRECOBASE no backend (assíncrono, não bloqueia UI)
+              // Salvar e criar/atualizar TOP 13
               try{
-                const nun = card.getAttribute('data-nunota');
-                const seq = card.getAttribute('data-seq');
-                if(nun && seq){
-                  const payload = { nunota: Number(nun), sequencia: Number(seq), preco_inicial: Number(n) };
+                // Buscar atributos do card correto (quantidadeInnCard tem os dados)
+                const dataCard = document.getElementById('quantidadeInnCard');
+                console.log('[DEBUG VALE] dataCard:', dataCard);
+                console.log('[DEBUG VALE] Atributos do card:', {
+                  nunota: dataCard?.getAttribute('data-nunota'),
+                  seq: dataCard?.getAttribute('data-seq'),
+                  codprod: dataCard?.getAttribute('data-codprod')
+                });
+                
+                const nun = dataCard?.getAttribute('data-nunota');
+                const seq = dataCard?.getAttribute('data-seq');
+                const cprod = dataCard?.getAttribute('data-codprod');
+                
+                console.log('[DEBUG VALE] Valores extraídos:', {nun, seq, cprod});
+                console.log('[DEBUG VALE] Condição (nun && seq && cprod):', !!(nun && seq && cprod));
+                
+                if(nun && seq && cprod){
+                  console.log('[VALE] Iniciando save - NUNOTA:', nun, 'CODPROD:', cprod, 'PREÇO:', n);
                   
-                  // Save assíncrono - não espera resposta
-                  window.__postJSON('/sankhya/item/save/', payload).then(result => {
+                  // 1. Salvar preco_inicial no TOP 11 (PRECOBASE em TGFITE)
+                  window.__postJSON('/sankhya/item/save/', { 
+                    nunota: Number(nun), 
+                    sequencia: Number(seq), 
+                    preco_inicial: Number(n) 
+                  }).then(result => {
                     if(result.ok){
-                      console.log('[SAVE] ✅ preco_inicial salvo no banco');
+                      console.log('[SAVE] ✅ PRECOBASE salvo na TOP 11');
+                      
+                      // 2. Após salvar na TOP 11, verificar/criar cabeçalho TOP 13
+                      console.log('[VALE] Verificando/criando cabeçalho TOP 13...');
+                      return window.__postJSON('/sankhya/comercial/vale/verificar_ou_criar_cabecalho/', {
+                        nunota_11: Number(nun),
+                        codprod: Number(cprod),
+                        novo_preco: Number(n)
+                      });
                     } else {
-                      console.error('[SAVE] ❌ Falha ao salvar:', result);
+                      console.warn('[SAVE] ⚠️ Falha ao salvar PRECOBASE:', result.error);
+                      throw new Error(result.error || 'Falha ao salvar PRECOBASE');
+                    }
+                  }).then(result => {
+                    console.log('[VALE] Resposta do backend:', result);
+                    
+                    // O __postJSON encapsula a resposta em {ok, status, body}
+                    const data = result.body || result;
+                    
+                    console.log('[VALE] Dados extraídos:', data);
+                    
+                    if(data && data.ok){
+                      const nunota13 = data.nunota_13;
+                      
+                      console.log('[VALE] nunota_13 extraído:', nunota13);
+                      
+                      if(data.criou_cabecalho){
+                        console.log('[VALE] ✅ Cabeçalho TOP 13 criado:', nunota13);
+                        window.showToast(`✅ Vale TOP 13 #${nunota13} criado`, 'success');
+                      } else if(data.atualizou_item){
+                        console.log('[VALE] ✅ PRECOBASE atualizado na TOP 13:', nunota13);
+                        window.showToast(`✅ Preço atualizado no Vale #${nunota13}`, 'success');
+                      } else if(data.item_nao_existe){
+                        console.log('[VALE] ℹ️ Item ainda não existe na TOP 13:', nunota13);
+                        window.showToast(`ℹ️ Vale #${nunota13} - Item criado depois`, 'info');
+                      }
+                      
+                      // Atualizar cache com NUNOTA_13
+                      try{
+                        if(window.__COM_LIST_ROWS){
+                          const rows = window.__COM_LIST_ROWS;
+                          rows.forEach(r => {
+                            if(Number(r.nunota || 0) === Number(nun)){
+                              r.nunota_13 = nunota13;
+                            }
+                          });
+                          console.log('[CACHE] nunota_13 atualizado no cache:', nunota13);
+                        }
+                      }catch(cacheErr){
+                        console.warn('[CACHE] Erro ao atualizar cache:', cacheErr);
+                      }
+                      
+                      // Atualizar badge do Vale no card ENTRADA instantaneamente
+                      try{
+                        const valeEl = document.getElementById('entBadgeVale13');
+                        if(valeEl && nunota13){
+                          valeEl.textContent = `Vale ${nunota13}`;
+                          valeEl.style.display = '';
+                          console.log('[BADGE] ✅ Badge Vale atualizado instantaneamente:', nunota13);
+                        } else {
+                          console.warn('[BADGE] ⚠️ Elemento badge não encontrado ou nunota13 vazio:', {valeEl, nunota13});
+                        }
+                      }catch(badgeErr){
+                        console.error('[BADGE] ❌ Erro ao atualizar badge:', badgeErr);
+                      }
+                    } else if(data) {
+                      console.error('[VALE] ❌ Falha:', data);
+                      if(data.error){
+                        window.showToast(`❌ Erro ao processar vale: ${data.error}`, 'error');
+                      }
                     }
                   }).catch(err => {
-                    console.error('[SAVE ERROR] Erro ao salvar preco_inicial:', err);
+                    console.error('[SAVE/VALE ERROR]:', err);
+                    window.showToast('❌ Erro ao comunicar com servidor', 'error');
                   });
+                } else {
+                  console.warn('[VALE] ⚠️ Dados insuficientes para criar vale!');
+                  console.warn('[VALE] nun:', nun, '(tipo:', typeof nun, ')');
+                  console.warn('[VALE] seq:', seq, '(tipo:', typeof seq, ')');
+                  console.warn('[VALE] cprod:', cprod, '(tipo:', typeof cprod, ')');
+                  console.warn('[VALE] dataCard encontrado:', !!dataCard);
                 }
               }catch(err){
-                console.error('[SAVE ERROR] Erro ao iniciar save:', err);
+                console.error('[SAVE ERROR] ❌ Erro ao iniciar save:', err);
+                console.error('[SAVE ERROR] Stack:', err.stack);
               }
             }
           }
@@ -7840,6 +8049,9 @@
             precoCxInput.style.width = Math.ceil(Math.min(260, Math.max(80, w + 14))) + 'px';
           }catch{}
         });
+        
+        console.log('[PREÇO INICIAL] ✅ Event listeners anexados com sucesso!');
+        console.log('[PREÇO INICIAL] Clique no valor', precoCxDisplay.textContent, 'para editar');
       })();
 
     // Comercial: carregar dados reais do lote (se ?controle= estiver presente) e salvar simulação ao aplicar
@@ -7886,8 +8098,6 @@
                 totalInnEl.textContent = (sumKg||0).toLocaleString('pt-BR');
               }
             }catch(_){ }
-            // Atualizar badge de lote (canto superior direito do card Entrada)
-            try{ const loteEl = document.getElementById('entBadgeLote'); if(loteEl) loteEl.textContent = String(controle); }catch(_){ }
           }).catch(()=>{});
       }
 
