@@ -703,7 +703,13 @@
         const btnDel = document.getElementById('btnDeleteNota');
         if (!btnDel) return;
         const hasActive = !!tbl.querySelector('tbody tr.row--click.row--active');
-        if (hasActive) btnDel.removeAttribute('disabled'); else btnDel.setAttribute('disabled','disabled');
+        if (hasActive) {
+          btnDel.removeAttribute('disabled');
+          btnDel.classList.add('danger');
+        } else {
+          btnDel.setAttribute('disabled','disabled');
+          btnDel.classList.remove('danger');
+        }
       }
 
       tbl.addEventListener('click', (e) => {

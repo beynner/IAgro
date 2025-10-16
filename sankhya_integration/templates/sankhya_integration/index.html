@@ -20,9 +20,9 @@
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       min-height: 100vh;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
-      padding: clamp(14px, 4vh, 32px) clamp(14px, 7vw, 56px);
+      padding: 20px clamp(14px, 7vw, 56px) 20px;
       overflow-y: auto;
       overflow-x: hidden;
       position: relative;
@@ -69,7 +69,7 @@
 
     .header {
       text-align: center;
-      margin-bottom: 28px;
+      margin-bottom: 100px;
       animation: fadeInDown 0.8s ease-out;
     }
 
@@ -142,7 +142,7 @@
 
     /* Pulse lift animation while hovered */
     .card:hover {
-      animation: liftPulse 1.6s ease-in-out infinite;
+      animation: liftPulse 2.4s ease-in-out infinite;
     }
 
     @keyframes liftPulse {
@@ -150,21 +150,17 @@
         transform: translateY(-6px) scale(1);
         box-shadow: 0 24px 68px rgba(0, 0, 0, 0.18);
       }
-      20% {
-        transform: translateY(-18px) scale(1.05);
-        box-shadow: 0 38px 92px rgba(0, 0, 0, 0.32);
+      25% {
+        transform: translateY(-10px) scale(1.015);
+        box-shadow: 0 28px 76px rgba(0, 0, 0, 0.22);
       }
-      55% {
-        transform: translateY(-11px) scale(1.022);
-        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.24);
+      50% {
+        transform: translateY(-8px) scale(1.008);
+        box-shadow: 0 26px 72px rgba(0, 0, 0, 0.20);
       }
-      62% {
-        transform: translateY(-11px) scale(1.022);
-        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.24);
-      }
-      90% {
-        transform: translateY(-6px) scale(1.005);
-        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.19);
+      75% {
+        transform: translateY(-10px) scale(1.015);
+        box-shadow: 0 28px 76px rgba(0, 0, 0, 0.22);
       }
       100% {
         transform: translateY(-6px) scale(1);
