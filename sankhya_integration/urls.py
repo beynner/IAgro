@@ -57,6 +57,8 @@ urlpatterns = [
     path("comercial/vale/gerar/", views.comercial_vale_gerar, name="comercial_vale_gerar"),
     path("comercial/vale/verificar_ou_criar_cabecalho/", views.comercial_vale_verificar_ou_criar_cabecalho, name="comercial_vale_verificar_ou_criar_cabecalho"),
     path("comercial/vale/sync/", views.comercial_vale_sync, name="comercial_vale_sync"),
+    path("comercial/vale/clear/", views.comercial_vale_clear, name="comercial_vale_clear"),
+    path("comercial/modal/auto-save/", views.modal_faturamento_auto_save, name="modal_faturamento_auto_save"),
     path("comercial/item/lote/", views.comercial_item_lote, name="comercial_item_lote"),
     path("classificacao/resumo/", views.classificacao_resumo, name="classificacao_resumo"),
     # Duplicação automática/rotas removidas a pedido: sem duplicar TOP 11→26 via portal

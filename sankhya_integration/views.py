@@ -1,7 +1,7 @@
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render, redirect
 from datetime import date as _date
-from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.csrf import ensure_csrf_cookie, csrf_exempt
 from django.views.decorators.http import require_http_methods
 import logging
 import json
@@ -2630,10 +2630,10 @@ def nota_check_negociacao(request: HttpRequest) -> JsonResponse:
     """Verifica se um controle possui negociação comercial.
     
     Pode receber:
-    - nunota: NUNOTA da TOP 26 (classificação) - busca TOP 11 vinculada
-    - controle: CODAGREGACAO - busca diretamente nos itens da TOP 11
+    - nunota: NUNOTA da TOP 26 (classificação) - busca TOP 13 (Vale) vinculado
+    - controle: CODAGREGACAO - busca diretamente nos itens da TOP 13
     
-    Retorna se existe VLRTOT > 0 nos itens da TOP 11 (entrada).
+    Retorna se existe VLRTOT > 0 nos itens da TOP 13 (Vale).
     """
     if request.method != 'GET':
         return JsonResponse({"ok": False, "error": "Use GET"}, status=405)
@@ -2648,38 +2648,41 @@ def nota_check_negociacao(request: HttpRequest) -> JsonResponse:
         
         with get_connection() as conn:
             cursor = conn.cursor()
-            nunota_top11 = None
+            nunota_vale = None
+            numpedido = None
             
             # Variável para armazenar o CODAGREGACAO a ser verificado
             codagregacao = None
             
-            # Opção 1: Se recebeu controle, busca diretamente pela TOP 11
+            # Opção 1: Se recebeu controle, busca TOP 11 e depois TOP 13 via NUMPEDIDO
             if controle_param:
                 codagregacao = controle_param
                 print(f"📋 [CHECK_NEGOCIACAO] Buscando pela CODAGREGACAO: {codagregacao}")
-                query_top11_by_ctrl = """
-                    SELECT c.NUNOTA
+                
+                # Busca TOP 11 pelo controle
+                query_top11 = """
+                    SELECT c.NUNOTA, c.NUMNOTA
                     FROM TGFITE i
                     JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
                     WHERE i.CODAGREGACAO = :controle
                       AND c.CODTIPOPER = 11
                       AND ROWNUM = 1
                 """
-                cursor.execute(query_top11_by_ctrl, {'controle': codagregacao})
+                cursor.execute(query_top11, {'controle': codagregacao})
                 row = cursor.fetchone()
                 if row:
-                    nunota_top11 = row[0]
-                    print(f"📦 [CHECK_NEGOCIACAO] TOP 11 encontrada via CODAGREGACAO - NUNOTA={nunota_top11}")
+                    numpedido = row[1]  # NUMNOTA da TOP 11 = NUMPEDIDO da TOP 13
+                    print(f"📦 [CHECK_NEGOCIACAO] TOP 11 encontrada - NUMPEDIDO={numpedido}")
             
             # Opção 2: Se não encontrou por controle e recebeu nunota da TOP 26
-            if not nunota_top11 and nunota_param:
+            if not numpedido and nunota_param:
                 try:
                     nunota_top26 = int(nunota_param)
                     print(f"📋 [CHECK_NEGOCIACAO] Buscando pela NUNOTA TOP 26: {nunota_top26}")
                     
-                    # Busca o NUMPEDIDO/NUMNOTA da TOP 26 E o CODAGREGACAO dos itens
+                    # Busca o NUMPEDIDO da TOP 26 E o CODAGREGACAO dos itens
                     query_cab = """
-                        SELECT c.NUMPEDIDO, c.NUMNOTA, i.CODAGREGACAO
+                        SELECT c.NUMPEDIDO, i.CODAGREGACAO
                         FROM TGFCAB c
                         LEFT JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
                         WHERE c.NUNOTA = :nunota_top26
@@ -2690,74 +2693,85 @@ def nota_check_negociacao(request: HttpRequest) -> JsonResponse:
                     row = cursor.fetchone()
                     
                     if row:
-                        numpedido_top26 = row[0]
-                        codagregacao = row[2]  # CODAGREGACAO do item da TOP 26
-                        print(f"📋 [CHECK_NEGOCIACAO] TOP 26 - NUMPEDIDO={numpedido_top26}, CODAGREGACAO={codagregacao}")
-                        
-                        # Busca o NUNOTA da TOP 11
-                        query_top11 = """
-                            SELECT NUNOTA
-                            FROM TGFCAB
-                            WHERE CODTIPOPER = 11
-                              AND NUMNOTA = :numnota_top11
-                              AND ROWNUM = 1
-                        """
-                        cursor.execute(query_top11, {'numnota_top11': numpedido_top26})
-                        row_top11 = cursor.fetchone()
-                        
-                        if row_top11:
-                            nunota_top11 = row_top11[0]
-                            print(f"📦 [CHECK_NEGOCIACAO] TOP 11 encontrada via TOP 26 - NUNOTA={nunota_top11}")
+                        numpedido = row[0]
+                        codagregacao = row[1]  # CODAGREGACAO do item da TOP 26
+                        print(f"📋 [CHECK_NEGOCIACAO] TOP 26 - NUMPEDIDO={numpedido}, CODAGREGACAO={codagregacao}")
                 except Exception as e:
                     print(f"⚠️ [CHECK_NEGOCIACAO] Erro ao processar NUNOTA TOP 26: {e}")
             
-            # Se não encontrou a TOP 11 ou CODAGREGACAO, não tem negociação
-            if not nunota_top11 or not codagregacao:
-                print(f"⚠️ [CHECK_NEGOCIACAO] TOP 11 ou CODAGREGACAO não encontrado")
+            # Se não encontrou o NUMPEDIDO ou CODAGREGACAO, não tem negociação
+            if not numpedido or not codagregacao:
+                print(f"⚠️ [CHECK_NEGOCIACAO] NUMPEDIDO ou CODAGREGACAO não encontrado")
                 cursor.close()
                 return JsonResponse({
                     "ok": True,
                     "tem_negociacao": False,
                     "total_registros": 0,
-                    "info": "TOP 11 ou CODAGREGACAO não encontrado"
+                    "info": "NUMPEDIDO ou CODAGREGACAO não encontrado"
                 })
             
-            # Verifica se existe VLRTOT > 0 NO ITEM ESPECÍFICO (CODAGREGACAO) da TOP 11
+            # Busca o NUNOTA da TOP 13 (VALE) pelo NUMPEDIDO
+            query_vale = """
+                SELECT NUNOTA
+                FROM TGFCAB
+                WHERE CODTIPOPER = 13
+                  AND NUMPEDIDO = :numpedido
+                  AND ROWNUM = 1
+            """
+            cursor.execute(query_vale, {'numpedido': numpedido})
+            row_vale = cursor.fetchone()
+            
+            if not row_vale:
+                print(f"⚠️ [CHECK_NEGOCIACAO] TOP 13 (Vale) não encontrado para NUMPEDIDO={numpedido}")
+                cursor.close()
+                return JsonResponse({
+                    "ok": True,
+                    "tem_negociacao": False,
+                    "total_registros": 0,
+                    "info": "Vale (TOP 13) não encontrado"
+                })
+            
+            nunota_vale = row_vale[0]
+            print(f"📦 [CHECK_NEGOCIACAO] TOP 13 (Vale) encontrado - NUNOTA={nunota_vale}")
+            
+            # Verifica se existe VLRTOT > 0 NO ITEM ESPECÍFICO (CODAGREGACAO ou CONTROLE) da TOP 13
             query_vlrtot = """
                 SELECT COUNT(*), SUM(VLRTOT)
                 FROM TGFITE
-                WHERE NUNOTA = :nunota_top11
-                  AND CODAGREGACAO = :codagregacao
+                WHERE NUNOTA = :nunota_vale
+                  AND (CODAGREGACAO = :codagregacao OR CONTROLE = :codagregacao)
                   AND VLRTOT > 0
             """
-            cursor.execute(query_vlrtot, {'nunota_top11': nunota_top11, 'codagregacao': codagregacao})
+            cursor.execute(query_vlrtot, {'nunota_vale': nunota_vale, 'codagregacao': codagregacao})
             row_vlr = cursor.fetchone()
             count = row_vlr[0] if row_vlr else 0
             total_vlrtot = row_vlr[1] if row_vlr and row_vlr[1] else 0
             
             # Query adicional para mostrar o item ESPECÍFICO (debug)
             query_debug = """
-                SELECT SEQUENCIA, CODPROD, CODAGREGACAO, QTDNEG, VLRUNIT, VLRTOT
+                SELECT SEQUENCIA, CODPROD, CODAGREGACAO, CONTROLE, QTDNEG, VLRUNIT, VLRTOT
                 FROM TGFITE
-                WHERE NUNOTA = :nunota_top11
-                  AND CODAGREGACAO = :codagregacao
+                WHERE NUNOTA = :nunota_vale
+                  AND (CODAGREGACAO = :codagregacao OR CONTROLE = :codagregacao)
                 ORDER BY SEQUENCIA
             """
-            cursor.execute(query_debug, {'nunota_top11': nunota_top11, 'codagregacao': codagregacao})
+            cursor.execute(query_debug, {'nunota_vale': nunota_vale, 'codagregacao': codagregacao})
             debug_rows = cursor.fetchall()
-            print(f"📊 [CHECK_NEGOCIACAO] Item específico TOP 11 (NUNOTA={nunota_top11}, CODAGREGACAO={codagregacao}):")
-            for seq, cod, codagr, qtd, vlu, vlt in debug_rows:
-                print(f"   SEQ={seq} COD={cod} LOTE={codagr} QTD={qtd} VLRU={vlu} VLRT={vlt}")
+            print(f"📊 [CHECK_NEGOCIACAO] Itens na TOP 13 (Vale) (NUNOTA={nunota_vale}, LOTE={codagregacao}):")
+            for row in debug_rows:
+                seq, cod, codagr, ctrl, qtd, vlu, vlt = row
+                print(f"   SEQ={seq} COD={cod} CODAGR={codagr} CTRL={ctrl} QTD={qtd} VLRU={vlu} VLRT={vlt}")
             
             cursor.close()
             
-            print(f"💰 [CHECK_NEGOCIACAO] Item com VLRTOT > 0: {count} (Total: R$ {total_vlrtot})")
+            print(f"💰 [CHECK_NEGOCIACAO] Itens com VLRTOT > 0 no Vale: {count} (Total: R$ {total_vlrtot})")
         
         result = {
             "ok": True,
             "tem_negociacao": count > 0,
             "total_registros": count,
-            "nunota_top11": nunota_top11,
+            "nunota_vale": nunota_vale,
+            "numpedido": numpedido,
             "codagregacao": codagregacao,
             "total_vlrtot": float(total_vlrtot) if total_vlrtot else 0.0
         }
@@ -3343,6 +3357,167 @@ def comercial_vale_sync(request: HttpRequest) -> JsonResponse:
         'items_processed': results,
         'vlrnota_update': vlrnota_result
     })
+
+
+@csrf_exempt
+def comercial_vale_clear(request: HttpRequest) -> JsonResponse:
+    """
+    Remove produtos Extra/Médio do VALE associado ao PEDIDO.
+    Exclusão seletiva: preserva outros produtos que possam existir no VALE.
+    """
+    from .services.oracle_conn import (
+        get_nunota_vale_from_pedido,
+        delete_vale_items
+    )
+    
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'Use POST'}, status=405)
+    
+    try:
+        import json
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except Exception:
+        payload = {}
+    
+    # Parâmetros necessários
+    nunota_pedido = _to_int_or(payload.get('nunota_pedido'))
+    codprod_in_natura = _to_int_or(payload.get('codprod_in_natura'))
+    
+    if not nunota_pedido:
+        return JsonResponse({'ok': False, 'error': 'nunota_pedido é obrigatório'}, status=400)
+    
+    if not codprod_in_natura:
+        return JsonResponse({'ok': False, 'error': 'codprod_in_natura é obrigatório'}, status=400)
+    
+    logger.info(f'[VALE CLEAR] Requisição recebida - PEDIDO={nunota_pedido}, CODPROD={codprod_in_natura}')
+    
+    # 1. Buscar NUNOTA do VALE via NUMPEDIDO
+    try:
+        nunota_vale = get_nunota_vale_from_pedido(nunota_pedido)
+    except Exception as e:
+        logger.exception(f'Erro ao buscar VALE para PEDIDO {nunota_pedido}')
+        return JsonResponse({
+            'ok': False,
+            'error': f'Erro ao buscar VALE: {str(e)}'
+        }, status=500)
+    
+    if not nunota_vale:
+        # Se não encontrou VALE, não é erro - apenas não há nada para limpar
+        logger.info(f'[VALE CLEAR] VALE não encontrado para PEDIDO {nunota_pedido} - nada a deletar')
+        return JsonResponse({
+            'ok': True,
+            'message': 'VALE não encontrado - nada a limpar',
+            'deleted_count': 0
+        })
+    
+    logger.info(f'[VALE CLEAR] VALE encontrado: NUNOTA={nunota_vale}')
+    
+    # 2. Deletar produtos Extra/Médio
+    try:
+        result = delete_vale_items(nunota_vale, codprod_in_natura)
+    except Exception as e:
+        logger.exception(f'Erro ao deletar itens do VALE {nunota_vale}')
+        return JsonResponse({
+            'ok': False,
+            'error': f'Erro ao deletar itens: {str(e)}'
+        }, status=500)
+    
+    if not result.get('success'):
+        return JsonResponse({
+            'ok': False,
+            'error': result.get('error', 'Erro desconhecido ao deletar itens')
+        }, status=500)
+    
+    logger.info(f'[VALE CLEAR] Sucesso - {result["deleted_count"]} itens deletados')
+    
+    return JsonResponse({
+        'ok': True,
+        'nunota_vale': nunota_vale,
+        'deleted_count': result['deleted_count'],
+        'products_deleted': result['products_deleted'],
+        'items': result.get('items', []),
+        'vlrnota_recalc': result.get('vlrnota_recalc')
+    })
+
+
+@csrf_exempt
+def modal_faturamento_auto_save(request: HttpRequest) -> JsonResponse:
+    """
+    Auto-salva alterações do modalFaturamento quando usuário edita preço.
+    
+    Classificável: Cria VALE (cabeçalho) se não existir. Edita PEDIDO (PRECOBASE, VLRUNIT, VLRTOT).
+    Não Classificável: Cria/edita VALE completo. Edita PEDIDO (VLRUNIT, VLRTOT).
+    """
+    from .services.oracle_conn import modal_faturamento_auto_save as auto_save_func
+    
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'Use POST'}, status=405)
+    
+    try:
+        import json
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except Exception as e:
+        logger.exception('Erro ao parsear JSON')
+        return JsonResponse({'ok': False, 'error': f'JSON inválido: {str(e)}'}, status=400)
+    
+    # Extrair parâmetros
+    nunota_pedido = _to_int_or(payload.get('nunota_pedido'))
+    sequencia = _to_int_or(payload.get('sequencia'))
+    codprod = _to_int_or(payload.get('codprod'))
+    codagregacao = payload.get('codagregacao')  # String (lote)
+    vlrtot = _to_float_or(payload.get('vlrtot'))
+    is_classificavel = bool(payload.get('is_classificavel', False))
+    
+    # Validações
+    if not all([nunota_pedido, sequencia, codprod, codagregacao]):
+        return JsonResponse({
+            'ok': False,
+            'error': 'Parâmetros obrigatórios: nunota_pedido, sequencia, codprod, codagregacao'
+        }, status=400)
+    
+    if vlrtot is None or vlrtot < 0:
+        return JsonResponse({
+            'ok': False,
+            'error': 'vlrtot deve ser >= 0'
+        }, status=400)
+    
+    logger.info(f'[MODAL AUTO-SAVE API] Requisição - NUNOTA={nunota_pedido}, SEQ={sequencia}, '
+                f'VLRTOT={vlrtot}, CLASSIFICAVEL={is_classificavel}')
+    
+    try:
+        result = auto_save_func(
+            nunota_pedido=nunota_pedido,
+            sequencia=sequencia,
+            codprod=codprod,
+            codagregacao=codagregacao,
+            vlrtot=vlrtot,
+            is_classificavel=is_classificavel
+        )
+        
+        if not result.get('success'):
+            return JsonResponse({
+                'ok': False,
+                'error': result.get('error', 'Erro desconhecido')
+            }, status=500)
+        
+        logger.info(f'[MODAL AUTO-SAVE API] ✅ Sucesso - NUNOTA_VALE={result["nunota_vale"]}, '
+                    f'VLRNOTA_PEDIDO={result["vlrnota_pedido"]}')
+        
+        return JsonResponse({
+            'ok': True,
+            'nunota_vale': result['nunota_vale'],
+            'vlrnota_pedido': result['vlrnota_pedido'],
+            'vlrnota_vale': result.get('vlrnota_vale'),
+            'action': result['action'],
+            'vlrunit': result['vlrunit']
+        })
+    
+    except Exception as e:
+        logger.exception(f'Erro ao processar auto-save modal - NUNOTA={nunota_pedido}, SEQ={sequencia}')
+        return JsonResponse({
+            'ok': False,
+            'error': f'Erro ao salvar: {str(e)}'
+        }, status=500)
 
 
 def comercial_dist_reset(request: HttpRequest) -> JsonResponse:

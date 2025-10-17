@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Painel Comercial — Layout Reiniciado</title>
+  <title>Painel Comercial — v2025.10.17.1930</title>
   {% load static %}
   <link rel="stylesheet" href="{% static 'sankhya_integration/style.css' %}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -866,9 +866,8 @@
                 <table style="width:100%; border-collapse:collapse; table-layout:fixed;">
                   <colgroup>
                     <col />
-                    <col style="width:80px" />
-                    <col style="width:110px" />
-                    <col style="width:110px" />
+                    <col style="width:100px" />
+                    <col style="width:120px" />
                     <col style="width:110px" />
                     <col style="width:50px" />
                     <col style="width:50px" />
@@ -877,15 +876,14 @@
                     <tr style="background:#f8fafb; border-bottom:1px solid #e5e7eb;">
                       <th style="text-align:left; padding:6px 8px; font-size:.85rem; color:#334155;">Produto</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Qtde</th>
-                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Valor Inicial</th>
-                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Valor Final</th>
-                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Valor Total</th>
+                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Vlr Unit</th>
+                      <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Vlr Total</th>
                       <th style="text-align:left; padding:6px 8px; font-size:.85rem; color:#334155;">Status</th>
                       <th style="text-align:right; padding:6px 8px; font-size:.85rem; color:#334155;">Ação</th>
                     </tr>
                   </thead>
                   <tbody id="valeClassBody">
-                    <tr><td colspan="7" style="padding:8px; color:#64748b;">—</td></tr>
+                    <tr><td colspan="6" style="padding:8px; color:#64748b;">—</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -917,7 +915,6 @@
               <div id="valeResumoTotal" style="font-weight:800; color:#0a3392; font-size:1.1rem;">R$ 0,00</div>
             </div>
             <div style="padding:0 12px 12px 12px; display:flex; gap:8px; justify-content:flex-end;">
-              <button id="btnGerarVale" class="btn" style="border:1px solid #2563eb; color:#2563eb; background:#fff; border-radius:8px; padding:10px 16px; font-weight:700;">GERAR VALE</button>
               <button id="valeResumoFaturar" class="btn" style="border:1px solid #16a34a; color:#16a34a; background:#fff; border-radius:8px; padding:10px 16px; font-weight:800;">FATURAR</button>
             </div>
           </div>
@@ -2826,7 +2823,9 @@
           let distTotalForCards = 0;
           try{
             if(typeof window.__setDistribTotal === 'function'){
+              console.log('[ITEM SELECT] Item completo:', item);
               const rawVlrtot = Number(item?.vlrtot);
+              console.log('[ITEM SELECT] rawVlrtot extraído:', rawVlrtot, 'item.vlrtot:', item?.vlrtot);
               const hasVlrtot = isFinite(rawVlrtot) && Math.abs(rawVlrtot) > 1e-6;
               const qtyCx = (unit === 'CX' && Number.isFinite(qtd)) ? qtd : 0;
               const precoBaseVal = (() => {
@@ -2853,7 +2852,10 @@
                 // Salva VLRUNIT e VLRTOT globalmente para uso posterior
                 const savedVlrunit = Number(item?.vlrunit);
                 window.__SAVED_VLRUNIT = savedVlrunit;
-                window.__SAVED_VLRTOT = rawVlrtot; // Salva VLRTOT para verificação no Cenário 1
+                // CRÍTICO: Salvar o distTotal calculado, não o rawVlrtot bruto
+                window.__SAVED_VLRTOT = distTotal; // Usa distTotal que considera VLRTOT ou qtyCx × precoBase
+                
+                console.log('[ITEM SELECT] VLRTOT salvo globalmente:', window.__SAVED_VLRTOT, 'distTotal:', distTotal, 'rawVlrtot:', rawVlrtot);
                 
                 // Atualizar toggle quando VLRTOT é definido
                 if(typeof window.__updateToggleFromPendenteClass === 'function'){
@@ -3959,17 +3961,39 @@
               const prod = r.produto||'';
               const unit = ((r.codvol||'')+'').toUpperCase();
               const qnum = Number(r.qtdneg||0);
-              const q = fmtQty(qnum);
-              const precoIni = Number(r.preco_inicial||0) || 0;
-              const vlrunit = Number(r.vlrunit||0) || 0;  // valor em KG (unidade base)
-              const fatorConv = Number(r.fator_conversao||1) || 1;  // quantos KG em 1 CX
               const vlrtot = Number(r.vlrtot||0) || 0;
+              let vlrunit = Number(r.vlrunit||0) || 0;  // valor em KG (unidade base)
+              const fatorConv = Number(r.fator_conversao||1) || 1;  // quantos KG em 1 CX
+              
+              // Calcular peso em kg e quantidade em cx
+              let pesoKg, qtdCx;
+              if (unit === 'CX') {
+                // Se a unidade é CX, qtdneg já é em caixas
+                qtdCx = qnum;
+                pesoKg = qnum * fatorConv;  // caixas * kg_por_caixa = peso_total_kg
+              } else {
+                // Se a unidade é KG, qtdneg já é em kg
+                pesoKg = qnum;
+                qtdCx = fatorConv > 0 ? qnum / fatorConv : 0;  // kg / kg_por_caixa = qtd_caixas
+              }
+              
+              // Se vlrunit = 0 mas vlrtot > 0, calcular vlrunit a partir de vlrtot
+              if (vlrunit === 0 && vlrtot > 0 && pesoKg > 0) {
+                vlrunit = vlrtot / pesoKg;  // R$ total / kg total = R$/kg
+              }
+              
+              // Calcular valores unitários para exibição
+              const vlrKg = vlrunit > 0 ? vlrunit : 0;
+              const vlrCx = (vlrunit > 0 && fatorConv > 0) ? (vlrunit * fatorConv) : 0;
+              
+              console.log('[TABLE GEN]', {prod, vlrKg, vlrCx, vlrtot, pesoKg, qtdCx});
+              
+              // Status com bolinhas coloridas
               const status = (vlrtot>0)
-                ? `<span title="OK: negociação salva" style="display:inline-block;width:8px;height:8px;border-radius:999px;background:#16a34a;opacity:.85"></span>`
-                : `<span title="Alerta: VLRTOT = 0 (não salvo)" style="display:inline-block;width:8px;height:8px;border-radius:999px;background:#f59e0b;opacity:.9"></span>`;
+                ? `<span title="OK: negociação salva" style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#16a34a;"></span>`
+                : `<span title="Alerta: VLRTOT = 0 (não salvo)" style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#f59e0b;"></span>`;
               const nun = Number(r.nunota||0), seq = Number(r.sequencia||0);
-              // Valor Final: usar custo/cx calculado
-              const valorFinalCx = custoPorCx > 0 ? custoPorCx : (vlrunit > 0 && fatorConv > 0 ? (vlrunit * fatorConv) : precoIni);
+              
               const abrir = (nun && seq) ? `
                 <a class="eye-open" href="/sankhya/comercial/?sel_nunota=${nun}&sel_seq=${seq}" target="_blank" rel="noopener" data-nun="${nun}" data-seq="${seq}" style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;color:#94a3b8;text-decoration:none;">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -3977,20 +4001,38 @@
                     <circle cx="12" cy="12" r="3"></circle>
                   </svg>
                 </a>` : '';
+                
+              // Formatar Qtde em 2 linhas (kg e cx)
+              const qtdeKgFormatted = fmtQty(pesoKg);
+              const qtdeCxFormatted = fmtQty(qtdCx);
+              const qtdeDisplay = `<div style="line-height:1.3;">
+                <div style="font-size:.85rem; color:#334155;">${qtdeKgFormatted}<span style="color:#64748b; font-size:.7rem; margin-left:2px;">kg</span></div>
+                <div style="font-size:.8rem; color:#64748b;">${qtdeCxFormatted}<span style="color:#94a3b8; font-size:.7rem; margin-left:2px;">cx</span></div>
+              </div>`;
+              
+              // Formatar Vlr Unit em 2 linhas (R$/kg e R$/cx)
+              let vlrUnitDisplay = '';
+              if (vlrKg > 0 || vlrCx > 0) {
+                vlrUnitDisplay = `<div style="line-height:1.3;">
+                  <div style="font-size:.85rem; color:#334155;">${vlrKg > 0 ? fmtMoney(vlrKg) : '—'}<span style="color:#64748b; font-size:.7rem;">/kg</span></div>
+                  <div style="font-size:12.8px; color:#64748b;">${vlrCx > 0 ? fmtMoney(vlrCx) : '—'}<span style="color:#94a3b8; font-size:.7rem;">/cx</span></div>
+                </div>`;
+              } else {
+                vlrUnitDisplay = '—';
+              }
+              
               return `<tr data-q="${qnum}" data-unit="${unit}" data-nun="${nun}" data-seq="${seq}">
                 <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${q}${unit?`<span style='color:#64748b; font-size:.72rem; margin-left:2px;'>${unit.toLowerCase()}</span>`:''}</td>
-                <td class="valor-inicial-cell" style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">
-                  <div contenteditable="true" class="vcl-preco-inicial" data-nun="${nun}" data-seq="${seq}" style="outline:none; min-width:90px; display:inline-block; text-align:right; font-size:.85rem; color:#374151;">${precoIni>0 ? fmtMoney(precoIni) : '<span style="color:#94a3b8;">R$ 0,00</span>'}</div>
-                </td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${valorFinalCx>0 ? fmtMoney(valorFinalCx) : '—'}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${qtdeDisplay}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${vlrUnitDisplay}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${vlrtot>0 ? fmtMoney(vlrtot) : '—'}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${status}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:left;">${status}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${abrir}</td>
               </tr>`;
             }).join('');
+            console.log('[HTML GERADO]', classBody.innerHTML);
           }else{
-            classBody.innerHTML = '<tr><td colspan="7" style="padding:8px; color:#64748b;">—</td></tr>';
+            classBody.innerHTML = '<tr><td colspan="6" style="padding:8px; color:#64748b;">—</td></tr>';
           }
           // Não Classificáveis: com preço
           if(nclass.length){
@@ -3999,8 +4041,10 @@
               const unit = ((r.codvol||'')+'').toUpperCase();
               const q = Number(r.qtdneg||0);
               const id = `vop_${idx}_${Date.now()}`;
-              const preco = Number(r.vlrunit||0) || 0;
-              const total = preco * q;
+              const vlrtot = Number(r.vlrtot||0) || 0;
+              // Calcular preço por unidade (CX) = VLRTOT / QTDNEG
+              const preco = (q > 0 && vlrtot > 0) ? (vlrtot / q) : 0;
+              const total = vlrtot;
               return `<tr data-idx="${idx}" data-q="${q}" data-unit="${unit}" data-nun="${Number(r.nunota||0)}" data-seq="${Number(r.sequencia||0)}">
                 <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${fmtQty(q)}${unit?`<span style='color:#64748b; font-size:.72rem; margin-left:2px;'>${unit.toLowerCase()}</span>`:''}</td>
@@ -4105,14 +4149,22 @@
           };
           function recompute(){
             let sum = 0;
-            // soma dos classificáveis: usar VLRTOT salvo (não recalcular com Valor Inicial)
+            // soma dos classificáveis: calcular dinamicamente enquanto digita
             const classRows = Array.from(classBody.querySelectorAll('tr'));
             classRows.forEach(tr => {
-              // Buscar o VLRTOT do item original nos dados carregados
+              // Buscar o valor digitado no campo editável
+              const editableDiv = tr.querySelector('.vcl-preco-inicial');
+              const precoInicial = parsePT(editableDiv?.textContent || '0');
+              
+              // Buscar a quantidade do item
               const nun = Number(tr.getAttribute('data-nun')||'0');
               const seq = Number(tr.getAttribute('data-seq')||'0');
               const rowData = classifs.find(r=> Number(r.nunota||0)===nun && Number(r.sequencia||0)===seq);
-              const vlrtot = Number(rowData?.vlrtot||0);
+              const qtdneg = Number(rowData?.qtdneg || 0);
+              
+              // Calcular VLRTOT = preço inicial (por unidade) × quantidade
+              const vlrtot = precoInicial * qtdneg;
+              
               // 5ª coluna é "Valor Total" (não a 4ª!)
               const totalCell = tr.querySelector('td:nth-child(5)');
               if(totalCell) totalCell.innerHTML = fmtMoney(vlrtot);
@@ -4129,6 +4181,32 @@
               sum += t;
             });
             totalEl.innerHTML = fmtMoney(sum);
+            
+            // Atualizar também o campo totalValueDisplay do card Distribuição
+            const totalValueDisplay = document.getElementById('totalValueDisplay');
+            if(totalValueDisplay) {
+              totalValueDisplay.textContent = new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(sum);
+              console.log('[RECOMPUTE] totalValueDisplay atualizado:', sum);
+            }
+            
+            // Atualizar card Distribuição em tempo real
+            try {
+              if(typeof window.recalcAllocation === 'function') {
+                console.log('[RECOMPUTE] Chamando window.recalcAllocation()');
+                window.recalcAllocation();
+              } else {
+                console.log('[RECOMPUTE] window.recalcAllocation não disponível');
+              }
+              
+              if(typeof window.updateResumoFinanceiro === 'function') {
+                console.log('[RECOMPUTE] Chamando window.updateResumoFinanceiro()');
+                window.updateResumoFinanceiro();
+              } else {
+                console.log('[RECOMPUTE] window.updateResumoFinanceiro não disponível');
+              }
+            } catch(e) {
+              console.error('[RECOMPUTE] Erro ao atualizar distribuição:', e);
+            }
           }
           outrosBody.addEventListener('input', (ev)=>{ 
             if(ev.target && (ev.target.classList.contains('vop-price') || ev.target.classList.contains('vop-preco-inicial'))) recompute(); 
@@ -4143,9 +4221,15 @@
               }
             }
           }, true);
+          
+          // ========================================
+          // CLASSIFICÁVEIS: Event listeners REMOVIDOS
+          // Tabela agora é somente leitura (display vlrKg/vlrCx)
+          // ========================================
+          
+          /* COMENTADO: Classificáveis não são mais editáveis
           classBody.addEventListener('input', (ev)=>{ 
             if(ev.target && ev.target.classList.contains('vcl-preco-inicial')) {
-              // Não precisa atualizar Valor Final dinamicamente - ele vem do banco (VLRUNIT)
               recompute(); 
             }
           });
@@ -4153,9 +4237,6 @@
           classBody.addEventListener('focus', (ev)=>{
             if(ev.target && ev.target.classList.contains('vcl-preco-inicial')){
               const editableDiv = ev.target;
-              const val = parsePT(editableDiv.textContent || '');
-              
-              // Sempre selecionar todo o conteúdo (funciona tanto para valores zerados quanto preenchidos)
               setTimeout(() => {
                 const range = document.createRange();
                 range.selectNodeContents(editableDiv);
@@ -4170,9 +4251,7 @@
             if(ev.target && ev.target.classList.contains('vcl-preco-inicial')){
               if(ev.key === 'Enter'){
                 ev.preventDefault();
-                ev.target.blur(); // Aciona o salvamento
-                
-                // Encontrar próximo campo editável
+                ev.target.blur();
                 const currentTr = ev.target.closest('tr');
                 if(currentTr){
                   let nextTr = currentTr.nextElementSibling;
@@ -4189,7 +4268,6 @@
           
           classBody.addEventListener('blur', async (ev)=>{
             if(ev.target && ev.target.classList.contains('vcl-preco-inicial')){
-              // Reformatar ao perder foco
               const editableDiv = ev.target;
               const tr = editableDiv.closest('tr');
               if(!tr) return;
@@ -4201,50 +4279,75 @@
               if(val>0){
                 editableDiv.innerHTML = fmtMoney(val);
                 
-                // Salvar PRECOBASE no banco (endpoint /sankhya/item/save/)
                 if(nunota_val && seq_val){
+                  const itemData = window.__COM_LIST_ROWS?.find(r => 
+                    Number(r.nunota||0) === nunota_val && 
+                    Number(r.sequencia||0) === seq_val
+                  );
+                  
+                  if(!itemData){
+                    console.error('[MODAL AUTO-SAVE] Item não encontrado no cache');
+                    return;
+                  }
+                  
+                  const codprod = Number(itemData.codprod || 0);
+                  const codagregacao = String(itemData.codagregacao || itemData.lote || '');
+                  const qtdneg = Number(itemData.qtdneg || 0);
+                  
+                  if(!codprod || !codagregacao){
+                    console.error('[MODAL AUTO-SAVE] CODPROD ou LOTE não disponível');
+                    return;
+                  }
+                  
+                  if(qtdneg === 0){
+                    console.error('[MODAL AUTO-SAVE] QTDNEG = 0, impossível calcular');
+                    alert('Erro: Quantidade não pode ser zero');
+                    return;
+                  }
+                  
+                  const vlrtot = val * qtdneg;
+                  
                   try{
                     const payload = { 
-                      nunota: nunota_val, 
+                      nunota_pedido: nunota_val, 
                       sequencia: seq_val, 
-                      preco_inicial: val  // Backend mapeia para PRECOBASE
+                      codprod: codprod,
+                      codagregacao: codagregacao,
+                      vlrtot: vlrtot,
+                      is_classificavel: true
                     };
                     
-                    console.log('[SAVE VALOR INICIAL] Salvando PRECOBASE:', payload);
+                    console.log('[MODAL AUTO-SAVE CLASSIFICÁVEL] Salvando:', payload);
                     
-                    const result = await window.__postJSON('/sankhya/item/save/', payload);
+                    const result = await window.__postJSON('/sankhya/comercial/modal/auto-save/', payload);
                     
                     if(result.ok){
-                      console.log('[SAVE VALOR INICIAL] ✅ PRECOBASE salvo com sucesso');
+                      console.log('[MODAL AUTO-SAVE CLASSIFICÁVEL] ✅ Sucesso - NUNOTA_VALE:', result.nunota_vale, 'VLRNOTA_PEDIDO:', result.vlrnota_pedido, 'VLRUNIT:', result.vlrunit, 'VLRTOT:', vlrtot);
                       
-                      // Atualizar cache local para persistir o valor
-                      if(window.__COM_LIST_ROWS){
-                        const row = window.__COM_LIST_ROWS.find(r => 
-                          Number(r.nunota||0) === nunota_val && 
-                          Number(r.sequencia||0) === seq_val
-                        );
-                        if(row){
-                          row.preco_inicial = val;
-                          row.precobase = val;
-                          console.log('[SAVE VALOR INICIAL] Cache local atualizado');
-                        }
+                      if(itemData){
+                        itemData.preco_inicial = result.vlrunit;
+                        itemData.precobase = result.vlrunit;
+                        itemData.vlrunit = result.vlrunit;
+                        itemData.vlrtot = vlrtot;
                       }
                       
+                      recompute();
+                      
                     } else {
-                      console.error('[SAVE VALOR INICIAL] ❌ Erro ao salvar:', result.error || result.errors || 'Erro desconhecido');
-                      alert('Erro ao salvar Valor Inicial: ' + (result.error || (result.errors ? result.errors.join('; ') : 'Erro desconhecido')));
+                      console.error('[MODAL AUTO-SAVE CLASSIFICÁVEL] ❌ Erro:', result.error || 'Erro desconhecido');
+                      alert('Erro ao salvar: ' + (result.error || 'Erro desconhecido'));
                     }
                   } catch(err){
-                    console.error('[SAVE VALOR INICIAL] ⚠️ Exceção ao salvar:', err);
-                    alert('Erro ao salvar Valor Inicial: ' + err.message);
+                    console.error('[MODAL AUTO-SAVE CLASSIFICÁVEL] ⚠️ Exceção:', err);
+                    alert('Erro ao salvar: ' + err.message);
                   }
                 }
               } else {
-                // Se valor for 0 ou inválido, mostrar placeholder
                 editableDiv.innerHTML = '<span style="color:#94a3b8;">R$ 0,00</span>';
               }
             }
           }, true);
+          */
           
           // Event listeners para itens NÃO CLASSIFICÁVEIS (salvar VLRUNIT no banco)
           outrosBody.addEventListener('focus', (ev)=>{
@@ -4315,52 +4418,76 @@
               if(val > 0){
                 editableDiv.innerHTML = fmtMoney(val);
                 
-                // Salvar VLRUNIT no banco (endpoint /sankhya/item/save/)
+                // Auto-salvar usando novo endpoint (NÃO CLASSIFICÁVEL)
                 if(nunota_val && seq_val){
+                  // Buscar dados do item do cache
+                  const itemData = window.__COM_LIST_ROWS?.find(r => 
+                    Number(r.nunota||0) === nunota_val && 
+                    Number(r.sequencia||0) === seq_val
+                  );
+                  
+                  if(!itemData){
+                    console.error('[MODAL AUTO-SAVE] Item não encontrado no cache');
+                    return;
+                  }
+                  
+                  const codprod = Number(itemData.codprod || 0);
+                  const codagregacao = String(itemData.codagregacao || itemData.lote || '');
+                  const qtdneg_item = Number(itemData.qtdneg || 0);
+                  
+                  if(!codprod || !codagregacao){
+                    console.error('[MODAL AUTO-SAVE] CODPROD ou LOTE não disponível');
+                    return;
+                  }
+                  
+                  if(qtdneg_item === 0){
+                    console.error('[MODAL AUTO-SAVE] QTDNEG = 0, impossível calcular');
+                    alert('Erro: Quantidade não pode ser zero');
+                    return;
+                  }
+                  
+                  // Calcular VLRTOT a partir do valor digitado (que é tratado como preço unitário)
+                  const vlrtot_calculado = val * qtdneg_item;
+                  
                   try{
                     const payload = { 
-                      nunota: nunota_val, 
+                      nunota_pedido: nunota_val, 
                       sequencia: seq_val, 
-                      vlrunit: val,
-                      vlrtot: val * qtd  // Calcular VLRTOT também
+                      codprod: codprod,
+                      codagregacao: codagregacao,
+                      vlrtot: vlrtot_calculado,
+                      is_classificavel: false
                     };
                     
-                    console.log('[SAVE NAO CLASSIFICAVEL] Salvando:', payload);
+                    console.log('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] Salvando:', payload);
                     
-                    const result = await window.__postJSON('/sankhya/item/save/', payload);
+                    const result = await window.__postJSON('/sankhya/comercial/modal/auto-save/', payload);
                     
                     if(result.ok){
-                      // Atualizar cache local para persistir o valor
-                      if(window.__COM_LIST_ROWS){
-                        const item = window.__COM_LIST_ROWS.find(r => 
-                          Number(r.nunota||0) === nunota_val && 
-                          Number(r.sequencia||0) === seq_val
-                        );
-                        if(item){
-                          item.vlrunit = val;
-                          item.vlrtot = val * qtd;
-                          console.log('[CACHE UPDATE] Item não classificável atualizado:', item);
-                        }
+                      console.log('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] ✅ Sucesso - NUNOTA_VALE:', result.nunota_vale, 'VLRNOTA_PEDIDO:', result.vlrnota_pedido, 'VLRNOTA_VALE:', result.vlrnota_vale, 'VLRUNIT:', result.vlrunit, 'VLRTOT:', vlrtot_calculado);
+                      
+                      // Atualizar cache local
+                      if(itemData){
+                        itemData.vlrunit = result.vlrunit;
+                        itemData.vlrtot = vlrtot_calculado;
                       }
                       
-                      // Atualizar Total na célula
+                      // Atualizar Total na UI
                       const totalCell = tr.querySelector('.vop-total');
                       if(totalCell){
-                        totalCell.innerHTML = fmtMoney(val * qtd);
+                        totalCell.innerHTML = fmtMoney(vlrtot_calculado);
                       }
                       
-                      recompute();
                     } else {
-                      console.error('[SAVE ERROR] Falha ao salvar item não classificável:', result);
-                      alert('❌ Erro ao salvar: ' + (result.body?.error || 'erro desconhecido'));
+                      console.error('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] ❌ Erro:', result.error || 'Erro desconhecido');
+                      alert('Erro ao salvar: ' + (result.error || 'Erro desconhecido'));
                     }
                   } catch(err){
-                    console.error('[SAVE ERROR] Exceção ao salvar item não classificável:', err);
-                    alert('❌ Erro ao salvar: ' + err.message);
+                    console.error('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] ⚠️ Exceção:', err);
+                    alert('Erro ao salvar: ' + err.message);
                   }
                 }
-              } else if(val === 0 || isNaN(val)){
-                // Se valor for zerado, manter formatação vazia
+              } else {
                 editableDiv.innerHTML = '<span style="color:#94a3b8;">R$ 0,00</span>';
               }
             }
@@ -4680,30 +4807,78 @@
           const fmtQty = (n)=> isNaN(n) ? '0' : Number(n||0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
           const classifs = rows.filter(r=> r.classificavel !== false);
           const nclass = rows.filter(r=> r.classificavel === false);
-          // Classificáveis: com valores editáveis
+          // Classificáveis: somente leitura com 2 linhas em Qtde e Vlr Unit
           if(classifs.length){
-            const fmtNum = (n) => Number(n||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
-            const cifrao = '<span style="color:#9ca3af;opacity:0.7;font-size:0.8em;margin-right:4px;">R$</span>';
             classBody.innerHTML = classifs.map(r=>{
               const prod = r.produto||'';
               const unit = ((r.codvol||'')+'').toUpperCase();
-              const q = fmtQty(Number(r.qtdneg||0));
-              const status = r.statusclass || '-';
-              const precoIni = Number(r.preco_inicial||0) || 0;
-              const vlrunit = Number(r.vlrunit||0) || 0;
+              const qnum = Number(r.qtdneg||0);
               const vlrtot = Number(r.vlrtot||0) || 0;
-              return `<tr>
-                <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}${unit?` <span style='color:#64748b; font-size:.8rem; margin-left:6px;'>${unit}</span>`:''}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${q}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${precoIni>0?cifrao:''}<input type="number" step="0.01" class="vcl-preco-inicial" value="${precoIni?fmtNum(precoIni):''}" style="width:70px;border:1px solid #d1d5db;border-radius:4px;padding:2px 4px;text-align:right;font-size:.8rem;" placeholder="0,00"></td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;color:#374151;">${vlrunit>0 ? cifrao+fmtNum(vlrunit) : '—'}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;color:#374151;">${vlrtot>0 ? cifrao+fmtNum(vlrtot) : '—'}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${status}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;"><button class="btn" style="border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:4px 6px;">Abrir</button></td>
+              let vlrunit = Number(r.vlrunit||0) || 0;
+              const fatorConv = Number(r.fator_conversao||1) || 1;
+              
+              // Calcular peso em kg e quantidade em cx
+              let pesoKg, qtdCx;
+              if (unit === 'CX') {
+                qtdCx = qnum;
+                pesoKg = qnum * fatorConv;
+              } else {
+                pesoKg = qnum;
+                qtdCx = fatorConv > 0 ? qnum / fatorConv : 0;
+              }
+              
+              // Se vlrunit = 0 mas vlrtot > 0, calcular vlrunit
+              if (vlrunit === 0 && vlrtot > 0 && pesoKg > 0) {
+                vlrunit = vlrtot / pesoKg;
+              }
+              
+              const vlrKg = vlrunit > 0 ? vlrunit : 0;
+              const vlrCx = (vlrunit > 0 && fatorConv > 0) ? (vlrunit * fatorConv) : 0;
+              
+              // Status com bolinhas coloridas
+              const status = (vlrtot>0)
+                ? `<span title="OK: negociação salva" style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#16a34a;"></span>`
+                : `<span title="Alerta: VLRTOT = 0 (não salvo)" style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#f59e0b;"></span>`;
+              const nun = Number(r.nunota||0), seq = Number(r.sequencia||0);
+              
+              const abrir = (nun && seq) ? `
+                <a class="eye-open" href="/sankhya/comercial/?sel_nunota=${nun}&sel_seq=${seq}" target="_blank" rel="noopener" data-nun="${nun}" data-seq="${seq}" style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;color:#94a3b8;text-decoration:none;">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </a>` : '';
+                
+              // Formatar Qtde em 2 linhas
+              const qtdeKgFormatted = fmtQty(pesoKg);
+              const qtdeCxFormatted = fmtQty(qtdCx);
+              const qtdeDisplay = `<div style="line-height:1.3;">
+                <div style="font-size:.85rem; color:#334155;">${qtdeKgFormatted}<span style="color:#64748b; font-size:.7rem; margin-left:2px;">kg</span></div>
+                <div style="font-size:.8rem; color:#64748b;">${qtdeCxFormatted}<span style="color:#94a3b8; font-size:.7rem; margin-left:2px;">cx</span></div>
+              </div>`;
+              
+              // Formatar Vlr Unit em 2 linhas
+              let vlrUnitDisplay = '';
+              if (vlrKg > 0 || vlrCx > 0) {
+                vlrUnitDisplay = `<div style="line-height:1.3;">
+                  <div style="font-size:.85rem; color:#334155;">${vlrKg > 0 ? fmtMoney(vlrKg) : '—'}<span style="color:#64748b; font-size:.7rem;">/kg</span></div>
+                  <div style="font-size:12.8px; color:#64748b;">${vlrCx > 0 ? fmtMoney(vlrCx) : '—'}<span style="color:#94a3b8; font-size:.7rem;">/cx</span></div>
+                </div>`;
+              } else {
+                vlrUnitDisplay = '—';
+              }
+              
+              return `<tr data-q="${qnum}" data-unit="${unit}" data-nun="${nun}" data-seq="${seq}">
+                <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${qtdeDisplay}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${vlrUnitDisplay}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${vlrtot>0 ? fmtMoney(vlrtot) : '—'}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:left;">${status}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${abrir}</td>
               </tr>`;
             }).join('');
           }else{
-            classBody.innerHTML = '<tr><td colspan="7" style="padding:8px; color:#64748b;">—</td></tr>';
+            classBody.innerHTML = '<tr><td colspan="6" style="padding:8px; color:#64748b;">—</td></tr>';
           }
           // Não Classificáveis
           if(nclass.length){
@@ -5617,6 +5792,9 @@
         updateKpiMini5({ skipEnsure: true });
         updateResumoFinanceiro();
       }
+      
+      // Tornar acessível globalmente para o modal
+      window.recalcAllocation = recalcAllocation;
 
       function updateQtyMiniCard(){
         const mini = document.getElementById('distMini3');
@@ -6431,6 +6609,8 @@
         const savedVlrtot = Number(window.__SAVED_VLRTOT);
         const hasNegociacaoSalva = isFinite(savedVlrtot) && savedVlrtot > 0;
         
+        console.log('[CENÁRIO 1] DEBUG - window.__SAVED_VLRTOT:', window.__SAVED_VLRTOT, 'savedVlrtot:', savedVlrtot, 'hasNegociacaoSalva:', hasNegociacaoSalva);
+        
         // Verifica se já existem valores de simulação carregados do banco
         const hasSimulacaoSalva = (state.extraCustoTotal > 0 || state.medioCustoTotal > 0) &&
                                    (state.extraCx > 0 || state.medioCx > 0);
@@ -6438,30 +6618,20 @@
         console.log('[CENÁRIO 1] Carga Inicial - precoBase:', precoBase, 'VLRTOT salvo:', savedVlrtot, 'Simulação salva:', hasSimulacaoSalva);
         
         if (hasSimulacaoSalva) {
-          // ✅ TEM SIMULAÇÃO SALVA: Usar valores carregados do banco (ad_simqtd1/2, ad_simvlr1/2)
-          console.log('[CENÁRIO 1] Simulação salva detectada! Usando valores do banco:', {
+          // ✅ TEM SIMULAÇÃO SALVA: Recalcular com base no precoBase atual
+          console.log('[CENÁRIO 1] Simulação salva detectada! Recalculando com precoBase:', precoBase, 'Quantidades salvas:', {
             extraCx: state.extraCx,
-            extraTotal: state.extraCustoTotal,
-            medioCx: state.medioCx,
-            medioTotal: state.medioCustoTotal
+            medioCx: state.medioCx
           });
           
-          // Recalcular custos unitários com base nos totais salvos
-          if (state.extraCx > 0) {
-            state.extraCustoCx = state.extraCustoTotal / state.extraCx;
-            state.extraCustoKg = state.extraKg > 0 ? (state.extraCustoTotal / state.extraKg) : 0;
-          } else {
-            state.extraCustoCx = 0;
-            state.extraCustoKg = 0;
-          }
+          // Recalcular totais com base no precoBase atual (não usar valores salvos)
+          state.extraCustoCx = precoBase;
+          state.extraCustoTotal = state.extraCx * state.extraCustoCx;
+          state.extraCustoKg = state.extraKg > 0 ? (state.extraCustoTotal / state.extraKg) : 0;
           
-          if (state.medioCx > 0) {
-            state.medioCustoCx = state.medioCustoTotal / state.medioCx;
-            state.medioCustoKg = state.medioKg > 0 ? (state.medioCustoTotal / state.medioKg) : 0;
-          } else {
-            state.medioCustoCx = 0;
-            state.medioCustoKg = 0;
-          }
+          state.medioCustoCx = precoBase / 2;
+          state.medioCustoTotal = state.medioCx * state.medioCustoCx;
+          state.medioCustoKg = state.medioKg > 0 ? (state.medioCustoTotal / state.medioKg) : 0;
           
           // Calcular Valor Total e Custo Global
           const valorTotal = state.extraCustoTotal + state.medioCustoTotal;
@@ -6471,7 +6641,7 @@
           const totalCustoCx = totalCx > 0 ? (valorTotal / totalCx) : 0;
           const totalCustoKg = totalKg > 0 ? (valorTotal / totalKg) : 0;
           
-          console.log('[CENÁRIO 1] Resultado com simulação salva:', {
+          console.log('[CENÁRIO 1] Resultado recalculado:', {
             valorTotal,
             totalCustoCx,
             totalCustoKg,
@@ -6484,7 +6654,7 @@
           updateMedioCard();
           
           if (typeof window.__setDistribTotal === 'function') {
-            window.__setDistribTotal(valorTotal, { source: 'cenario1-simulacao', skipCallbacks: true, allowUI: true });
+            window.__setDistribTotal(valorTotal, { source: 'cenario1-simulacao', skipCallbacks: false, allowUI: true });
           }
           
           const custoCxEl = document.getElementById('costCxDisplay');
@@ -7239,12 +7409,14 @@
         const card = document.getElementById('quantidadeInnCard');
         const nunota = card ? Number(card.getAttribute('data-nunota') || '0') : 0;
         const sequencia = card ? Number(card.getAttribute('data-seq') || '0') : 0;
+        const codprod = card ? Number(card.getAttribute('data-codprod') || '0') : 0;
+        
         if(!(nunota > 0) || !(sequencia > 0)){
           alert('Selecione um vale da lista antes de zerar a negociação.');
           return;
         }
 
-        const confirmMsg = 'Deseja zerar a negociação? Os valores serão recalculados baseando no Preço Inicial.';
+        const confirmMsg = 'Deseja zerar a negociação? Os produtos Extra/Médio serão removidos do Vale e os valores serão recalculados baseando no Preço Inicial.';
         if(typeof window.confirm === 'function' && !window.confirm(confirmMsg)){
           return;
         }
@@ -7253,10 +7425,39 @@
         if(btnReset){
           originalLabel = btnReset.textContent || 'Zerar negociação';
           btnReset.disabled = true;
-          btnReset.textContent = 'Zerando…';
+          btnReset.textContent = 'Removendo do Vale...';
         }
 
         try{
+          // NOVO: Primeiro, remover produtos do VALE
+          try {
+            console.log('[ZERAR] Removendo produtos Extra/Médio do Vale');
+            const clearPayload = {
+              nunota_pedido: nunota,
+              codprod_in_natura: codprod
+            };
+            
+            const clearRes = await window.__postJSON('/sankhya/comercial/vale/clear/', clearPayload);
+            
+            if (clearRes.ok) {
+              console.log('[ZERAR] Produtos removidos do Vale:', clearRes.body);
+              if (clearRes.body?.deleted_count > 0) {
+                showToast(`${clearRes.body.deleted_count} produto(s) removido(s) do Vale`, 'success');
+              }
+            } else {
+              console.warn('[ZERAR] Falha ao remover do Vale:', clearRes.body?.error);
+              // Não bloqueia - continua com reset local
+            }
+          } catch (err) {
+            console.error('[ZERAR] Erro ao remover do Vale:', err);
+            // Não bloqueia - continua com reset local
+          }
+          
+          // Depois, zerar campos de simulação no backend (comportamento original)
+          if(btnReset){
+            btnReset.textContent = 'Zerando simulação...';
+          }
+          
           const res = await window.__postJSON('/sankhya/comercial/dist/reset/', { nunota, sequencia });
           if(res.ok){
             try{
@@ -7480,40 +7681,6 @@
           if(typeof origUpdate==='function') origUpdate();
           if(tip.style.display==='block') buildContent();
         };
-      }catch{}
-    })();
-    
-    // Reminder: After applying Distribuição, prompt to revisit Classificação (gauge + estoque)
-    (function(){
-      try{
-        const classCard = document.getElementById('classCard');
-        const applyBtn = document.getElementById('sim-btn-apply');
-        if(!classCard || !applyBtn) return;
-        function ensureBanner(){
-          let el = document.getElementById('classReminder');
-          if(el) return el;
-          el = document.createElement('div');
-          el.id = 'classReminder';
-          el.setAttribute('role','alert');
-          el.style.cssText = 'display:none;margin:8px 0 10px 0;padding:8px 10px;border:1px solid #f59e0b;background:#fff7ed;color:#7c2d12;border-radius:8px;font-size:.85rem;display:flex;align-items:center;justify-content:space-between;gap:8px;';
-          const msg = document.createElement('span');
-          msg.textContent = 'Pendente: ajustar o gauge e o estoque no card Classificação. Volte aqui após finalizar o card Distribuição.';
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.textContent = 'Dispensar';
-          btn.style.cssText = 'border:1px solid #f59e0b;background:#fff;color:#7c2d12;border-radius:6px;padding:4px 8px;cursor:pointer;font-weight:600;';
-          btn.addEventListener('click', ()=>{ el.style.display='none'; try{ localStorage.setItem('classReminderDismissed','1'); }catch{} });
-          el.appendChild(msg); el.appendChild(btn);
-          const mountBefore = classCard.querySelector('.class-wrap') || classCard.firstElementChild;
-          try{ classCard.insertBefore(el, mountBefore); }catch{ classCard.appendChild(el); }
-          return el;
-        }
-        applyBtn.addEventListener('click', ()=>{
-          try{ if(localStorage.getItem('classReminderDismissed')==='1') return; }catch{}
-          const banner = ensureBanner();
-          banner.style.display = 'flex';
-          try{ classCard.scrollIntoView({ behavior: 'smooth', block: 'start' }); }catch{}
-        });
       }catch{}
     })();
     

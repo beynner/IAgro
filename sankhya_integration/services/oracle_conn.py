@@ -3830,7 +3830,10 @@ def listar_itens_portal_basico(
         binds["codprod"] = int(codprod)
 
     inner = (
-        "SELECT p.NOMEPARC, NVL(pr.FABRICANTE, pr.DESCRPROD) AS PRODNAME, i.QTDNEG, c.DTNEG, i.CODVOL, i.CODPROD, c.NUNOTA, i.SEQUENCIA, NVL(i.GERAPRODUCAO, 'S') AS GP, i.PESO AS PESO, i.PRECOBASE AS PRECOBASE, i.VLRUNIT AS VLRUNIT, i.VLRTOT AS VLRTOT, i.AD_SIMQTD1, i.AD_SIMQTD2, i.AD_SIMVLR1, i.AD_SIMVLR2, i.CODAGREGACAO, c.CODTIPOPER, c.NUMPEDIDO "
+        "SELECT p.NOMEPARC, NVL(pr.FABRICANTE, pr.DESCRPROD) AS PRODNAME, i.QTDNEG, c.DTNEG, i.CODVOL, i.CODPROD, c.NUNOTA, i.SEQUENCIA, NVL(i.GERAPRODUCAO, 'S') AS GP, i.PESO AS PESO, i.PRECOBASE AS PRECOBASE, i.VLRUNIT AS VLRUNIT, "
+        # CRÍTICO: Buscar VLRTOT do VALE (TOP 13) se existir, senão usar VLRTOT do PEDIDO (TOP 11)
+        "  NVL((SELECT SUM(vale_i.VLRTOT) FROM TGFCAB vale_c JOIN TGFITE vale_i ON vale_i.NUNOTA = vale_c.NUNOTA WHERE vale_c.CODTIPOPER = 13 AND vale_c.NUMPEDIDO = c.NUNOTA), i.VLRTOT) AS VLRTOT, "
+        "i.AD_SIMQTD1, i.AD_SIMQTD2, i.AD_SIMVLR1, i.AD_SIMVLR2, i.CODAGREGACAO, c.CODTIPOPER, c.NUMPEDIDO "
         "  FROM TGFITE i "
         "  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA "
         "  LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC "
@@ -3945,18 +3948,26 @@ def upsert_vale_item(nunota_vale: int, codprod: int, qtdneg: float,
     logger = logging.getLogger(__name__)
     
     # 1. Verificar se item já existe (mesmo CODPROD + LOTE)
+    # Verifica tanto CONTROLE quanto CODAGREGACAO para garantir
     sql_check = """
         SELECT SEQUENCIA, QTDNEG, VLRUNIT, VLRTOT
         FROM TGFITE
         WHERE NUNOTA = :nunota 
           AND CODPROD = :codprod
-          AND CONTROLE = :lote
+          AND (CONTROLE = :lote OR CODAGREGACAO = :lote)
     """
     
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(sql_check, nunota=int(nunota_vale), codprod=int(codprod), lote=str(lote))
-        existing = cur.fetchone()
+        rows = cur.fetchall()
+        existing = rows[0] if rows else None
+        
+        # Se encontrou mais de um, logar warning
+        if len(rows) > 1:
+            logger.warning(f'[VALE] Múltiplos itens encontrados para CODPROD={codprod} LOTE={lote} - usando primeiro')
+            for r in rows:
+                logger.warning(f'[VALE]   SEQ={r[0]} QTDNEG={r[1]} VLRUNIT={r[2]} VLRTOT={r[3]}')
         
         vlrtot = float(qtdneg) * float(vlrunit)
         
@@ -4044,6 +4055,488 @@ def upsert_vale_item(nunota_vale: int, codprod: int, qtdneg: float,
                 'success': result.get('executed', False),
                 'result': result
             }
+
+
+def _recalc_vlrnota(conn, nunota: int) -> dict:
+    """
+    Helper interno: Recalcula VLRNOTA do cabeçalho baseado na soma dos itens.
+    
+    Args:
+        conn: Conexão do Oracle já aberta
+        nunota: NUNOTA do cabeçalho
+    
+    Returns:
+        dict com 'vlrnota' e 'updated'
+    """
+    cur = conn.cursor()
+    
+    # Calcular soma dos VLRTOT
+    sql_sum = """
+        SELECT NVL(SUM(VLRTOT), 0)
+        FROM TGFITE
+        WHERE NUNOTA = :nunota
+    """
+    cur.execute(sql_sum, nunota=int(nunota))
+    row = cur.fetchone()
+    vlrnota_value = float(row[0]) if row and row[0] is not None else 0.0
+    
+    # Atualizar TGFCAB.VLRNOTA
+    sql_update = """
+        UPDATE TGFCAB
+        SET VLRNOTA = :vlrnota
+        WHERE NUNOTA = :nunota
+    """
+    cur.execute(sql_update, vlrnota=vlrnota_value, nunota=int(nunota))
+    updated = cur.rowcount > 0
+    
+    return {
+        'vlrnota': vlrnota_value,
+        'updated': updated
+    }
+
+
+def delete_vale_items(nunota_vale: int, codprod_in_natura: int):
+    """
+    Deleta APENAS os produtos Extra/Médio do VALE (TOP 13).
+    Preserva outros produtos que possam existir no VALE.
+    
+    Args:
+        nunota_vale: NUNOTA do VALE (TOP 13)
+        codprod_in_natura: CODPROD do produto IN NATURA para identificar Extra/Médio
+    
+    Returns:
+        dict com:
+        - success: bool
+        - deleted_count: quantidade de itens deletados
+        - products_deleted: lista de CODPROD deletados
+        - error: mensagem de erro (se houver)
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f'[DELETE VALE] Iniciando exclusão - NUNOTA={nunota_vale}, CODPROD_IN_NATURA={codprod_in_natura}')
+    
+    try:
+        # 1. Buscar CODPROD Extra/Médio
+        produtos = get_produtos_extra_medio(codprod_in_natura)
+        codprod_extra = produtos.get('extra')
+        codprod_medio = produtos.get('medio')
+        
+        if not codprod_extra and not codprod_medio:
+            logger.warning(f'[DELETE VALE] Nenhum produto Extra/Médio encontrado para CODPROD {codprod_in_natura}')
+            return {
+                'success': True,
+                'deleted_count': 0,
+                'products_deleted': [],
+                'message': 'Nenhum produto Extra/Médio encontrado'
+            }
+        
+        codprods_to_delete = []
+        if codprod_extra:
+            codprods_to_delete.append(int(codprod_extra))
+        if codprod_medio:
+            codprods_to_delete.append(int(codprod_medio))
+        
+        logger.info(f'[DELETE VALE] Produtos a deletar: {codprods_to_delete}')
+        
+        with get_connection() as conn:
+            cur = conn.cursor()
+            
+            # 2. Verificar quantos itens serão deletados (para log)
+            placeholders = ','.join([f':cod{i}' for i in range(len(codprods_to_delete))])
+            sql_check = f"""
+                SELECT SEQUENCIA, CODPROD, QTDNEG, VLRUNIT
+                FROM TGFITE
+                WHERE NUNOTA = :nunota
+                AND CODPROD IN ({placeholders})
+            """
+            params_check = {'nunota': int(nunota_vale)}
+            for i, cod in enumerate(codprods_to_delete):
+                params_check[f'cod{i}'] = cod
+            
+            cur.execute(sql_check, **params_check)
+            items_to_delete = cur.fetchall()
+            
+            logger.info(f'[DELETE VALE] Itens encontrados para deletar: {len(items_to_delete)}')
+            for item in items_to_delete:
+                logger.info(f'[DELETE VALE]   - SEQ={item[0]}, CODPROD={item[1]}, QTDNEG={item[2]}, VLRUNIT={item[3]}')
+            
+            if not items_to_delete:
+                logger.info('[DELETE VALE] Nenhum item encontrado no VALE para deletar')
+                return {
+                    'success': True,
+                    'deleted_count': 0,
+                    'products_deleted': codprods_to_delete,
+                    'message': 'Nenhum item encontrado no VALE'
+                }
+            
+            # 3. DELETE dos itens
+            sql_delete = f"""
+                DELETE FROM TGFITE
+                WHERE NUNOTA = :nunota
+                AND CODPROD IN ({placeholders})
+            """
+            params_delete = {'nunota': int(nunota_vale)}
+            for i, cod in enumerate(codprods_to_delete):
+                params_delete[f'cod{i}'] = cod
+            
+            cur.execute(sql_delete, **params_delete)
+            deleted_count = cur.rowcount
+            
+            logger.info(f'[DELETE VALE] Deletados {deleted_count} itens')
+            
+            # 4. Recalcular VLRNOTA do VALE
+            recalc_result = _recalc_vlrnota(conn, int(nunota_vale))
+            logger.info(f'[DELETE VALE] VLRNOTA recalculado: {recalc_result}')
+            
+            conn.commit()
+            
+            return {
+                'success': True,
+                'deleted_count': deleted_count,
+                'products_deleted': codprods_to_delete,
+                'items': [{'sequencia': i[0], 'codprod': i[1], 'qtdneg': float(i[2]), 'vlrunit': float(i[3])} for i in items_to_delete],
+                'vlrnota_recalc': recalc_result
+            }
+            
+    except Exception as e:
+        logger.error(f'[DELETE VALE] Erro ao deletar itens: {e}', exc_info=True)
+        return {
+            'success': False,
+            'deleted_count': 0,
+            'products_deleted': [],
+            'error': str(e)
+        }
+
+
+def modal_faturamento_auto_save(
+    nunota_pedido: int,
+    sequencia: int,
+    codprod: int,
+    codagregacao: str,
+    vlrtot: float,
+    is_classificavel: bool
+) -> dict:
+    """
+    Auto-salva alterações do modalFaturamento.
+    
+    Comportamento:
+    - Classificável: Apenas cria cabeçalho VALE se não existir. Edita PEDIDO (PRECOBASE, VLRUNIT, VLRTOT).
+    - Não Classificável: Cria/edita VALE completo (cabeçalho + item). Edita PEDIDO (VLRUNIT, VLRTOT).
+    
+    IMPORTANTE: O usuário digita VLRTOT (valor total), e o sistema calcula VLRUNIT = VLRTOT / QTDNEG.
+    
+    Args:
+        nunota_pedido: NUNOTA do PEDIDO (TOP 11)
+        sequencia: SEQUENCIA do item no PEDIDO
+        codprod: CODPROD do item
+        codagregacao: LOTE do item
+        vlrtot: VLRTOT desejado (valor total que o usuário digitou)
+        is_classificavel: True = Classificável, False = Não Classificável
+    
+    Returns:
+        dict com:
+        - success: bool
+        - nunota_vale: int (NUNOTA do VALE criado/encontrado)
+        - vlrnota_pedido: float (VLRNOTA atualizado do PEDIDO)
+        - vlrnota_vale: float (VLRNOTA atualizado do VALE, se aplicável)
+        - action: str ('classificavel' ou 'nao_classificavel')
+        - vlrunit: float (VLRUNIT calculado)
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f'[MODAL AUTO-SAVE] Iniciando - NUNOTA={nunota_pedido}, SEQ={sequencia}, '
+                f'CODPROD={codprod}, LOTE={codagregacao}, VLRTOT={vlrtot}, '
+                f'IS_CLASSIFICAVEL={is_classificavel}')
+    
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            
+            # 1. Buscar QTDNEG e PRECOBASE do item no PEDIDO
+            sql_item = """
+                SELECT QTDNEG, PRECOBASE
+                FROM TGFITE
+                WHERE NUNOTA = :nunota AND SEQUENCIA = :seq
+            """
+            cur.execute(sql_item, nunota=int(nunota_pedido), seq=int(sequencia))
+            item_row = cur.fetchone()
+            
+            if not item_row:
+                logger.error(f'[MODAL AUTO-SAVE] Item não encontrado - NUNOTA={nunota_pedido}, SEQ={sequencia}')
+                return {
+                    'success': False,
+                    'error': 'Item não encontrado no PEDIDO'
+                }
+            
+            qtdneg = float(item_row[0])
+            precobase_atual = float(item_row[1]) if item_row[1] else 0.0
+            
+            # Calcular VLRUNIT a partir do VLRTOT (o usuário digita o total)
+            if qtdneg == 0:
+                logger.error(f'[MODAL AUTO-SAVE] QTDNEG = 0 - impossível calcular VLRUNIT')
+                return {
+                    'success': False,
+                    'error': 'Quantidade (QTDNEG) não pode ser zero'
+                }
+            
+            vlrunit = vlrtot / qtdneg
+            
+            logger.info(f'[MODAL AUTO-SAVE] Calculado - QTDNEG={qtdneg}, VLRTOT={vlrtot}, VLRUNIT={vlrunit}')
+            
+            # 2. Verificar/Criar VALE (cabeçalho)
+            nunota_vale = get_nunota_vale_from_pedido(nunota_pedido)
+            
+            if not nunota_vale:
+                # Criar cabeçalho do VALE
+                logger.info(f'[MODAL AUTO-SAVE] VALE não existe, criando cabeçalho...')
+                
+                # Buscar dados do PEDIDO para replicar no VALE
+                sql_pedido = """
+                    SELECT CODEMP, CODPARC, DTNEG, CODNAT, CODCENCUS, CODVEND, OBSERVACAO, CODTIPVENDA
+                    FROM TGFCAB
+                    WHERE NUNOTA = :nunota
+                """
+                cur.execute(sql_pedido, nunota=int(nunota_pedido))
+                pedido_row = cur.fetchone()
+                
+                if not pedido_row:
+                    logger.error(f'[MODAL AUTO-SAVE] PEDIDO não encontrado - NUNOTA={nunota_pedido}')
+                    return {
+                        'success': False,
+                        'error': 'PEDIDO não encontrado'
+                    }
+                
+                codemp = int(pedido_row[0])
+                codparc = int(pedido_row[1])
+                dtneg = pedido_row[2]
+                codnat = int(pedido_row[3]) if pedido_row[3] else None
+                codcencus = int(pedido_row[4]) if pedido_row[4] else None
+                codvend = int(pedido_row[5]) if pedido_row[5] else None
+                observacao = str(pedido_row[6]) if pedido_row[6] else None
+                codtipvenda = int(pedido_row[7]) if pedido_row[7] else None
+                
+                # Buscar TIPMOV e DHALTER da TOP 13
+                sql_top = """
+                    SELECT TIPMOV, DHALTER 
+                    FROM (SELECT TIPMOV, DHALTER FROM TGFTOP WHERE CODTIPOPER=13 ORDER BY DHALTER DESC) 
+                    WHERE ROWNUM=1
+                """
+                cur.execute(sql_top)
+                top_row = cur.fetchone()
+                
+                if not top_row:
+                    logger.error('[MODAL AUTO-SAVE] TOP 13 não encontrada')
+                    return {
+                        'success': False,
+                        'error': 'TOP 13 não configurada no sistema'
+                    }
+                
+                tipmov = top_row[0] if top_row[0] else 'C'
+                dhtipoper = top_row[1]
+                
+                # Gerar NUNOTA manualmente (MAX+1)
+                sql_max_nunota = "SELECT NVL(MAX(NUNOTA), 0) + 1 FROM TGFCAB"
+                cur.execute(sql_max_nunota)
+                nunota_vale = int(cur.fetchone()[0])
+                
+                # Formatar datas
+                from datetime import datetime
+                hoje = datetime.now().strftime('%d/%m/%Y')
+                
+                # INSERT cabeçalho VALE
+                sql_insert_cab = """
+                    INSERT INTO TGFCAB (
+                        NUNOTA, CODEMP, CODEMPNEGOC, CODPARC, CODTIPOPER, DHTIPOPER, TIPMOV,
+                        CODNAT, CODCENCUS, DTNEG, DTMOV, DTENTSAI,
+                        NUMNOTA, NUMPEDIDO, PENDENTE, STATUSNOTA, HRMOV, APROVADO, DTALTER,
+                        VLRNOTA
+                    ) VALUES (
+                        :NUNOTA, :CODEMP, :CODEMP, :CODPARC, 13, :DHTIPOPER, :TIPMOV,
+                        :CODNAT, :CODCENCUS, TO_DATE(:DTNEG,'DD/MM/YYYY'), TO_DATE(:DTMOV,'DD/MM/YYYY'), TO_DATE(:DTENTSAI,'DD/MM/YYYY'),
+                        :NUMNOTA, :NUMPEDIDO, 'S', 'A', TO_CHAR(SYSDATE,'HH24MISS'), 'N', SYSDATE,
+                        0
+                    )
+                """
+                cur.execute(sql_insert_cab, {
+                    'NUNOTA': nunota_vale,
+                    'CODEMP': codemp,
+                    'CODPARC': codparc,
+                    'DHTIPOPER': dhtipoper,
+                    'TIPMOV': tipmov,
+                    'CODNAT': codnat,
+                    'CODCENCUS': codcencus,
+                    'DTNEG': hoje,
+                    'DTMOV': hoje,
+                    'DTENTSAI': hoje,
+                    'NUMNOTA': int(nunota_pedido),
+                    'NUMPEDIDO': int(nunota_pedido)
+                })
+                
+                logger.info(f'[MODAL AUTO-SAVE] ✅ Cabeçalho VALE criado - NUNOTA={nunota_vale}')
+                
+                # Commit do cabeçalho antes de inserir itens
+                conn.commit()
+            else:
+                logger.info(f'[MODAL AUTO-SAVE] VALE já existe - NUNOTA={nunota_vale}')
+            
+            # 3. Processar conforme tipo
+            if is_classificavel:
+                # CLASSIFICÁVEL: Apenas editar PEDIDO (PRECOBASE = valor por unidade digitado)
+                logger.info(f'[MODAL AUTO-SAVE] Processando CLASSIFICÁVEL')
+                
+                # PRECOBASE deve ser o valor por unidade (CX) = VLRTOT / QTDNEG
+                precobase = vlrtot / qtdneg if qtdneg > 0 else vlrunit
+                
+                sql_update_pedido = """
+                    UPDATE TGFITE
+                    SET PRECOBASE = :precobase,
+                        VLRUNIT = :vlrunit,
+                        VLRTOT = :vlrtot
+                    WHERE NUNOTA = :nunota AND SEQUENCIA = :seq
+                """
+                cur.execute(sql_update_pedido,
+                           precobase=precobase,
+                           vlrunit=vlrunit,
+                           vlrtot=vlrtot,
+                           nunota=int(nunota_pedido),
+                           seq=int(sequencia))
+                
+                logger.info(f'[MODAL AUTO-SAVE] ✅ PEDIDO atualizado - PRECOBASE={precobase}, VLRUNIT={vlrunit}, VLRTOT={vlrtot}')
+                
+                # Recalcular VLRNOTA do PEDIDO
+                recalc_pedido = _recalc_vlrnota(conn, int(nunota_pedido))
+                
+                conn.commit()
+                
+                return {
+                    'success': True,
+                    'action': 'classificavel',
+                    'nunota_vale': nunota_vale,
+                    'vlrnota_pedido': recalc_pedido['vlrnota'],
+                    'vlrnota_vale': None,
+                    'vlrunit': vlrunit
+                }
+            
+            else:
+                # NÃO CLASSIFICÁVEL: Editar PEDIDO + Adicionar/Editar VALE
+                logger.info(f'[MODAL AUTO-SAVE] Processando NÃO CLASSIFICÁVEL')
+                
+                # PRECOBASE deve ser o valor por unidade (CX) = VLRTOT / QTDNEG
+                precobase = vlrtot / qtdneg if qtdneg > 0 else vlrunit
+                
+                # 3.1. Atualizar PEDIDO (PRECOBASE, VLRUNIT, VLRTOT)
+                sql_update_pedido = """
+                    UPDATE TGFITE
+                    SET PRECOBASE = :precobase,
+                        VLRUNIT = :vlrunit,
+                        VLRTOT = :vlrtot
+                    WHERE NUNOTA = :nunota AND SEQUENCIA = :seq
+                """
+                cur.execute(sql_update_pedido,
+                           precobase=precobase,
+                           vlrunit=vlrunit,
+                           vlrtot=vlrtot,
+                           nunota=int(nunota_pedido),
+                           seq=int(sequencia))
+                
+                logger.info(f'[MODAL AUTO-SAVE] ✅ PEDIDO atualizado - PRECOBASE={precobase}, VLRUNIT={vlrunit}, VLRTOT={vlrtot}')
+                
+                # 3.2. Verificar se item já existe no VALE
+                sql_check_vale = """
+                    SELECT SEQUENCIA
+                    FROM TGFITE
+                    WHERE NUNOTA = :nunota 
+                      AND CODPROD = :codprod
+                      AND (CONTROLE = :lote OR CODAGREGACAO = :lote)
+                """
+                cur.execute(sql_check_vale,
+                           nunota=int(nunota_vale),
+                           codprod=int(codprod),
+                           lote=str(codagregacao))
+                vale_item = cur.fetchone()
+                
+                if vale_item:
+                    # UPDATE item no VALE
+                    seq_vale = int(vale_item[0])
+                    
+                    sql_update_vale = """
+                        UPDATE TGFITE
+                        SET QTDNEG = :qtdneg,
+                            VLRUNIT = :vlrunit,
+                            VLRTOT = :vlrtot
+                        WHERE NUNOTA = :nunota AND SEQUENCIA = :seq
+                    """
+                    cur.execute(sql_update_vale,
+                               qtdneg=qtdneg,
+                               vlrunit=vlrunit,
+                               vlrtot=vlrtot,
+                               nunota=int(nunota_vale),
+                               seq=seq_vale)
+                    
+                    logger.info(f'[MODAL AUTO-SAVE] ✅ Item VALE atualizado - SEQ={seq_vale}')
+                
+                else:
+                    # INSERT novo item no VALE
+                    sql_max_seq = """
+                        SELECT NVL(MAX(SEQUENCIA), 0) + 1
+                        FROM TGFITE
+                        WHERE NUNOTA = :nunota
+                    """
+                    cur.execute(sql_max_seq, nunota=int(nunota_vale))
+                    seq_vale = int(cur.fetchone()[0])
+                    
+                    # Buscar CODVOL do item no PEDIDO
+                    sql_item_dados = """
+                        SELECT CODVOL
+                        FROM TGFITE
+                        WHERE NUNOTA = :nunota AND SEQUENCIA = :seq
+                    """
+                    cur.execute(sql_item_dados, nunota=int(nunota_pedido), seq=int(sequencia))
+                    item_dados = cur.fetchone()
+                    codvol = str(item_dados[0]) if item_dados and item_dados[0] else 'KG'
+                    
+                    # Usar insert_item para criar item no VALE (cuida dos triggers)
+                    item_payload = {
+                        'NUNOTA': int(nunota_vale),
+                        'CODPROD': int(codprod),
+                        'QTDNEG': qtdneg,
+                        'VLRUNIT': vlrunit,
+                        'VLRTOT': vlrtot,
+                        'CODVOL': codvol,
+                        'CONTROLE': str(codagregacao),
+                        'CODAGREGACAO': str(codagregacao)
+                    }
+                    
+                    insert_result = insert_item(item_payload, dry_run=False)
+                    
+                    if not insert_result.get('executed'):
+                        raise Exception(f'Falha ao inserir item no VALE: {insert_result}')
+                    
+                    logger.info(f'[MODAL AUTO-SAVE] ✅ Item VALE inserido - SEQ={seq_vale}')
+                
+                # Recalcular VLRNOTA do PEDIDO e VALE
+                recalc_pedido = _recalc_vlrnota(conn, int(nunota_pedido))
+                recalc_vale = _recalc_vlrnota(conn, int(nunota_vale))
+                
+                conn.commit()
+                
+                return {
+                    'success': True,
+                    'action': 'nao_classificavel',
+                    'nunota_vale': nunota_vale,
+                    'vlrnota_pedido': recalc_pedido['vlrnota'],
+                    'vlrnota_vale': recalc_vale['vlrnota'],
+                    'vlrunit': vlrunit
+                }
+    
+    except Exception as e:
+        logger.error(f'[MODAL AUTO-SAVE] Erro: {e}', exc_info=True)
+        return {
+            'success': False,
+            'error': str(e)
+        }
 
 
 def get_produtos_extra_medio(codprod_in_natura: int):
@@ -5289,17 +5782,26 @@ def execute_classificacao(nunota_origem: int, sequencia_origem: int, saidas: lis
 
 def delete_nota(nunota: int, dry_run: bool = True) -> dict:
     """Exclui a nota (TGFCAB) e seus itens (TGFITE).
+    Se for TOP 11 (Entrada), também exclui o VALE (TOP 13) vinculado via NUMPEDIDO.
+    
     Estratégia otimizada:
+    - Verifica se é TOP 11 e busca VALE vinculado
+    - Deleta VALE (TOP 13) primeiro, se existir
     - Deleta todos os itens de uma vez, depois o cabeçalho
     - Usa uma única conexão para tudo
     - Commit único ao final
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     res = {
         'ok': False,
         'executed': False,
         'nunota': nunota,
         'deleted_itens': 0,
         'deleted_cab': 0,
+        'deleted_vale': False,
+        'nunota_vale': None,
         'errors': [],
         'warnings': [],
     }
@@ -5320,6 +5822,46 @@ def delete_nota(nunota: int, dry_run: bool = True) -> dict:
         with get_connection() as conn:
             cur = conn.cursor()
             
+            # 0) Verificar se é TOP 11 e buscar VALE vinculado (TOP 13)
+            cur.execute("""
+                SELECT CODTIPOPER, NUMNOTA
+                FROM TGFCAB
+                WHERE NUNOTA = :n
+            """, n=nun)
+            cab_info = cur.fetchone()
+            
+            if cab_info and cab_info[0] == 11:
+                # É TOP 11 - buscar VALE vinculado
+                numnota_top11 = cab_info[1]
+                logger.info(f'[DELETE] TOP 11 detectado - NUMNOTA={numnota_top11}')
+                
+                cur.execute("""
+                    SELECT NUNOTA
+                    FROM TGFCAB
+                    WHERE CODTIPOPER = 13
+                      AND NUMPEDIDO = :numpedido
+                      AND ROWNUM = 1
+                """, numpedido=numnota_top11)
+                vale_row = cur.fetchone()
+                
+                if vale_row:
+                    nunota_vale = int(vale_row[0])
+                    res['nunota_vale'] = nunota_vale
+                    logger.info(f'[DELETE] VALE encontrado - NUNOTA={nunota_vale}')
+                    
+                    # Deletar itens do VALE
+                    cur.execute("DELETE FROM TGFITE WHERE NUNOTA=:n", n=nunota_vale)
+                    deleted_vale_itens = int(cur.rowcount or 0)
+                    logger.info(f'[DELETE] VALE itens deletados: {deleted_vale_itens}')
+                    
+                    # Deletar cabeçalho do VALE
+                    cur.execute("DELETE FROM TGFCAB WHERE NUNOTA=:n", n=nunota_vale)
+                    deleted_vale_cab = int(cur.rowcount or 0)
+                    res['deleted_vale'] = (deleted_vale_cab > 0)
+                    logger.info(f'[DELETE] VALE cabeçalho deletado: {deleted_vale_cab > 0}')
+                else:
+                    logger.info('[DELETE] VALE não encontrado para este pedido')
+            
             # 1) Delete all items at once (much faster than one-by-one)
             cur.execute("DELETE FROM TGFITE WHERE NUNOTA=:n", n=nun)
             res['deleted_itens'] = int(cur.rowcount or 0)
@@ -5335,6 +5877,8 @@ def delete_nota(nunota: int, dry_run: bool = True) -> dict:
             res['executed'] = (res['deleted_cab'] > 0)
             if res['deleted_cab'] == 0:
                 res['warnings'].append('Nenhum cabeçalho excluído (NUNOTA não encontrado)')
+            if res['deleted_vale']:
+                logger.info(f'[DELETE] ✅ VALE {res["nunota_vale"]} excluído junto com pedido {nunota}')
             return res
             
     except cx_Oracle.DatabaseError as e:

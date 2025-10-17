@@ -912,18 +912,22 @@
         // Wait only for delete
         const res = await deletePromise;
         if (res.ok && (res.body?.deleted_cab || 0) > 0){
-          alert(`Nota ${nun} excluída com sucesso.`);
+          const valeMsg = res.body?.deleted_vale ? ' e Vale vinculado' : '';
+          showToast(`Nota ${nun}${valeMsg} excluída com sucesso.`, 'success');
           // Recarrega sem 'sel'
-          try {
-            const url = new URL(window.location.href);
-            url.searchParams.delete('sel');
-            try{ PHOverlay.show(); }catch(_){ }
-            window.location.href = url.pathname + '?' + url.searchParams.toString();
-          } catch(_){ try{ PHOverlay.show(); }catch(__){} window.location.reload(); }
+          setTimeout(() => {
+            try {
+              const url = new URL(window.location.href);
+              url.searchParams.delete('sel');
+              try{ PHOverlay.show(); }catch(_){ }
+              window.location.href = url.pathname + '?' + url.searchParams.toString();
+            } catch(_){ try{ PHOverlay.show(); }catch(__){} window.location.reload(); }
+          }, 1000);
         } else {
-          const errs = (res.body?.errors||[]).join('\n') || 'Falha ao excluir nota.';
-          const warns = (res.body?.warnings||[]).join('\n');
-          alert([errs, warns].filter(Boolean).join('\n'));
+          const errs = (res.body?.errors||[]).join(' | ') || 'Falha ao excluir nota.';
+          const warns = (res.body?.warnings||[]).join(' | ');
+          const errorMsg = [errs, warns].filter(Boolean).join(' | ');
+          showToast(errorMsg, 'error');
         }
       });
 
