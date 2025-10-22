@@ -8,6 +8,81 @@
   <link rel="stylesheet" href="{% static 'sankhya_integration/style.css' %}">
   <style>
   :root { --border:#e5e7eb; --panel:#fff; --muted:#6b7280; --bg:#f7f9fb; --ph-selected-bg:#FEF9C3; --ph-selected-border:#F59E0B; }
+
+  /* Toast Notifications */
+  #toastContainer {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 400px;
+  }
+  .toast {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.05);
+    animation: toastSlideIn 0.3s ease-out;
+    min-width: 300px;
+    max-width: 400px;
+    word-wrap: break-word;
+  }
+  .toast.removing {
+    animation: toastSlideOut 0.3s ease-in forwards;
+  }
+  @keyframes toastSlideIn {
+    from { transform: translateX(calc(100% + 20px)); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes toastSlideOut {
+    from { transform: translateX(0); opacity: 1; }
+    to { transform: translateX(calc(100% + 20px)); opacity: 0; }
+  }
+  .toast-icon {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .toast-content {
+    flex: 1;
+    font-size: 14px;
+    line-height: 1.4;
+    color: #1f2937;
+  }
+  .toast-close {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: #9ca3af;
+    font-size: 18px;
+    line-height: 1;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .toast-close:hover { color: #4b5563; }
+  .toast.error { border-left: 4px solid #ef4444; }
+  .toast.error .toast-icon { color: #ef4444; }
+  .toast.success { border-left: 4px solid #10b981; }
+  .toast.success .toast-icon { color: #10b981; }
+  .toast.warning { border-left: 4px solid #f59e0b; }
+  .toast.warning .toast-icon { color: #f59e0b; }
+  .toast.info { border-left: 4px solid #3b82f6; }
+  .toast.info .toast-icon { color: #3b82f6; }
+
   body { margin:0; font-family: Inter, system-ui, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:#111827; font-size:12px; }
     header { padding: 12px 16px; background:#fff; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5; box-shadow: 0 2px 4px rgba(0,0,0,0.04); }
     main { display:grid; grid-template-columns: 320px 1fr; gap:12px; padding:12px; }
@@ -482,49 +557,64 @@
         </div>
         </div>
 
-        <div class="panel panel--summary">
+        <div class="panel panel--summary" style="min-height:200px;">
           <header>Resumo da Classificação</header>
-          <div class="content" style="display:flex; flex-direction:column; gap:16px; padding:20px;">
-            <div style="display:flex; flex-direction:column; gap:12px;">
-              <div style="padding:12px; background:#f9fafb; border-radius:6px; border-left:3px solid #3b82f6;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                  <span style="color:#6b7280; font-size:11px; font-weight:600; text-transform:uppercase;">In Natura (kg)</span>
-                  <span id="resumoInNatura" style="font-size:24px; font-weight:700; color:#1f2937;">0,0</span>
+          <div class="content" style="display:flex; flex-direction:column; gap:8px; padding:12px;">
+            <!-- Linha 1: In Natura -->
+            <div style="padding:8px; background:#f9fafb; border-radius:6px; border-left:3px solid #3b82f6; display:grid; grid-template-rows:auto 1fr;">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
+                <span style="color:#6b7280; font-size:10px; font-weight:600; text-transform:uppercase; white-space:nowrap;">IN<br>NATURA<br>(KG)</span>
+                <span id="resumoInNatura" style="font-size:18px; font-weight:700; color:#1f2937; line-height:1;">0,0</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+                <div style="color:#9ca3af; font-size:9px;">100%</div>
+                <div>
+                  <span id="resumoInNaturaCx" style="color:#6b7280; font-size:10px; font-weight:600;">0,0 cx</span>
                 </div>
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                  <div style="text-align:left; color:#9ca3af; font-size:10px;">100%</div>
-                  <div style="text-align:right;">
-                    <span id="resumoInNaturaCx" style="color:#6b7280; font-size:12px; font-weight:600;">0,0 cx</span>
+              </div>
+            </div>
+            
+            <!-- Linha 2: Classificado -->
+            <div style="padding:8px; background:#f9fafb; border-radius:6px; border-left:3px solid #10b981; display:grid; grid-template-rows:auto 1fr;">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
+                <span style="color:#6b7280; font-size:10px; font-weight:600; text-transform:uppercase; white-space:nowrap;">CLASSIFICADO<br>(KG)</span>
+                <span id="resumoClassificado" style="font-size:18px; font-weight:700; color:#1f2937; line-height:1;">0,0</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+                <div>
+                  <span id="resumoClassificadoPct" style="color:#10b981; font-size:10px; font-weight:600;">0%</span>
+                </div>
+                <div>
+                  <span id="resumoClassificadoCx" style="color:#6b7280; font-size:10px; font-weight:600;">0,0 cx</span>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Linha 3: Estoque | Descarte -->
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; grid-auto-rows:1fr;">
+              <div style="padding:8px; background:#f9fafb; border-radius:6px; border-left:3px solid #f59e0b; display:grid; grid-template-rows:auto 1fr;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
+                  <span style="color:#6b7280; font-size:10px; font-weight:600; text-transform:uppercase; white-space:nowrap;">ESTOQUE<br>(KG)</span>
+                  <span id="resumoEstoque" style="font-size:18px; font-weight:700; color:#1f2937; line-height:1;">0,0</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+                  <div>
+                    <span id="resumoEstoquePct" style="color:#f59e0b; font-size:10px; font-weight:600;">0%</span>
+                  </div>
+                  <div>
+                    <span id="resumoEstoqueCx" style="color:#6b7280; font-size:10px; font-weight:600;">0,0 cx</span>
                   </div>
                 </div>
               </div>
               
-              <div style="padding:12px; background:#f9fafb; border-radius:6px; border-left:3px solid #10b981;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                  <span style="color:#6b7280; font-size:11px; font-weight:600; text-transform:uppercase;">Classificado (kg)</span>
-                  <span id="resumoClassificado" style="font-size:24px; font-weight:700; color:#1f2937;">0,0</span>
+              <div style="padding:8px; background:#f9fafb; border-radius:6px; border-left:3px solid #ef4444; display:grid; grid-template-rows:auto 1fr;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
+                  <span style="color:#6b7280; font-size:10px; font-weight:600; text-transform:uppercase; white-space:nowrap;">DESCARTE<br>(KG)</span>
+                  <span id="resumoDescarte" style="font-size:18px; font-weight:700; color:#1f2937; line-height:1;">0,0</span>
                 </div>
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                  <div style="text-align:left;">
-                    <span id="resumoClassificadoPct" style="color:#10b981; font-size:12px; font-weight:600;">0%</span>
-                  </div>
-                  <div style="text-align:right;">
-                    <span id="resumoClassificadoCx" style="color:#6b7280; font-size:12px; font-weight:600;">0,0 cx</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div style="padding:12px; background:#f9fafb; border-radius:6px; border-left:3px solid #f59e0b;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                  <span style="color:#6b7280; font-size:11px; font-weight:600; text-transform:uppercase;">Estoque (kg)</span>
-                  <span id="resumoEstoque" style="font-size:24px; font-weight:700; color:#1f2937;">0,0</span>
-                </div>
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                  <div style="text-align:left;">
-                    <span id="resumoEstoquePct" style="color:#f59e0b; font-size:12px; font-weight:600;">0%</span>
-                  </div>
-                  <div style="text-align:right;">
-                    <span id="resumoEstoqueCx" style="color:#6b7280; font-size:12px; font-weight:600;">0,0 cx</span>
+                <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+                  <div>
+                    <span id="resumoDescartePct" style="color:#ef4444; font-size:10px; font-weight:600;">0%</span>
                   </div>
                 </div>
               </div>
@@ -636,7 +726,7 @@
         <div style="position:relative;">
           <label>Vol</label>
           <input type="hidden" id="itemVolHidden" />
-          <input type="text" id="itemVol" placeholder="CODVOL" autocomplete="off" />
+          <input type="text" id="itemVol" placeholder="CODVOL" autocomplete="off" readonly disabled style="background-color:#f3f4f6; cursor:not-allowed;" />
           <div id="itemVolSuggest" style="position:absolute; left:0; right:0; background:#fff; border:1px solid #e5e7eb; display:none; max-height:160px; overflow:auto; z-index:90; font-size:13px;"></div>
         </div>
         <div>
@@ -644,12 +734,16 @@
           <input type="number" id="itemQtd" step="0.001" />
         </div>
         <div>
-          <label>Vlr Unit</label>
-          <input type="number" id="itemVlr" step="0.01" value="0" disabled title="Definido na página Comercial (TOP 26 não usa preço)" />
-        </div>
-        <div>
           <label>Peso</label>
           <input type="number" id="itemPeso" step="0.001" readonly />
+        </div>
+        <div>
+          <label>Total kg</label>
+          <input type="number" id="itemTotalKg" step="0.001" />
+        </div>
+        <div>
+          <label>Vlr Unit</label>
+          <input type="number" id="itemVlr" step="0.01" value="0" disabled title="Definido na página Comercial (TOP 26 não usa preço)" />
         </div>
         <div style="grid-column:1 / -1;">
           <label>Obs</label>
@@ -834,22 +928,23 @@
                   <div id="item_prod_sugg" style="position:absolute; left:0; right:0; background:#fff; border:1px solid var(--border); display:none; max-height:160px; overflow:auto; z-index:120; font-size:13px;"></div>
                 </div>
                 
-                <div style="width:88px;">
+                <div style="width:120px;">
+                  <label>Total kg</label>
+                  <input type="number" id="item_total" step="0.001" style="text-align:right;" />
+                </div>
+                <div style="width:88px; position:relative;">
                   <label>Vol</label>
-                  <input type="text" id="item_vol" placeholder="CODVOL" autocomplete="off" value="CX" />
-                  <input type="hidden" id="item_vol_hidden" value="CX" />
+                  <input type="text" id="item_vol" placeholder="CODVOL" autocomplete="off" value="" disabled style="background:#f5f5f5; cursor:not-allowed;" />
+                  <input type="hidden" id="item_vol_hidden" value="" />
+                  <div id="item_vol_sugg" style="position:absolute; left:0; right:0; background:#fff; border:1px solid var(--border); display:none; max-height:160px; overflow:auto; z-index:120; font-size:13px;"></div>
                 </div>
                 <div style="width:88px;">
                   <label>Qtd</label>
-                  <input type="number" id="item_qtd" step="0.001" />
+                  <input type="number" id="item_qtd" step="0.1" />
                 </div>
                 <div style="width:96px;">
                   <label>Peso</label>
-                  <input type="number" id="item_peso" step="0.001" />
-                </div>
-                <div style="width:120px;">
-                  <label>Total kg</label>
-                  <input type="text" id="item_total" disabled style="background:#f3f4f6; text-align:right;" />
+                  <input type="number" id="item_peso" step="0.1" style="background:#fff;" />
                 </div>
               </div>
               <div style="display:flex; gap:8px; align-items:flex-end;">
@@ -879,12 +974,20 @@
               </div>
               <div style="max-height:42vh; overflow:auto; border:1px solid var(--border); border-radius:6px;">
                 <table class="ph-selectable-table" style="width:100%; border-collapse:collapse;">
-                  <thead><tr><th style="padding:8px">Lote</th><th>Produto</th><th style="text-align:right">Vol</th><th style="text-align:right">Qtd</th><th style="text-align:right">Peso</th><th style="text-align:right">Total kg</th><th style="text-align:right"></th></tr></thead>
-                    <tbody id="itemsListBody"><tr><td colspan="7" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr></tbody>
+                  <thead><tr><th style="padding:8px">Lote</th><th>Produto</th><th style="text-align:right">Vol</th><th style="text-align:right">Qtd</th><th style="text-align:right">Peso</th><th style="text-align:right"></th></tr></thead>
+                    <tbody id="itemsListBody"><tr><td colspan="6" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr></tbody>
                 </table>
               </div>
             </div>
-            <div style="display:flex; gap:8px; justify-content:flex-end; align-items:center; margin-top:6px;">
+            <div style="display:flex; gap:12px; justify-content:space-between; align-items:center; margin-top:6px;">
+              <div style="display:flex; align-items:center; gap:6px;">
+                <label style="font-size:12px; color:#374151; font-weight:500;">Descarte (kg):</label>
+                <input type="text" id="descarteTotal" readonly value="0,0" style="width:80px; padding:4px 6px; border:1px solid var(--border); border-radius:4px; background:#f9fafb; text-align:right; font-size:12px; color:#374151; font-weight:600;" />
+                <div style="display:flex; flex-direction:column; gap:2px;">
+                  <button id="btnDescarteAdd" class="icon-btn icon-btn--plain" style="width:28px; height:20px; padding:0; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; color:#10b981; border:1px solid #d1fae5; background:#ecfdf5;" title="Adicionar descarte" aria-label="Adicionar descarte">+</button>
+                  <button id="btnDescarteSub" class="icon-btn icon-btn--plain" style="width:28px; height:20px; padding:0; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; color:#ef4444; border:1px solid #fecaca; background:#fef2f2;" title="Subtrair descarte" aria-label="Subtrair descarte">−</button>
+                </div>
+              </div>
               <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:#374151;">
                 Classificação Finalizada
                 <span class="switch">
@@ -899,7 +1002,66 @@
           </div>
         </div>
       </div>
+      <!-- Toast Container -->
+      <div id="toastContainer"></div>
+      <!-- Mini modal de descarte -->
+      <div id="modalDescarte" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index:80;">
+        <div style="background:#fff; border-radius:8px; width:340px; max-width:95%; padding:16px; box-shadow:0 10px 25px rgba(0,0,0,0.2);">
+          <h3 style="margin:0 0 12px 0; font-size:16px; color:#1f2937;" id="modalDescarteTitle">Adicionar Descarte</h3>
+          <div style="margin-bottom:12px;">
+            <label style="display:block; font-size:13px; color:#6b7280; margin-bottom:4px;">Quantidade (kg)</label>
+            <input type="number" id="descarteInput" step="0.1" min="0.1" placeholder="Ex: 5.0" autocomplete="off" style="width:100%; padding:8px; border:1px solid var(--border); border-radius:6px; font-size:14px;" />
+            <div id="descarteError" style="display:none; margin-top:4px; font-size:12px; color:#ef4444;"></div>
+          </div>
+          <div style="display:flex; gap:8px; justify-content:flex-end;">
+            <button id="modalDescarteCancelar" style="padding:6px 14px; border:1px solid var(--border); border-radius:6px; background:#fff; color:#374151; cursor:pointer; font-size:13px;">Cancelar</button>
+            <button id="modalDescarteConfirmar" style="padding:6px 14px; border:none; border-radius:6px; background:#10b981; color:#fff; cursor:pointer; font-size:13px; font-weight:500;">Confirmar</button>
+          </div>
+        </div>
+      </div>
       <script>
+    // Toast Notification System
+    function showToast(message, type = 'info', duration = 4000) {
+      const container = document.getElementById('toastContainer');
+      if (!container) return;
+
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+
+      const icons = {
+        error: '⚠️',
+        success: '✓',
+        warning: '⚡',
+        info: 'ℹ'
+      };
+
+      toast.innerHTML = `
+        <div class="toast-icon">${icons[type] || icons.info}</div>
+        <div class="toast-content">${message}</div>
+        <button class="toast-close" aria-label="Fechar">×</button>
+      `;
+
+      container.appendChild(toast);
+
+      const closeBtn = toast.querySelector('.toast-close');
+      const remove = () => {
+        toast.classList.add('removing');
+        setTimeout(() => {
+          if (toast.parentNode) {
+            toast.parentNode.removeChild(toast);
+          }
+        }, 300);
+      };
+
+      closeBtn.addEventListener('click', remove);
+
+      if (duration > 0) {
+        setTimeout(remove, duration);
+      }
+
+      return toast;
+    }
+
     // Reuse the basic interaction from portal: row selection, pagination and delete confirmation.
     (function(){
       const tbl = document.getElementById('notasTable');
@@ -1345,6 +1507,8 @@
             else if(j.nunota_class){ try{ if (typeof window.initHeaderStatusToggle === 'function') window.initHeaderStatusToggle(j.nunota_class); }catch(_){ } }
           }
         }catch(_){ }
+        // Update Descarte field with QTDBATIDAS from TOP 26
+        try{ if(typeof window.updateDescarteFromBackend === 'function'){ window.updateDescarteFromBackend(j.qtdbatidas); } }catch(_){ }
         // Update 'Qtde cx' and 'Qtde kg' in the active LOTES row from entradas
         try{
           const entradas = Array.isArray(j.entradas) ? j.entradas : [];
@@ -1486,9 +1650,13 @@
           const estoque = Math.max(0, totalInNatura - totalClassificado);
           const estoqueCx = Math.max(0, totalInNaturaCx - totalClassificadoCx);
 
+          // Buscar Descarte (vem de jsonData.qtdbatidas - campo QTDBATIDAS do cabeçalho)
+          const descarte = (jsonData && jsonData.qtdbatidas != null) ? parseFloat(jsonData.qtdbatidas) : 0;
+
           // Calcular porcentagens
           const pctClassificado = totalInNatura > 0 ? (totalClassificado / totalInNatura) * 100 : 0;
           const pctEstoque = totalInNatura > 0 ? (estoque / totalInNatura) * 100 : 0;
+          const pctDescarte = totalInNatura > 0 ? (descarte / totalInNatura) * 100 : 0;
 
           // Atualizar elementos
           document.getElementById('resumoInNatura').textContent = formatNum(totalInNatura);
@@ -1499,6 +1667,8 @@
           document.getElementById('resumoEstoque').textContent = formatNum(estoque);
           document.getElementById('resumoEstoqueCx').textContent = formatNum(estoqueCx) + ' cx';
           document.getElementById('resumoEstoquePct').textContent = formatPct(pctEstoque);
+          document.getElementById('resumoDescarte').textContent = formatNum(descarte);
+          document.getElementById('resumoDescartePct').textContent = formatPct(pctDescarte);
         } catch (err) {
           console.error('Erro ao atualizar resumo:', err);
         }
@@ -1507,7 +1677,7 @@
       // Removed obsolete in-card header action buttons (Add/Edit/Delete) and their handlers
 
       // Item modal behavior
-      const itemModal = document.getElementById('modalItemEdit'); const itemTitle = document.getElementById('itemModalTitle'); const itemProdCod = document.getElementById('itemProdCod'); const itemVol = document.getElementById('itemVol'); const itemQtd = document.getElementById('itemQtd'); const itemVlr = document.getElementById('itemVlr'); const itemObs = document.getElementById('itemObs'); const itemDeleteBtn = document.getElementById('itemDeleteBtn'); const itemModalCancel = document.getElementById('itemModalCancel'); const itemModalSave = document.getElementById('itemModalSave');
+      const itemModal = document.getElementById('modalItemEdit'); const itemTitle = document.getElementById('itemModalTitle'); const itemProdCod = document.getElementById('itemProdCod'); const itemVol = document.getElementById('itemVol'); const itemQtd = document.getElementById('itemQtd'); const itemPeso = document.getElementById('itemPeso'); const itemTotalKg = document.getElementById('itemTotalKg'); const itemVlr = document.getElementById('itemVlr'); const itemObs = document.getElementById('itemObs'); const itemDeleteBtn = document.getElementById('itemDeleteBtn'); const itemModalCancel = document.getElementById('itemModalCancel'); const itemModalSave = document.getElementById('itemModalSave');
       let currentEditing = null; // { nunota, sequencia }
 
       async function openItemModal(data){ // data: { nunota, sequencia, codprod }
@@ -1526,6 +1696,8 @@
         itemVolHidden.value = '';
         itemVol.value = '';
         itemQtd.value = '';
+        if(itemPeso) itemPeso.value = '';
+        if(itemTotalKg) itemTotalKg.value = '';
         itemVlr.value = '';
         itemObs.value = '';
         // If editing (has sequence), try to fetch item deta. não mexa na página central apenas inclua esse modal para inserir os dados. quero as mesmas regras de validação que tem no KARD centralils from lote consult using the active lote control
@@ -1544,7 +1716,13 @@
                     // fill modal fields
                     itemProdHidden.value = it.cod || '';
                     itemProdCod.value = (it.cod ? it.cod + ' - ' : '') + (it.descr || '');
+                    // CODVOL: usar unidade alternativa fixa do banco (não alterar para unidade principal)
+                    itemVolHidden.value = (it.codvol || '').toString().trim().toUpperCase();
+                    itemVol.value = (it.codvol || '').toString().trim().toUpperCase();
                     itemQtd.value = (typeof it.qtd !== 'undefined' && it.qtd !== null) ? String(it.qtd) : '';
+                    if(itemPeso) itemPeso.value = (typeof it.peso !== 'undefined' && it.peso !== null) ? String(it.peso) : '';
+                    // USAR TOTALKG do backend (QTDNEG real em KG) ao invés de calcular
+                    if(itemTotalKg) itemTotalKg.value = (typeof it.totalkg !== 'undefined' && it.totalkg !== null) ? String(it.totalkg) : '';
                     itemVlr.value = (typeof it.vlu !== 'undefined' && it.vlu !== null) ? String(it.vlu) : '';
                     itemObs.value = '';
                     break;
@@ -1662,8 +1840,8 @@
   });
 
       itemModalSave.addEventListener('click', async function(){ const nun = currentEditing?.nunota; const seq = currentEditing?.sequencia; if(!nun){ alert('Nota desconhecida'); return; }
-        // normalize numeric inputs (comma -> dot)
-        const rawQtd = String(itemQtd.value||'0').replace(',','.'); const rawVlr = String(itemVlr.value||'0').replace(',','.');
+        // normalize numeric inputs (comma -> dot) - USAR TOTAL KG
+        const rawTotalKg = String(itemTotalKg.value||'0').replace(',','.'); const rawVlr = String(itemVlr.value||'0').replace(',','.');
         // codprod: prefer hidden value, else try to parse leading number from visible field
         let codprod = null; const ph = (document.getElementById('itemProdHidden').value||'').trim(); if(ph) codprod = parseInt(ph,10); else { const txt = (document.getElementById('itemProdCod').value||'').trim(); const m = txt.match(/^(\d+)/); if(m) codprod = parseInt(m[1],10); }
         // attach controle (lote): prefer the Lote shown in the Cabeçalho card; fallback to active LOTES selection
@@ -1678,7 +1856,7 @@
         if (!selectedControle) {
           try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedControle = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ }
         }
-  const payload = { nunota: parseInt(nun,10), codprod: codprod || null, qtdneg: parseFloat(rawQtd || '0'), vlrunit: parseFloat(rawVlr || '0'), codvol: (document.getElementById('itemVolHidden').value || document.getElementById('itemVol').value || null), obs: itemObs.value || null, codagregacao: selectedControle };
+  const payload = { nunota: parseInt(nun,10), codprod: codprod || null, qtdneg: parseFloat(rawTotalKg || '0'), vlrunit: parseFloat(rawVlr || '0'), codvol: (document.getElementById('itemVolHidden').value || document.getElementById('itemVol').value || null), obs: itemObs.value || null, codagregacao: selectedControle };
         if(seq) payload.sequencia = parseInt(seq,10);
         // Run plan endpoint to validate and obtain SQL preview
         const planResp = await postJSON('/sankhya/item/plan/', payload);
@@ -2078,7 +2256,6 @@
                     // Soma todas as quantidades das entradas (TOP 11 - In Natura)
                     qInn = j.entradas.reduce((s,e)=> s + (parseFloat(e.qtd||e.qtdneg||e.QTDNEG||0)||0), 0);
                   }
-                  console.log('DEBUG Qtd In Natura:', {qInn, totalEntradas: j?.entradas?.length, prod_in_natura: j?.prod_in_natura});
                   // Qtd InNatura (exibe na métrica principal, 1 casa decimal)
                   const qpEl = document.getElementById('cab_qtd_pedido_text'); if(qpEl) qpEl.textContent = (qInn||0).toFixed(1);
 
@@ -2246,6 +2423,8 @@
                 try{ const rows = j0.classificacoes || []; itemsListBody.innerHTML = ''; if(rows.length){ for(const row of rows){ addItemRowToList({ nunota: row.nunota, sequencia: row.sequencia, cod: row.cod, descr: row.descr, codvol: row.codvol, qtd: row.qtd, peso: row.peso, total: row.vlt || (row.qtd && row.peso ? row.qtd * row.peso : null), lote: ctrl, geraproducao: null }); } } else { clearItemsList(); } }catch(_){ }
                 // Atualizar toggle com base em pendente_class
                 try{ const tgl = document.getElementById('toggleStatusNota'); if(tgl && j0.pendente_class){ const st = (j0.pendente_class||'').toString().toUpperCase(); tgl.checked = (st === 'N'); } }catch(_){ }
+                // Atualizar campo Descarte com QTDBATIDAS
+                try{ if(typeof window.updateDescarteFromBackend === 'function'){ window.updateDescarteFromBackend(j0.qtdbatidas); } }catch(_){ }
                 // Se houver nunota_class, setar no hidden e habilitar adicionar
                 if(j0.nunota_class){ try{ itemsNunota.value = String(parseInt(j0.nunota_class,10)); }catch(_){ itemsNunota.value = String(j0.nunota_class); }
                   if(addBtn){ addBtn.removeAttribute('disabled'); addBtn.setAttribute('title','Adicionar'); }
@@ -2404,7 +2583,7 @@
       }
       let itemsListController = null;
       async function loadItems(nunota){ try{ if(itemsListController){ try{ itemsListController.abort(); }catch(_){ } itemsListController = null; } }catch(_){ }
-        const resolved = nunota!=null ? (parseInt(nunota,10)||null) : (parseInt(document.getElementById('items_nunota')?.value||'',10)||null); if(!resolved){ console.error('loadItems: nunota inválido', nunota); return; } document.getElementById('items_nunota').value = resolved; clearItemsList(); try{ itemsListController = new AbortController(); const opts = { credentials: 'same-origin', signal: itemsListController.signal }; const url = '/sankhya/item/list/?nunota=' + encodeURIComponent(resolved); const r = await fetch(url, opts); itemsListController = null; let j = {}; try{ j = await r.json(); }catch(_){ j = {}; } if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="7">Erro: ${j.error||'falha'}</td></tr>`; return; } const rows = j.items || j.results || []; if(!rows.length){ clearItemsList(); return; } itemsListBody.innerHTML = ''; for(const it of rows){ addItemRowToList(it); } }catch(err){ if(err && err.name === 'AbortError'){ console.info('loadItems aborted for nunota', nunota); return; } itemsListBody.innerHTML = '<tr><td colspan="7">Erro ao carregar.</td></tr>'; } }
+        const resolved = nunota!=null ? (parseInt(nunota,10)||null) : (parseInt(document.getElementById('items_nunota')?.value||'',10)||null); if(!resolved){ console.error('loadItems: nunota inválido', nunota); return; } document.getElementById('items_nunota').value = resolved; clearItemsList(); try{ itemsListController = new AbortController(); const opts = { credentials: 'same-origin', signal: itemsListController.signal }; const url = '/sankhya/item/list/?nunota=' + encodeURIComponent(resolved); const r = await fetch(url, opts); itemsListController = null; let j = {}; try{ j = await r.json(); }catch(_){ j = {}; } console.log('🔍🔍 RESPOSTA API /item/list/:', j); if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="7">Erro: ${j.error||'falha'}</td></tr>`; return; } const rows = j.items || j.results || []; console.log('🔍🔍 PRIMEIRO ITEM:', rows[0]); if(!rows.length){ clearItemsList(); return; } itemsListBody.innerHTML = ''; for(const it of rows){ addItemRowToList(it); } }catch(err){ if(err && err.name === 'AbortError'){ console.info('loadItems aborted for nunota', nunota); return; } itemsListBody.innerHTML = '<tr><td colspan="7">Erro ao carregar.</td></tr>'; } }
 
       // Accent-insensitive filter for items list
       function stripAccents(s){ try{ return s.normalize('NFD').replace(/[\u0300-\u036f]/g,''); }catch(_){ return s; } }
@@ -2412,10 +2591,93 @@
       itemsSearch?.addEventListener('input', applyItemsFilter);
 
       // Add single-item plan/save behavior (reuse portal flow)
-  document.getElementById('itemAddBtn')?.addEventListener('click', async function(){ const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun){ alert('NUNOTA desconhecido.'); return; } let codprodRaw = (document.getElementById('item_prod_hidden')?.value||'').trim(); if(!codprodRaw){ const txt = (document.getElementById('item_prod_vis')?.value||'').trim(); const m = txt.match(/(\d+)/); codprodRaw = m ? m[1] : ''; } const codprodNum = codprodRaw ? parseInt(codprodRaw,10) : NaN; if(!codprodRaw || !Number.isFinite(codprodNum)){ alert('Selecione um produto válido.'); return; } const qtd = parseFloat(String(document.getElementById('item_qtd')?.value||'').replace(',','.')) || 0; if(!(qtd > 0)){ alert('Informe quantidade maior que zero.'); return; } const vlr = 0; const peso = parseFloat(String(document.getElementById('item_peso')?.value||'').replace(',','.')) || null; const codvol = (document.getElementById('item_vol_hidden')?.value||document.getElementById('item_vol')?.value||'CX') || null; const obs = (document.getElementById('item_obs')?.value||'') || null; let selectedControle = null; try{ const cabLote = document.getElementById('cab_lote_text'); const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : ''; if (cabeLoteText) { selectedControle = cabeLoteText; } }catch(_){ } if(!selectedControle){ try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedControle = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ } } const payload = { nunota: parseInt(nun,10), codprod: codprodNum, qtdneg: qtd, vlrunit: vlr, codvol: codvol || null, peso: peso, obs: obs || null, codagregacao: selectedControle };
-  const planResp = await postJSON('/sankhya/item/plan/', payload);
-  if(!planResp.ok){ const b = planResp.body || {}; const errs = (Array.isArray(b.errors) && b.errors.length) ? b.errors.join('\n') : (b.error || (b.db_error && (b.db_error.message || b.db_error.msg)) || ''); alert('Erro no plano: ' + (errs || '')); return; }
-  const saveResp = await postJSON('/sankhya/item/save/', payload); if(saveResp.ok && saveResp.body && (saveResp.body.executed || saveResp.body.item)){ const created = saveResp.body.item || saveResp.body.created_item || null; if(created){ try{ addItemRowToList(created); }catch(_){ try{ loadItems(nun); }catch(__){} } } else { try{ loadItems(nun); }catch(_){ } } try{ document.getElementById('item_prod_vis').value = ''; document.getElementById('item_prod_hidden').value=''; document.getElementById('item_qtd').value = ''; document.getElementById('item_vol').value = ''; document.getElementById('item_vol_hidden').value=''; document.getElementById('item_obs') && (document.getElementById('item_obs').value=''); }catch(_){ } try{ const prodVis = document.getElementById('item_prod_vis'); if(prodVis) prodVis.focus(); }catch(_){ } try{ if(window.__LOTES_CACHE && selectedControle && window.__LOTES_CACHE[selectedControle]){ delete window.__LOTES_CACHE[selectedControle]; } }catch(_){} try{ refreshClassifiedCard(selectedControle); }catch(_){ } try{ updateHeaderQuantities(selectedControle); }catch(_){ } } else { const body = saveResp.body || {}; const errs = Array.isArray(body.errors) && body.errors.length ? body.errors.join('\n') : (body.error || ''); alert('Falha ao salvar item: ' + (errs || ('status ' + saveResp.status))); try{ loadItems(nun); }catch(_){ } }
+      document.getElementById('itemAddBtn')?.addEventListener('click', async function(){
+        const nunRaw = document.getElementById('items_nunota')?.value;
+        const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null;
+        if(!nun){ alert('NUNOTA desconhecido.'); return; }
+        
+        let codprodRaw = (document.getElementById('item_prod_hidden')?.value||'').trim();
+        if(!codprodRaw){
+          const txt = (document.getElementById('item_prod_vis')?.value||'').trim();
+          const m = txt.match(/(\d+)/);
+          codprodRaw = m ? m[1] : '';
+        }
+        const codprodNum = codprodRaw ? parseInt(codprodRaw,10) : NaN;
+        if(!codprodRaw || !Number.isFinite(codprodNum)){ alert('Selecione um produto válido.'); return; }
+        
+        const totalKg = parseFloat(String(document.getElementById('item_total')?.value||'').replace(',','.')) || 0;
+        if(!(totalKg > 0)){ alert('Informe Total kg maior que zero.'); return; }
+        
+        const vlr = 0;
+        const peso = parseFloat(String(document.getElementById('item_peso')?.value||'').replace(',','.')) || null;
+        const codvol = 'KG'; // FORÇAR sempre KG (unidade base)
+        
+        const obs = (document.getElementById('item_obs')?.value||'') || null;
+        
+        let selectedControle = null;
+        try{
+          const cabLote = document.getElementById('cab_lote_text');
+          const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : '';
+          if (cabeLoteText) { selectedControle = cabeLoteText; }
+        }catch(_){ }
+        if(!selectedControle){
+          try{
+            const active = document.querySelector('#notasTable tbody tr.row--active');
+            selectedControle = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null;
+          }catch(_){ }
+        }
+        
+        const payload = {
+          nunota: parseInt(nun,10),
+          codprod: codprodNum,
+          qtdneg: totalKg,
+          vlrunit: vlr,
+          codvol: codvol,
+          peso: peso,
+          obs: obs || null,
+          codagregacao: selectedControle
+        };
+        
+        console.log('🔍 PAYLOAD ENVIADO:', JSON.stringify(payload, null, 2));
+        
+        const planResp = await postJSON('/sankhya/item/plan/', payload);
+        if(!planResp.ok){
+          const b = planResp.body || {};
+          const errs = (Array.isArray(b.errors) && b.errors.length) ? b.errors.join('\n') : (b.error || (b.db_error && (b.db_error.message || b.db_error.msg)) || '');
+          alert('Erro no plano: ' + (errs || ''));
+          return;
+        }
+        
+        const saveResp = await postJSON('/sankhya/item/save/', payload);
+        if(saveResp.ok && saveResp.body && (saveResp.body.executed || saveResp.body.item)){
+          const created = saveResp.body.item || saveResp.body.created_item || null;
+          if(created){
+            try{ addItemRowToList(created); }catch(_){ try{ loadItems(nun); }catch(__){} }
+          } else {
+            try{ loadItems(nun); }catch(_){ }
+          }
+          
+          try{
+            document.getElementById('item_prod_vis').value = '';
+            document.getElementById('item_prod_hidden').value='';
+            document.getElementById('item_qtd').value = '';
+            document.getElementById('item_peso').value = '';
+            document.getElementById('item_total').value = '';
+            document.getElementById('item_vol').value = '';
+            document.getElementById('item_vol_hidden').value='';
+            document.getElementById('item_obs') && (document.getElementById('item_obs').value='');
+          }catch(_){ }
+          
+          try{ const prodVis = document.getElementById('item_prod_vis'); if(prodVis) prodVis.focus(); }catch(_){ }
+          try{ if(window.__LOTES_CACHE && selectedControle && window.__LOTES_CACHE[selectedControle]){ delete window.__LOTES_CACHE[selectedControle]; } }catch(_){}
+          try{ refreshClassifiedCard(selectedControle); }catch(_){ }
+          try{ updateHeaderQuantities(selectedControle); }catch(_){ }
+        } else {
+          const body = saveResp.body || {};
+          const errs = Array.isArray(body.errors) && body.errors.length ? body.errors.join('\n') : (body.error || '');
+          alert('Falha ao salvar item: ' + (errs || ('status ' + saveResp.status)));
+          try{ loadItems(nun); }catch(_){ }
+        }
       });
 
       // Adicionar listener para ENTER nos campos do card ITENS
@@ -2502,7 +2764,6 @@
           <td style="text-align:right">${it.codvol||''}</td>
           <td style="text-align:right">${it.qtd!=null?String(it.qtd):''}</td>
           <td style="text-align:right">${it.peso!=null?String(it.peso):''}</td>
-          <td style="text-align:right">${totalFormatted}</td>
           <td style="text-align:right"><button class="icon-btn danger icon-btn--plain item-del" data-seq="${it.sequencia||''}" aria-label="Excluir">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <polyline points="3 6 5 6 21 6"></polyline>
@@ -2518,9 +2779,10 @@
           tr.dataset.seq = it.sequencia != null ? String(it.sequencia) : '';
           tr.dataset.cod = it.cod != null ? String(it.cod) : '';
           tr.dataset.descr = it.descr != null ? String(it.descr) : '';
-          tr.dataset.codvol = it.codvol != null ? String(it.codvol) : '';
-          tr.dataset.qtd = it.qtd != null ? String(it.qtd) : '';
+          tr.dataset.codvol = it.codvol != null ? String(it.codvol) : ''; // Unidade alternativa (CX)
+          tr.dataset.qtd = it.qtd != null ? String(it.qtd) : ''; // Qtd em caixas (calculado)
           tr.dataset.peso = (it.peso != null && it.peso !== '') ? String(it.peso) : '';
+          tr.dataset.totalkg = (it.totalkg != null && it.totalkg !== '') ? String(it.totalkg) : ''; // QTDNEG em KG
           tr.dataset.obs = it.obs != null ? String(it.obs) : '';
           tr.dataset.lote = it.lote != null ? String(it.lote) : '';
           tr.dataset.gp = it.geraproducao != null ? String(it.geraproducao) : (typeof it.classifica !== 'undefined' ? (it.classifica ? 'S' : 'N') : '');
@@ -2603,7 +2865,76 @@
       }
     }
   });
-  tr.addEventListener('dblclick', function(){ try{ const seq = tr.dataset.seq; if(!seq) return; const seqInp = document.getElementById('item_seq_edit'); if(seqInp) seqInp.value = seq; const prodH = document.getElementById('item_prod_hidden'); const prodV = document.getElementById('item_prod_vis'); if(prodH) prodH.value = tr.dataset.cod || ''; if(prodV) prodV.value = tr.dataset.cod ? `${tr.dataset.cod} — ${tr.dataset.descr||''}` : ''; const volH = document.getElementById('item_vol_hidden'); const volV = document.getElementById('item_vol'); if(volH) volH.value = tr.dataset.codvol || ''; if(volV) volV.value = tr.dataset.codvol || ''; const qtd = document.getElementById('item_qtd'); if(qtd) qtd.value = tr.dataset.qtd || ''; const peso = document.getElementById('item_peso'); if(peso) peso.value = tr.dataset.peso || ''; const obs = document.getElementById('item_obs'); if(obs) obs.value = tr.dataset.obs || ''; const chk = document.getElementById('item_classifica'); if(chk) chk.checked = (String(tr.dataset.gp||'S').toUpperCase() !== 'N'); const addBtn = document.getElementById('itemAddBtn'); if(addBtn){ addBtn.setAttribute('title','Atualizar'); addBtn.dataset.mode = 'edit'; try{ const icon = addBtn.querySelector('svg'); if(icon){ icon.innerHTML = '<path d="M20 6L9 17l-5-5" />'; icon.setAttribute('viewBox','0 0 24 24'); } addBtn.classList.add('success'); }catch(_){ } } try{ recalcItemTotal(); }catch(_){ } try{ prodV && prodV.focus(); }catch(_){ } }catch(e){ console.error('editLoad failed', e); } });
+  tr.addEventListener('dblclick', function(){
+    try{
+      console.log('🔍 DOUBLE CLICK - Dataset completo:', tr.dataset);
+      
+      const seq = tr.dataset.seq;
+      if(!seq) return;
+      
+      const seqInp = document.getElementById('item_seq_edit');
+      if(seqInp) seqInp.value = seq;
+      
+      const prodH = document.getElementById('item_prod_hidden');
+      const prodV = document.getElementById('item_prod_vis');
+      if(prodH) prodH.value = tr.dataset.cod || '';
+      if(prodV) prodV.value = tr.dataset.cod ? `${tr.dataset.cod} — ${tr.dataset.descr||''}` : '';
+      
+      console.log('🔍 Vol a preencher:', tr.dataset.codvol);
+      // Vol: mostrar CODVOL alternativo (ex: CX) apenas para visualização
+      const volH = document.getElementById('item_vol_hidden');
+      const volV = document.getElementById('item_vol');
+      if(volH) volH.value = tr.dataset.codvol || '';
+      if(volV) volV.value = tr.dataset.codvol || '';
+      
+      console.log('🔍 Total kg a preencher:', tr.dataset.totalkg);
+      // Total kg: TGFITE.QTDNEG (valor real em KG do banco)
+      const total = document.getElementById('item_total');
+      const totalKgVal = parseFloat(tr.dataset.totalkg) || 0;
+      if(total) total.value = totalKgVal > 0 ? totalKgVal.toFixed(3) : '';
+      
+      console.log('🔍 Peso a preencher:', tr.dataset.peso);
+      // Peso: TGFITE.PESO
+      const peso = document.getElementById('item_peso');
+      const pesoVal = parseFloat(tr.dataset.peso) || 0;
+      if(peso) peso.value = tr.dataset.peso || '';
+      
+      console.log('🔍 Qtd calculada:', totalKgVal, '/', pesoVal);
+      // Qtd: Calculado = QTDNEG / PESO
+      const qtd = document.getElementById('item_qtd');
+      if(qtd && totalKgVal > 0 && pesoVal > 0){
+        const qtdCalc = totalKgVal / pesoVal;
+        qtd.value = qtdCalc.toFixed(1);
+        console.log('🔍 Qtd preenchida:', qtdCalc.toFixed(1));
+      } else if(qtd) {
+        qtd.value = '';
+      }
+      
+      const obs = document.getElementById('item_obs');
+      if(obs) obs.value = tr.dataset.obs || '';
+      
+      const chk = document.getElementById('item_classifica');
+      if(chk) chk.checked = (String(tr.dataset.gp||'S').toUpperCase() !== 'N');
+      
+      const addBtn = document.getElementById('itemAddBtn');
+      if(addBtn){
+        addBtn.setAttribute('title','Atualizar');
+        addBtn.dataset.mode = 'edit';
+        try{
+          const icon = addBtn.querySelector('svg');
+          if(icon){
+            icon.innerHTML = '<path d="M20 6L9 17l-5-5" />';
+            icon.setAttribute('viewBox','0 0 24 24');
+          }
+          addBtn.classList.add('success');
+        }catch(_){ }
+      }
+      
+      try{ prodV && prodV.focus(); }catch(_){ }
+    }catch(e){
+      console.error('editLoad failed', e);
+    }
+  });
       }
 
       async function loadItems(nunota){ try{ if(itemsListController){ try{ itemsListController.abort(); }catch(_){ } itemsListController = null; try{ window.itemsListController = null; }catch(_){ } } }catch(_){ }
@@ -2708,12 +3039,116 @@
 
   // Checkbox 'Somente classifica' removido: listamos todos os itens sempre
 
-      // Total calc for items modal
-      function recalcItemTotal(){ try{ const qtd = parseFloat(String(document.getElementById('item_qtd').value||'').replace(',','.')) || 0; const peso = parseFloat(String(document.getElementById('item_peso').value||'').replace(',','.')) || 0; const total = (qtd && peso) ? (qtd * peso) : 0; document.getElementById('item_total').value = total ? Math.round(total).toLocaleString('pt-BR') : ''; }catch(_){ } }
-      document.getElementById('item_qtd')?.addEventListener('input', recalcItemTotal);
-      document.getElementById('item_peso')?.addEventListener('input', recalcItemTotal);
+      // Calcular Qtd quando mudar Total kg ou Peso: Qtd = Total kg / Peso
+      function recalcItemQtd(){ 
+        try{ 
+          const totalKg = parseFloat(String(document.getElementById('item_total').value||'').replace(',','.')) || 0; 
+          const peso = parseFloat(String(document.getElementById('item_peso').value||'').replace(',','.')) || 0; 
+          
+          if(totalKg > 0 && peso > 0){ 
+            const qtd = totalKg / peso;
+            document.getElementById('item_qtd').value = qtd.toFixed(1);
+            console.log('[RECALC] Qtd = Total kg / Peso →', totalKg, '/', peso, '=', qtd.toFixed(1));
+          }
+        }catch(_){ } 
+      }
+      
+      // Calcular Peso quando mudar Qtd: Peso = Total kg / Qtd
+      function recalcItemPeso(){ 
+        try{ 
+          const totalKg = parseFloat(String(document.getElementById('item_total').value||'').replace(',','.')) || 0; 
+          const qtd = parseFloat(String(document.getElementById('item_qtd').value||'').replace(',','.')) || 0; 
+          
+          if(totalKg > 0 && qtd > 0){ 
+            const peso = totalKg / qtd;
+            document.getElementById('item_peso').value = peso.toFixed(1);
+            console.log('[RECALC] Peso = Total kg / Qtd →', totalKg, '/', qtd, '=', peso.toFixed(1));
+          }
+        }catch(_){ } 
+      }
+      
+      // Event listeners:
+      // Quando Total kg mudar → recalcular Qtd (prioridade: usar Peso)
+      document.getElementById('item_total')?.addEventListener('input', recalcItemQtd);
+      
+      // Quando Peso mudar → recalcular Qtd
+      document.getElementById('item_peso')?.addEventListener('input', recalcItemQtd);
+      
+      // Quando Qtd mudar → recalcular Peso
+      document.getElementById('item_qtd')?.addEventListener('input', recalcItemPeso);
 
-      // Reset item form fields and set VOL to 'CX'
+      // Buscar peso padrão do volume alternativo quando produto ou volume mudar
+      async function loadPesoFromVolume(){
+        console.log('═══════════════════════════════════════════════════════');
+        console.log('[PESO] ▶▶▶ loadPesoFromVolume INICIADO ◀◀◀');
+        try{
+          const prodHiddenEl = document.getElementById('item_prod_hidden');
+          const prodVisEl = document.getElementById('item_prod_vis');
+          const codprod = prodHiddenEl?.value;
+          const codvolHid = document.getElementById('item_vol_hidden')?.value;
+          const codvolVis = document.getElementById('item_vol')?.value;
+          // Priorizar hidden, mas usar visible se hidden estiver vazio
+          const codvol = codvolHid || codvolVis;
+          
+          console.log('[PESO] item_prod_hidden existe?', !!prodHiddenEl);
+          console.log('[PESO] item_prod_hidden.value =', prodHiddenEl?.value);
+          console.log('[PESO] item_prod_vis.value =', prodVisEl?.value);
+          console.log('[PESO] CODPROD que será usado na requisição:', codprod);
+          console.log('[PESO] CODVOL que será usado na requisição:', codvol);
+          console.log('═══════════════════════════════════════════════════════');
+          
+          if(!codprod) {
+            console.log('[PESO] Sem produto, abortando');
+            return;
+          }
+          
+          if(!codvol) {
+            console.log('[PESO] Sem volume, abortando');
+            return;
+          }
+          
+          const url = `/sankhya/produto/volume/?codprod=${encodeURIComponent(codprod)}&codvol=${encodeURIComponent(codvol)}`;
+          console.log('[PESO] Buscando:', url);
+          
+          const resp = await fetch(url, {credentials: 'same-origin'});
+          const data = await resp.json();
+          
+          console.log('[PESO] Resposta:', data);
+          
+          if(data.ok && data.peso){
+            const pesoField = document.getElementById('item_peso');
+            console.log('[PESO] Campo encontrado:', pesoField);
+            console.log('[PESO] Tipo do campo:', pesoField?.type);
+            console.log('[PESO] Valor ANTES:', pesoField?.value);
+            
+            if(pesoField){
+              pesoField.value = parseFloat(data.peso).toFixed(3);
+              console.log('[PESO] ✅ Peso DEFINIDO:', data.peso, '| Valor no campo:', pesoField.value);
+              
+              // Verificar 100ms depois se o valor ainda está lá
+              setTimeout(() => {
+                const checkField = document.getElementById('item_peso');
+                console.log('[PESO] ⏰ VERIFICAÇÃO após 100ms - Valor:', checkField?.value);
+                if(!checkField?.value || checkField.value === '0' || checkField.value === ''){
+                  console.error('[PESO] ❌❌❌ VALOR FOI LIMPO! Alguém está sobrescrevendo o campo!');
+                }
+              }, 100);
+              
+              recalcItemQtd();
+            } else {
+              console.error('[PESO] ❌ Campo item_peso NÃO encontrado!');
+            }
+          } else {
+            console.log('[PESO] Volume não cadastrado em TGFVOA ou erro:', data.error);
+            // Não limpar peso se não encontrou - pode ser volume base (KG) que não precisa estar em TGFVOA
+            // O usuário pode digitar manualmente ou selecionar outro volume
+          }
+        }catch(err){
+          console.error('[PESO] Erro ao carregar peso:', err);
+        }
+      }
+
+      // Reset item form fields and set VOL to 'KG'
       function resetItemForm(){
         try{
           const prodV = document.getElementById('item_prod_vis');
@@ -2729,13 +3164,32 @@
           if(prodH) prodH.value = '';
           if(qtd)   qtd.value   = '';
           if(peso)  peso.value  = '';
-          if(volV)  volV.value  = 'CX';
-          if(volH)  volH.value  = 'CX';
+          if(volV)  volV.value  = '';
+          if(volH)  volH.value  = '';
           if(obs)   obs.value   = '';
           if(total) total.value = '';
           if(seq)   seq.value   = '';
-          try{ recalcItemTotal(); }catch(_){ }
+          // Não recalcular nada ao resetar - campos estão vazios
         }catch(_){ }
+      }
+
+      // Buscar volume padrão do produto (TGFVOA ou TGFPRO)
+      async function loadDefaultVolume(codprod){
+        if(!codprod) return;
+        try{
+          const resp = await fetch(`/sankhya/produto/codvol/?codprod=${encodeURIComponent(codprod)}`, {credentials:'same-origin'});
+          const data = await resp.json();
+          if(data.ok && data.codvol){
+            const volV = document.getElementById('item_vol');
+            const volH = document.getElementById('item_vol_hidden');
+            if(volV) volV.value = data.codvol;
+            if(volH) volH.value = data.codvol;
+            // Carregar peso automaticamente após definir o volume
+            loadPesoFromVolume();
+          }
+        }catch(e){
+          console.error('[loadDefaultVolume] Erro:', e);
+        }
       }
 
       // Minimal typeahead for product in items modal
@@ -2760,21 +3214,155 @@
                 e.preventDefault(); const items=Array.from(dd.querySelectorAll('.dd-item')); if(!items.length) return; const cur=items.findIndex(x=>x.classList.contains('active')); let nxt=(cur-1+items.length)%items.length; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'}); return;
               }
               if(e.key==='Enter' || e.key==='Tab'){
-                const el = dd.querySelector('.dd-item.active') || dd.querySelector('.dd-item'); if(el){ e.preventDefault(); hid.value = el.dataset.cod; inp.value = `${el.dataset.cod} — ${el.dataset.descr}`; hide(); }
+                const el = dd.querySelector('.dd-item.active') || dd.querySelector('.dd-item'); if(el){ e.preventDefault(); hid.value = el.dataset.cod; inp.value = `${el.dataset.cod} — ${el.dataset.descr}`; hide(); if(inpId==='item_prod_vis') loadDefaultVolume(el.dataset.cod); }
               }
               if(e.key==='Escape'){ hide(); }
             }
           });
-          dd.addEventListener('click', (ev)=>{ const el = ev.target.closest('div[data-cod]'); if(!el) return; hid.value = el.dataset.cod; inp.value = `${el.dataset.cod} — ${el.dataset.descr}`; hide(); });
+          dd.addEventListener('click', (ev)=>{ const el = ev.target.closest('div[data-cod]'); if(!el) return; hid.value = el.dataset.cod; inp.value = `${el.dataset.cod} — ${el.dataset.descr}`; hide(); if(inpId==='item_prod_vis') loadDefaultVolume(el.dataset.cod); });
           document.addEventListener('click', (ev)=>{ if(!dd.contains(ev.target) && ev.target !== inp) hide(); });
+          
+          // Evento blur: extrair código digitado manualmente (ex: "356 — REPOLHO ROXO" → hidden=356)
+          inp.addEventListener('blur', ()=>{
+            const val = (inp.value||'').trim();
+            if(!val){ hid.value=''; return; }
+            // Tentar extrair código do formato "123 — DESCRICAO" ou apenas "123"
+            const match = val.match(/^(\d+)/);
+            if(match && match[1]){
+              hid.value = match[1];
+              console.log('[TYPEAHEAD] Código extraído no blur:', match[1]);
+            }
+          });
         }catch(e){ console.error('attachTA', e); }
       }
       attachTA('item_prod_vis','item_prod_hidden','item_prod_sugg','/sankhya/produtos/search/');
 
-      // Defaults: CODVOL='CX'; if unit is KG/UN/UM/PC then default PESO=1
-      (function(){ try{ const volH=document.getElementById('item_vol_hidden'); const volV=document.getElementById('item_vol'); const peso=document.getElementById('item_peso'); function setDefaults(){ try{ const v=(volH?.value||volV?.value||'').toUpperCase(); if(!v){ if(volV) volV.value='CX'; if(volH) volH.value='CX'; }
-        const u=(volH?.value||volV?.value||'').toUpperCase(); if(['KG','UN','UM','PC'].includes(u) && peso && (!peso.value || Number(peso.value)===0)) peso.value='1'; }catch(_){ } }
-        setDefaults(); volV?.addEventListener('change', ()=>{ setDefaults(); recalcItemTotal(); }); volH?.addEventListener('change', ()=>{ setDefaults(); recalcItemTotal(); }); document.getElementById('itemAddBtn')?.addEventListener('click', setDefaults); }catch(_){ } })();
+      // Typeahead para volume com suporte ao produto
+      (function(){
+        const volInput = document.getElementById('item_vol');
+        const volHidden = document.getElementById('item_vol_hidden');
+        const volSuggest = document.getElementById('item_vol_sugg');
+        let timer = null;
+
+        function hide(){ volSuggest.style.display='none'; volSuggest.innerHTML=''; }
+        function show(items){ 
+          if(!items||!items.length){ hide(); return; }
+          volSuggest.innerHTML = items.map((it,idx)=>`<div class="dd-item${idx===0?' active':''}" data-cod="${it.cod}" data-descr="${it.descr||''}">${it.cod} — ${it.descr||''}</div>`).join('');
+          volSuggest.style.display='block';
+        }
+
+        volInput?.addEventListener('input', (e)=>{
+          const q = (e.target.value||'').trim();
+          if(timer) clearTimeout(timer);
+          if(!q){ hide(); return; }
+          
+          timer = setTimeout(()=>{
+            const prodHidden = document.getElementById('item_prod_hidden');
+            const codprod = prodHidden?.value || '';
+            const url = `/sankhya/vol/search/?q=${encodeURIComponent(q)}&limit=10${codprod ? `&codprod=${encodeURIComponent(codprod)}` : ''}`;
+            
+            fetch(url, {credentials:'same-origin'})
+              .then(r=>r.json())
+              .then(d=>{
+                show(d.results||[]);
+              })
+              .catch(()=> hide());
+          }, 200);
+        });
+
+        volInput?.addEventListener('keydown', (e)=>{
+          if (volSuggest.style.display!=='none'){
+            if(e.key==='ArrowDown'){
+              e.preventDefault();
+              const items=Array.from(volSuggest.querySelectorAll('.dd-item'));
+              if(!items.length) return;
+              const cur=items.findIndex(x=>x.classList.contains('active'));
+              let nxt=(cur+1+items.length)%items.length;
+              items.forEach(x=>x.classList.remove('active'));
+              items[nxt].classList.add('active');
+              items[nxt].scrollIntoView({block:'nearest'});
+            }
+            else if(e.key==='ArrowUp'){
+              e.preventDefault();
+              const items=Array.from(volSuggest.querySelectorAll('.dd-item'));
+              if(!items.length) return;
+              const cur=items.findIndex(x=>x.classList.contains('active'));
+              let nxt=(cur-1+items.length)%items.length;
+              items.forEach(x=>x.classList.remove('active'));
+              items[nxt].classList.add('active');
+              items[nxt].scrollIntoView({block:'nearest'});
+            }
+            else if(e.key==='Enter' || e.key==='Tab'){
+              const el = volSuggest.querySelector('.dd-item.active') || volSuggest.querySelector('.dd-item');
+              if(el){ 
+                e.preventDefault();
+                volHidden.value = el.dataset.cod;
+                volInput.value = el.dataset.cod;
+                hide();
+                loadPesoFromVolume();
+              }
+            }
+            else if(e.key==='Escape'){ hide(); }
+          }
+        });
+
+        volSuggest?.addEventListener('click', (ev)=>{
+          const el = ev.target.closest('div[data-cod]');
+          if(!el) return;
+          volHidden.value = el.dataset.cod;
+          volInput.value = el.dataset.cod;
+          hide();
+          loadPesoFromVolume();
+        });
+
+        document.addEventListener('click', (ev)=>{
+          if(!volSuggest.contains(ev.target) && ev.target !== volInput) hide();
+        });
+      })();
+
+      // Event listeners para carregar peso do volume quando produto ou volume mudarem
+      (function(){
+        const prodHidden = document.getElementById('item_prod_hidden');
+        const volInput = document.getElementById('item_vol');
+        const volHidden = document.getElementById('item_vol_hidden');
+        
+        // Observer para produto hidden
+        if(prodHidden){
+          const observer = new MutationObserver(()=> {
+            console.log('[PESO] Produto mudou, carregando peso...');
+            loadPesoFromVolume();
+          });
+          observer.observe(prodHidden, { attributes: true, attributeFilter: ['value'] });
+        }
+        
+        // Observer para volume hidden (captura mudanças do typeahead)
+        if(volHidden){
+          const observer = new MutationObserver(()=> {
+            console.log('[PESO] Volume hidden mudou, carregando peso...');
+            loadPesoFromVolume();
+          });
+          observer.observe(volHidden, { attributes: true, attributeFilter: ['value'] });
+        }
+        
+        // Events diretos no input de volume
+        volInput?.addEventListener('change', ()=>{
+          console.log('[PESO] Volume input change');
+          loadPesoFromVolume();
+        });
+        volInput?.addEventListener('blur', ()=>{
+          console.log('[PESO] Volume input blur');
+          loadPesoFromVolume();
+        });
+        volHidden?.addEventListener('change', ()=>{
+          console.log('[PESO] Volume hidden change');
+          loadPesoFromVolume();
+        });
+      })();
+
+      // Event listener no botão adicionar para disparar validações se necessário
+      document.getElementById('itemAddBtn')?.addEventListener('click', ()=>{ 
+        // Validações já são feitas no handler do botão
+      });
 
       // Replace Add button handler to support edit mode and Classifica toggle
   (function(){ const oldBtn = document.getElementById('itemAddBtn'); if(!oldBtn) return; const newBtn = oldBtn.cloneNode(true); oldBtn.parentNode.replaceChild(newBtn, oldBtn);
@@ -2882,17 +3470,17 @@
       if(!codprodRaw){ const txt = (document.getElementById('item_prod_vis')?.value||'').trim(); const m = txt.match(/(\d+)/); codprodRaw = m ? m[1] : ''; }
       const codprodNum = codprodRaw ? parseInt(codprodRaw,10) : NaN;
       if(!codprodRaw || !Number.isFinite(codprodNum)){ alert('Selecione um produto válido.'); return; }
-      const qtd = parseFloat(String(document.getElementById('item_qtd')?.value||'').replace(',','.')) || 0;
-      if(!(qtd > 0)){ alert('Informe quantidade maior que zero.'); return; }
+      const totalKg = parseFloat(String(document.getElementById('item_total')?.value||'').replace(',','.')) || 0;
+      if(!(totalKg > 0)){ alert('Informe Total kg maior que zero.'); return; }
   const vlr = 0;
       const peso = parseFloat(String(document.getElementById('item_peso')?.value||'').replace(',','.')) || null;
-      const codvol = (document.getElementById('item_vol_hidden')?.value||document.getElementById('item_vol')?.value||'CX') || null;
+      const codvol = 'KG'; // FORÇAR sempre KG (unidade base)
       const obs = (document.getElementById('item_obs')?.value||'') || null;
       const classificaEl = document.getElementById('item_classifica');
       const geraproducao = classificaEl ? (classificaEl.checked ? 'S' : 'N') : 'S';
   // Resolve codagregacao (lote) from header or active LOTES row
   let selectedControle = null; try{ const cabLote = document.getElementById('cab_lote_text'); const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : ''; if (cabeLoteText) { selectedControle = cabeLoteText; } }catch(_){ } if(!selectedControle){ try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedControle = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ } }
-  const basePayload = { nunota: parseInt(nun,10), codprod: codprodNum, qtdneg: qtd, vlrunit: vlr, codvol: codvol || null, peso: peso, obs: obs || null, geraproducao: geraproducao, codagregacao: selectedControle };
+  const basePayload = { nunota: parseInt(nun,10), codprod: codprodNum, qtdneg: totalKg, vlrunit: vlr, codvol: codvol || null, peso: peso, obs: obs || null, geraproducao: geraproducao, codagregacao: selectedControle };
       if (isEdit){
         const payload = Object.assign({}, basePayload, { sequencia: parseInt(seqEditRaw,10) });
         const resp = await postJSON('/sankhya/item/save/', payload);
@@ -2978,6 +3566,154 @@
       tgl.addEventListener('change', saveStatus);
       // Initialize toggle from header if available later: we assume default 'A' unchecked.
     })();
+
+    // --- Descarte Field Logic ---
+    (function(){
+      const descarteField = document.getElementById('descarteTotal');
+      const btnAdd = document.getElementById('btnDescarteAdd');
+      const btnSub = document.getElementById('btnDescarteSub');
+      const modal = document.getElementById('modalDescarte');
+      const modalTitle = document.getElementById('modalDescarteTitle');
+      const input = document.getElementById('descarteInput');
+      const errorDiv = document.getElementById('descarteError');
+      const btnConfirm = document.getElementById('modalDescarteConfirmar');
+      const btnCancel = document.getElementById('modalDescarteCancelar');
+
+      if(!descarteField || !btnAdd || !btnSub || !modal) return;
+
+      let currentOperation = null; // '+' or '-'
+      let currentDescarte = 0.0;
+
+      // Formatar número para exibição (1 decimal, pt-BR)
+      function formatDescarte(val){
+        const n = typeof val === 'number' ? val : parseFloat(val);
+        return Number.isFinite(n) ? n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '0,0';
+      }
+
+      // Atualizar campo visual
+      function updateDescarteDisplay(val){
+        currentDescarte = val;
+        descarteField.value = formatDescarte(val);
+      }
+
+      // Carregar descarte do backend quando o modal de itens abrir
+      window.updateDescarteFromBackend = function(qtdbatidas){
+        try{
+          const val = (qtdbatidas != null && qtdbatidas !== undefined) ? parseFloat(qtdbatidas) : 0.0;
+          updateDescarteDisplay(Number.isFinite(val) ? val : 0.0);
+        }catch(_){
+          updateDescarteDisplay(0.0);
+        }
+      };
+
+      // Abrir mini modal
+      function openModal(operation){
+        currentOperation = operation;
+        modalTitle.textContent = operation === '+' ? 'Adicionar Descarte' : 'Subtrair Descarte';
+        input.value = '';
+        errorDiv.style.display = 'none';
+        errorDiv.textContent = '';
+        modal.style.display = 'flex';
+        setTimeout(()=> input.focus(), 100);
+      }
+
+      // Fechar mini modal
+      function closeModal(){
+        modal.style.display = 'none';
+        input.value = '';
+        errorDiv.style.display = 'none';
+        currentOperation = null;
+      }
+
+      // Validar entrada
+      function validateInput(){
+        const raw = (input.value||'').trim();
+        if(!raw){
+          errorDiv.textContent = 'Digite um valor.';
+          errorDiv.style.display = 'block';
+          return null;
+        }
+        const num = parseFloat(raw.replace(',','.'));
+        if(!Number.isFinite(num) || num <= 0){
+          errorDiv.textContent = 'Valor deve ser maior que zero.';
+          errorDiv.style.display = 'block';
+          return null;
+        }
+        return num;
+      }
+
+      // Salvar descarte no backend
+      async function saveDescarte(newTotal){
+        try{
+          const nunRaw = document.getElementById('items_nunota')?.value;
+          const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null;
+          if(!nun){
+            showToast('NUNOTA desconhecido. Impossível salvar descarte.', 'error');
+            return false;
+          }
+          // Arredondar para 1 decimal
+          const rounded = Math.round(newTotal * 10) / 10;
+          console.log('[DESCARTE] Salvando:', { nunota: nun, qtdbatidas: rounded });
+          const res = await postJSON('/sankhya/header/update/', { nunota: nun, qtdbatidas: rounded });
+          console.log('[DESCARTE] Resposta:', res);
+          if(!res.ok){
+            const msg = (res.body?.error) || (res.body?.errors||[]).join('\\n') || 'Falha ao salvar descarte';
+            console.error('[DESCARTE] Erro ao salvar:', msg, res.body);
+            showToast(msg, 'error', 5000);
+            return false;
+          }
+          return true;
+        }catch(e){
+          console.error('Erro ao salvar descarte:', e);
+          showToast('Erro ao salvar descarte.', 'error');
+          return false;
+        }
+      }
+
+      // Confirmar operação
+      async function confirm(){
+        const delta = validateInput();
+        if(delta === null) return;
+
+        let newTotal = currentDescarte;
+        if(currentOperation === '+'){
+          newTotal = currentDescarte + delta;
+        } else if(currentOperation === '-'){
+          newTotal = currentDescarte - delta;
+        }
+
+        // Garantir que não fique negativo
+        if(newTotal < 0) newTotal = 0;
+
+        // Salvar no banco
+        const saved = await saveDescarte(newTotal);
+        if(!saved){
+          // Falhou, não atualizar UI
+          return;
+        }
+
+        // Sucesso: atualizar UI e fechar modal
+        updateDescarteDisplay(newTotal);
+        closeModal();
+        showToast(`Descarte atualizado: ${formatDescarte(newTotal)} kg`, 'success', 3000);
+      }
+
+      // Event listeners
+      btnAdd.addEventListener('click', ()=> openModal('+'));
+      btnSub.addEventListener('click', ()=> openModal('-'));
+      btnCancel.addEventListener('click', closeModal);
+      btnConfirm.addEventListener('click', confirm);
+      input.addEventListener('keydown', (e)=>{
+        if(e.key === 'Enter'){ e.preventDefault(); confirm(); }
+        if(e.key === 'Escape'){ e.preventDefault(); closeModal(); }
+      });
+
+      // Fechar modal clicando fora
+      modal.addEventListener('click', (e)=>{
+        if(e.target === modal) closeModal();
+      });
+    })();
+
     })();
   </script>
 </body>

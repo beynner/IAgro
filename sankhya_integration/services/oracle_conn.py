@@ -81,6 +81,11 @@ DEFAULT_PARAMS = {
     'AUTO_DUPLICATE_ON_SAVE': False,    # Duplicar ao salvar item classificável
     'AUTO_CREATE_VALE_COMPRA': False,  # Será implementado na tela Comercial
     'FALLBACK_MANUAL_ENABLED': True,
+    # Parâmetros Financeiros (TGFFIN)
+    'FINANCEIRO_BANCO_PADRAO': 33,          # CODBCO
+    'FINANCEIRO_CONTA_BANCARIA': 2,         # CODCTABCOINT
+    'FINANCEIRO_TIPO_TITULO': 13,           # CODTIPTIT
+    'FINANCEIRO_DIAS_VENCIMENTO': 30,       # Dias para vencimento
 }
 
 # ===== Faturamento / Vale de Compra Helpers (TOP 13) =====
@@ -1223,7 +1228,7 @@ def _obter_proximo_nunota(conn) -> int:
 
 def plan_update_cabecalho(d: dict) -> dict:
     """Planeja UPDATE no cabeçalho TGFCAB. Revalida campos-chave e monta SQL com binds.
-    Campos aceitos para atualização: NUMNOTA, DTNEG, DTMOV, DTENTSAI, HRMOV, CODPARC, CODTIPOPER, DHTIPOPER, CODNAT, CODCENCUS, OBSERVACAO, STATUSNOTA.
+    Campos aceitos para atualização: NUMNOTA, DTNEG, DTMOV, DTENTSAI, HRMOV, CODPARC, CODTIPOPER, DHTIPOPER, CODNAT, CODCENCUS, OBSERVACAO, STATUSNOTA, QTDBATIDAS.
     Requer: NUNOTA.
     """
     data = d.copy()
@@ -1308,10 +1313,16 @@ def plan_update_cabecalho(d: dict) -> dict:
         except Exception:
             pass
 
-        # Validar conjunto
-        v_errs, v_warns = validar_cabecalho_minimo(payload)
-        errs.extend(v_errs)
-        warns.extend(v_warns)
+        # Validar conjunto SOMENTE se estamos alterando campos estruturais
+        # Campos "livres" (QTDBATIDAS, OBSERVACAO, STATUSNOTA, PENDENTE) não exigem validação completa
+        campos_livres_apenas = all(
+            data.get(k) is None 
+            for k in ['CODPARC', 'CODTIPOPER', 'CODNAT', 'CODCENCUS', 'DTNEG', 'DTMOV', 'DTENTSAI', 'NUMNOTA']
+        )
+        if not campos_livres_apenas:
+            v_errs, v_warns = validar_cabecalho_minimo(payload)
+            errs.extend(v_errs)
+            warns.extend(v_warns)
 
     # Construir SQL de UPDATE apenas com campos informados
     sets = []
@@ -1347,6 +1358,17 @@ def plan_update_cabecalho(d: dict) -> dict:
     if data.get('OBSERVACAO') is not None:
         sets.append('OBSERVACAO=:OBSERVACAO')
         binds['OBSERVACAO'] = data.get('OBSERVACAO')
+
+    # Quantidade total descartada (campo existente em TGFCAB)
+    if data.get('QTDBATIDAS') is not None:
+        try:
+            # Aceita int/float ou string numérica
+            qtdbatidas_val = data.get('QTDBATIDAS')
+            # Não forçar cast rígido aqui; Oracle aceitará numérico compatível
+            binds['QTDBATIDAS'] = qtdbatidas_val
+            sets.append('QTDBATIDAS=:QTDBATIDAS')
+        except Exception:
+            errs.append('QTDBATIDAS inválido')
 
     # STATUSNOTA ('A' Atendimento, 'L' Liberado)
     if data.get('STATUSNOTA') is not None:
@@ -1720,28 +1742,25 @@ def plan_insert_item(d: dict) -> dict:
         except Exception:
             warns.append('Falha ao validar TGFPRO')
 
-    # Conversão de quantidade para unidade base (se necessário)
-    # IMPORTANTE: Sankhya armazena QTDNEG sempre na unidade BASE (KG).
-    # Se usuário informou QTDNEG em unidade alternativa (ex: 100 CX) e existe fator (ex: 20),
-    # precisamos MULTIPLICAR: 100 × 20 = 2000 KG para salvar corretamente.
-    try:
-        if not errs and data.get('CODPROD') is not None and data.get('CODVOL'):
-            base, fator = get_base_unit_and_factor(int(data['CODPROD']), str(data['CODVOL']))
-            # Enforce: if unit differs from base and no factor mapping exists in TGFVOA, reject as invalid alternative unit
-            if base and str(base).upper() != str(data['CODVOL']).upper() and (fator is None or float(fator) <= 0):
-                errs.append(f"Unidade (CODVOL='{data['CODVOL']}') não é alternativa válida para o produto {data['CODPROD']}")
-            # If alternative and factor exists, normalize to base (MULTIPLY by factor)
-            if base and str(base).upper() != str(data['CODVOL']).upper() and fator and float(fator) > 0:
-                try:
-                    q_alt = float(data['QTDNEG'])
-                    q_base = round(q_alt * float(fator), 6)
-                    data['QTDNEG'] = q_base
-                    warns.append(f"QTDNEG normalizada para a unidade base {base} (×{fator}): {q_alt} {data['CODVOL']} = {q_base} {base}")
-                except Exception:
-                    pass
-    except Exception:
-        # Não bloquear em caso de falha de conversão; prosseguir sem normalização
-        pass
+    # IMPORTANTE: Agora QTDNEG vem em KG (Total kg) do frontend
+    # Não fazer conversão de unidade - QTDNEG já é o valor final em KG
+    # CODVOL será a unidade alternativa (ex: CX) apenas para referência
+    # Comentando conversão para manter QTDNEG em KG conforme digitado
+    # try:
+    #     if not errs and data.get('CODPROD') is not None and data.get('CODVOL'):
+    #         base, fator = get_base_unit_and_factor(int(data['CODPROD']), str(data['CODVOL']))
+    #         if base and str(base).upper() != str(data['CODVOL']).upper() and (fator is None or float(fator) <= 0):
+    #             errs.append(f"Unidade (CODVOL='{data['CODVOL']}') não é alternativa válida para o produto {data['CODPROD']}")
+    #         if base and str(base).upper() != str(data['CODVOL']).upper() and fator and float(fator) > 0:
+    #             try:
+    #                 q_alt = float(data['QTDNEG'])
+    #                 q_base = round(q_alt * float(fator), 6)
+    #                 data['QTDNEG'] = q_base
+    #                 warns.append(f"QTDNEG normalizada para a unidade base {base} (×{fator}): {q_alt} {data['CODVOL']} = {q_base} {base}")
+    #             except Exception:
+    #                 pass
+    # except Exception:
+    #     pass
 
     # Calcular SEQUENCIA e valores
     sequencia = None
@@ -2019,6 +2038,8 @@ def insert_item_fast(d: dict, dry_run: bool = False) -> dict:
     
     Retorna: dict com {'ok': bool, 'nunota': int, 'sequencia': int, 'executed': bool}
     """
+    print(f"🔍🔍🔍 INSERT_ITEM_FAST RECEBEU: {d}")
+    
     out = {'ok': False, 'executed': False, 'nunota': None, 'sequencia': None}
     
     if dry_run or not is_write_enabled():
@@ -2059,25 +2080,17 @@ def insert_item_fast(d: dict, dry_run: bool = False) -> dict:
             
             # Defaults
             peso = d.get('PESO') or 0
+            # CODVOL: usar unidade alternativa do payload (ex: CX)
             codvol = d.get('CODVOL') or 'UN'
             codlocalorig = int(d.get('CODLOCALORIG') or d.get('CODLOCAL') or 101)
             codagregacao = d.get('CODAGREGACAO')
             observacao = d.get('OBSERVACAO') or d.get('OBS')
             geraproducao = d.get('GERAPRODUCAO') or d.get('geraproducao')
             
-            # IMPORTANTE: Converter QTDNEG para unidade base (KG) antes de salvar
-            # Sankhya armazena sempre na unidade base, então se usuário digitou em CX, 
-            # precisamos multiplicar pelo fator. Ex: 100 CX × 20 = 2000 KG
-            try:
-                base, fator = get_base_unit_and_factor(codprod, str(codvol))
-                if base and str(base).upper() != str(codvol).upper() and fator and float(fator) > 0:
-                    qtdneg_original = qtdneg
-                    qtdneg = round(qtdneg * float(fator), 6)
-                    # Log conversão
-                    print(f'🔍 Conversão INSERT: {qtdneg_original} {codvol} × {fator} = {qtdneg} {base}')
-            except Exception as e:
-                print(f'🔍 Erro ao converter unidade no INSERT: {e}')
-                pass
+            # QTDNEG já vem em KG do frontend (Total kg)
+            # CODVOL mantém unidade alternativa original (ex: CX)
+            # Não faz conversão de unidade - salva diretamente o valor recebido
+            print(f'🔍 INSERT: QTDNEG={qtdneg} kg, CODVOL={codvol}')
             
             # Gerar lote se não fornecido (exceto TOP classificação)
             top_class = None
@@ -2253,24 +2266,12 @@ def plan_update_item(d: dict) -> dict:
             warns.append('PRECOBASE ignorado (formato inválido)')
         else:
             data['PRECOBASE'] = pb
-    if data.get('CODVOL') is not None:
-        try:
-            data['CODVOL'] = str(data.get('CODVOL')).strip().upper()
-        except Exception:
-            pass
-
-    # Converter QTDNEG para base se CODVOL mudar/for diferente da base
-    # IMPORTANTE: Sankhya armazena QTDNEG sempre na unidade BASE (KG).
-    # Se usuário alterou QTDNEG e forneceu CODVOL alternativo (ex: CX), precisamos MULTIPLICAR pelo fator.
-    if data.get('CODVOL') is not None and data.get('QTDNEG') is not None and data.get('CODPROD') is not None:
-        try:
-            base, fator = get_base_unit_and_factor(int(data['CODPROD']), str(data['CODVOL']))
-            if base and str(base).upper() != str(data['CODVOL']).upper() and fator and float(fator) > 0:
-                q_alt = float(data['QTDNEG'])
-                data['QTDNEG'] = round(q_alt * float(fator), 6)
-                warns.append(f"QTDNEG convertida no UPDATE: {q_alt} {data['CODVOL']} = {data['QTDNEG']} {base}")
-        except Exception:
-            pass
+    # FORÇAR SEMPRE KG: ignorar CODVOL do frontend e sempre salvar em KG
+    # QTDNEG já vem em KG (Total kg) - não precisa conversão
+    # CODVOL mantém unidade alternativa original (ex: CX)
+    if data.get('CODVOL'):
+        data['CODVOL'] = str(data['CODVOL']).strip().upper()
+    print(f"🔍 UPDATE: QTDNEG={data.get('QTDNEG')} kg, CODVOL={data.get('CODVOL')}")
 
     # Se VLRUNIT e QTDNEG presentes, recalcular VLRTOT apenas se VLRTOT não foi explicitamente fornecido
     # Isso permite que comercial_dist_save envie VLRTOT exato da tela sem recálculos indevidos
@@ -2770,12 +2771,15 @@ def consultar_lote_light(controle: str) -> dict:
       - itens classificáveis (subset de entradas com GERAPRODUCAO='S')
       - classificações (TOP_CLASS)
       - nunota_class (mais recente)
+      - qtdbatidas (descarte total do cabeçalho TOP_CLASS)
+      - prod_in_natura (CODPROD do item in natura)
     Ignora agregados, vendas, reservas e descarte para reduzir latência.
     Retorna também um bloco de timings em milissegundos.
     """
     p = get_params()
     TOP_ENTRADA = p['TOP_ENTRADA']
     TOP_CLASS = p['TOP_CLASS']
+    PROD_IN_NATURA = p['PROD_IN_NATURA']
 
     resultado = {
         'entradas': [],
@@ -2783,6 +2787,8 @@ def consultar_lote_light(controle: str) -> dict:
         'classificacoes': [],
         'nunota_class': None,
         'statusnota_class': None,
+        'qtdbatidas': None,
+        'prod_in_natura': None,
     }
     import time
     t0 = time.perf_counter()
@@ -2875,6 +2881,53 @@ def consultar_lote_light(controle: str) -> dict:
             pass
         t_nc1 = time.perf_counter()
 
+        # QTDBATIDAS do cabeçalho TOP_CLASS (se houver)
+        t_cr0 = time.perf_counter()
+        if resultado['nunota_class']:
+            try:
+                cur.execute(
+                    "SELECT QTDBATIDAS FROM TGFCAB WHERE NUNOTA=:n",
+                    n=resultado['nunota_class']
+                )
+                row_cr = cur.fetchone()
+                if row_cr and row_cr[0] is not None:
+                    try:
+                        resultado['qtdbatidas'] = float(row_cr[0])
+                    except Exception:
+                        resultado['qtdbatidas'] = row_cr[0]
+            except Exception:
+                pass
+        t_cr1 = time.perf_counter()
+
+        # Produto IN NATURA (buscar CODPROD do item classificável no TOP_ENTRADA)
+        t_pin0 = time.perf_counter()
+        # Buscar o CODPROD In Natura das entradas deste lote
+        # O produto IN NATURA correto é aquele que tem GERAPRODUCAO = 'S' no TOP_ENTRADA
+        try:
+            cur.execute(
+                """
+                SELECT CODPROD FROM (
+                  SELECT i.CODPROD
+                    FROM TGFITE i
+                    JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                   WHERE i.CODAGREGACAO = :c 
+                     AND c.CODTIPOPER = :top
+                     AND NVL(i.GERAPRODUCAO, 'N') = 'S'
+                   ORDER BY c.NUNOTA DESC, i.SEQUENCIA
+                ) WHERE ROWNUM = 1
+                """,
+                c=controle, top=TOP_ENTRADA
+            )
+            row_pin = cur.fetchone()
+            if row_pin and row_pin[0] is not None:
+                try:
+                    resultado['prod_in_natura'] = int(row_pin[0])
+                except Exception:
+                    resultado['prod_in_natura'] = row_pin[0]
+        except Exception:
+            pass
+        t_pin1 = time.perf_counter()
+
     t1 = time.perf_counter()
     try:
         resultado['timings'] = {
@@ -2883,6 +2936,8 @@ def consultar_lote_light(controle: str) -> dict:
             'classificaveis_ms': int((t_cv1 - t_cv0) * 1000),
             'classificacoes_ms': int((t_cl1 - t_cl0) * 1000),
             'nunota_class_ms': int((t_nc1 - t_nc0) * 1000),
+            'qtdbatidas_ms': int((t_cr1 - t_cr0) * 1000),
+            'prod_in_natura_ms': int((t_pin1 - t_pin0) * 1000),
             'mode': 'light',
         }
     except Exception:
@@ -4207,6 +4262,204 @@ def delete_vale_items(nunota_vale: int, codprod_in_natura: int):
             'products_deleted': [],
             'error': str(e)
         }
+
+
+def criar_tgffin(nunota_vale: int) -> Dict[str, Any]:
+    """
+    Cria registro financeiro (TGFFIN) para TOP 13 confirmado.
+    
+    Baseado na Etapa 7 do rastreamento Sankhya (arquivo: Rastreamento Banco Sankhya.txt).
+    
+    Regras:
+    - Valores 0 são enviados como 0 (não NULL)
+    - Campos vazios/NULL são enviados como NULL
+    - FINCONFIRMADO = 'S' (já confirmado - Etapa 7)
+    - AUTORIZADO = 'N' (não autorizado - Etapa 7)
+    - Vencimento = DTFATUR + dias configurados (padrão: 30 dias)
+    - Banco, Conta e Tipo Título são configuráveis via get_params()
+    
+    Args:
+        nunota_vale: NUNOTA do TOP 13 (vale de compra)
+        
+    Returns:
+        dict com:
+        - ok: bool - True se sucesso
+        - nufin: int - ID do financeiro gerado
+        - vlrdesdob: float - Valor do desdobramento
+        - dtvenc: str - Data de vencimento (formato DD/MM/YYYY)
+        - error: str - Mensagem de erro (se houver)
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    out: Dict[str, Any] = {'ok': False, 'nufin': None}
+    
+    if not is_write_enabled():
+        out['error'] = 'Escrita desabilitada no sistema'
+        logger.warning('[CRIAR TGFFIN] Escrita desabilitada')
+        return out
+        
+    try:
+        nunota_int = int(nunota_vale)
+    except Exception:
+        out['error'] = f'NUNOTA inválido: {nunota_vale}'
+        logger.error(f'[CRIAR TGFFIN] NUNOTA inválido: {nunota_vale}')
+        return out
+        
+    logger.info(f'[CRIAR TGFFIN] Iniciando criação para NUNOTA={nunota_int}')
+        
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            
+            # 1. Buscar dados do cabeçalho (TOP 13)
+            logger.debug(f'[CRIAR TGFFIN] Buscando dados do cabeçalho NUNOTA={nunota_int}')
+            cur.execute("""
+                SELECT 
+                    CODEMP, NUMNOTA, DTNEG, CODPARC, CODTIPOPER, 
+                    CODNAT, CODCENCUS, DTENTSAI, VLRNOTA, DTFATUR
+                FROM TGFCAB 
+                WHERE NUNOTA = :n
+            """, n=nunota_int)
+            
+            row = cur.fetchone()
+            if not row:
+                out['error'] = f'NUNOTA {nunota_int} não encontrada na TGFCAB'
+                logger.error(f'[CRIAR TGFFIN] NUNOTA {nunota_int} não encontrada')
+                return out
+                
+            (CODEMP, NUMNOTA, DTNEG, CODPARC, CODTIPOPER, 
+             CODNAT, CODCENCUS, DTENTSAI, VLRNOTA, DTFATUR) = row
+            
+            # Garantir que valores numéricos sejam válidos (None se vazio)
+            CODNAT = int(CODNAT) if CODNAT and str(CODNAT).strip() else None
+            CODCENCUS = int(CODCENCUS) if CODCENCUS and str(CODCENCUS).strip() else None
+            VLRNOTA = float(VLRNOTA) if VLRNOTA is not None else 0.0
+            
+            logger.debug(f'[CRIAR TGFFIN] Dados: CODEMP={CODEMP}, NUMNOTA={NUMNOTA}, '
+                        f'CODPARC={CODPARC}, CODTIPOPER={CODTIPOPER}, VLRNOTA={VLRNOTA}, '
+                        f'CODNAT={CODNAT}, CODCENCUS={CODCENCUS}')
+            
+            # 2. Buscar DHTIPOPER da TOP
+            cur.execute("""
+                SELECT DHALTER 
+                FROM (
+                    SELECT DHALTER 
+                    FROM TGFTOP 
+                    WHERE CODTIPOPER = :top 
+                    ORDER BY DHALTER DESC
+                ) 
+                WHERE ROWNUM = 1
+            """, top=CODTIPOPER)
+            
+            dhtipoper_row = cur.fetchone()
+            DHTIPOPER = dhtipoper_row[0] if dhtipoper_row else None
+            
+            logger.debug(f'[CRIAR TGFFIN] DHTIPOPER={DHTIPOPER}')
+            
+            # 3. Gerar NUFIN (sequence ou MAX+1)
+            try:
+                cur.execute("SELECT SQ_TGFFIN_NUFIN.NEXTVAL FROM DUAL")
+                NUFIN = cur.fetchone()[0]
+                logger.debug(f'[CRIAR TGFFIN] NUFIN gerado via sequence: {NUFIN}')
+            except Exception:
+                cur.execute("SELECT NVL(MAX(NUFIN), 0) + 1 FROM TGFFIN")
+                NUFIN = cur.fetchone()[0]
+                logger.debug(f'[CRIAR TGFFIN] NUFIN gerado via MAX+1: {NUFIN}')
+            
+            # 4. Calcular datas
+            # Usar DTFATUR como base para vencimento (conforme rastreamento)
+            if DTFATUR:
+                base_date = DTFATUR if isinstance(DTFATUR, datetime) else datetime.now()
+            else:
+                base_date = DTNEG if isinstance(DTNEG, datetime) else datetime.now()
+            
+            # 5. Parâmetros configuráveis via tabela de parâmetros
+            params = get_params()
+            CODBCO = int(params.get('FINANCEIRO_BANCO_PADRAO', 33))
+            CODCTABCOINT = int(params.get('FINANCEIRO_CONTA_BANCARIA', 2))
+            CODTIPTIT = int(params.get('FINANCEIRO_TIPO_TITULO', 13))
+            DIAS_VENC = int(params.get('FINANCEIRO_DIAS_VENCIMENTO', 30))
+            
+            # Calcular vencimento
+            dtvenc = base_date + timedelta(days=DIAS_VENC)
+
+            # Normalizar datas (sem componente de hora) para atender gatilhos do financeiro
+            if isinstance(base_date, datetime):
+                dtneg_trunc = datetime(base_date.year, base_date.month, base_date.day)
+            else:
+                dtneg_trunc = base_date
+
+            if isinstance(dtvenc, datetime):
+                dtvenc_trunc = datetime(dtvenc.year, dtvenc.month, dtvenc.day)
+            else:
+                dtvenc_trunc = dtvenc
+            
+            logger.info(f'[CRIAR TGFFIN] Parâmetros: CODBCO={CODBCO}, CODCTABCOINT={CODCTABCOINT}, '
+                       f'CODTIPTIT={CODTIPTIT}, DIAS_VENC={DIAS_VENC}')
+            logger.info(f'[CRIAR TGFFIN] Base: {dtneg_trunc.strftime("%d/%m/%Y") if isinstance(dtneg_trunc, datetime) else dtneg_trunc}, '
+                       f'Vencimento: {dtvenc_trunc.strftime("%d/%m/%Y") if isinstance(dtvenc_trunc, datetime) else dtvenc_trunc}')
+            
+            # 6. INSERT TGFFIN (67 colunas da Etapa 7 - Sankhya)
+            # Importante: Valores 0 são enviados como 0, campos vazios como NULL
+            logger.debug('[CRIAR TGFFIN] Executando INSERT na TGFFIN...')
+            
+            # Inserir SOMENTE as colunas solicitadas
+            cur.execute("""
+                INSERT INTO TGFFIN (
+                    NUFIN, CODEMP, NUMNOTA, NUNOTA, DTNEG, DHMOV,
+                    DTVENCINIC, DTVENC, DTENTSAI, DTPRAZO,
+                    DHTIPOPER, DHTIPOPERBAIXA, DTALTER,
+                    CODPARC, CODTIPOPER, CODBCO, CODCTABCOINT,
+                    CODNAT, CODCENCUS, CODTIPTIT, VLRDESDOB,
+                    FINCONFIRMADO, ORIGEM
+                ) VALUES (
+                    :NUFIN, :CODEMP, :NUMNOTA, :NUNOTA, :DTNEG, SYSDATE,
+                    :DTVENCINIC, :DTVENC, :DTENTSAI, :DTPRAZO,
+                    :DHTIPOPER, TO_DATE('01/01/1998','DD/MM/YYYY'), SYSDATE,
+                    :CODPARC, :CODTIPOPER, :CODBCO, :CODCTABCOINT,
+                    :CODNAT, :CODCENCUS, :CODTIPTIT, :VLRDESDOB,
+                    'S', :ORIGEM
+                )
+            """, {
+                'NUFIN': int(NUFIN),
+                'CODEMP': int(CODEMP),
+                'NUMNOTA': int(nunota_int),
+                'NUNOTA': int(nunota_int),
+                'DTNEG': dtneg_trunc,
+                'DTVENCINIC': dtvenc_trunc,
+                'DTVENC': dtvenc_trunc,
+                'DTENTSAI': DTENTSAI,
+                'DTPRAZO': dtvenc_trunc,
+                'DHTIPOPER': DHTIPOPER,
+                'CODPARC': int(CODPARC),
+                'CODTIPOPER': int(CODTIPOPER),
+                'CODBCO': int(CODBCO),
+                'CODCTABCOINT': int(CODCTABCOINT),
+                'CODNAT': CODNAT,
+                'CODCENCUS': CODCENCUS,
+                'CODTIPTIT': int(CODTIPTIT),
+                'VLRDESDOB': float(VLRNOTA),
+                'ORIGEM': 'E'
+            })
+            
+            # Commit isolado para TGFFIN (rollback não afeta TGFCAB)
+            conn.commit()
+            
+            logger.info(f'[CRIAR TGFFIN] ✅ Sucesso! NUFIN={NUFIN}, VLRDESDOB={VLRNOTA}, '
+                       f'DTVENC={dtvenc.strftime("%d/%m/%Y")}')
+            
+            out['ok'] = True
+            out['nufin'] = NUFIN
+            out['vlrdesdob'] = float(VLRNOTA or 0)
+            out['dtvenc'] = dtvenc.strftime('%d/%m/%Y')
+            
+            return out
+            
+    except Exception as e:
+        out['error'] = f'Erro ao criar TGFFIN: {str(e)}'
+        logger.error(f'[CRIAR TGFFIN] ❌ Erro: {e}', exc_info=True)
+        return out
 
 
 def modal_faturamento_auto_save(

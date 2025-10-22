@@ -848,8 +848,8 @@
                     </button>
                   </div>
                   <div style="display:flex; flex-direction:column; gap:1px; font-size:.8rem; color:#64748b;">
-                    <div id="valeResumoPedido" style="display:none;">Pedido <span id="valeResumoPedidoNum"></span></div>
-                    <div id="valeResumoVale" style="display:none;">Vale <span id="valeResumoValeNum"></span></div>
+                    <div id="valeResumoPedido" style="display:block;">Pedido <span id="valeResumoPedidoNum">—</span></div>
+                    <div id="valeResumoVale" style="display:block;">Vale <span id="valeResumoValeNum">—</span></div>
                   </div>
                 </div>
               </div>
@@ -2882,7 +2882,8 @@
           // Mantém os valores calculados acima; sem reset para '-'
         }catch{}
       }
-  function renderClassificacaoCard(linhas, lote){
+  function renderClassificacaoCard(linhas, lote, descarteKg){
+        descarteKg = descarteKg || 0;
         try{
           const card = document.getElementById('classCard');
           if(!card) return;
@@ -2941,11 +2942,32 @@
                   </div>
                 </div>`;
             }).join('');
+            
+            // Adicionar linha de descarte se houver
+            if(descarteKg > 0){
+              const descartePct = totalKg > 0 ? (descarteKg / totalKg * 100) : 0;
+              const descarteHtml = `
+                <div class="class-row descarte-row" role="row" data-kg="${descarteKg}" data-prod="DESCARTE" style="opacity: 0.8; border-top: 1px solid #ddd; margin-top: 8px; padding-top: 8px;">
+                  <div class="line1" title="DESCARTE">DESCARTE</div>
+                  <div class="line2">
+                    <div class="pct" style="padding-left:10px">
+                      <div class="pct-val" style="font-size:.85em;">${descartePct.toLocaleString('pt-BR',{maximumFractionDigits:1})}%</div>
+                      <div class="percent-bar" aria-hidden="true"><span style="width:${descartePct.toFixed(1)}%; background-color: #dc3545;"></span></div>
+                    </div>
+                    <div class="qty">
+                      <span class="meta-val"><strong>${fmtInt(descarteKg)}</strong> <span class="u">kg</span></span>
+                    </div>
+                  </div>
+                </div>`;
+              body.innerHTML += descarteHtml;
+            }
+            
             try{
               let totalKgAgg = 0;
               let totalCxAgg = 0;
               let extraKgAgg = 0;
               let extraCxAgg = 0;
+              let descarteKgAgg = 0;
               rows.forEach(r => {
                 const cx0 = Number(r.cx||0)||0;
                 const kg0 = Number(r.kg||0)||0;
@@ -2958,13 +2980,17 @@
                   extraKgAgg += kg;
                   extraCxAgg += cx;
                 }
+                if(prodName.includes('DESCARTE') || prodName.includes('AVARIA') || prodName.includes('INSERV')){
+                  descarteKgAgg += kg;
+                }
               });
-              const medioKgAgg = Math.max(0, totalKgAgg - extraKgAgg);
+              const medioKgAgg = Math.max(0, totalKgAgg - extraKgAgg - descarteKgAgg);
               const medioCxAgg = Math.max(0, totalCxAgg - extraCxAgg);
               cardAggregate = {
                 totalKg: totalKgAgg,
                 extra: { kg: extraKgAgg, cx: extraCxAgg },
-                medio: { kg: medioKgAgg, cx: medioCxAgg }
+                medio: { kg: medioKgAgg, cx: medioCxAgg },
+                descarte: { kg: descarteKgAgg }
               };
             }catch{}
           }
@@ -3021,7 +3047,9 @@
           }
           const linhas = Array.isArray(data.linhas) ? data.linhas : [];
           if(!linhas.length){ body.innerHTML = '<div class="placeholder">Sem classificações para este lote.</div>'; }
-          renderClassificacaoCard(linhas, lote);
+          // Extrair descarte de data.extra.qtdbatidas
+          const descarteKg = (data && data.extra && data.extra.qtdbatidas != null) ? Number(data.extra.qtdbatidas) : 0;
+          renderClassificacaoCard(linhas, lote, descarteKg);
           
           // Buscar PENDENTE do lote para atualizar o gauge
           try{
@@ -3150,18 +3178,22 @@
               // Fallback: usar linhas.cx quando detalhe não disponível
               if(!(classCx>0)) classCx = linhas.reduce((s,r)=> s + (Number(r.cx||0)||0), 0);
               setInt(document.getElementById('resClassCx'), Math.round(classCx));
-              // Inservível p/ comércio (kg): tentar identificar por linha cujo nome contenha DESCARTE/AVARIA/INservível; fallback: target - classificado quando negativo não conta
+              // Descarte (kg): buscar QTDBATIDAS do cabeçalho TOP 26 (classificação)
               let inservKg = 0;
-              const nameHas = (s, sub)=> s && s.toUpperCase().includes(sub);
-              for(const r of (linhas||[])){
-                const nome = String(r.produto||'');
-                if(nameHas(nome,'DESCARTE') || nameHas(nome,'AVARIA') || nameHas(nome,'INSERV')){
-                  const kg0 = Number(r.kg||0)||0; const cx0 = Number(r.cx||0)||0; inservKg += (kg0>0?kg0:(cx0>0?cx0:0));
-                }
+              // Tentar buscar de data.extra.qtdbatidas (vem do backend)
+              if(data && data.extra && data.extra.qtdbatidas != null){
+                inservKg = Number(data.extra.qtdbatidas)||0;
               }
-              if(!(inservKg>0)){
-                const rem = targetKg - classifiedKg;
-                inservKg = rem>0 ? 0 : 0; // por padrão não deduz do alvo; manter 0 quando não há linha explícita
+              // Fallback: identificar por linha cujo nome contenha DESCARTE/AVARIA/INservível
+              if(inservKg === 0){
+                const nameHas = (s, sub)=> s && s.toUpperCase().includes(sub);
+                for(const r of (linhas||[])){
+                  const nome = String(r.produto||'');
+                  if(nameHas(nome,'DESCARTE') || nameHas(nome,'AVARIA') || nameHas(nome,'INSERV')){
+                    const kg0 = Number(r.kg||0)||0; const cx0 = Number(r.cx||0)||0; 
+                    inservKg += (kg0>0?kg0:(cx0>0?cx0:0));
+                  }
+                }
               }
               setInt(document.getElementById('resInservKg'), inservKg);
             }catch{}
@@ -3846,10 +3878,19 @@
           const valeEl = document.getElementById('valeResumoVale');
           const valeNumEl = document.getElementById('valeResumoValeNum');
           
-          // Pedido = NUNOTA atual (TOP 11)
+          console.log('[MODAL PEDIDO] Elementos:', {
+            pedidoEl: !!pedidoEl,
+            pedidoNumEl: !!pedidoNumEl,
+            nunota: nunota
+          });
+          
+          // Pedido = NUNOTA atual (TOP 11) - SEMPRE mostrar
           if(pedidoEl && pedidoNumEl && nunota){
             pedidoNumEl.textContent = nunota;
             pedidoEl.style.display = 'block';
+            console.log('[VALE MODAL] ✅ Pedido exibido:', nunota, 'display:', pedidoEl.style.display);
+          } else {
+            console.log('[VALE MODAL] ❌ Pedido não exibido - elementos ou nunota faltando');
           }
           
           // Vale (TOP 13) - buscar se existe NUNOTA relacionado via NUMPEDIDO
@@ -3874,47 +3915,59 @@
                 // Debug: mostrar todos os TOP 13 (vales)
                 const vales = (dataVale.rows || []).filter(r => Number(r.codtipoper) === 13);
                 console.log('[VALE MODAL] Total de vales (TOP 13):', vales.length);
-                vales.forEach(v => {
-                  console.log('[VALE MODAL] Vale:', {
-                    nunota: v.nunota,
-                    numpedido: v.numpedido,
-                    codtipoper: v.codtipoper
-                  });
+                
+                // Pegar dados do pedido atual para buscar o vale correspondente
+                const pedidoAtual = rows[0];
+                const codparcPedido = pedidoAtual?.codparc || null;
+                const codprodPedido = pedidoAtual?.codprod || null;
+                const dtPedido = pedidoAtual?.dtneg || null;
+                
+                console.log('[VALE MODAL] Dados do pedido:', {
+                  nunota,
+                  codparc: codparcPedido,
+                  codprod: codprodPedido,
+                  dtneg: dtPedido
                 });
                 
-                // Procurar vale (TOP 13) que tenha NUMPEDIDO = nunota atual
-                const vale = (dataVale.rows || []).find(r => {
+                // Procurar vale (TOP 13) que tenha:
+                // 1. NUMPEDIDO = nunota atual (preferencial) OU
+                // 2. Mesmo CODPARC, CODPROD e data próxima (fallback)
+                let vale = (dataVale.rows || []).find(r => {
                   const isTOP13 = Number(r.codtipoper) === 13;
                   const matchPedido = Number(r.numpedido) === Number(nunota);
-                  console.log('[VALE MODAL] Verificando:', {
-                    nunota: r.nunota,
-                    isTOP13,
-                    numpedido: r.numpedido,
-                    numpedidoNum: Number(r.numpedido),
-                    nunota_busca: Number(nunota),
-                    matchPedido
-                  });
                   return isTOP13 && matchPedido;
                 });
+                
+                // Fallback: buscar por CODPARC e CODPROD
+                if(!vale && codparcPedido && codprodPedido){
+                  vale = (dataVale.rows || []).find(r => {
+                    const isTOP13 = Number(r.codtipoper) === 13;
+                    const matchParc = String(r.codparc) === String(codparcPedido);
+                    const matchProd = String(r.codprod) === String(codprodPedido);
+                    return isTOP13 && matchParc && matchProd;
+                  });
+                  if(vale){
+                    console.log('[VALE MODAL] Vale encontrado por CODPARC/CODPROD:', vale.nunota);
+                  }
+                }
                 
                 console.log('[VALE MODAL] Vale encontrado:', vale);
                 
                 if(vale && vale.nunota){
                   valeNumEl.textContent = vale.nunota;
-                  valeEl.style.display = 'block';
                   console.log('[VALE MODAL] ✅ Vale exibido:', vale.nunota, 'para pedido:', nunota);
                 } else {
-                  valeEl.style.display = 'none';
+                  valeNumEl.textContent = '—';
                   console.log('[VALE MODAL] ❌ Nenhum vale encontrado para pedido:', nunota);
                 }
               }
             } catch(err){
               console.error('[VALE MODAL] ⚠️ Erro ao buscar vale:', err);
-              valeEl.style.display = 'none';
+              valeNumEl.textContent = '—';
             }
           } else {
-            console.log('[VALE MODAL] Condições não atendidas - ocultando vale');
-            if(valeEl) valeEl.style.display = 'none';
+            console.log('[VALE MODAL] Condições não atendidas - vale sem número');
+            if(valeNumEl) valeNumEl.textContent = '—';
           }
           
           const fmtMoney = (n)=> {

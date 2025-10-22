@@ -933,6 +933,20 @@ def _to_int_or(val, default=None):
             return default
 
 
+def _to_float_or(val, default=None):
+    """Convert value to float, return default if invalid."""
+    v = _first(val)
+    if v in (None, '', 'None', 'none', 'null'):
+        return default
+    try:
+        return float(v)
+    except Exception:
+        try:
+            return float(str(v))
+        except Exception:
+            return default
+
+
 def _map_gp(val):
     """Map various input forms to 'S' or 'N' for GERAPRODUCAO; returns None when unspecified/invalid."""
     if val in (None, '', 'None', 'none', 'null'):
@@ -1555,16 +1569,138 @@ def lote_search(request: HttpRequest) -> JsonResponse:
     data = [{"cod": (c or ""), "descr": ""} for (c,) in rows]
     return JsonResponse({"results": data})
 
+
+def produto_volume(request: HttpRequest) -> JsonResponse:
+    """Retorna o peso padrão de um volume alternativo para um produto."""
+    codprod = request.GET.get('codprod', '').strip()
+    codvol = request.GET.get('codvol', '').strip()
+    
+    print(f"[PESO_BACKEND] Requisição recebida: codprod={codprod}, codvol={codvol}")
+    
+    if not codprod or not codvol:
+        return JsonResponse({"ok": False, "error": "codprod e codvol são obrigatórios"}, status=400)
+    
+    try:
+        codprod_int = int(codprod)
+    except ValueError:
+        print(f"[PESO_BACKEND] Erro: codprod inválido: {codprod}")
+        return JsonResponse({"ok": False, "error": "codprod inválido"}, status=400)
+    
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            # Buscar peso SEMPRE em TGFVOA, independente se é volume base ou alternativo
+            query = """
+                SELECT QUANTIDADE 
+                FROM TGFVOA 
+                WHERE CODPROD = :codprod 
+                  AND UPPER(CODVOL) = :codvol
+                """
+            print(f"[PESO_BACKEND] Buscando em TGFVOA: codprod={codprod_int}, codvol={codvol.upper()}")
+            cur.execute(query, codprod=codprod_int, codvol=codvol.upper())
+            row = cur.fetchone()
+            
+            if row and row[0] is not None:
+                peso = float(row[0])
+                print(f"[PESO_BACKEND] Peso encontrado em TGFVOA.QUANTIDADE: {peso}")
+                return JsonResponse({"ok": True, "peso": peso})
+            else:
+                # Se não encontrou em TGFVOA, verificar se é o volume base do produto
+                print(f"[PESO_BACKEND] Não encontrado em TGFVOA, verificando se é volume base...")
+                cur.execute(
+                    "SELECT CODVOL FROM TGFPRO WHERE CODPROD = :cp",
+                    cp=codprod_int
+                )
+                base_row = cur.fetchone()
+                print(f"[PESO_BACKEND] Volume base do produto: {base_row}")
+                
+                if base_row and str(base_row[0]).upper() == codvol.upper():
+                    # É o volume base, retornar peso = 1
+                    print(f"[PESO_BACKEND] É volume base, retornando peso=1.0")
+                    return JsonResponse({"ok": True, "peso": 1.0})
+                else:
+                    # Não é volume base e não está em TGFVOA
+                    print(f"[PESO_BACKEND] Volume {codvol} não é base e não está em TGFVOA")
+                    return JsonResponse({"ok": False, "error": f"Volume {codvol} não cadastrado em TGFVOA para este produto"}, status=404)
+    except Exception as e:
+        print(f"[PESO_BACKEND] Erro: {e}")
+        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+
+
+def produto_codvol(request: HttpRequest) -> JsonResponse:
+    """Retorna o CODVOL alternativo de TGFVOA (para exibição) e base de TGFPRO."""
+    codprod = request.GET.get('codprod', '').strip()
+    
+    if not codprod:
+        return JsonResponse({"ok": False, "error": "codprod é obrigatório"}, status=400)
+    
+    try:
+        codprod_int = int(codprod)
+    except ValueError:
+        return JsonResponse({"ok": False, "error": "codprod inválido"}, status=400)
+    
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            
+            # Buscar unidade alternativa de TGFVOA (para exibição)
+            query_voa = """
+                SELECT CODVOL 
+                FROM TGFVOA 
+                WHERE CODPROD = :codprod 
+                  AND CODVOL != 'KG'
+                ORDER BY CODVOL
+            """
+            cur.execute(query_voa, codprod=codprod_int)
+            row = cur.fetchone()
+            
+            codvol_display = None
+            if row and row[0]:
+                codvol_display = str(row[0]).strip()
+            
+            # Buscar CODVOL base de TGFPRO
+            query_pro = """
+                SELECT CODVOL 
+                FROM TGFPRO 
+                WHERE CODPROD = :codprod
+            """
+            cur.execute(query_pro, codprod=codprod_int)
+            row = cur.fetchone()
+            
+            codvol_base = None
+            if row and row[0]:
+                codvol_base = str(row[0]).strip()
+            
+            if codvol_display or codvol_base:
+                return JsonResponse({
+                    "ok": True, 
+                    "codvol": codvol_display or codvol_base,  # Para exibir no campo Vol
+                    "codvol_base": codvol_base,  # KG (para salvar)
+                    "source": "TGFVOA" if codvol_display else "TGFPRO"
+                })
+            
+            # Não encontrou
+            return JsonResponse({"ok": False, "error": "CODVOL não encontrado para este produto"}, status=404)
+            
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+
+
 def header_update(request: HttpRequest) -> JsonResponse:
     """Atualiza campos do cabeçalho TGFCAB via JSON."""
     if request.method != 'POST':
         return JsonResponse({"ok": False, "error": "Use POST"}, status=405)
     try:
         payload = json.loads(request.body.decode('utf-8') or '{}')
-    except Exception:
-        payload = {}
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": f"JSON inválido: {str(e)}"}, status=400)
+    
+    nunota = _to_int_or(payload.get('nunota'))
+    if not nunota:
+        return JsonResponse({"ok": False, "error": "NUNOTA obrigatório"}, status=400)
+    
     plan = update_cabecalho({
-        'NUNOTA': _to_int_or(payload.get('nunota')),
+        'NUNOTA': nunota,
         'NUMNOTA': payload.get('nronota'),
         'DTNEG': payload.get('dtneg'),
         'DTMOV': payload.get('dtmov'),
@@ -1576,8 +1712,22 @@ def header_update(request: HttpRequest) -> JsonResponse:
     # Natureza e Centro Resultado não editáveis por política atual
         'OBSERVACAO': payload.get('obs'),
         'STATUSNOTA': payload.get('statusnota'),
+        # Novo: atualizar total descartado quando informado (aceita decimal)
+        'QTDBATIDAS': _to_float_or(payload.get('qtdbatidas')),
     }, dry_run=False)
-    return JsonResponse(plan, status=200 if plan.get('executed') else 400)
+    
+    # Melhorar resposta de erro
+    if not plan.get('executed'):
+        errors = plan.get('errors', [])
+        error_msg = errors[0] if errors else 'Falha ao atualizar cabeçalho'
+        return JsonResponse({
+            "ok": False,
+            "error": error_msg,
+            "errors": errors,
+            "db_error": plan.get('db_error')
+        }, status=400)
+    
+    return JsonResponse(plan, status=200)
 
 
 def header_status_toggle(request: HttpRequest) -> JsonResponse:
@@ -1708,6 +1858,9 @@ def item_plan(request: HttpRequest) -> JsonResponse:
         payload = json.loads(request.body.decode('utf-8') or '{}')
     except Exception:
         payload = {}
+    
+    print(f"🔍🔍🔍 ITEM_PLAN RECEBEU PAYLOAD: {payload}")
+    
     def _map_gp(val):
         if val in (None, '', 'None', 'none', 'null'):
             return None
@@ -1795,12 +1948,21 @@ def item_list(request: HttpRequest) -> JsonResponse:
                 'qtd': float(disp_qtd or 0),
                 'peso': float(peso) if peso is not None else None,
                 'total': float(total) if total is not None else None,
+                'totalkg': float(qtdneg or 0),  # QTDNEG real em KG (sem conversão)
                 'vlu': float(vlrunit or 0),
                 'vlt': float(vltot or 0),
                 'obs': obs or '',
                 'classifica': (None if gp is None else (str(gp).upper() != 'N')),
                 'geraproducao': (None if gp is None else str(gp).upper()),
             })
+        try:
+            print(f"🔍🔍 ITEM_LIST - Returning {len(out)} items for nunota={nunota}")
+            # print sample item to help debug missing totalkg
+            if out:
+                import pprint
+                pprint.pprint(out[0])
+        except Exception:
+            pass
         return JsonResponse({"ok": True, "items": out})
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
@@ -1995,6 +2157,9 @@ def item_save(request: HttpRequest) -> JsonResponse:
         payload = json.loads(request.body.decode('utf-8') or '{}')
     except Exception:
         payload = {}
+    
+    print(f"🔍🔍🔍 ITEM_SAVE RECEBEU PAYLOAD: {payload}")
+    
     # Helper: detect TOP of the destination NUNOTA and the classification TOP value
     def _get_nota_top(nun):
         try:
@@ -2031,12 +2196,12 @@ def item_save(request: HttpRequest) -> JsonResponse:
             'NUNOTA': _to_int_or(payload.get('nunota')),
             'SEQUENCIA': seq,
             'CODPROD': _to_int_or(payload.get('codprod')),
-            'QTDNEG': payload.get('qtdneg'),
+            'QTDNEG': payload.get('qtdneg'),  # Total kg - já vem em KG
             'VLRUNIT': payload.get('vlrunit'),
             'VLRTOT': payload.get('vlrtot'),  # Incluir VLRTOT para itens não classificáveis
             'PRECOBASE': payload.get('preco_inicial'),
             'PESO': payload.get('peso'),
-            'CODVOL': payload.get('codvol') or None,
+            'CODVOL': payload.get('codvol') or None,  # Manter unidade alternativa (CX)
             'CODLOCALORIG': _to_int_or(payload.get('codlocal'), None),
             'OBSERVACAO': (payload.get('obs') or '').strip() or None,
             # Atualizar GERAPRODUCAO se informado
@@ -2241,10 +2406,10 @@ def item_save(request: HttpRequest) -> JsonResponse:
     plan = insert_item_fast({
         'NUNOTA': nun,
         'CODPROD': _to_int_or(payload.get('codprod')),
-        'QTDNEG': payload.get('qtdneg'),
+        'QTDNEG': payload.get('qtdneg'),  # Total kg - já vem em KG do frontend
         'VLRUNIT': payload.get('vlrunit'),
         'PESO': payload.get('peso'),
-        'CODVOL': payload.get('codvol') or 'UN',
+        'CODVOL': payload.get('codvol') or 'UN',  # Manter unidade alternativa (CX)
         'CODLOCALORIG': _to_int_or(payload.get('codlocal'), 101),
         'CODAGREGACAO': (controle or None),
         'OBSERVACAO': (payload.get('obs') or '').strip() or None,
@@ -2495,7 +2660,7 @@ def item_finalize(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
 
 def classificacao_resumo(request: HttpRequest) -> JsonResponse:
-    """GET /sankhya/classificacao/resumo/?lote=... -> { ok, lote, linhas: [ { produto, cx, kg } ] }
+    """GET /sankhya/classificacao/resumo/?lote=... -> { ok, lote, linhas: [ { produto, cx, kg } ], extra: { qtdbatidas } }
     Usa somente itens TOP 26 (classificados).
     """
     if request.method != 'GET':
@@ -2513,7 +2678,37 @@ def classificacao_resumo(request: HttpRequest) -> JsonResponse:
                 'kg': float(sum_kg or 0),
                 'fator_cx': float(fator_cx or 0),  # kg por caixa (TGFVOA)
             })
-        return JsonResponse({"ok": True, "lote": lote, "linhas": linhas})
+        
+        # Buscar QTDBATIDAS do cabeçalho TOP 26 (classificação)
+        qtdbatidas = None
+        try:
+            from sankhya_integration.services.oracle_conn import get_connection, get_params
+            p = get_params()
+            TOP_CLASS = p['TOP_CLASS']
+            with get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT c.NUNOTA, c.QTDBATIDAS
+                    FROM TGFITE i
+                    JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                    WHERE i.CODAGREGACAO = :lote AND c.CODTIPOPER = :top
+                      AND ROWNUM = 1
+                    ORDER BY c.NUNOTA DESC
+                """, lote=lote, top=TOP_CLASS)
+                row = cur.fetchone()
+                if row and row[1] is not None:
+                    qtdbatidas = float(row[1])
+        except Exception:
+            pass
+        
+        return JsonResponse({
+            "ok": True,
+            "lote": lote,
+            "linhas": linhas,
+            "extra": {
+                "qtdbatidas": qtdbatidas
+            }
+        })
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
 
@@ -2879,14 +3074,17 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
         results = []
         for row in classific:
             # row: (NUNOTA, SEQUENCIA, CODPROD, DESCRPROD, CODVOL, QTDNEG, PESO, VLRUNIT, VLRTOT)
+            # IMPORTANTE: Agora QTDNEG é sempre em KG (Total kg), não precisa conversão
+            qtdneg_kg = float(row[5] or 0)  # Total kg armazenado
             results.append({
                 'nunota': int(row[0]) if row[0] is not None else None,
                 'sequencia': int(row[1]) if row[1] is not None else None,
                 'cod': int(row[2]) if row[2] is not None else None,
                 'descr': row[3] or '',
                 'codvol': row[4] or '',
-                'qtd': _disp_qty(row[2], row[4], row[5]),
+                'qtd': _disp_qty(row[2], row[4], row[5]),  # Qtd em caixas (calculado)
                 'peso': (float(row[6]) if (len(row) > 6 and row[6] is not None) else None),
+                'totalkg': qtdneg_kg,  # Total kg real (QTDNEG sem conversão)
                 'vlu': float(row[7] or 0),
                 'vlt': float(row[8] or 0),
             })
@@ -2923,11 +3121,16 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
             })
 
         # expose product code for In Natura so the UI can default to that origin
-        try:
-            from sankhya_integration.services.oracle_conn import get_params as _get_params
-            _p = _get_params(); _prod_inn = _p.get('PROD_IN_NATURA')
-        except Exception:
-            _prod_inn = None
+        # IMPORTANTE: Usar o prod_in_natura que vem do consultar_lote_light (busca real do banco)
+        # NÃO usar o valor hardcoded de get_params() que sempre retorna 863
+        _prod_inn = info.get('prod_in_natura') if isinstance(info, dict) else None
+        if _prod_inn is None:
+            # Fallback para o valor de configuração apenas se não encontrar no banco
+            try:
+                from sankhya_integration.services.oracle_conn import get_params as _get_params
+                _p = _get_params(); _prod_inn = _p.get('PROD_IN_NATURA')
+            except Exception:
+                _prod_inn = None
         # Include timings if present (esp. from light mode)
         timings = info.get('timings') if isinstance(info, dict) else None
         return JsonResponse({
@@ -2938,6 +3141,7 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
             "entradas": entradas_out,
             "nunota_class": info.get('nunota_class'),
             "pendente_class": info.get('pendente_class'),
+            "qtdbatidas": info.get('qtdbatidas'),
             "prod_in_natura": _prod_inn,
             "timings": timings,
         })
@@ -3645,7 +3849,7 @@ def comercial_vale_save(request: HttpRequest) -> JsonResponse:
                 upd['PRECOBASE'] = float(preco_inicial)
             # Se nenhum campo foi informado, reporta erro
             if len(upd.keys()) <= 2:
-                errors.append(f"Nenhum campo para atualização no item seq {seq}")
+                # Nenhuma alteração para este item — ignorar silenciosamente para não interromper faturamento
                 continue
             plan = update_item(upd, dry_run=False)
             if not plan.get('executed'):
@@ -3661,22 +3865,113 @@ def comercial_vale_save(request: HttpRequest) -> JsonResponse:
             errors.append(str(e))
 
     header = None
+    nufin_result = None
+    
     if faturar:
         try:
-            plan_h = update_cabecalho({'NUNOTA': nunota, 'STATUSNOTA': 'L'}, dry_run=False)
+            # 1. Resolver NUNOTA do VALE (TOP 13) se o recebido for do PEDIDO (TOP 11)
+            nunota_para_faturar = nunota
+            try:
+                with get_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT CODTIPOPER, NUMNOTA FROM TGFCAB WHERE NUNOTA=:n", n=int(nunota))
+                    cab = cur.fetchone()
+                    if cab:
+                        codtop, numnota_cab = cab[0], cab[1]
+                        if int(codtop) != 13:
+                            # Tentar localizar VALE (TOP 13) vinculado a este pedido via NUMPEDIDO
+                            numnota_pedido = numnota_cab if (numnota_cab and int(numnota_cab) != 0) else int(nunota)
+                            cur.execute("""
+                                SELECT NUNOTA FROM TGFCAB 
+                                WHERE CODTIPOPER=13 AND NUMPEDIDO=:np
+                            """, np=int(numnota_pedido))
+                            v = cur.fetchone()
+                            if v and v[0]:
+                                nunota_para_faturar = int(v[0])
+                            else:
+                                errors.append('Não foi encontrado um VALE (TOP 13) vinculado a este pedido para faturar')
+                                nunota_para_faturar = None
+                    else:
+                        errors.append('Cabeçalho não encontrado para a NUNOTA informada')
+                        nunota_para_faturar = None
+            except Exception as _e_resolve:
+                errors.append(f'Falha ao resolver VALE para faturamento: {_e_resolve}')
+                nunota_para_faturar = None
+
+            # Se não foi possível resolver o VALE, não prosseguir faturamento
+            if not nunota_para_faturar:
+                header = {'executed': False, 'status': None}
+            else:
+                # 2. Alterar STATUSNOTA para 'L' (Liberado) no VALE
+                plan_h = update_cabecalho({'NUNOTA': nunota_para_faturar, 'STATUSNOTA': 'L'}, dry_run=False)
             header = {'executed': bool(plan_h.get('executed')), 'status': 'L'}
-            if not plan_h.get('executed'):
+            
+            if nunota_para_faturar and not plan_h.get('executed'):
                 msg = None
                 if isinstance(plan_h.get('db_error'), dict):
                     msg = plan_h['db_error'].get('message')
                 if not msg and plan_h.get('errors'):
                     msg = '; '.join([str(e) for e in plan_h['errors'] if e])
                 errors.append(msg or 'Falha ao faturar (alterar STATUSNOTA)')
+            else:
+                # 2. CRIAR TGFFIN (Financeiro)
+                # Importar função de criação do financeiro
+                from .services.oracle_conn import criar_tgffin
+                
+                try:
+                    if nunota_para_faturar:
+                        nufin_result = criar_tgffin(nunota_para_faturar)
+                    
+                    if not nufin_result.get('ok'):
+                        # Erro ao criar TGFFIN - reportar mas manter TGFCAB
+                        erro_fin = nufin_result.get('error', 'Erro desconhecido ao criar financeiro')
+                        errors.append(f'TGFFIN: {erro_fin}')
+                        
+                        # Log detalhado
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(f'[FATURAR] Erro ao criar TGFFIN para NUNOTA {nunota}: {erro_fin}')
+                    else:
+                        # Sucesso ao criar TGFFIN
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.info(f'[FATURAR] ✅ TGFFIN criado com sucesso: NUFIN={nufin_result.get("nufin")}, '
+                                  f'VLRDESDOB={nufin_result.get("vlrdesdob")}, '
+                                  f'DTVENC={nufin_result.get("dtvenc")}')
+                        
+                except Exception as e_fin:
+                    # Exception ao tentar criar TGFFIN - reportar mas manter TGFCAB
+                    erro_msg = f'Exceção ao criar TGFFIN: {str(e_fin)}'
+                    errors.append(erro_msg)
+                    
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f'[FATURAR] Exceção ao criar TGFFIN para NUNOTA {nunota}: {e_fin}', exc_info=True)
+                    
         except Exception as e:
             errors.append(str(e))
 
     ok = len(errors) == 0
-    return JsonResponse({'ok': ok, 'updated': updated, 'errors': errors or None, 'header': header}, status=200 if ok else 400)
+    
+    # Montar resposta com informações do financeiro
+    response_data = {
+        'ok': ok, 
+        'updated': updated, 
+        'errors': errors or None, 
+        'header': header
+    }
+    
+    # Adicionar informações do TGFFIN se foi criado
+    if nufin_result:
+        response_data['financeiro'] = {
+            'criado': nufin_result.get('ok', False),
+            'nufin': nufin_result.get('nufin'),
+            'vlrdesdob': nufin_result.get('vlrdesdob'),
+            'dtvenc': nufin_result.get('dtvenc'),
+            'error': nufin_result.get('error')
+        }
+    
+    return JsonResponse(response_data, status=200 if ok else 400)
 
 
 def comercial_vale_gerar(request: HttpRequest) -> JsonResponse:
