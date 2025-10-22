@@ -731,6 +731,11 @@
       opacity: 1;
     }
   }
+  
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
 
   /* ==================== FIM IMPRESSÃO TÉRMICA ==================== */
 
@@ -831,6 +836,13 @@
             </table>
           </div>
         </div>
+        <!-- Spinner de Loading (usado ao abrir modais) -->
+        <div id="loadingSpinner" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:9999; align-items:center; justify-content:center;">
+          <div style="display:flex; flex-direction:column; align-items:center; gap:12px;">
+            <div style="width:48px; height:48px; border:4px solid rgba(255,255,255,.3); border-top-color:#fff; border-radius:50%; animation:spin 0.8s linear infinite;"></div>
+            <div style="color:#fff; font-size:14px; font-weight:600;">Carregando...</div>
+          </div>
+        </div>
         <!-- Modal: Faturamento (por NUNOTA) -->
         <div id="modalFaturamento" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:1000; align-items:center; justify-content:center;">
           <div style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; width:min(600px, 60vw); max-height:88vh; display:flex; flex-direction:column;">
@@ -839,6 +851,7 @@
                 <div style="display:flex; flex-direction:column; gap:2px;">
                   <div style="display:flex; align-items:center; gap:8px;">
                     <div id="valeResumoTitle" style="font-weight:800; color:#0a3392; font-size:1.1rem;">—</div>
+                    <span id="valeResumoNufinBadge" style="display:none; background:#16a34a; color:#fff; font-weight:700; font-size:.85rem; padding:4px 10px; border-radius:6px;">NUFIN <span id="valeResumoNufinNum">—</span></span>
                     <button id="valeResumoPrint" class="btn" title="Imprimir" style="border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:5px 7px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center;">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="6 9 6 2 18 2 18 9"></polyline>
@@ -847,9 +860,11 @@
                       </svg>
                     </button>
                   </div>
-                  <div style="display:flex; flex-direction:column; gap:1px; font-size:.8rem; color:#64748b;">
+                  <div style="display:flex; flex-direction:column; gap:4px; font-size:.8rem; color:#64748b;">
+                    <div id="valeResumoVale" style="display:block;">
+                      <span style="display:inline-block; background:#0a3392; color:#fff; font-weight:700; font-size:.85rem; padding:4px 10px; border-radius:6px;">Vale <span id="valeResumoValeNum">—</span></span>
+                    </div>
                     <div id="valeResumoPedido" style="display:block;">Pedido <span id="valeResumoPedidoNum">—</span></div>
-                    <div id="valeResumoVale" style="display:block;">Vale <span id="valeResumoValeNum">—</span></div>
                   </div>
                 </div>
               </div>
@@ -869,7 +884,7 @@
                     <col style="width:100px" />
                     <col style="width:120px" />
                     <col style="width:110px" />
-                    <col style="width:50px" />
+                    <col style="width:80px" />
                     <col style="width:50px" />
                   </colgroup>
                   <thead>
@@ -2334,6 +2349,34 @@
           bodyEl.innerHTML = '<tr><td colspan="5" style="padding:8px; color:#b91c1c;">Erro ao carregar.</td></tr>';
         }
       }
+      
+      // Função silenciosa: recarrega dados em background sem alterar UI
+      async function reloadDataSilent(){
+        try{
+          const qs = parseFilters();
+          const timestamp = new Date().getTime();
+          const separator = qs ? '&' : '?';
+          const url = '/sankhya/comercial/lista/' + (qs ? ('?' + qs) : '') + `${separator}_t=${timestamp}`;
+          const r = await fetch(url, { 
+            credentials: 'same-origin',
+            cache: 'no-cache',
+            headers: { 'Cache-Control': 'no-cache' }
+          });
+          let j = {}; try{ j = await r.json(); }catch(_){ j = {}; }
+          if(j.ok && Array.isArray(j.rows)){
+            const rows = j.rows;
+            rows.forEach((r,i)=> r._i = i);
+            window.__COM_LIST_ROWS = rows;
+            console.log('[RELOAD SILENT] Dados atualizados em background:', rows.length, 'registros');
+            return true;
+          }
+          return false;
+        }catch(e){
+          console.error('[RELOAD SILENT] Erro ao recarregar dados:', e);
+          return false;
+        }
+      }
+      
       window.addEventListener('filtros:change', loadLista);
       // Click-to-select: marca linha ativa em amarelo
       document.getElementById('listaBody')?.addEventListener('click', (ev)=>{
@@ -2967,7 +3010,19 @@
               let totalCxAgg = 0;
               let extraKgAgg = 0;
               let extraCxAgg = 0;
+              let medioKgAgg = 0;
+              let medioCxAgg = 0;
               let descarteKgAgg = 0;
+              
+              // Verificar se tem produtos EXTRA ou MÉDIO
+              const hasExtra = rows.some(r => String(r.produto||'').toUpperCase().includes('EXTRA'));
+              const hasMedio = rows.some(r => {
+                const p = String(r.produto||'').toUpperCase();
+                return p.includes('MEDIO') || p.includes('MÉDIO') || p.includes('MÉDIA') || p.includes('MEDIA');
+              });
+              
+              console.log('[CLASSIFICAÇÃO FRONTEND] hasExtra:', hasExtra, 'hasMedio:', hasMedio);
+              
               rows.forEach(r => {
                 const cx0 = Number(r.cx||0)||0;
                 const kg0 = Number(r.kg||0)||0;
@@ -2975,17 +3030,50 @@
                 const cx = cx0>0 && kg0>0 ? cx0 : (kg>0 ? (kg / KG_PER_CX) : 0);
                 totalKgAgg += kg;
                 totalCxAgg += cx;
+                
                 const prodName = String(r.produto||'').toUpperCase();
+                
+                // Descarte
+                if(prodName.includes('DESCARTE') || prodName.includes('AVARIA') || prodName.includes('INSERV')){
+                  descarteKgAgg += kg;
+                  return;
+                }
+                
+                // FALLBACK: Se não tem EXTRA nem MÉDIO, tratar tudo como EXTRA
+                if(!hasExtra && !hasMedio) {
+                  console.log('[CLASSIFICAÇÃO FRONTEND] FALLBACK - Produto sem EXTRA/MÉDIO, tratando como EXTRA:', prodName);
+                  extraKgAgg += kg;
+                  extraCxAgg += cx;
+                  return;
+                }
+                
+                // Fluxo normal: separar EXTRA e MÉDIO
                 if(prodName.includes('EXTRA')){
                   extraKgAgg += kg;
                   extraCxAgg += cx;
-                }
-                if(prodName.includes('DESCARTE') || prodName.includes('AVARIA') || prodName.includes('INSERV')){
-                  descarteKgAgg += kg;
+                } else if(prodName.includes('MEDIO') || prodName.includes('MÉDIO') || prodName.includes('MÉDIA') || prodName.includes('MEDIA')){
+                  medioKgAgg += kg;
+                  medioCxAgg += cx;
                 }
               });
-              const medioKgAgg = Math.max(0, totalKgAgg - extraKgAgg - descarteKgAgg);
-              const medioCxAgg = Math.max(0, totalCxAgg - extraCxAgg);
+              
+              // Se usou o fluxo normal, calcular médio como diferença (caso tenha produtos não classificados)
+              if(hasExtra || hasMedio) {
+                const somaClassificados = extraKgAgg + medioKgAgg + descarteKgAgg;
+                if(somaClassificados < totalKgAgg) {
+                  // Tem produtos não categorizados, adicionar ao médio
+                  medioKgAgg = Math.max(0, totalKgAgg - extraKgAgg - descarteKgAgg);
+                  medioCxAgg = Math.max(0, totalCxAgg - extraCxAgg);
+                }
+              }
+              
+              console.log('[CLASSIFICAÇÃO FRONTEND] Totais:', {
+                total: { kg: totalKgAgg, cx: totalCxAgg },
+                extra: { kg: extraKgAgg, cx: extraCxAgg },
+                medio: { kg: medioKgAgg, cx: medioCxAgg },
+                descarte: { kg: descarteKgAgg }
+              });
+              
               cardAggregate = {
                 totalKg: totalKgAgg,
                 extra: { kg: extraKgAgg, cx: extraCxAgg },
@@ -3842,14 +3930,25 @@
       async function openValeResumo(nunota){
         console.log('[DEBUG] openValeResumo chamada com nunota:', nunota);
         
-        // 🔥 ARMAZENAR NUNOTA no botão para evitar closure problem
-        const btnGerarVale = document.getElementById('btnGerarVale');
-        if(btnGerarVale){
-          btnGerarVale.setAttribute('data-nunota-atual', String(nunota));
-          console.log('[MODAL] NUNOTA armazenada no botão:', nunota);
-        }
+        // Mostrar spinner
+        const spinner = document.getElementById('loadingSpinner');
+        if(spinner) spinner.style.display = 'flex';
+        
+        // Declarar btnGerarVale uma única vez
+        let btnGerarVale = document.getElementById('btnGerarVale');
         
         try{
+          // 🔥 RECARREGAR DADOS em background (silencioso) antes de abrir o modal
+          console.log('[MODAL] Recarregando dados em background...');
+          await reloadDataSilent();
+          console.log('[MODAL] Dados atualizados!');
+          
+          // 🔥 ARMAZENAR NUNOTA no botão para evitar closure problem
+          if(btnGerarVale){
+            btnGerarVale.setAttribute('data-nunota-atual', String(nunota));
+            console.log('[MODAL] NUNOTA armazenada no botão:', nunota);
+          }
+          
           const modal = document.getElementById('modalFaturamento');
           const title = document.getElementById('valeResumoTitle');
           const classBody = document.getElementById('valeClassBody');
@@ -3858,6 +3957,7 @@
           console.log('[DEBUG] Elementos encontrados:', { modal: !!modal, title: !!title, classBody: !!classBody, outrosBody: !!outrosBody, totalEl: !!totalEl });
           if(!modal || !title || !classBody || !outrosBody || !totalEl) {
             console.error('[ERROR] Elementos do modal não encontrados!');
+            if(spinner) spinner.style.display = 'none';
             return;
           }
           const rows = (window.__COM_LIST_ROWS||[]).filter(r=> String(r.nunota||'') === String(nunota||''));
@@ -3893,81 +3993,26 @@
             console.log('[VALE MODAL] ❌ Pedido não exibido - elementos ou nunota faltando');
           }
           
-          // Vale (TOP 13) - buscar se existe NUNOTA relacionado via NUMPEDIDO
-          console.log('[VALE MODAL] Iniciando busca de vale para pedido:', nunota);
-          console.log('[VALE MODAL] Elementos:', { valeEl: !!valeEl, valeNumEl: !!valeNumEl });
-          
-          if(valeEl && valeNumEl && nunota){
-            try {
-              console.log('[VALE MODAL] Buscando lista de vales para pedido:', nunota);
-              // Buscar vale vinculado a este pedido (com cache-busting)
-              const timestamp = new Date().getTime();
-              const respVale = await fetch(`/sankhya/comercial/lista/?days=365&_t=${timestamp}`, {
-                cache: 'no-cache',
-                headers: { 'Cache-Control': 'no-cache' }
-              });
-              console.log('[VALE MODAL] Resposta recebida:', respVale.ok);
-              
-              if(respVale.ok){
-                const dataVale = await respVale.json();
-                console.log('[VALE MODAL] Total de registros:', dataVale.rows?.length);
-                
-                // Debug: mostrar todos os TOP 13 (vales)
-                const vales = (dataVale.rows || []).filter(r => Number(r.codtipoper) === 13);
-                console.log('[VALE MODAL] Total de vales (TOP 13):', vales.length);
-                
-                // Pegar dados do pedido atual para buscar o vale correspondente
-                const pedidoAtual = rows[0];
-                const codparcPedido = pedidoAtual?.codparc || null;
-                const codprodPedido = pedidoAtual?.codprod || null;
-                const dtPedido = pedidoAtual?.dtneg || null;
-                
-                console.log('[VALE MODAL] Dados do pedido:', {
-                  nunota,
-                  codparc: codparcPedido,
-                  codprod: codprodPedido,
-                  dtneg: dtPedido
-                });
-                
-                // Procurar vale (TOP 13) que tenha:
-                // 1. NUMPEDIDO = nunota atual (preferencial) OU
-                // 2. Mesmo CODPARC, CODPROD e data próxima (fallback)
-                let vale = (dataVale.rows || []).find(r => {
-                  const isTOP13 = Number(r.codtipoper) === 13;
-                  const matchPedido = Number(r.numpedido) === Number(nunota);
-                  return isTOP13 && matchPedido;
-                });
-                
-                // Fallback: buscar por CODPARC e CODPROD
-                if(!vale && codparcPedido && codprodPedido){
-                  vale = (dataVale.rows || []).find(r => {
-                    const isTOP13 = Number(r.codtipoper) === 13;
-                    const matchParc = String(r.codparc) === String(codparcPedido);
-                    const matchProd = String(r.codprod) === String(codprodPedido);
-                    return isTOP13 && matchParc && matchProd;
-                  });
-                  if(vale){
-                    console.log('[VALE MODAL] Vale encontrado por CODPARC/CODPROD:', vale.nunota);
-                  }
-                }
-                
-                console.log('[VALE MODAL] Vale encontrado:', vale);
-                
-                if(vale && vale.nunota){
-                  valeNumEl.textContent = vale.nunota;
-                  console.log('[VALE MODAL] ✅ Vale exibido:', vale.nunota, 'para pedido:', nunota);
-                } else {
-                  valeNumEl.textContent = '—';
-                  console.log('[VALE MODAL] ❌ Nenhum vale encontrado para pedido:', nunota);
-                }
+          // Vale (TOP 13) - buscar se existe NUNOTA relacionado
+          if(valeEl && valeNumEl){
+            // Buscar nunota_13 nas rows do pedido (mesmo approach do card Entrada)
+            let nunota13 = rows[0]?.nunota_13 || '';
+            
+            // Se não tem na primeira row, buscar em qualquer row do mesmo pedido
+            if(!nunota13){
+              const itemComVale = rows.find(r => r.nunota_13);
+              if(itemComVale){
+                nunota13 = itemComVale.nunota_13;
               }
-            } catch(err){
-              console.error('[VALE MODAL] ⚠️ Erro ao buscar vale:', err);
-              valeNumEl.textContent = '—';
             }
-          } else {
-            console.log('[VALE MODAL] Condições não atendidas - vale sem número');
-            if(valeNumEl) valeNumEl.textContent = '—';
+            
+            if(nunota13){
+              valeNumEl.textContent = nunota13;
+              valeEl.style.display = 'block';
+            } else {
+              valeNumEl.textContent = '—';
+              valeEl.style.display = 'none';
+            }
           }
           
           const fmtMoney = (n)=> {
@@ -3978,6 +4023,67 @@
           const fmtQty = (n)=> isNaN(n) ? '0' : Number(n||0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
           const classifs = rows.filter(r=> r.classificavel !== false);
           const nclass = rows.filter(r=> r.classificavel === false);
+          
+          // Buscar o NUNOTA do vale de compra (TOP 13) vinculado a este pedido
+          let nunota13 = rows[0]?.nunota_13 || '';
+          if(!nunota13){
+            const itemComVale = rows.find(r => r.nunota_13);
+            if(itemComVale) nunota13 = itemComVale.nunota_13;
+          }
+          
+          console.log('[MODAL] NUNOTA do pedido (TOP 11):', nunota, '| NUNOTA do vale (TOP 13):', nunota13);
+          
+          // Buscar itens do VALE DE COMPRA (TOP 13) da lista comercial
+          let totalKgFromItems = 0;
+          let totalCxFromItems = 0;
+          
+          if(nunota13) {
+            try {
+              console.log('[MODAL] Buscando lote do vale', nunota13, '...');
+              
+              // Buscar o lote (CODAGREGACAO) do primeiro item do vale
+              const respLote = await fetch(`/sankhya/item/get_lote/?nunota=${nunota13}&seq=1`, {
+                credentials: 'same-origin'
+              });
+              
+              if(respLote.ok) {
+                const dataLote = await respLote.json();
+                const loteControle = dataLote.lote || '';
+                console.log('[MODAL] Lote encontrado:', loteControle);
+                
+                if(loteControle) {
+                  // Buscar classificação deste lote
+                  const respClassif = await fetch(`/sankhya/classificacao/resumo/?lote=${encodeURIComponent(loteControle)}`, {
+                    credentials: 'same-origin'
+                  });
+                  
+                  if(respClassif.ok) {
+                    const dataClassif = await respClassif.json();
+                    console.log('[MODAL] Classificação recebida, linhas:', dataClassif.linhas?.length || 0);
+                    
+                    if(dataClassif.ok && Array.isArray(dataClassif.linhas)) {
+                      // Somar KG e CX de todas as linhas da classificação
+                      dataClassif.linhas.forEach(linha => {
+                        const kg = Number(linha.kg || 0);
+                        const cx = Number(linha.cx || 0);
+                        const produto = linha.produto || '';
+                        
+                        console.log('[MODAL ITEM CLASSIF]', { produto, kg, cx });
+                        
+                        totalKgFromItems += kg;
+                        totalCxFromItems += cx;
+                      });
+                    }
+                  }
+                }
+              }
+            } catch(e) {
+              console.error('[MODAL] Erro ao buscar dados do vale:', e);
+            }
+          }
+          
+          console.log('[MODAL] Totais do VALE - CX:', totalCxFromItems, 'KG:', totalKgFromItems);
+          
           // Classificáveis: com valores editáveis
           if(classifs.length){
             // Calcular totais dos produtos classificáveis
@@ -4030,21 +4136,16 @@
                 qtdCx = fatorConv > 0 ? qnum / fatorConv : 0;  // kg / kg_por_caixa = qtd_caixas
               }
               
-              // Se vlrunit = 0 mas vlrtot > 0, calcular vlrunit a partir de vlrtot
-              if (vlrunit === 0 && vlrtot > 0 && pesoKg > 0) {
-                vlrunit = vlrtot / pesoKg;  // R$ total / kg total = R$/kg
-              }
+              // Calcular valores unitários usando os totais do VALE (não do item individual)
+              const vlrKg = (vlrtot > 0 && totalKgFromItems > 0) ? (vlrtot / totalKgFromItems) : 0;
+              const vlrCx = (vlrtot > 0 && totalCxFromItems > 0) ? (vlrtot / totalCxFromItems) : 0;
               
-              // Calcular valores unitários para exibição
-              const vlrKg = vlrunit > 0 ? vlrunit : 0;
-              const vlrCx = (vlrunit > 0 && fatorConv > 0) ? (vlrunit * fatorConv) : 0;
+              console.log('[TABLE GEN]', {prod, vlrKg, vlrCx, vlrtot, totalKg: totalKgFromItems, totalCx: totalCxFromItems});
               
-              console.log('[TABLE GEN]', {prod, vlrKg, vlrCx, vlrtot, pesoKg, qtdCx});
-              
-              // Status com bolinhas coloridas
-              const status = (vlrtot>0)
-                ? `<span title="OK: negociação salva" style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#16a34a;"></span>`
-                : `<span title="Alerta: VLRTOT = 0 (não salvo)" style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#f59e0b;"></span>`;
+              // Status: bolinha verde se vlrtot > 0, vermelho caso contrário
+              const status = (vlrtot > 0)
+                ? `<span title="OK" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#16a34a;"></span>`
+                : `<span title="Pendente" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#dc2626;"></span>`;
               const nun = Number(r.nunota||0), seq = Number(r.sequencia||0);
               
               const abrir = (nun && seq) ? `
@@ -4055,9 +4156,9 @@
                   </svg>
                 </a>` : '';
                 
-              // Formatar Qtde em 2 linhas (kg e cx)
-              const qtdeKgFormatted = fmtQty(pesoKg);
-              const qtdeCxFormatted = fmtQty(qtdCx);
+              // Usar valores calculados dos itens do vale
+              const qtdeKgFormatted = fmtQty(totalKgFromItems);
+              const qtdeCxFormatted = fmtQty(totalCxFromItems);
               const qtdeDisplay = `<div style="line-height:1.3;">
                 <div style="font-size:.85rem; color:#334155;">${qtdeKgFormatted}<span style="color:#64748b; font-size:.7rem; margin-left:2px;">kg</span></div>
                 <div style="font-size:.8rem; color:#64748b;">${qtdeCxFormatted}<span style="color:#94a3b8; font-size:.7rem; margin-left:2px;">cx</span></div>
@@ -4112,7 +4213,7 @@
           }
           
           // Validar status: habilitar GERAR VALE apenas se todos classificáveis tiverem status verde (VLRTOT > 0)
-          const btnGerarVale = document.getElementById('btnGerarVale');
+          btnGerarVale = document.getElementById('btnGerarVale');
           if(btnGerarVale){
             const todosVerdes = classifs.every(r=> Number(r.vlrtot||0) > 0);
             if(todosVerdes){
@@ -4128,6 +4229,47 @@
             }
           }
           
+          // 🔥 Verificar se já foi faturado (NUFIN do backend)
+          const nufinBadge = document.getElementById('valeResumoNufinBadge');
+          const nufinNum = document.getElementById('valeResumoNufinNum');
+          const btnFaturar = document.getElementById('valeResumoFaturar');
+          
+          // Buscar NUFIN do primeiro item do pedido (todos têm o mesmo nunota_13)
+          const nufinExistente = rows.length > 0 && rows[0].nufin ? rows[0].nufin : null;
+          
+          console.log('[MODAL] NUFIN existente no banco:', nufinExistente);
+          
+          // Se já foi faturado (tem NUFIN), mostrar badge e bloquear botão
+          if(nufinExistente){
+            console.log('[MODAL] ✅ Vale já faturado, NUFIN:', nufinExistente);
+            if(nufinBadge){
+              nufinBadge.style.display = 'inline-block';
+              if(nufinNum) nufinNum.textContent = String(nufinExistente);
+            }
+            if(btnFaturar){
+              btnFaturar.disabled = true;
+              btnFaturar.textContent = 'FATURADO ✓';
+              btnFaturar.style.opacity = '0.6';
+              btnFaturar.style.cursor = 'not-allowed';
+              btnFaturar.style.background = '#dcfce7';  // Verde claro
+              btnFaturar.style.borderColor = '#16a34a';
+            }
+          } else {
+            // Não faturado - resetar para estado inicial
+            console.log('[MODAL] ⚠️ Vale não faturado, habilitando botão');
+            if(nufinBadge) nufinBadge.style.display = 'none';
+            if(btnFaturar){
+              btnFaturar.disabled = false;
+              btnFaturar.style.opacity = '1';
+              btnFaturar.style.cursor = 'pointer';
+              btnFaturar.style.background = '#fff';
+              btnFaturar.style.borderColor = '#16a34a';
+              btnFaturar.textContent = 'FATURAR';
+            }
+          }
+          
+          // Ocultar spinner e mostrar modal
+          if(spinner) spinner.style.display = 'none';
           modal.style.display = 'flex';
           // Tooltip de distribuição no ícone olho (usa estado corrente de distribuição)
           const ensureDistTooltip = () => {
@@ -4202,27 +4344,20 @@
           };
           function recompute(){
             let sum = 0;
-            // soma dos classificáveis: calcular dinamicamente enquanto digita
+            let classTotal = 0;
+            let outrosTotal = 0;
+            
+            // soma dos classificáveis: usar vlrtot direto dos dados (somente leitura)
             const classRows = Array.from(classBody.querySelectorAll('tr'));
             classRows.forEach(tr => {
-              // Buscar o valor digitado no campo editável
-              const editableDiv = tr.querySelector('.vcl-preco-inicial');
-              const precoInicial = parsePT(editableDiv?.textContent || '0');
-              
-              // Buscar a quantidade do item
               const nun = Number(tr.getAttribute('data-nun')||'0');
               const seq = Number(tr.getAttribute('data-seq')||'0');
               const rowData = classifs.find(r=> Number(r.nunota||0)===nun && Number(r.sequencia||0)===seq);
-              const qtdneg = Number(rowData?.qtdneg || 0);
-              
-              // Calcular VLRTOT = preço inicial (por unidade) × quantidade
-              const vlrtot = precoInicial * qtdneg;
-              
-              // 5ª coluna é "Valor Total" (não a 4ª!)
-              const totalCell = tr.querySelector('td:nth-child(5)');
-              if(totalCell) totalCell.innerHTML = fmtMoney(vlrtot);
-              sum += vlrtot;
+              const vlrtot = Number(rowData?.vlrtot || 0);
+              classTotal += vlrtot;
             });
+            
+            // soma dos não classificáveis: calcular dinamicamente
             const trs = Array.from(outrosBody.querySelectorAll('tr'));
             trs.forEach((tr, i)=>{
               const q = Number(tr.getAttribute('data-q')||'0');
@@ -4231,35 +4366,15 @@
               const t = (isNaN(p)?0:p) * (isNaN(q)?0:q);
               const cell = tr.querySelector('.vop-total');
               if(cell) cell.innerHTML = fmtMoney(t);
-              sum += t;
+              outrosTotal += t;
             });
+            
+            sum = classTotal + outrosTotal;
+            console.log('[RECOMPUTE] Classificáveis:', fmtMoney(classTotal), 'Outros:', fmtMoney(outrosTotal), 'TOTAL:', fmtMoney(sum));
             totalEl.innerHTML = fmtMoney(sum);
             
-            // Atualizar também o campo totalValueDisplay do card Distribuição
-            const totalValueDisplay = document.getElementById('totalValueDisplay');
-            if(totalValueDisplay) {
-              totalValueDisplay.textContent = new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(sum);
-              console.log('[RECOMPUTE] totalValueDisplay atualizado:', sum);
-            }
-            
-            // Atualizar card Distribuição em tempo real
-            try {
-              if(typeof window.recalcAllocation === 'function') {
-                console.log('[RECOMPUTE] Chamando window.recalcAllocation()');
-                window.recalcAllocation();
-              } else {
-                console.log('[RECOMPUTE] window.recalcAllocation não disponível');
-              }
-              
-              if(typeof window.updateResumoFinanceiro === 'function') {
-                console.log('[RECOMPUTE] Chamando window.updateResumoFinanceiro()');
-                window.updateResumoFinanceiro();
-              } else {
-                console.log('[RECOMPUTE] window.updateResumoFinanceiro não disponível');
-              }
-            } catch(e) {
-              console.error('[RECOMPUTE] Erro ao atualizar distribuição:', e);
-            }
+            // NÃO atualizar o card Distribuição quando estamos no modal de faturamento
+            // O modal deve apenas calcular seu próprio total, não interferir nos cards externos
           }
           outrosBody.addEventListener('input', (ev)=>{ 
             if(ev.target && (ev.target.classList.contains('vop-price') || ev.target.classList.contains('vop-preco-inicial'))) recompute(); 
@@ -4665,18 +4780,49 @@
                   console.log(`[GERAR VALE] Classificação encontrada para lote ${lote}:`, linhas);
                   
                   // Separar EXTRA e MEDIO/MÉDIA
-                  const extraLine = linhas.find(l => {
+                  let extraLine = linhas.find(l => {
                     const prod = (l.produto || '').toUpperCase();
                     console.log(`[GERAR VALE] Verificando se "${prod}" é EXTRA:`, prod.includes('EXTRA'));
                     return prod.includes('EXTRA');
                   });
                   
-                  const medioLine = linhas.find(l => {
+                  let medioLine = linhas.find(l => {
                     const prod = (l.produto || '').toUpperCase();
                     const isMedio = prod.includes('MEDIO') || prod.includes('MÉDIO') || prod.includes('MÉDIA') || prod.includes('MEDIA');
                     console.log(`[GERAR VALE] Verificando se "${prod}" é MEDIO:`, isMedio);
                     return isMedio;
                   });
+                  
+                  // FALLBACK: Se não encontrou EXTRA nem MÉDIO, buscar produto sem "IN NATURA"
+                  if(!extraLine && !medioLine) {
+                    console.log('[GERAR VALE] FALLBACK - Não encontrou EXTRA nem MÉDIO, buscando produto genérico...');
+                    
+                    // Pegar nome do produto original e remover "IN NATURA", "INNATURA", "INATURA"
+                    const prodOriginal = (item.produto || '').toUpperCase();
+                    const prodBase = prodOriginal
+                      .replace(/IN\s*NATURA/gi, '')
+                      .replace(/INNATURA/gi, '')
+                      .replace(/INATURA/gi, '')
+                      .trim();
+                    
+                    console.log(`[GERAR VALE] Produto original: "${prodOriginal}" → Base: "${prodBase}"`);
+                    
+                    // Buscar linha que contenha o nome base
+                    extraLine = linhas.find(l => {
+                      const classifNome = (l.produto || '').toUpperCase().trim();
+                      const match = classifNome.includes(prodBase) || prodBase.includes(classifNome);
+                      if(match) {
+                        console.log(`[GERAR VALE] ✅ MATCH encontrado: "${l.produto}" será tratado como EXTRA`);
+                      }
+                      return match;
+                    });
+                    
+                    if(extraLine) {
+                      console.log(`[GERAR VALE] Produto "${prodOriginal}" → Usando "${extraLine.produto}" como EXTRA (sem divisão)`);
+                    } else {
+                      console.warn(`[GERAR VALE] ⚠️ Nenhuma linha encontrada para produto "${prodOriginal}"`);
+                    }
+                  }
                   
                   console.log(`[GERAR VALE] Extra line encontrada:`, extraLine);
                   console.log(`[GERAR VALE] Medio line encontrada:`, medioLine);
@@ -4832,16 +4978,64 @@
             }
           });
           document.getElementById('valeResumoFaturar')?.addEventListener('click', async ()=>{
+            const btnFaturar = document.getElementById('valeResumoFaturar');
             const items = buildValeItems();
+            console.log('[FATURAR] Iniciando faturamento...', { nunota, items });
             try{
+              // Desabilitar botão para evitar duplicação
+              btnFaturar.disabled = true;
+              btnFaturar.style.opacity = '0.5';
+              btnFaturar.style.cursor = 'not-allowed';
+              btnFaturar.textContent = 'FATURANDO...';
+              
               const res = await window.__postJSON('/sankhya/comercial/vale/save/', { nunota: Number(nunota), items, faturar: true });
-              if(res.ok){ alert('Faturado com sucesso.'); }
-              else{ alert('Falha ao faturar: ' + (res.body?.error || 'erro desconhecido')); }
-            }catch(e){ alert('Erro ao faturar: ' + e); }
+              console.log('[FATURAR] Resposta recebida:', res);
+              
+              if(res.ok){
+                // Mostrar NUFIN no badge se foi criado
+                if(res.body?.financeiro?.criado && res.body.financeiro.nufin){
+                  const badge = document.getElementById('valeResumoNufinBadge');
+                  const nufinNum = document.getElementById('valeResumoNufinNum');
+                  console.log('[FATURAR] ✅ NUFIN criado:', res.body.financeiro.nufin, 'Valor:', res.body.financeiro.vlrdesdob, 'Venc:', res.body.financeiro.dtvenc);
+                  if(badge && nufinNum){
+                    nufinNum.textContent = res.body.financeiro.nufin;
+                    badge.style.display = 'inline-block';
+                  }
+                  window.showToast('✅ Vale faturado com sucesso!', 'success');
+                }else{
+                  console.log('[FATURAR] Financeiro não criado ou sem NUFIN:', res.body?.financeiro);
+                  window.showToast('✅ Vale faturado com sucesso!', 'success');
+                }
+                // Manter botão desabilitado após sucesso
+                btnFaturar.textContent = 'FATURADO ✓';
+                btnFaturar.style.background = '#dcfce7';
+                btnFaturar.style.borderColor = '#16a34a';
+              }else{
+                // Reabilitar em caso de erro
+                console.error('[FATURAR] Erro ao faturar:', res.body?.error);
+                alert('Falha ao faturar: ' + (res.body?.error || 'erro desconhecido'));
+                btnFaturar.disabled = false;
+                btnFaturar.style.opacity = '1';
+                btnFaturar.style.cursor = 'pointer';
+                btnFaturar.textContent = 'FATURAR';
+              }
+            }catch(e){
+              console.error('[FATURAR] Exceção ao faturar:', e);
+              alert('Erro ao faturar: ' + e);
+              // Reabilitar em caso de exceção
+              btnFaturar.disabled = false;
+              btnFaturar.style.opacity = '1';
+              btnFaturar.style.cursor = 'pointer';
+              btnFaturar.textContent = 'FATURAR';
+            }
           });
         }catch(err){
           console.error('[ERROR] openValeResumo falhou:', err);
           alert('Erro ao abrir modal: ' + err.message);
+        }finally{
+          // Garantir que spinner seja ocultado mesmo em caso de erro
+          const spinner = document.getElementById('loadingSpinner');
+          if(spinner) spinner.style.display = 'none';
         }
       }
 
@@ -4888,10 +5082,10 @@
               const vlrKg = vlrunit > 0 ? vlrunit : 0;
               const vlrCx = (vlrunit > 0 && fatorConv > 0) ? (vlrunit * fatorConv) : 0;
               
-              // Status com bolinhas coloridas
-              const status = (vlrtot>0)
-                ? `<span title="OK: negociação salva" style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#16a34a;"></span>`
-                : `<span title="Alerta: VLRTOT = 0 (não salvo)" style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#f59e0b;"></span>`;
+              // Status: bolinha verde se vlrtot > 0, vermelho caso contrário
+              const status = (vlrtot > 0)
+                ? `<span title="OK" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#16a34a;"></span>`
+                : `<span title="Pendente" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#dc2626;"></span>`;
               const nun = Number(r.nunota||0), seq = Number(r.sequencia||0);
               
               const abrir = (nun && seq) ? `
@@ -6407,10 +6601,10 @@
         try{
           const id = 'comercialToast';
           let el = document.getElementById(id);
-          if(!el){ el = document.createElement('div'); el.id = id; el.style.position = 'fixed'; el.style.right = '16px'; el.style.top = '18px'; el.style.minWidth = '220px'; el.style.maxWidth = '420px'; el.style.zIndex = '10050'; el.style.fontSize = '13px'; document.body.appendChild(el); }
-          const msg = document.createElement('div'); msg.style.marginTop='8px'; msg.style.padding='10px 12px'; msg.style.borderRadius='6px'; msg.style.color = type === 'error' ? '#fff' : '#111'; msg.style.background = type === 'error' ? '#e55353' : (type === 'success' ? '#2ea44f' : '#ffd966'); msg.style.boxShadow = '0 6px 18px rgba(0,0,0,0.12)'; msg.textContent = message;
+          if(!el){ el = document.createElement('div'); el.id = id; el.style.position = 'fixed'; el.style.right = '16px'; el.style.bottom = '16px'; el.style.minWidth = '220px'; el.style.maxWidth = '420px'; el.style.zIndex = '10050'; el.style.fontSize = '13px'; document.body.appendChild(el); }
+          const msg = document.createElement('div'); msg.style.marginBottom='8px'; msg.style.padding='10px 12px'; msg.style.borderRadius='6px'; msg.style.color = type === 'error' ? '#fff' : '#111'; msg.style.background = type === 'error' ? '#e55353' : (type === 'success' ? '#2ea44f' : '#ffd966'); msg.style.boxShadow = '0 6px 18px rgba(0,0,0,0.12)'; msg.textContent = message;
           el.appendChild(msg);
-          setTimeout(()=>{ try{ msg.style.transition='opacity .4s ease, transform .35s ease'; msg.style.opacity='0'; msg.style.transform='translateY(-6px)'; setTimeout(()=> msg.remove(), 420); }catch(_){ msg.remove(); } }, 3600);
+          setTimeout(()=>{ try{ msg.style.transition='opacity .4s ease, transform .35s ease'; msg.style.opacity='0'; msg.style.transform='translateY(6px)'; setTimeout(()=> msg.remove(), 420); }catch(_){ msg.remove(); } }, 3600);
         }catch(e){ console.error('showToast', e); }
       }
       

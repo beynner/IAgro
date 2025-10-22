@@ -4383,6 +4383,7 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
         
         # Buscar vales (TOP 13) associados aos pedidos (TOP 11)
         nunota_to_vale = {}
+        vale_to_nufin = {}  # 🔥 Mapear NUNOTA do vale → NUFIN
         if rows:
             from sankhya_integration.services.oracle_conn import get_connection, get_params
             try:
@@ -4411,8 +4412,31 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                         for numpedido, nunota_vale in cur.fetchall():
                             if numpedido and nunota_vale:
                                 nunota_to_vale[int(numpedido)] = int(nunota_vale)
+                        
+                        # 🔥 Buscar NUFIN dos vales (se já foram faturados)
+                        vale_to_nufin = {}
+                        if nunota_to_vale:
+                            nunotas_vales = list(set(nunota_to_vale.values()))
+                            placeholders_v = ','.join([':v' + str(i) for i in range(len(nunotas_vales))])
+                            sql_nufin = f"""
+                                SELECT NUNOTA, NUFIN 
+                                FROM TGFFIN 
+                                WHERE NUNOTA IN ({placeholders_v})
+                                ORDER BY NUNOTA, NUFIN DESC
+                            """
+                            bind_vars_v = {}
+                            for i, nunota_vale in enumerate(nunotas_vales):
+                                bind_vars_v[f'v{i}'] = nunota_vale
+                            
+                            cur.execute(sql_nufin, bind_vars_v)
+                            for nunota_v, nufin_v in cur.fetchall():
+                                if nunota_v and nufin_v:
+                                    # Pegar apenas o primeiro NUFIN (mais recente)
+                                    if nunota_v not in vale_to_nufin:
+                                        vale_to_nufin[int(nunota_v)] = int(nufin_v)
             except Exception as e:
                 logger.warning(f'Erro ao buscar vales associados: {e}')
+                vale_to_nufin = {}
         
         # Filtrar por FABRICANTE em memória, se solicitado (para evitar alterar a SQL base)
         if fabricante:
@@ -4471,6 +4495,8 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
             
             # Buscar vale associado a este pedido
             nunota_13_val = nunota_to_vale.get(int(nunota_val)) if nunota_val else None
+            # Buscar NUFIN se vale já foi faturado
+            nufin_val = vale_to_nufin.get(nunota_13_val) if nunota_13_val else None
             
             out.append({
                 'parceiro': parc or '',
@@ -4480,6 +4506,7 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                 'dtneg': dt_iso,
                 'nunota': int(nunota_val) if nunota_val is not None else None,
                 'nunota_13': nunota_13_val,  # NUNOTA da TOP 13 (vale) se existir
+                'nufin': nufin_val,  # 🔥 NUFIN do financeiro se já foi faturado
                 'sequencia': int(sequencia_val) if sequencia_val is not None else None,
                 'classificavel': (None if gp_val is None else (str(gp_val).upper() != 'N')),
                 'codvol': (str(codvol).upper() if codvol is not None else None),

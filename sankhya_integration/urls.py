@@ -1,4 +1,4 @@
-from django.urls import path
+﻿from django.urls import path
 
 from . import views
 
@@ -64,5 +64,5 @@ urlpatterns = [
     path("comercial/modal/auto-save/", views.modal_faturamento_auto_save, name="modal_faturamento_auto_save"),
     path("comercial/item/lote/", views.comercial_item_lote, name="comercial_item_lote"),
     path("classificacao/resumo/", views.classificacao_resumo, name="classificacao_resumo"),
-    # Duplicação automática/rotas removidas a pedido: sem duplicar TOP 11→26 via portal
+    # DuplicaÃ§Ã£o automÃ¡tica/rotas removidas a pedido: sem duplicar TOP 11â†’26 via portal
 ]

@@ -4400,26 +4400,46 @@ def criar_tgffin(nunota_vale: int) -> Dict[str, Any]:
             logger.info(f'[CRIAR TGFFIN] Base: {dtneg_trunc.strftime("%d/%m/%Y") if isinstance(dtneg_trunc, datetime) else dtneg_trunc}, '
                        f'Vencimento: {dtvenc_trunc.strftime("%d/%m/%Y") if isinstance(dtvenc_trunc, datetime) else dtvenc_trunc}')
             
-            # 6. INSERT TGFFIN (67 colunas da Etapa 7 - Sankhya)
+            # 6. INSERT TGFFIN conforme Etapa 7 (TGFFIN após confirmar TOP 13)
+            # Baseado no arquivo: Rastreamento Banco Sankhya.txt
             # Importante: Valores 0 são enviados como 0, campos vazios como NULL
-            logger.debug('[CRIAR TGFFIN] Executando INSERT na TGFFIN...')
+            # PROVISAO = 'N' (título confirmado, não provisório)
+            # AUTORIZADO = 'N', RECDESP = -1, DESDOBRAMENTO = 1, SEQUENCIA = 1
+            logger.debug('[CRIAR TGFFIN] Executando INSERT na TGFFIN (Etapa 7)...')
             
-            # Inserir SOMENTE as colunas solicitadas
             cur.execute("""
                 INSERT INTO TGFFIN (
-                    NUFIN, CODEMP, NUMNOTA, NUNOTA, DTNEG, DHMOV,
-                    DTVENCINIC, DTVENC, DTENTSAI, DTPRAZO,
-                    DHTIPOPER, DHTIPOPERBAIXA, DTALTER,
-                    CODPARC, CODTIPOPER, CODBCO, CODCTABCOINT,
-                    CODNAT, CODCENCUS, CODTIPTIT, VLRDESDOB,
-                    FINCONFIRMADO, ORIGEM
+                    NUFIN, CODEMP, NUMNOTA, DTNEG, DESDOBRAMENTO, DHMOV,
+                    DTVENCINIC, DTVENC, CODPARC, CODTIPOPER, DHTIPOPER,
+                    CODBCO, CODCTABCOINT, CODNAT, CODCENCUS, CODPROJ,
+                    CODVEND, CODMOEDA, CODTIPTIT, VLRDESDOB, VLRVENDOR,
+                    VLRIRF, VLRISS, DESPCART, ISSRETIDO, VLRDESC,
+                    VLRMULTA, VLRINSS, TIPMULTA, VLRJURO, TIPJURO,
+                    BASEICMS, ALIQICMS, DHTIPOPERBAIXA, VLRBAIXA,
+                    AUTORIZADO, RECDESP, PROVISAO, ORIGEM, NUNOTA,
+                    RATEADO, DTENTSAI, VLRPROV, IRFRETIDO, INSSRETIDO,
+                    CARTAODESC, DTALTER, NUMCONTRATO, ORDEMCARGA, CODVEICULO,
+                    CODUSU, SEQUENCIA, VLRDESCEMBUT, VLRJUROEMBUT, VLRMULTAEMBUT,
+                    VLRMOEDA, VLRMOEDABAIXA, VLRMULTANEGOC, VLRJURONEGOC,
+                    VLRMULTALIB, VLRJUROLIB, VLRALIBERAR, DTPRAZO,
+                    FINCONFIRMADO, VLRGNREDOIS, RECEBIDO, VLRDESDOBCALC,
+                    NUMOCORRENCIAS
                 ) VALUES (
-                    :NUFIN, :CODEMP, :NUMNOTA, :NUNOTA, :DTNEG, SYSDATE,
-                    :DTVENCINIC, :DTVENC, :DTENTSAI, :DTPRAZO,
-                    :DHTIPOPER, TO_DATE('01/01/1998','DD/MM/YYYY'), SYSDATE,
-                    :CODPARC, :CODTIPOPER, :CODBCO, :CODCTABCOINT,
-                    :CODNAT, :CODCENCUS, :CODTIPTIT, :VLRDESDOB,
-                    'S', :ORIGEM
+                    :NUFIN, :CODEMP, :NUMNOTA, :DTNEG, 1, SYSDATE,
+                    :DTVENCINIC, :DTVENC, :CODPARC, :CODTIPOPER, :DHTIPOPER,
+                    :CODBCO, :CODCTABCOINT, :CODNAT, :CODCENCUS, 0,
+                    0, 0, :CODTIPTIT, :VLRDESDOB, 0,
+                    0, 0, 0, 'N', 0,
+                    0, 0, 1, 0, 1,
+                    0, 0, TO_DATE('01/01/1998','DD/MM/YYYY'), 0,
+                    'N', -1, 'N', 'E', :NUNOTA,
+                    'N', :DTENTSAI, 0, 'S', 'S',
+                    0, SYSDATE, 0, 0, 0,
+                    0, 1, 0, 0, 0,
+                    0, 0, 0, 0,
+                    0, 0, 0, :DTPRAZO,
+                    'S', 0, 0, 0,
+                    0
                 )
             """, {
                 'NUFIN': int(NUFIN),
@@ -4439,8 +4459,7 @@ def criar_tgffin(nunota_vale: int) -> Dict[str, Any]:
                 'CODNAT': CODNAT,
                 'CODCENCUS': CODCENCUS,
                 'CODTIPTIT': int(CODTIPTIT),
-                'VLRDESDOB': float(VLRNOTA),
-                'ORIGEM': 'E'
+                'VLRDESDOB': float(VLRNOTA)
             })
             
             # Commit isolado para TGFFIN (rollback não afeta TGFCAB)
@@ -4879,6 +4898,34 @@ def get_produtos_extra_medio(codprod_in_natura: int):
             # Se já encontrou ambos, pode parar
             if resultado['extra'] and resultado['medio']:
                 break
+        
+        # FALLBACK: Se não encontrou EXTRA nem MÉDIO, buscar produto sem "IN NATURA"
+        if resultado['extra'] is None and resultado['medio'] is None:
+            print(f'[get_produtos_extra_medio] FALLBACK - Não encontrou EXTRA/MÉDIO, buscando produto sem "IN NATURA"')
+            
+            # Buscar produto do mesmo fabricante SEM "IN NATURA" no nome
+            sql_fallback = """
+                SELECT CODPROD, UPPER(DESCRPROD) AS NOME
+                FROM TGFPRO
+                WHERE FABRICANTE = :fabricante
+                  AND CODPROD != :codprod_in_natura
+                  AND UPPER(DESCRPROD) NOT LIKE '%IN NATURA%'
+                  AND UPPER(DESCRPROD) NOT LIKE '%INNATURA%'
+                  AND UPPER(DESCRPROD) NOT LIKE '%INATURA%'
+                ORDER BY CODPROD
+            """
+            
+            cur.execute(sql_fallback, fabricante=fabricante, codprod_in_natura=int(codprod_in_natura))
+            fallback_rows = cur.fetchall()
+            
+            print(f'[get_produtos_extra_medio] FALLBACK - Encontrados {len(fallback_rows)} produtos sem "IN NATURA"')
+            for r in fallback_rows:
+                print(f'[get_produtos_extra_medio] FALLBACK   - CODPROD={r[0]}, NOME={r[1]}')
+            
+            if fallback_rows:
+                # Usar o primeiro produto encontrado como EXTRA
+                resultado['extra'] = int(fallback_rows[0][0])
+                print(f'[get_produtos_extra_medio] FALLBACK - Usando CODPROD {resultado["extra"]} como EXTRA')
         
         print(f'[get_produtos_extra_medio] Resultado final: {resultado}')
         return resultado
