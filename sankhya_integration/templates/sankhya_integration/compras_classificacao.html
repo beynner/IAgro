@@ -354,13 +354,9 @@
             <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
           </svg>
         </button>
-  <button class="icon-btn" type="button" title="Imprimir" id="btnPrint">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polyline points="6 9 6 2 18 2 18 9"></polyline>
-            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
-            <rect x="6" y="14" width="12" height="8"></rect>
-          </svg>
-        </button>
+  <!-- Impressora removida: botão de impressão ocultado conforme solicitação -->
+        <!-- Botão 'Classificar' removido conforme solicitado. Para reativar, descomente o bloco abaixo. -->
+        <!--
         <button class="icon-btn" id="btnClassify" type="button" title="Classificar" disabled>
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M3 7h18"></path>
@@ -369,6 +365,7 @@
             <path d="M9 12h6"></path>
           </svg>
         </button>
+        -->
       </div>
       <div class="panel panel--results">
         <header>LOTES</header>
@@ -789,20 +786,19 @@
       </div>
   <div id="modalSaldo" style="margin-top:6px; font-size:13px; color:#374151;"></div>
         <div style="margin-top:8px;">
-        <label>Saídas (Produto, Vol, Qtde)</label>
+        <label>Saídas (Produto, Qtde)</label>
         <table style="width:100%; margin-top:6px;">
-          <thead><tr><th>Produto</th><th>Vol</th><th>Qtd</th><th>Obs</th><th></th></tr></thead>
+          <thead><tr><th>Produto</th><th>Quantidade</th><th>Obs</th><th></th></tr></thead>
           <tbody id="modalSaidasBody">
             <tr>
               <td style="position:relative;">
                 <input type="hidden" class="ma-prod-hidden" />
                 <input class="ma-prod-vis" placeholder="cod ou desc" autocomplete="off" style="width:220px;" />
                 <div class="ma-prod-suggest" style="position:absolute; left:0; right:0; background:#fff; border:1px solid #e5e7eb; display:none; max-height:160px; overflow:auto; z-index:60; font-size:13px;"></div>
-              </td>
-              <td style="position:relative; width:110px;">
+                <!-- Hidden volume inputs preserved so JS handlers still find them (column visually removed) -->
                 <input type="hidden" class="ma-vol-hidden" />
-                <input class="ma-vol-vis" value="KG" style="width:90px;" placeholder="CODVOL" autocomplete="off" />
-                <div class="ma-vol-suggest" style="position:absolute; left:0; width:110px; background:#fff; border:1px solid #e5e7eb; display:none; max-height:160px; overflow:auto; z-index:60; font-size:13px;"></div>
+                <input class="ma-vol-vis" type="hidden" value="KG" />
+                <div class="ma-vol-suggest" style="display:none; position:absolute; left:0; right:0; background:#fff; border:1px solid #e5e7eb; max-height:160px; overflow:auto; z-index:60; font-size:13px;"></div>
               </td>
               <td><input class="ma-qtd" type="number" step="0.001" /></td>
               <td><input class="ma-obs" /></td>
@@ -974,8 +970,8 @@
               </div>
               <div style="max-height:42vh; overflow:auto; border:1px solid var(--border); border-radius:6px;">
                 <table class="ph-selectable-table" style="width:100%; border-collapse:collapse;">
-                  <thead><tr><th style="padding:8px">Lote</th><th>Produto</th><th style="text-align:right">Vol</th><th style="text-align:right">Qtd</th><th style="text-align:right">Peso</th><th style="text-align:right"></th></tr></thead>
-                    <tbody id="itemsListBody"><tr><td colspan="6" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr></tbody>
+                  <thead><tr><th style="padding:8px">Lote</th><th>Produto</th><th style="text-align:right">Quantidade</th><th style="text-align:right">Peso</th><th style="text-align:right"></th></tr></thead>
+                    <tbody id="itemsListBody"><tr><td colspan="5" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr></tbody>
                 </table>
               </div>
             </div>
@@ -2028,12 +2024,12 @@
           <input type="hidden" class="ma-prod-hidden" />
           <input class="ma-prod-vis" placeholder="cod ou desc" autocomplete="off" style="width:220px;" />
           <div class="ma-prod-suggest" style="position:absolute; left:0; right:0; background:#fff; border:1px solid #e5e7eb; display:none; max-height:160px; overflow:auto; z-index:60; font-size:13px;"></div>
-        </td>
-        <td>
+          <!-- Hidden volume inputs preserved so JS handlers still find them (column visually removed) -->
           <input type="hidden" class="ma-vol-hidden" />
-          <input class="ma-vol-vis" value="KG" style="width:90px;" placeholder="CODVOL" autocomplete="off" />
-          <div class="ma-vol-suggest" style="position:absolute; left:0; right:0; background:#fff; border:1px solid #e5e7eb; display:none; max-height:160px; overflow:auto; z-index:60; font-size:13px;"></div>
+          <input class="ma-vol-vis" type="hidden" value="KG" />
+          <div class="ma-vol-suggest" style="display:none; position:absolute; left:0; right:0; background:#fff; border:1px solid #e5e7eb; max-height:160px; overflow:auto; z-index:60; font-size:13px;"></div>
         </td>
+        <!-- volume inputs moved into first cell (hidden) -->
         <td><input class="ma-qtd" type="number" step="0.001" /></td>
         <td><input class="ma-obs" /></td>
         <td>
@@ -2176,7 +2172,8 @@
           };
         });
       })();
-      const btnPrint = document.getElementById('btnPrint'); if(btnPrint){ btnPrint.addEventListener('click', ()=>window.print()); }
+      // Impressora: handler removido para evitar ação de impressão nesta página
+      // const btnPrint = document.getElementById('btnPrint'); if(btnPrint){ btnPrint.addEventListener('click', ()=>window.print()); }
       const clearBtn = document.getElementById('btnClear'); const form = document.getElementById('filtersForm'); if(clearBtn && form){ clearBtn.addEventListener('click', (e)=>{ e.preventDefault(); const inputs = form.querySelectorAll('input'); inputs.forEach((inp)=>{ if(inp.type === 'hidden' || inp.type === 'text' || inp.type === 'number' || inp.type === 'date'){ inp.value = ''; } }); const parcHidden = document.getElementById('codparc'); if(parcHidden) parcHidden.value = ''; const parcVisible = document.getElementById('parcSearch'); if(parcVisible) parcVisible.value = ''; }); }
       if(form){ form.addEventListener('submit', ()=>{ let pg = form.querySelector('input[name="page"]'); if(!pg){ pg = document.createElement('input'); pg.type='hidden'; pg.name='page'; form.appendChild(pg); } pg.value='1'; }); }
       // Replicar data inicial para data final ao digitar no primeiro campo
@@ -2756,13 +2753,23 @@
         const peso = parseFloat(it.peso) || 0;
         const total = it.total != null ? parseFloat(it.total) : (qtd * peso);
         const totalFormatted = total > 0 ? Math.round(total).toLocaleString('pt-BR') : '';
-        
+        // Formatar quantidade para exibir '1.000 cx' com 'cx' menor e opaco
+        let formattedQtd = '';
+        try{
+          if (it.qtd != null && it.qtd !== ''){
+            const nQ = parseFloat(it.qtd);
+            const qTxt = Number.isFinite(nQ) ? nQ.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : String(it.qtd);
+            const unit = (it.codvol && String(it.codvol).trim()) ? String(it.codvol).trim().toLowerCase() : '';
+            const unitHtml = unit ? `<span class="unit-suffix" style="font-size:0.95em; opacity:0.7; margin-left:4px;">${unit}</span>` : '';
+            formattedQtd = `${qTxt}${unitHtml}`;
+          }
+        }catch(_){ formattedQtd = (it.qtd!=null?String(it.qtd):''); }
+
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td style="padding:8px">${it.lote||''}</td>
           <td>${it.cod||''} ${it.descr||''}</td>
-          <td style="text-align:right">${it.codvol||''}</td>
-          <td style="text-align:right">${it.qtd!=null?String(it.qtd):''}</td>
+          <td style="text-align:right">${formattedQtd}</td>
           <td style="text-align:right">${it.peso!=null?String(it.peso):''}</td>
           <td style="text-align:right"><button class="icon-btn danger icon-btn--plain item-del" data-seq="${it.sequencia||''}" aria-label="Excluir">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

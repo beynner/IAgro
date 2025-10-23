@@ -299,7 +299,7 @@
             <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
           </svg>
         </button>
-        <button class="icon-btn" type="button" title="Imprimir" id="btnPrint" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:3px 6px; cursor:pointer; color:#475569; font-size:.72rem; display:inline-flex; align-items:center; gap:4px;">
+        <button class="icon-btn" type="button" title="Imprimir" id="btnPrint" disabled aria-disabled="true" tabindex="-1" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:3px 6px; cursor:not-allowed; color:#475569; font-size:.72rem; display:inline-flex; align-items:center; gap:4px; opacity:0.35; pointer-events: none;">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="6 9 6 2 18 2 18 9"></polyline>
             <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
@@ -536,14 +536,13 @@
                   <th>Produto</th>
                   <th>Lote</th>
                   <th>Classifica</th>
-                  <th>Qtd</th>
-                  <th>Vol</th>
-                  <th>Peso</th>
-                  <th>Total kg</th>
+                  <th style="text-align:right">Qtd</th>
+                  <th style="text-align:right">Peso</th>
+                  <th style="text-align:right">Total kg</th>
                   <th></th>
                 </tr>
               </thead>
-              <tbody id="itemsListBody"><tr><td colspan="8" style="color:var(--muted)">Nenhum item carregado.</td></tr></tbody>
+              <tbody id="itemsListBody"><tr><td colspan="7" style="color:var(--muted)">Nenhum item carregado.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -933,7 +932,7 @@
 
       // Imprimir
       const btnPrint = document.getElementById('btnPrint');
-      if (btnPrint) {
+      if (btnPrint && !btnPrint.disabled) {
         btnPrint.addEventListener('click', () => window.print());
       }
 
@@ -1390,10 +1389,10 @@
           let j=null; try{ j = window.__ITEMS_CACHE && window.__ITEMS_CACHE[String(resolved)]; }catch(_){ }
           if(j && j.ok){
             const rows = j.items || j.results || [];
-            itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item.</td></tr>';
+            itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="7" style="padding:8px; color:var(--muted)">Nenhum item.</td></tr>';
             for(const it of rows){ addItemRowToList(it); }
           } else {
-            itemsListBody.innerHTML = '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Carregando…</td></tr>';
+            itemsListBody.innerHTML = '<tr><td colspan="7" style="padding:8px; color:var(--muted)">Carregando…</td></tr>';
           }
         }catch(_){ }
         try{ console.debug('showItemsModal calling loadItems for', resolved); loadItems(resolved); }catch(e){ console.error('loadItems call failed', e); }
@@ -1606,7 +1605,7 @@
       function setItemAddBtnMode(mode){
         try{
           const btn = document.getElementById('itemAddBtn'); if(!btn) return;
-          const plusSvg = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">\n  <circle cx="12" cy="12" r="9"></circle>\n  <line x1="12" y1="8" x2="12" y2="16"></line>\n  <line x1="8" y1="12" x2="16" y2="12"></line>\n</svg>';
+          const plusSvg = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">\n  <circle cx="12" cy="12" r="9"></circle>\n  <line x1="12" y1="8" x2="12" y2="16"></line>\n  <line x1="8" y1="12" x2="16" y2="12"></line>\n</svg>';
           const checkSvg = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">\n  <circle cx="12" cy="12" r="9"></circle>\n  <polyline points="8 12 11 15 16 9"></polyline>\n</svg>';
           if (mode === 'edit'){
             btn.dataset.mode = 'edit';
@@ -1646,7 +1645,7 @@
       // normalize nunota to integer or null
       function normalizeNunota(n){ try{ if(n==null) return null; const s = String(n).trim(); if(!s) return null; const m = s.match(/(\d+)/); if(!m) return null; const v = parseInt(m[1],10); return Number.isFinite(v) ? v : null; }catch(_){ return null; } }
 
-      function clearItemsList(){ if(!itemsListBody) return; itemsListBody.innerHTML = '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr>'; }
+      function clearItemsList(){ if(!itemsListBody) return; itemsListBody.innerHTML = '<tr><td colspan="7" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr>'; }
       // Click-to-select for items modal rows (visual highlight and future actions)
       try{
         itemsListBody?.addEventListener('click', async function(e){
@@ -1777,16 +1776,20 @@
           const n = parseFlexibleNumber(it?.total);
           return Number.isFinite(n) ? formatBR1(n) : (it && it.total != null ? String(it.total) : '');
         })();
+        // Build unit suffix for quantity (use codvol) and kg suffix for total
+        const unitQty = (it.codvol && String(it.codvol).trim()) ? String(it.codvol).trim().toLowerCase() : '';
+        const unitQtyHtml = unitQty ? `<span class="unit-suffix" style="font-size:0.95em; opacity:0.7; margin-left:2px;">${unitQty}</span>` : '';
+        const totalWithUnit = totalFormatted ? `${totalFormatted} <span class="unit-suffix" style="font-size:0.95em; opacity:0.7; margin-left:2px;">kg</span>` : totalFormatted;
+
         tr.innerHTML = `
           <td>${it.cod||''} ${it.descr||''}</td>
           <td>${it.lote||''}</td>
           <td style="text-align:center">${classTxt}</td>
-          <td style="text-align:right">${qtdFormatted}</td>
-          <td>${it.codvol||''}</td>
+          <td style="text-align:right">${qtdFormatted}${unitQtyHtml}</td>
           <td style="text-align:right">${pesoFormatted}</td>
-          <td style="text-align:right">${totalFormatted}</td>
-          <td><button class="icon-btn item-del" data-seq="${it.sequencia||''}" aria-label="Excluir" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:3px 6px; cursor:pointer; color:#475569; font-size:.72rem; display:inline-flex; align-items:center; gap:4px;">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <td style="text-align:right">${totalWithUnit}</td>
+          <td><button class="icon-btn item-del" data-seq="${it.sequencia||''}" aria-label="Excluir" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:3px 6px; cursor:pointer; color:#dc2626; font-size:.72rem; display:inline-flex; align-items:center; gap:4px;">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <polyline points="3 6 5 6 21 6"></polyline>
               <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
               <path d="M10 11v6"></path>
@@ -1844,11 +1847,11 @@
           let j = null; try{ const cache = window.__ITEMS_CACHE || {}; if (cache && cache[String(resolved)]) j = cache[String(resolved)]; }catch(_){ }
           if(j){
             const rows = j.items || j.results || [];
-            itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item.</td></tr>';
+            itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="7" style="padding:8px; color:var(--muted)">Nenhum item.</td></tr>';
             for(const it of rows){ addItemRowToList(it); }
           } else {
             // Status enquanto aguarda rede
-            itemsListBody.innerHTML = '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Carregando…</td></tr>';
+            itemsListBody.innerHTML = '<tr><td colspan="7" style="padding:8px; color:var(--muted)">Carregando…</td></tr>';
             itemsListController = new AbortController();
             const opts = { credentials: 'same-origin', signal: itemsListController.signal };
             const url = '/sankhya/item/list/?nunota=' + encodeURIComponent(resolved);
@@ -1860,9 +1863,9 @@
             try{ j = await r.json(); console.debug('loadItems response json keys', Object.keys(j), 'itemsLen', (j.items||j.results||[]).length); }catch(_){ j = {}; console.debug('loadItems could not parse JSON'); }
             // Save to cache for next loads
             try{ if(j && j.ok){ window.__ITEMS_CACHE = window.__ITEMS_CACHE || {}; window.__ITEMS_CACHE[String(resolved)] = j; } }catch(_){ }
-            if(!j || !j.ok){ itemsListBody.innerHTML = `<tr><td colspan="8">Erro: ${(j&&j.error)||'falha'}</td></tr>`; return; }
+            if(!j || !j.ok){ itemsListBody.innerHTML = `<tr><td colspan="7">Erro: ${(j&&j.error)||'falha'}</td></tr>`; return; }
             const rows = j.items || j.results || [];
-            itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="8" style="padding:8px; color:var(--muted)">Nenhum item.</td></tr>';
+            itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="7" style="padding:8px; color:var(--muted)">Nenhum item.</td></tr>';
             for(const it of rows){ addItemRowToList(it); }
           }
         }catch(err){
@@ -1871,7 +1874,7 @@
             return;
           }
           console.error('loadItems error', err);
-          itemsListBody.innerHTML = '<tr><td colspan="8">Erro ao carregar.</td></tr>'; }
+          itemsListBody.innerHTML = '<tr><td colspan="7">Erro ao carregar.</td></tr>'; }
       }
 
       // Item Produto typeahead — reutiliza attachTA para ter o mesmo comportamento do Parceiro (modal Cabeçalho)
