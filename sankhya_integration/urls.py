@@ -61,6 +61,7 @@ urlpatterns = [
     path("comercial/vale/save/", views.comercial_vale_save, name="comercial_vale_save"),
     path("comercial/vale/sync/", views.comercial_vale_sync, name="comercial_vale_sync"),
     path("comercial/vale/clear/", views.comercial_vale_clear, name="comercial_vale_clear"),
+    path("comercial/vale/desfaturar/", views.comercial_vale_desfaturar, name="comercial_vale_desfaturar"),
     path("comercial/modal/auto-save/", views.modal_faturamento_auto_save, name="modal_faturamento_auto_save"),
     path("comercial/item/lote/", views.comercial_item_lote, name="comercial_item_lote"),
     path("classificacao/resumo/", views.classificacao_resumo, name="classificacao_resumo"),

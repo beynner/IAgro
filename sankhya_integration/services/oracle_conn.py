@@ -4312,6 +4312,22 @@ def criar_tgffin(nunota_vale: int) -> Dict[str, Any]:
         with get_connection() as conn:
             cur = conn.cursor()
             
+            # 0. Verificar se já existe TGFFIN para este NUNOTA
+            logger.debug(f'[CRIAR TGFFIN] Verificando se já existe TGFFIN para NUNOTA={nunota_int}')
+            cur.execute("""
+                SELECT NUFIN, NURENEG, VLRBAIXA 
+                FROM TGFFIN 
+                WHERE NUNOTA = :n
+            """, n=nunota_int)
+            
+            existing_row = cur.fetchone()
+            if existing_row:
+                existing_nufin, existing_nureneg, existing_vlrbaixa = existing_row
+                logger.warning(f'[CRIAR TGFFIN] ⚠️ Já existe TGFFIN para NUNOTA {nunota_int}: NUFIN={existing_nufin}')
+                out['error'] = f'Vale já está faturado (NUFIN: {existing_nufin}). Use DESFATURAR antes de faturar novamente.'
+                out['nufin'] = existing_nufin
+                return out
+            
             # 1. Buscar dados do cabeçalho (TOP 13)
             logger.debug(f'[CRIAR TGFFIN] Buscando dados do cabeçalho NUNOTA={nunota_int}')
             cur.execute("""
@@ -4439,7 +4455,7 @@ def criar_tgffin(nunota_vale: int) -> Dict[str, Any]:
                     0, 0, 0, 0,
                     0, 0, 0, :DTPRAZO,
                     'S', 0, 0, 0,
-                    0
+                    NULL
                 )
             """, {
                 'NUFIN': int(NUFIN),

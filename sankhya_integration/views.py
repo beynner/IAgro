@@ -3974,6 +3974,143 @@ def comercial_vale_save(request: HttpRequest) -> JsonResponse:
     return JsonResponse(response_data, status=200 if ok else 400)
 
 
+def comercial_vale_desfaturar(request: HttpRequest) -> JsonResponse:
+    """
+    Desfatura um Vale de Compra (TOP 13), deletando o registro TGFFIN e reabrindo o vale.
+    
+    POST JSON:
+    {
+      "nufin": int  # NUFIN do registro TGFFIN a ser deletado
+    }
+    
+    Validações:
+    1. Verificar se TGFFIN existe para este NUFIN
+    2. Verificar se NURENEG está vazio (NULL)
+    3. Verificar se VLRBAIXA está vazio (NULL ou 0)
+    4. Se bloqueado (tem NURENEG ou VLRBAIXA): retornar erro 403
+    5. Se OK:
+       - DELETE FROM TGFFIN WHERE NUFIN = :nufin
+       - UPDATE TGFCAB SET STATUSNOTA = 'A' WHERE NUNOTA = (NUNOTA do TGFFIN)
+       - [FUTURO] Registrar em tabela de auditoria
+    
+    Retorna:
+    {
+      "ok": bool,
+      "message": str,
+      "nufin_deletado": int,
+      "nunota_reaberto": int
+    }
+    """
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'Método não permitido'}, status=405)
+    
+    import json
+    import logging
+    from sankhya_integration.services.oracle_conn import get_connection, is_write_enabled
+    
+    logger = logging.getLogger(__name__)
+    
+    if not is_write_enabled():
+        return JsonResponse({'ok': False, 'error': 'Escrita desabilitada no sistema'}, status=403)
+    
+    try:
+        body = json.loads(request.body.decode('utf-8'))
+        nufin = body.get('nufin')
+        
+        if not nufin:
+            return JsonResponse({'ok': False, 'error': 'NUFIN não informado'}, status=400)
+        
+        nufin = int(nufin)
+        
+        logger.info(f'[DESFATURAR] Iniciando para NUFIN={nufin}')
+        
+        with get_connection() as conn:
+            cur = conn.cursor()
+            
+            # 1. Verificar se existe TGFFIN e buscar NUNOTA
+            cur.execute("""
+                SELECT NUNOTA, NURENEG, VLRBAIXA 
+                FROM TGFFIN 
+                WHERE NUFIN = :n
+            """, n=nufin)
+            
+            row = cur.fetchone()
+            
+            if not row:
+                logger.warning(f'[DESFATURAR] NUFIN {nufin} não encontrado na TGFFIN')
+                return JsonResponse({
+                    'ok': False, 
+                    'error': 'Registro financeiro não encontrado'
+                }, status=400)
+            
+            nunota, nureneg, vlrbaixa = row
+            
+            logger.info(f'[DESFATURAR] NUFIN {nufin} encontrado - NUNOTA={nunota}, NURENEG={nureneg}, VLRBAIXA={vlrbaixa}')
+            
+            # 2. Verificar bloqueios
+            if nureneg is not None:
+                logger.warning(f'[DESFATURAR] NUFIN {nufin} bloqueado por NURENEG={nureneg}')
+                return JsonResponse({
+                    'ok': False,
+                    'error': f'Vale bloqueado pelo Financeiro (NURENEG: {nureneg}). Solicite liberação.'
+                }, status=403)
+            
+            if vlrbaixa is not None and float(vlrbaixa) != 0:
+                logger.warning(f'[DESFATURAR] NUFIN {nufin} bloqueado por VLRBAIXA={vlrbaixa}')
+                return JsonResponse({
+                    'ok': False,
+                    'error': f'Vale bloqueado pelo Financeiro (VLRBAIXA: {vlrbaixa}). Solicite liberação.'
+                }, status=403)
+            
+            # 3. Deletar TGFFIN
+            logger.info(f'[DESFATURAR] Deletando TGFFIN com NUFIN={nufin}')
+            cur.execute("DELETE FROM TGFFIN WHERE NUFIN = :n", n=nufin)
+            
+            # 4. Reabrir vale (STATUSNOTA = 'A')
+            # Nota: Pode haver triggers que impeçam alterar STATUSNOTA se houver movimentações
+            # Neste caso, mantemos o STATUSNOTA atual e apenas deletamos o TGFFIN
+            try:
+                logger.info(f'[DESFATURAR] Tentando alterar STATUSNOTA para A (Aberto) - NUNOTA={nunota}')
+                cur.execute("""
+                    UPDATE TGFCAB 
+                    SET STATUSNOTA = 'A' 
+                    WHERE NUNOTA = :n
+                """, n=nunota)
+                statusnota_alterado = True
+            except Exception as e_status:
+                # Se falhar por causa de trigger, apenas logar e continuar
+                # O importante é que o TGFFIN foi deletado
+                logger.warning(f'[DESFATURAR] Não foi possível alterar STATUSNOTA (trigger/validação): {e_status}')
+                logger.warning(f'[DESFATURAR] TGFFIN deletado com sucesso, mas STATUSNOTA permanece como estava')
+                statusnota_alterado = False
+            
+            conn.commit()
+            
+            mensagem_sucesso = 'Vale desfaturado com sucesso'
+            if not statusnota_alterado:
+                mensagem_sucesso += ' (STATUSNOTA não foi alterado devido a validações do banco)'
+            
+            logger.info(f'[DESFATURAR] ✅ Sucesso! NUFIN {nufin} deletado, vale {nunota} {"reaberto" if statusnota_alterado else "mantido"}')
+            
+            # [FUTURO] Registrar em tabela de auditoria
+            # INSERT INTO TGFAUD (NUNOTA, NUFIN, ACAO, CODUSU, DTHORA) VALUES (...)
+            
+            return JsonResponse({
+                'ok': True,
+                'message': mensagem_sucesso,
+                'nufin_deletado': nufin,
+                'nunota_reaberto': nunota,
+                'statusnota_alterado': statusnota_alterado
+            })
+    
+    except Exception as e:
+        logger.error(f'[DESFATURAR] Erro: {e}', exc_info=True)
+        return JsonResponse({
+            'ok': False,
+            'error': f'Erro ao desfaturar: {str(e)}'
+        }, status=500)
+
+
 def comercial_vale_gerar(request: HttpRequest) -> JsonResponse:
     """
     Gera um Vale de Compra (TOP 13) a partir de um Pedido de Compra (TOP 11).
@@ -4413,13 +4550,15 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                             if numpedido and nunota_vale:
                                 nunota_to_vale[int(numpedido)] = int(nunota_vale)
                         
-                        # 🔥 Buscar NUFIN dos vales (se já foram faturados)
+                        # 🔥 Buscar NUFIN, NURENEG e VLRBAIXA dos vales (se já foram faturados)
                         vale_to_nufin = {}
+                        vale_to_nureneg = {}
+                        vale_to_vlrbaixa = {}
                         if nunota_to_vale:
                             nunotas_vales = list(set(nunota_to_vale.values()))
                             placeholders_v = ','.join([':v' + str(i) for i in range(len(nunotas_vales))])
                             sql_nufin = f"""
-                                SELECT NUNOTA, NUFIN 
+                                SELECT NUNOTA, NUFIN, NURENEG, VLRBAIXA
                                 FROM TGFFIN 
                                 WHERE NUNOTA IN ({placeholders_v})
                                 ORDER BY NUNOTA, NUFIN DESC
@@ -4429,14 +4568,18 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                                 bind_vars_v[f'v{i}'] = nunota_vale
                             
                             cur.execute(sql_nufin, bind_vars_v)
-                            for nunota_v, nufin_v in cur.fetchall():
+                            for nunota_v, nufin_v, nureneg_v, vlrbaixa_v in cur.fetchall():
                                 if nunota_v and nufin_v:
                                     # Pegar apenas o primeiro NUFIN (mais recente)
                                     if nunota_v not in vale_to_nufin:
                                         vale_to_nufin[int(nunota_v)] = int(nufin_v)
+                                        vale_to_nureneg[int(nunota_v)] = nureneg_v
+                                        vale_to_vlrbaixa[int(nunota_v)] = float(vlrbaixa_v) if vlrbaixa_v else 0.0
             except Exception as e:
                 logger.warning(f'Erro ao buscar vales associados: {e}')
                 vale_to_nufin = {}
+                vale_to_nureneg = {}
+                vale_to_vlrbaixa = {}
         
         # Filtrar por FABRICANTE em memória, se solicitado (para evitar alterar a SQL base)
         if fabricante:
@@ -4495,8 +4638,16 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
             
             # Buscar vale associado a este pedido
             nunota_13_val = nunota_to_vale.get(int(nunota_val)) if nunota_val else None
-            # Buscar NUFIN se vale já foi faturado
+            # Buscar NUFIN, NURENEG e VLRBAIXA se vale já foi faturado
             nufin_val = vale_to_nufin.get(nunota_13_val) if nunota_13_val else None
+            nureneg_val = vale_to_nureneg.get(nunota_13_val) if nunota_13_val else None
+            vlrbaixa_val = vale_to_vlrbaixa.get(nunota_13_val) if nunota_13_val else None
+            
+            # 🔒 Calcular se está bloqueado pelo financeiro
+            bloqueado_financeiro = bool(
+                (nureneg_val is not None) or 
+                (vlrbaixa_val is not None and vlrbaixa_val != 0)
+            )
             
             out.append({
                 'parceiro': parc or '',
@@ -4507,6 +4658,9 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                 'nunota': int(nunota_val) if nunota_val is not None else None,
                 'nunota_13': nunota_13_val,  # NUNOTA da TOP 13 (vale) se existir
                 'nufin': nufin_val,  # 🔥 NUFIN do financeiro se já foi faturado
+                'nureneg': nureneg_val,  # 🔥 NURENEG (número da renegociação)
+                'vlrbaixa': vlrbaixa_val,  # 🔥 VLRBAIXA (valor da baixa)
+                'bloqueado_financeiro': bloqueado_financeiro,  # 🔒 Bloqueado se tem NURENEG ou VLRBAIXA
                 'sequencia': int(sequencia_val) if sequencia_val is not None else None,
                 'classificavel': (None if gp_val is None else (str(gp_val).upper() != 'N')),
                 'codvol': (str(codvol).upper() if codvol is not None else None),

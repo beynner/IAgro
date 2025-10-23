@@ -845,8 +845,23 @@
         </div>
         <!-- Modal: Faturamento (por NUNOTA) -->
         <div id="modalFaturamento" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:1000; align-items:center; justify-content:center;">
-          <div style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; width:min(600px, 60vw); max-height:88vh; display:flex; flex-direction:column;">
-            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #e5e7eb;">
+          <div style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; width:min(600px, 60vw); max-height:88vh; display:flex; flex-direction:column; position:relative;">
+            <!-- 🎨 Marca d'água de fundo (muito sutil) -->
+            <div id="modalMarcaDagua" style="
+              position: absolute;
+              top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%) rotate(-30deg);
+              font-size: 80px;
+              font-weight: 900;
+              color: rgba(22, 163, 74, 0.12);
+              pointer-events: none;
+              z-index: 0;
+              user-select: none;
+              display: none;
+            ">FATURADO</div>
+            
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #e5e7eb; position:relative; z-index:1;">
               <div style="display:flex; align-items:center; gap:10px; flex:1;">
                 <div style="display:flex; flex-direction:column; gap:2px;">
                   <div style="display:flex; align-items:center; gap:8px;">
@@ -875,7 +890,35 @@
                 </svg>
               </button>
             </div>
-            <div style="padding:10px 12px; overflow:auto; display:flex; flex-direction:column; gap:14px;">
+            
+            <!-- 🚨 Banner de Status (Faturado/Bloqueado) -->
+            <div id="valeResumoStatusBanner" style="display:none; position:relative; z-index:1;">
+              <!-- Estado: Faturado (verde claro) -->
+              <div id="statusBannerFaturado" style="display:none;
+                background: linear-gradient(135deg, rgba(22,163,74,0.1) 0%, rgba(34,197,94,0.15) 100%);
+                border-left: 4px solid #16a34a;
+                padding: 8px 16px;
+                font-size: 0.9rem;
+                color: #15803d;
+                font-weight: 600;
+              ">
+                ✅ FATURADO - NUFIN: <span id="bannerNufin">—</span>
+              </div>
+              
+              <!-- Estado: Bloqueado (vermelho claro) -->
+              <div id="statusBannerBloqueado" style="display:none;
+                background: linear-gradient(135deg, rgba(220,38,38,0.1) 0%, rgba(239,68,68,0.15) 100%);
+                border-left: 4px solid #dc2626;
+                padding: 8px 16px;
+                font-size: 0.9rem;
+                color: #b91c1c;
+                font-weight: 600;
+              ">
+                🔒 BLOQUEADO - <span id="bannerMotivoBloqueio">Aguardando liberação do Financeiro</span>
+              </div>
+            </div>
+            
+            <div style="padding:10px 12px; overflow:auto; display:flex; flex-direction:column; gap:14px; position:relative; z-index:1;">
               <div>
                 <div style="font-weight:700; color:#334155; margin-bottom:6px;">Classificáveis</div>
                 <table style="width:100%; border-collapse:collapse; table-layout:fixed;">
@@ -931,6 +974,7 @@
             </div>
             <div style="padding:0 12px 12px 12px; display:flex; gap:8px; justify-content:flex-end;">
               <button id="valeResumoFaturar" class="btn" style="border:1px solid #16a34a; color:#16a34a; background:#fff; border-radius:8px; padding:10px 16px; font-weight:800;">FATURAR</button>
+              <button id="valeResumoDesfaturar" class="btn" style="display:none; border:2px solid #dc2626; color:#dc2626; background:#fff; border-radius:8px; padding:10px 20px; font-weight:800; cursor:pointer; transition:all .2s;">🗑️ DESFATURAR</button>
             </div>
           </div>
         </div>
@@ -1199,6 +1243,7 @@
                     </div>
                   </div>
                   <div id="distActionBar" class="dist-actions" aria-label="Ações da negociação">
+                    <span id="lockIconContainer" style="display: none; margin-right: 8px; color: #dc2626; font-size: 1rem;" title="Vale faturado - Edição bloqueada">🔒</span>
                     <button type="button" id="dist-btn-reset" class="btn-warn" style="font-size: 0.75rem; padding: 4px 12px; background: #e5e7eb; border: 1px solid #9ca3af; color: #6b7280; opacity: 0.8;">Zerar negociação</button>
                     <button type="button" id="dist-btn-print" class="btn-print" style="font-size: 0.75rem; padding: 4px 12px; background: #e5e7eb; border: 1px solid #9ca3af; color: #6b7280; opacity: 0.8;">Imprimir</button>
                     <button type="button" id="dist-btn-save" class="btn-primary" style="font-size: 0.75rem; padding: 4px 12px; background: #9ca3af; border: 1px solid #6b7280; color: #fff; opacity: 0.85;">Salvar</button>
@@ -1992,6 +2037,33 @@
 
     // Toggle Projeção/Real handler
     (function(){
+      // 🔥 Função helper para verificar se vale atual está faturado
+      window.__isCurrentValeFaturado = function(){
+        if(!window.__CURRENT_VALE_NUNOTA || !window.__COM_LIST_ROWS) {
+          console.log('[FATURADO CHECK] Sem NUNOTA ou ROWS:', { 
+            nunota: window.__CURRENT_VALE_NUNOTA, 
+            hasRows: Boolean(window.__COM_LIST_ROWS) 
+          });
+          return false;
+        }
+        
+        const rows = window.__COM_LIST_ROWS.filter(r => 
+          String(r.nunota || '') === String(window.__CURRENT_VALE_NUNOTA || '')
+        );
+        
+        if(rows.length === 0) {
+          console.log('[FATURADO CHECK] Nenhuma row encontrada para NUNOTA:', window.__CURRENT_VALE_NUNOTA);
+          return false;
+        }
+        
+        const primeiroItem = rows[0];
+        const faturado = Boolean(primeiroItem.nufin);
+        
+        console.log('[FATURADO CHECK] NUNOTA:', window.__CURRENT_VALE_NUNOTA, 'NUFIN:', primeiroItem.nufin, 'Faturado:', faturado);
+        
+        return faturado;
+      };
+      
       const toggleProjecao = document.getElementById('toggleProjecao');
       const toggleReal = document.getElementById('toggleReal');
       const btnReset = document.getElementById('dist-btn-reset');
@@ -2005,11 +2077,21 @@
       const setActiveToggle = (mode, isAutomatic = false) => {
         window.__VALOR_TOTAL_MODE = mode;
         
+        // 🔥 VERIFICAÇÃO CRÍTICA: Se vale está faturado, SEMPRE bloquear botões
+        const valeFaturado = window.__isCurrentValeFaturado ? window.__isCurrentValeFaturado() : false;
+        console.log('[TOGGLE] setActiveToggle chamado:', { mode, isAutomatic, valeFaturado });
+        
+        // Controlar ícone de cadeado
+        const lockIcon = document.getElementById('lockIconContainer');
+        
         if(mode === 'projecao'){
           toggleProjecao.classList.add('active');
           toggleProjecao.setAttribute('aria-checked', 'true');
           toggleReal.classList.remove('active');
           toggleReal.setAttribute('aria-checked', 'false');
+          
+          // Ocultar ícone de cadeado no modo projeção
+          if(lockIcon) lockIcon.style.display = 'none';
           
           // Desativar botões zerar e salvar
           if(btnReset){
@@ -2028,21 +2110,42 @@
           toggleProjecao.classList.remove('active');
           toggleProjecao.setAttribute('aria-checked', 'false');
           
-          // Reativar botões zerar e salvar
+          // Mostrar ícone de cadeado se vale faturado
+          if(lockIcon){
+            lockIcon.style.display = valeFaturado ? 'inline-block' : 'none';
+          }
+          
+          // Reativar botões zerar e salvar APENAS se vale não estiver faturado
           if(btnReset){
-            btnReset.disabled = false;
-            btnReset.style.opacity = '0.8';
-            btnReset.style.cursor = 'pointer';
+            if(valeFaturado){
+              btnReset.disabled = true;
+              btnReset.style.opacity = '0.3';
+              btnReset.style.cursor = 'not-allowed';
+              btnReset.title = 'Não é possível zerar negociação de vale faturado';
+            } else {
+              btnReset.disabled = false;
+              btnReset.style.opacity = '0.8';
+              btnReset.style.cursor = 'pointer';
+              btnReset.title = '';
+            }
           }
           if(btnSave){
-            btnSave.disabled = false;
-            btnSave.style.opacity = '0.85';
-            btnSave.style.cursor = 'pointer';
+            if(valeFaturado){
+              btnSave.disabled = true;
+              btnSave.style.opacity = '0.3';
+              btnSave.style.cursor = 'not-allowed';
+              btnSave.title = 'Não é possível salvar vale faturado';
+            } else {
+              btnSave.disabled = false;
+              btnSave.style.opacity = '0.85';
+              btnSave.style.cursor = 'pointer';
+              btnSave.title = '';
+            }
           }
         }
 
         console.log('[TOGGLE] Modo alterado para:', mode, isAutomatic ? '(automático)' : '(manual)');
-        console.log('[TOGGLE] Botões desativados:', mode === 'projecao');
+        console.log('[TOGGLE] Botões desativados:', mode === 'projecao' ? true : valeFaturado);
       };
 
       // Função para atualizar toggle baseado em pendenteClass
@@ -2646,6 +2749,11 @@
           const dt = item.dtneg || '';
           const unit = String(item.codvol||'').trim().toUpperCase();
           const qtd = Number(item.qtdneg||0) || 0;
+          
+          // 🔥 Armazenar NUNOTA atual para verificações de faturamento
+          window.__CURRENT_VALE_NUNOTA = nunota;
+          console.log('[ITEM SELECT] NUNOTA armazenado:', nunota);
+          
           // Load simulation fields from database: ad_simqtd1→extraCx, ad_simvlr1→extraCustoTotal, ad_simqtd2→medioCx, ad_simvlr2→medioCustoTotal
           const simExtraCx = (item.ad_simqtd1 != null ? Number(item.ad_simqtd1) : null);
           const simExtraTotal = (item.ad_simvlr1 != null ? Number(item.ad_simvlr1) : null);
@@ -3960,6 +4068,11 @@
             if(spinner) spinner.style.display = 'none';
             return;
           }
+          
+          // 🔥 Armazenar NUNOTA atual globalmente para verificações de faturamento
+          window.__CURRENT_VALE_NUNOTA = nunota;
+          console.log('[MODAL] NUNOTA confirmado:', nunota);
+          
           const rows = (window.__COM_LIST_ROWS||[]).filter(r=> String(r.nunota||'') === String(nunota||''));
           console.log('[DEBUG] Linhas filtradas:', rows.length);
           const parc = rows[0]?.parceiro || '';
@@ -4229,42 +4342,184 @@
             }
           }
           
-          // 🔥 Verificar se já foi faturado (NUFIN do backend)
+          // 🔥 Verificar estado do vale (NUFIN, NURENEG, VLRBAIXA)
           const nufinBadge = document.getElementById('valeResumoNufinBadge');
           const nufinNum = document.getElementById('valeResumoNufinNum');
           const btnFaturar = document.getElementById('valeResumoFaturar');
+          const btnDesfaturar = document.getElementById('valeResumoDesfaturar');
+          const statusBanner = document.getElementById('valeResumoStatusBanner');
+          const statusBannerFaturado = document.getElementById('statusBannerFaturado');
+          const statusBannerBloqueado = document.getElementById('statusBannerBloqueado');
+          const bannerNufin = document.getElementById('bannerNufin');
+          const bannerMotivoBloqueio = document.getElementById('bannerMotivoBloqueio');
+          const marcaDagua = document.getElementById('modalMarcaDagua');
           
-          // Buscar NUFIN do primeiro item do pedido (todos têm o mesmo nunota_13)
-          const nufinExistente = rows.length > 0 && rows[0].nufin ? rows[0].nufin : null;
+          // Buscar dados do primeiro item (todos têm os mesmos dados financeiros)
+          const primeiroItem = rows.length > 0 ? rows[0] : null;
+          const nufinExistente = primeiroItem?.nufin || null;
+          const nureneg = primeiroItem?.nureneg || null;
+          const vlrbaixa = primeiroItem?.vlrbaixa || null;
+          const bloqueado = primeiroItem?.bloqueado_financeiro || false;
           
-          console.log('[MODAL] NUFIN existente no banco:', nufinExistente);
+          console.log('[MODAL] Estado Financeiro:', { 
+            nufin: nufinExistente, 
+            nureneg, 
+            vlrbaixa, 
+            bloqueado 
+          });
           
-          // Se já foi faturado (tem NUFIN), mostrar badge e bloquear botão
-          if(nufinExistente){
-            console.log('[MODAL] ✅ Vale já faturado, NUFIN:', nufinExistente);
-            if(nufinBadge){
-              nufinBadge.style.display = 'inline-block';
-              if(nufinNum) nufinNum.textContent = String(nufinExistente);
-            }
+          // Resetar todos os elementos
+          if(statusBanner) statusBanner.style.display = 'none';
+          if(statusBannerFaturado) statusBannerFaturado.style.display = 'none';
+          if(statusBannerBloqueado) statusBannerBloqueado.style.display = 'none';
+          if(marcaDagua) marcaDagua.style.display = 'none';
+          if(nufinBadge) nufinBadge.style.display = 'none';
+          if(btnFaturar) btnFaturar.style.display = 'inline-block';
+          if(btnDesfaturar) btnDesfaturar.style.display = 'none';
+          
+          // ESTADO 1: Não faturado (sem NUFIN)
+          if(!nufinExistente){
+            console.log('[MODAL] Estado: NÃO FATURADO');
+            // Botões: FATURAR visível, DESFATURAR oculto
             if(btnFaturar){
-              btnFaturar.disabled = true;
-              btnFaturar.textContent = 'FATURADO ✓';
-              btnFaturar.style.opacity = '0.6';
-              btnFaturar.style.cursor = 'not-allowed';
-              btnFaturar.style.background = '#dcfce7';  // Verde claro
-              btnFaturar.style.borderColor = '#16a34a';
-            }
-          } else {
-            // Não faturado - resetar para estado inicial
-            console.log('[MODAL] ⚠️ Vale não faturado, habilitando botão');
-            if(nufinBadge) nufinBadge.style.display = 'none';
-            if(btnFaturar){
+              btnFaturar.style.display = 'inline-block';
               btnFaturar.disabled = false;
               btnFaturar.style.opacity = '1';
               btnFaturar.style.cursor = 'pointer';
               btnFaturar.style.background = '#fff';
               btnFaturar.style.borderColor = '#16a34a';
               btnFaturar.textContent = 'FATURAR';
+            }
+            // Campos editáveis (padrão, sem bloqueios)
+          }
+          // ESTADO 2: Faturado livre (tem NUFIN, mas sem NURENEG/VLRBAIXA)
+          else if(nufinExistente && !bloqueado){
+            console.log('[MODAL] Estado: FATURADO LIVRE (pode desfaturar)');
+            
+            // Mostrar badge NUFIN
+            if(nufinBadge){
+              nufinBadge.style.display = 'inline-block';
+              if(nufinNum) nufinNum.textContent = String(nufinExistente);
+            }
+            
+            // Banner verde REMOVIDO (conforme solicitação)
+            // if(statusBanner) statusBanner.style.display = 'block';
+            // if(statusBannerFaturado){
+            //   statusBannerFaturado.style.display = 'block';
+            //   if(bannerNufin) bannerNufin.textContent = String(nufinExistente);
+            // }
+            
+            // Mostrar marca d'água sutil
+            if(marcaDagua) marcaDagua.style.display = 'block';
+            
+            // Botões: FATURAR oculto, DESFATURAR visível
+            if(btnFaturar) btnFaturar.style.display = 'none';
+            if(btnDesfaturar){
+              btnDesfaturar.style.display = 'inline-block';
+              btnDesfaturar.disabled = false;
+            }
+            
+            // 🔒 Bloquear TODOS os campos
+            document.querySelectorAll('#valeResumoClassBody input, #valeResumoOutrosBody [contenteditable]').forEach(inp => {
+              if(inp.hasAttribute('contenteditable')){
+                inp.setAttribute('contenteditable', 'false');
+                inp.style.opacity = '0.6';
+                inp.style.cursor = 'not-allowed';
+                inp.style.background = '#f3f4f6';
+              } else {
+                inp.disabled = true;
+                inp.style.opacity = '0.6';
+                inp.style.cursor = 'not-allowed';
+                inp.style.background = '#f3f4f6';
+              }
+            });
+          }
+          // ESTADO 3 ou 4: Bloqueado (tem NURENEG ou VLRBAIXA)
+          else if(bloqueado){
+            console.log('[MODAL] Estado: BLOQUEADO pelo Financeiro');
+            
+            // Mostrar badge NUFIN
+            if(nufinBadge){
+              nufinBadge.style.display = 'inline-block';
+              if(nufinNum) nufinNum.textContent = String(nufinExistente);
+            }
+            
+            // Mostrar banner vermelho
+            if(statusBanner) statusBanner.style.display = 'block';
+            if(statusBannerBloqueado){
+              statusBannerBloqueado.style.display = 'block';
+              const motivo = nureneg ? `NURENEG (${nureneg})` : `VLRBAIXA (${vlrbaixa})`;
+              if(bannerMotivoBloqueio) bannerMotivoBloqueio.textContent = `Aguardando Financeiro limpar ${motivo}`;
+            }
+            
+            // Botões: Ambos ocultos
+            if(btnFaturar) btnFaturar.style.display = 'none';
+            if(btnDesfaturar) btnDesfaturar.style.display = 'none';
+            
+            // 🔒 Bloquear TODOS os campos
+            document.querySelectorAll('#valeResumoClassBody input, #valeResumoOutrosBody [contenteditable]').forEach(inp => {
+              if(inp.hasAttribute('contenteditable')){
+                inp.setAttribute('contenteditable', 'false');
+                inp.style.opacity = '0.6';
+                inp.style.cursor = 'not-allowed';
+                inp.style.background = '#f3f4f6';
+              } else {
+                inp.disabled = true;
+                inp.style.opacity = '0.6';
+                inp.style.cursor = 'not-allowed';
+                inp.style.background = '#f3f4f6';
+              }
+            });
+          }
+          
+          // 🔥 Bloquear botões "Zerar Negociação" e "Salvar" se vale estiver faturado
+          const btnResetMain = document.getElementById('dist-btn-reset');
+          const btnSaveMain = document.getElementById('dist-btn-save');
+          const lockIcon = document.getElementById('lockIconContainer');
+          
+          if(nufinExistente){
+            // Vale faturado - bloquear botões do painel principal
+            console.log('[MODAL] Vale faturado - bloqueando botões Zerar e Salvar');
+            
+            // Mostrar ícone de cadeado
+            if(lockIcon) lockIcon.style.display = 'inline-block';
+            
+            if(btnResetMain){
+              btnResetMain.disabled = true;
+              btnResetMain.style.opacity = '0.3';
+              btnResetMain.style.cursor = 'not-allowed';
+              btnResetMain.title = 'Não é possível zerar negociação de vale faturado';
+            }
+            
+            if(btnSaveMain){
+              btnSaveMain.disabled = true;
+              btnSaveMain.style.opacity = '0.3';
+              btnSaveMain.style.cursor = 'not-allowed';
+              btnSaveMain.title = 'Não é possível salvar vale faturado';
+            }
+          } else {
+            // Vale não faturado - reativar botões (se não estiver em modo projeção)
+            console.log('[MODAL] Vale não faturado - verificando estado dos botões');
+            
+            // Ocultar ícone de cadeado
+            if(lockIcon) lockIcon.style.display = 'none';
+            
+            // Respeitar o estado do toggle (projeção vs real)
+            const modoAtual = window.__VALOR_TOTAL_MODE || 'projecao';
+            const podeEditar = modoAtual === 'real';
+            
+            if(btnResetMain){
+              btnResetMain.disabled = !podeEditar;
+              btnResetMain.style.opacity = podeEditar ? '0.8' : '0.4';
+              btnResetMain.style.cursor = podeEditar ? 'pointer' : 'not-allowed';
+              btnResetMain.title = podeEditar ? '' : 'Disponível apenas no modo Real';
+            }
+            
+            if(btnSaveMain){
+              btnSaveMain.disabled = !podeEditar;
+              btnSaveMain.style.opacity = podeEditar ? '0.85' : '0.4';
+              btnSaveMain.style.cursor = podeEditar ? 'pointer' : 'not-allowed';
+              btnSaveMain.title = podeEditar ? '' : 'Disponível apenas no modo Real';
             }
           }
           
@@ -4977,16 +5232,22 @@
               window.__GERANDO_VALE = false;
             }
           });
-          document.getElementById('valeResumoFaturar')?.addEventListener('click', async ()=>{
-            const btnFaturar = document.getElementById('valeResumoFaturar');
+          
+          // 🔥 Event listener: Botão FATURAR
+          // Remover listeners anteriores para evitar duplicação
+          const btnFaturarEl = document.getElementById('valeResumoFaturar');
+          const btnFaturarClone = btnFaturarEl.cloneNode(true);
+          btnFaturarEl.parentNode.replaceChild(btnFaturarClone, btnFaturarEl);
+          
+          btnFaturarClone.addEventListener('click', async ()=>{
             const items = buildValeItems();
             console.log('[FATURAR] Iniciando faturamento...', { nunota, items });
             try{
               // Desabilitar botão para evitar duplicação
-              btnFaturar.disabled = true;
-              btnFaturar.style.opacity = '0.5';
-              btnFaturar.style.cursor = 'not-allowed';
-              btnFaturar.textContent = 'FATURANDO...';
+              btnFaturarClone.disabled = true;
+              btnFaturarClone.style.opacity = '0.5';
+              btnFaturarClone.style.cursor = 'not-allowed';
+              btnFaturarClone.textContent = 'FATURANDO...';
               
               const res = await window.__postJSON('/sankhya/comercial/vale/save/', { nunota: Number(nunota), items, faturar: true });
               console.log('[FATURAR] Resposta recebida:', res);
@@ -4996,37 +5257,197 @@
                 if(res.body?.financeiro?.criado && res.body.financeiro.nufin){
                   const badge = document.getElementById('valeResumoNufinBadge');
                   const nufinNum = document.getElementById('valeResumoNufinNum');
+                  const marcaDagua = document.getElementById('modalMarcaDagua');
+                  const btnDesfaturarAtual = document.getElementById('valeResumoDesfaturar');
+                  
                   console.log('[FATURAR] ✅ NUFIN criado:', res.body.financeiro.nufin, 'Valor:', res.body.financeiro.vlrdesdob, 'Venc:', res.body.financeiro.dtvenc);
+                  
+                  // Atualizar badge NUFIN
                   if(badge && nufinNum){
                     nufinNum.textContent = res.body.financeiro.nufin;
                     badge.style.display = 'inline-block';
                   }
+                  
+                  // 🎨 Mostrar marca d'água
+                  if(marcaDagua){
+                    marcaDagua.style.display = 'block';
+                  }
+                  
+                  // 🗑️ Trocar botão FATURAR por DESFATURAR
+                  if(btnFaturarClone && btnDesfaturarAtual){
+                    btnFaturarClone.style.display = 'none';
+                    btnDesfaturarAtual.style.display = 'inline-block';
+                    btnDesfaturarAtual.disabled = false;
+                  }
+                  
+                  // 🔒 Bloquear todos os campos
+                  document.querySelectorAll('#valeResumoClassBody input, #valeResumoOutrosBody [contenteditable]').forEach(inp => {
+                    if(inp.hasAttribute('contenteditable')){
+                      inp.setAttribute('contenteditable', 'false');
+                      inp.style.opacity = '0.6';
+                      inp.style.cursor = 'not-allowed';
+                      inp.style.background = '#f3f4f6';
+                    } else {
+                      inp.disabled = true;
+                      inp.style.opacity = '0.6';
+                      inp.style.cursor = 'not-allowed';
+                      inp.style.background = '#f3f4f6';
+                    }
+                  });
+                  
+                  // 🔒 Bloquear botões "Zerar Negociação" e "Salvar" do painel principal
+                  const btnResetMain = document.getElementById('dist-btn-reset');
+                  const btnSaveMain = document.getElementById('dist-btn-save');
+                  const lockIcon = document.getElementById('lockIconContainer');
+                  
+                  // Mostrar ícone de cadeado
+                  if(lockIcon) lockIcon.style.display = 'inline-block';
+                  
+                  if(btnResetMain){
+                    btnResetMain.disabled = true;
+                    btnResetMain.style.opacity = '0.3';
+                    btnResetMain.style.cursor = 'not-allowed';
+                    btnResetMain.title = 'Não é possível zerar negociação de vale faturado';
+                  }
+                  
+                  if(btnSaveMain){
+                    btnSaveMain.disabled = true;
+                    btnSaveMain.style.opacity = '0.3';
+                    btnSaveMain.style.cursor = 'not-allowed';
+                    btnSaveMain.title = 'Não é possível salvar vale faturado';
+                  }
+                  
                   window.showToast('✅ Vale faturado com sucesso!', 'success');
                 }else{
                   console.log('[FATURAR] Financeiro não criado ou sem NUFIN:', res.body?.financeiro);
                   window.showToast('✅ Vale faturado com sucesso!', 'success');
                 }
-                // Manter botão desabilitado após sucesso
-                btnFaturar.textContent = 'FATURADO ✓';
-                btnFaturar.style.background = '#dcfce7';
-                btnFaturar.style.borderColor = '#16a34a';
               }else{
                 // Reabilitar em caso de erro
                 console.error('[FATURAR] Erro ao faturar:', res.body?.error);
                 alert('Falha ao faturar: ' + (res.body?.error || 'erro desconhecido'));
-                btnFaturar.disabled = false;
-                btnFaturar.style.opacity = '1';
-                btnFaturar.style.cursor = 'pointer';
-                btnFaturar.textContent = 'FATURAR';
+                btnFaturarClone.disabled = false;
+                btnFaturarClone.style.opacity = '1';
+                btnFaturarClone.style.cursor = 'pointer';
+                btnFaturarClone.textContent = 'FATURAR';
               }
             }catch(e){
               console.error('[FATURAR] Exceção ao faturar:', e);
               alert('Erro ao faturar: ' + e);
               // Reabilitar em caso de exceção
-              btnFaturar.disabled = false;
-              btnFaturar.style.opacity = '1';
-              btnFaturar.style.cursor = 'pointer';
-              btnFaturar.textContent = 'FATURAR';
+              btnFaturarClone.disabled = false;
+              btnFaturarClone.style.opacity = '1';
+              btnFaturarClone.style.cursor = 'pointer';
+              btnFaturarClone.textContent = 'FATURAR';
+            }
+          });
+          
+          // 🗑️ Event listener: Botão DESFATURAR
+          // Remover listeners anteriores para evitar duplicação
+          const btnDesfaturarEl = document.getElementById('valeResumoDesfaturar');
+          const btnDesfaturarClone = btnDesfaturarEl.cloneNode(true);
+          btnDesfaturarEl.parentNode.replaceChild(btnDesfaturarClone, btnDesfaturarEl);
+          
+          btnDesfaturarClone.addEventListener('click', async ()=>{            // Confirmação
+            const confirma = confirm(
+              '⚠️ ATENÇÃO!\n\n' +
+              'Isso irá DELETAR o registro financeiro (TGFFIN) e reabrir o vale para edição.\n\n' +
+              'Deseja continuar?'
+            );
+            
+            if(!confirma) return;
+            
+            try{
+              // Desabilitar botão durante a operação
+              btnDesfaturar.disabled = true;
+              btnDesfaturar.textContent = 'DESFATURANDO...';
+              btnDesfaturar.style.opacity = '0.5';
+              
+              // Buscar NUFIN do primeiro item (todos têm o mesmo)
+              const primeiroItem = rows.length > 0 ? rows[0] : null;
+              const nufinParaDesfaturar = primeiroItem?.nufin || null;
+              
+              if(!nufinParaDesfaturar){
+                window.showToast('❌ NUFIN não encontrado', 'error');
+                btnDesfaturar.disabled = false;
+                btnDesfaturar.textContent = '🗑️ DESFATURAR';
+                btnDesfaturar.style.opacity = '1';
+                return;
+              }
+              
+              console.log('[DESFATURAR] Enviando NUFIN:', nufinParaDesfaturar);
+              
+              const res = await window.__postJSON('/sankhya/comercial/vale/desfaturar/', { 
+                nufin: Number(nufinParaDesfaturar)
+              });
+              
+              console.log('[DESFATURAR] Resposta:', res);
+              
+              if(res.ok && res.body?.ok){
+                window.showToast('✅ Vale desfaturado com sucesso!', 'success');
+                
+                // 🔥 Atualizar estado local para refletir desfaturamento
+                // Limpar NUFIN dos dados em cache
+                if(window.__COM_LIST_ROWS){
+                  const nunotaAtual = window.__CURRENT_VALE_NUNOTA;
+                  window.__COM_LIST_ROWS.forEach(row => {
+                    if(String(row.nunota) === String(nunotaAtual)){
+                      row.nufin = null;
+                      row.nureneg = null;
+                      row.vlrbaixa = null;
+                      row.bloqueado_financeiro = false;
+                    }
+                  });
+                  console.log('[DESFATURAR] Cache atualizado - NUFIN removido');
+                }
+                
+                // 🔓 Reativar botões "Zerar Negociação" e "Salvar"
+                const btnResetMain = document.getElementById('dist-btn-reset');
+                const btnSaveMain = document.getElementById('dist-btn-save');
+                const lockIcon = document.getElementById('lockIconContainer');
+                
+                // Ocultar ícone de cadeado
+                if(lockIcon) lockIcon.style.display = 'none';
+                
+                // Verificar modo atual (projeção vs real)
+                const modoAtual = window.__VALOR_TOTAL_MODE || 'projecao';
+                const podeEditar = modoAtual === 'real';
+                
+                if(btnResetMain){
+                  btnResetMain.disabled = !podeEditar;
+                  btnResetMain.style.opacity = podeEditar ? '0.8' : '0.4';
+                  btnResetMain.style.cursor = podeEditar ? 'pointer' : 'not-allowed';
+                  btnResetMain.title = podeEditar ? '' : 'Disponível apenas no modo Real';
+                }
+                
+                if(btnSaveMain){
+                  btnSaveMain.disabled = !podeEditar;
+                  btnSaveMain.style.opacity = podeEditar ? '0.85' : '0.4';
+                  btnSaveMain.style.cursor = podeEditar ? 'pointer' : 'not-allowed';
+                  btnSaveMain.title = podeEditar ? '' : 'Disponível apenas no modo Real';
+                }
+                
+                console.log('[DESFATURAR] Botões reativados - Modo:', modoAtual, 'Pode editar:', podeEditar);
+                
+                // Fechar modal
+                document.getElementById('modalFaturamento').style.display = 'none';
+                // Recarregar lista para atualizar dados
+                await window.loadLista?.();
+              } else {
+                const erro = res.body?.error || 'Erro ao desfaturar';
+                window.showToast(`❌ ${erro}`, 'error');
+                // Reabilitar botão
+                btnDesfaturar.disabled = false;
+                btnDesfaturar.textContent = '🗑️ DESFATURAR';
+                btnDesfaturar.style.opacity = '1';
+              }
+            }catch(e){
+              console.error('[DESFATURAR] Exceção:', e);
+              window.showToast(`❌ Erro ao desfaturar: ${e.message}`, 'error');
+              // Reabilitar botão
+              btnDesfaturar.disabled = false;
+              btnDesfaturar.textContent = '🗑️ DESFATURAR';
+              btnDesfaturar.style.opacity = '1';
             }
           });
         }catch(err){
