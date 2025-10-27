@@ -3055,7 +3055,8 @@
             const kgDisp = kg0>0 ? kg0 : (cx0>0 ? cx0 : 0);
             return s + kgDisp;
           }, 0);
-          const fmtInt = (n)=> Number(n||0).toLocaleString('pt-BR');
+          // Formatar com 1 casa decimal (igual ao Portal)
+          const fmtDecimal = (n)=> Number(n||0).toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1});
           const pct = (kg)=> totalKg>0 ? (kg/totalKg*100) : 0;
           // Ordenar por KG (desc), considerando fallback (quando só CX vier)
           const rowsSorted = rows.slice().sort((a,b)=>{
@@ -3086,9 +3087,9 @@
                       <div class="percent-bar" aria-hidden="true"><span style="width:${p.toFixed(1)}%"></span></div>
                     </div>
                     <div class="qty">
-                      <span class="meta-val"><strong>${fmtInt(cx)}</strong> <span class="u">cx</span></span>
+                      <span class="meta-val"><strong>${fmtDecimal(cx)}</strong> <span class="u">cx</span></span>
                       <span class="sep">/</span>
-                      <span class="meta-val"><strong>${fmtInt(kg)}</strong> <span class="u">kg</span></span>
+                      <span class="meta-val"><strong>${fmtDecimal(kg)}</strong> <span class="u">kg</span></span>
                     </div>
                   </div>
                 </div>`;
@@ -3106,7 +3107,7 @@
                       <div class="percent-bar" aria-hidden="true"><span style="width:${descartePct.toFixed(1)}%; background-color: #dc3545;"></span></div>
                     </div>
                     <div class="qty">
-                      <span class="meta-val"><strong>${fmtInt(descarteKg)}</strong> <span class="u">kg</span></span>
+                      <span class="meta-val"><strong>${fmtDecimal(descarteKg)}</strong> <span class="u">kg</span></span>
                     </div>
                   </div>
                 </div>`;

@@ -251,7 +251,7 @@
             </div>
           </div>
           <div>
-            <label>Vale</label>
+            <label>Pedido</label>
             <input type="number" name="nunota_ini" value="{{ params.nunota_ini|default:'' }}" />
           </div>
           <div>
@@ -312,7 +312,7 @@
         <div class="list" id="notasList">
             <table id="notasTable" class="ph-selectable-table" style="width:100%; border-collapse:collapse; table-layout:fixed;">
             <colgroup>
-              <col style="width: 90px;">  <!-- Vale -->
+              <col style="width: 90px;">  <!-- Pedido -->
               <col style="width: 110px;"> <!-- Data -->
               <col style="width: auto;">  <!-- Parceiro -->
             </colgroup>
@@ -321,7 +321,7 @@
                 <th>
                   {% with key='nunota' %}
                   <a href="?start={{ params.date_start|default:'' }}&end={{ params.date_end|default:'' }}&nronota_ini={{ params.nronota_ini|default:'' }}&nronota_fim={{ params.nronota_fim|default:'' }}&nunota_ini={{ params.nunota_ini|default:'' }}&codparc={{ params.codparc|default:'' }}&codprod={{ params.codprod|default:'' }}&controle={{ params.controle|default:'' }}&days={{ params.days }}&page={{ page }}&sort={{ key }}&dir={% if params.sort == key and params.dir == 'asc' %}desc{% else %}asc{% endif %}">
-                    Vale{% if params.sort == key %}{% if params.dir == 'asc' %} ▲{% else %} ▼{% endif %}{% endif %}
+                    Pedido{% if params.sort == key %}{% if params.dir == 'asc' %} ▲{% else %} ▼{% endif %}{% endif %}
                   </a>
                   {% endwith %}
                 </th>
@@ -343,15 +343,13 @@
             </thead>
             <tbody>
               {% for nunota, nronota, dtneg, codparc, nomeparc, vtotal in notas %}
-              {% with is_sel=sel|default:0 %}
-        <tr class="row--click{% if nunota == is_sel %} row--active{% endif %}"
+        <tr class="row--click"
           data-nunota="{{ nunota }}"
           data-central-url="/sankhya/packing/central/?nunota={{ nunota }}">
                 <td>{{ nunota }}</td>
                 <td>{{ dtneg|date:"d/m/Y" }}</td>
                 <td>{{ nomeparc }}</td>
               </tr>
-              {% endwith %}
               {% empty %}
               <tr><td colspan="5">Nenhuma nota encontrada.</td></tr>
               {% endfor %}
@@ -379,22 +377,8 @@
               </tr>
             </thead>
             <tbody id="panelItemsBody">
-              {% for ctrl, seq, cod, descr, vol, qtd, peso, vlu, vlt, obs, gp in itens %}
-              <tr>
-                <td>{{ ctrl }}</td>
-                <td>{{ cod }}</td>
-                <td>{{ descr }}</td>
-                <td>{{ vol }}</td>
-                <td>{{ qtd }}</td>
-                <td>{{ peso }}</td>
-                <td>{% if gp == 'N' %}Não{% else %}Sim{% endif %}</td>
-                <td>{{ vlu }}</td>
-                <td>{{ vlt }}</td>
-                <td>{{ obs }}</td>
-              </tr>
-              {% empty %}
-                <tr><td colspan="10">Nenhum item para a seleção.</td></tr>
-              {% endfor %}
+              <!-- Itens carregados via JavaScript ao clicar em uma nota -->
+              <tr><td colspan="10" style="padding:12px; text-align:center; color:#6b7280;">Selecione uma nota para ver os itens</td></tr>
             </tbody>
           </table>
         
@@ -637,13 +621,21 @@
           const cod = (it.cod!=null? it.cod : '');
           const descr = it.descr || '';
           const vol = it.codvol || '';
-          const qtd = (it.qtd!=null? it.qtd : '');
-          const peso = (it.peso!=null? it.peso : '');
+          
+          // 🔥 FORMATAÇÃO CORRETA: Backend já retorna qtd = QTDNEG ÷ PESO
+          // Usar formatBR1 para exibir com 1 casa decimal
+          const qtd = (it.qtd != null ? formatBR1(parseFloat(it.qtd)) : '');
+          const peso = (it.peso != null ? formatBR1(parseFloat(it.peso)) : '');
+          
           const classif = (it.classifica==null? '' : (it.classifica? 'Sim':'Não'));
+          
+          // Total KG: usar it.total (que já vem do backend como QTDNEG)
+          const totalKg = (it.total != null ? formatBR1(parseFloat(it.total)) : '');
+          
           const vlu = (it.vlu!=null? it.vlu : '');
           const vlt = (it.vlt!=null? it.vlt : '');
           const obs = it.obs || '';
-          html += `<tr><td>${ctrl}</td><td>${cod}</td><td>${descr}</td><td>${vol}</td><td>${qtd}</td><td>${peso}</td><td>${classif}</td><td>${vlu}</td><td>${vlt}</td><td>${obs}</td></tr>`;
+          html += `<tr><td>${ctrl}</td><td>${cod}</td><td>${descr}</td><td>${vol}</td><td>${qtd}</td><td>${peso}</td><td>${classif}</td><td>${totalKg}</td><td>${vlt}</td><td>${obs}</td></tr>`;
         }
         panelItemsBody.innerHTML = html;
       }
@@ -872,12 +864,12 @@
           console.log('[DELETE] Dados recebidos:', JSON.stringify(checkData));
           
           if (checkData.tem_classificacao === true) {
-            console.log('[DELETE] BLOQUEADO - Vale tem classificação!');
+            console.log('[DELETE] BLOQUEADO - Pedido tem classificação!');
             showToast('Entrada não pode ser excluída. Existe classificação.', 'error');
             return; // BLOQUEIA exclusão
           }
           
-          console.log('[DELETE] OK - Vale não tem classificação, pode excluir');
+          console.log('[DELETE] OK - Pedido não tem classificação, pode excluir');
           
         } catch(e) {
           console.error('[DELETE] Exception ao verificar classificação:', e);
@@ -911,8 +903,8 @@
         // Wait only for delete
         const res = await deletePromise;
         if (res.ok && (res.body?.deleted_cab || 0) > 0){
-          const valeMsg = res.body?.deleted_vale ? ' e Vale vinculado' : '';
-          showToast(`Nota ${nun}${valeMsg} excluída com sucesso.`, 'success');
+          const pedidoMsg = res.body?.deleted_vale ? ' e Pedido vinculado' : '';
+          showToast(`Nota ${nun}${pedidoMsg} excluída com sucesso.`, 'success');
           // Recarrega sem 'sel'
           setTimeout(() => {
             try {
@@ -1682,7 +1674,7 @@
               console.log('[DELETE ITEM] Dados recebidos:', checkData);
               
               if (checkData.tem_classificacao === true) {
-                console.log('[DELETE ITEM] BLOQUEADO - Vale tem classificação!');
+                console.log('[DELETE ITEM] BLOQUEADO - Pedido tem classificação!');
                 if(typeof window.showToast === 'function'){
                   showToast('Item não pode ser excluído. Existe classificação.', 'error');
                 } else {
@@ -1691,7 +1683,7 @@
                 return; // BLOQUEIA exclusão
               }
               
-              console.log('[DELETE ITEM] OK - Vale não tem classificação, pode excluir item');
+              console.log('[DELETE ITEM] OK - Pedido não tem classificação, pode excluir item');
               
             } catch(e) {
               console.error('[DELETE ITEM] Erro ao verificar classificação:', e);
@@ -1760,22 +1752,40 @@
         }catch(_){ return false; }
       }
   function addItemRowToList(it){ if(!itemsListBody) return; // it: { cod, descr, codvol, qtd, peso, total, lote, classifica?, geraproducao?, sequencia? }
+        // 🔍 LOG - Ver o que está chegando
+        console.log('🔍 [addItemRowToList] Dados recebidos:', {
+          cod: it.cod,
+          qtd: it.qtd,
+          peso: it.peso,
+          total: it.total,
+          totalkg: it.totalkg,
+          codvol: it.codvol
+        });
+        
         if(itemsListBody.querySelector('td')){ const first = itemsListBody.querySelector('td').parentElement; if(first && first.childElementCount === 1 && first.children[0].getAttribute('colspan')) itemsListBody.innerHTML = ''; }
         const tr = document.createElement('tr');
         const classTxt = (it && (typeof it.classifica !== 'undefined' || typeof it.geraproducao !== 'undefined')) ? ((it.geraproducao ? String(it.geraproducao).toUpperCase() !== 'N' : !!it.classifica) ? 'Sim' : 'Não') : '';
         const qtdFormatted = (function(){ const n = parseFlexibleNumber(it?.qtd); return Number.isFinite(n) ? formatBR1(n) : (it && it.qtd != null ? String(it.qtd) : ''); })();
         const pesoFormatted = (function(){ const n = parseFlexibleNumber(it?.peso); return Number.isFinite(n) ? formatBR1(n) : (it && it.peso != null ? String(it.peso) : ''); })();
+        
+        // 🔥 USAR SEMPRE it.total ou it.totalkg DO BACKEND (já calculado corretamente)
+        // Backend envia total = QTDNEG (em KG), que é o valor correto
+        // Exemplo: 3 CX × 21 kg/cx → backend salva QTDNEG=63 e retorna total=63 ✅
         const totalFormatted = (function(){
-          const qn = parseFlexibleNumber(it?.qtd);
-          const pn = parseFlexibleNumber(it?.peso);
-          if (Number.isFinite(qn) && Number.isFinite(pn)){
-            const prod = qn * pn;
-            return formatBR1(prod);
+          // Priorizar it.total do backend (já está correto)
+          const serverTotal = parseFlexibleNumber(it?.total);
+          if (Number.isFinite(serverTotal)) {
+            return formatBR1(serverTotal);
           }
-          // Fallback: show server-provided total if available
-          const n = parseFlexibleNumber(it?.total);
-          return Number.isFinite(n) ? formatBR1(n) : (it && it.total != null ? String(it.total) : '');
+          // Fallback: usar totalkg se disponível
+          const serverTotalKg = parseFlexibleNumber(it?.totalkg);
+          if (Number.isFinite(serverTotalKg)) {
+            return formatBR1(serverTotalKg);
+          }
+          // Último fallback: usar valor bruto se existir
+          return (it && it.total != null) ? String(it.total) : '';
         })();
+        
         // Build unit suffix for quantity (use codvol) and kg suffix for total
         const unitQty = (it.codvol && String(it.codvol).trim()) ? String(it.codvol).trim().toLowerCase() : '';
         const unitQtyHtml = unitQty ? `<span class="unit-suffix" style="font-size:0.95em; opacity:0.7; margin-left:2px;">${unitQty}</span>` : '';
@@ -1861,6 +1871,12 @@
             itemsListController = null;
             console.debug('loadItems response status', r.status);
             try{ j = await r.json(); console.debug('loadItems response json keys', Object.keys(j), 'itemsLen', (j.items||j.results||[]).length); }catch(_){ j = {}; console.debug('loadItems could not parse JSON'); }
+            
+            // 🔍 LOG DO BACKEND - Ver o que está retornando
+            if (j && j.items && j.items.length > 0) {
+              console.log('🔍 [FRONTEND] Primeiro item do backend:', j.items[0]);
+            }
+            
             // Save to cache for next loads
             try{ if(j && j.ok){ window.__ITEMS_CACHE = window.__ITEMS_CACHE || {}; window.__ITEMS_CACHE[String(resolved)] = j; } }catch(_){ }
             if(!j || !j.ok){ itemsListBody.innerHTML = `<tr><td colspan="7">Erro: ${(j&&j.error)||'falha'}</td></tr>`; return; }
@@ -2044,10 +2060,32 @@
           return;
         }
   const peso = pesoNum;
-  const codvol = volRaw; 
+  const codvol = volRaw;
         const obs = (document.getElementById('item_obs')?.value||'') || null;
         const classificaChecked = !!document.getElementById('item_classifica')?.checked;
-        const basePayload = { nunota: parseInt(nun,10), codprod: codprodNum, qtdneg: qtd, vlrunit: vlr, codvol: codvol || null, peso: peso, obs: obs || null, geraproducao: classificaChecked ? 'S' : 'N' };
+        
+        // 🔥 CONVERSÃO PARA UNIDADE BASE (KG)
+        // Sankhya armazena QTDNEG sempre em KG (unidade base)
+        // Se usuário digitou em CX, precisamos converter: qtd_cx * peso_kg_por_cx = qtd_kg
+        let qtdneg_kg = qtd;  // Por padrão, assume que já está em KG
+        
+        // Verificar se a unidade é diferente de KG
+        if (codvol && codvol.toUpperCase() !== 'KG' && pesoNum > 0) {
+            // Converter: CX → KG (multiplicar pela conversão)
+            qtdneg_kg = qtd * pesoNum;
+            console.log(`[CONVERSÃO] ${qtd} ${codvol} × ${pesoNum} kg/${codvol} = ${qtdneg_kg} KG`);
+        }
+        
+        const basePayload = { 
+            nunota: parseInt(nun,10), 
+            codprod: codprodNum, 
+            qtdneg: qtdneg_kg,  // ✅ Envia em KG (unidade base)
+            vlrunit: vlr, 
+            codvol: codvol || null,  // Mantém a unidade alternativa para exibição
+            peso: peso, 
+            obs: obs || null, 
+            geraproducao: classificaChecked ? 'S' : 'N' 
+        };
         // If creating (not editing), detect duplicates and confirm with user
         if (!isEdit){
           try{
@@ -2225,17 +2263,8 @@
     })();
   </script>
   <script>
-    // Seed initial items cache from server-side to make first items load instant
-    (function(){
-      try {
-        const nun = '{{ initial_items_nunota|default:"" }}';
-        const jstr = '{{ initial_items_json|default:"" }}';
-        if (nun && jstr) {
-          const cache = (window.__ITEMS_CACHE = window.__ITEMS_CACHE || {});
-          try { const data = JSON.parse(jstr); if (data && data.ok) { cache[String(nun)] = data; } } catch(_){ }
-        }
-      } catch(_) {}
-    })();
+    // Não carregar itens automaticamente - aguardar clique do usuário na nota
+    // A tabela "ITENS DA NOTA" fica vazia até o usuário selecionar uma nota
   </script>
 </body>
 </html>

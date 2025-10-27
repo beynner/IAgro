@@ -3386,7 +3386,7 @@ def consultar_lotes_sumario_top11_classificaveis(controles: list[str]) -> dict[s
         # - Caso contrário, converte a QTDNEG para a unidade base (via TGFVOA do CODVOL do item) e depois divide pelo fator da CX.
         sql_q = f"""
                 SELECT i.CODAGREGACAO AS CTRL,
-                         MAX(UPPER(NVL(pr.RAZAOSOCIAL, pr.NOMEPARC))) AS PARCEIRO,
+                         MAX(UPPER(NVL(pr.NOMEPARC, pr.RAZAOSOCIAL))) AS PARCEIRO,
                          MAX(c.CODPARC) AS CODPARC,
                          MAX(c.NUNOTA) AS NUNOTA_PORTAL,
                          SUM(

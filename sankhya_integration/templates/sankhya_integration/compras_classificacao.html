@@ -312,7 +312,7 @@
             </div>
           </div>
           <div>
-            <label>Vale</label>
+            <label>Pedido</label>
             <input type="number" name="nunota_ini" value="{{ params.nunota_ini|default:'' }}" />
           </div>
           <div>
@@ -320,7 +320,7 @@
             <input type="number" name="codprod" value="{{ params.codprod|default:'' }}" />
           </div>
           <div>
-            <label>Lote / CODAGREGACAO</label>
+            <label>Lote</label>
             <input type="text" name="controle" value="{{ params.controle|default:'' }}" />
           </div>
           <div>
@@ -380,7 +380,7 @@
             <thead>
               <tr>
                 <th>Status</th>
-                <th>Lote / CODAGREGACAO</th>
+                <th>Lote</th>
                 <th>Parceiro</th>
                 <th>Produtos (TOP 11 - Entradas)</th>
                 <th>Qtde cx</th>
@@ -480,6 +480,19 @@
               statusFilters.addEventListener('change', function(e){
                 if(e.target.type === 'checkbox'){
                   applyStatusFilter();
+                  
+                  // Se marcar "Classificação Finalizada", preenche days com 10
+                  // Se desmarcar, limpa o campo days
+                  if(e.target.id === 'filterGreen'){
+                    const daysInput = document.querySelector('input[name="days"]');
+                    if(daysInput){
+                      if(e.target.checked){
+                        daysInput.value = '10';
+                      } else {
+                        daysInput.value = '';
+                      }
+                    }
+                  }
                 }
               });
               
@@ -1229,7 +1242,23 @@
         if (LOTES_PREFETCH.scheduled[c]) return;
         LOTES_PREFETCH.scheduled[c] = setTimeout(()=>{ try{ prefetchLote(c); }finally{ try{ clearTimeout(LOTES_PREFETCH.scheduled[c]); }catch(_){ } delete LOTES_PREFETCH.scheduled[c]; } }, typeof delay==='number'?delay:140);
       }
-  function updateDeleteBtn(){ const btnDel = document.getElementById('btnDeleteNota'); if(!btnDel) return; const hasActive = !!tbl.querySelector('tbody tr.row--click.row--active'); if(hasActive) btnDel.removeAttribute('disabled'); else btnDel.setAttribute('disabled','disabled'); }
+  function updateDeleteBtn(){ 
+    const btnDel = document.getElementById('btnDeleteNota'); 
+    if(!btnDel) return; 
+    const activeRow = tbl.querySelector('tbody tr.row--click.row--active');
+    if(!activeRow) {
+      btnDel.setAttribute('disabled','disabled');
+      return;
+    }
+    // Desabilitar lixeira se o status for vermelho (red)
+    const statusDot = activeRow.querySelector('.status-dot');
+    const isRed = statusDot && statusDot.classList.contains('status--red');
+    if(isRed) {
+      btnDel.setAttribute('disabled','disabled');
+    } else {
+      btnDel.removeAttribute('disabled');
+    }
+  }
   // Enable/disable top '+' add button based on selection
   const btnAddClassify = document.getElementById('btnAddClassify');
   function updateAddClassifyBtn(){ if(!btnAddClassify) return; const hasActive = !!tbl.querySelector('tbody tr.row--click.row--active'); if(hasActive) btnAddClassify.removeAttribute('disabled'); else btnAddClassify.setAttribute('disabled','disabled'); }
@@ -2417,7 +2446,7 @@
               let j0 = {}; try{ j0 = await r0.json(); }catch(_){ j0 = {}; }
               if(j0 && j0.ok){
                 // Preencher lista com classificacoes existentes
-                try{ const rows = j0.classificacoes || []; itemsListBody.innerHTML = ''; if(rows.length){ for(const row of rows){ addItemRowToList({ nunota: row.nunota, sequencia: row.sequencia, cod: row.cod, descr: row.descr, codvol: row.codvol, qtd: row.qtd, peso: row.peso, total: row.vlt || (row.qtd && row.peso ? row.qtd * row.peso : null), lote: ctrl, geraproducao: null }); } } else { clearItemsList(); } }catch(_){ }
+                try{ const rows = j0.classificacoes || []; itemsListBody.innerHTML = ''; if(rows.length){ for(const row of rows){ addItemRowToList({ nunota: row.nunota, sequencia: row.sequencia, cod: row.cod, descr: row.descr, codvol: row.codvol, qtd: row.qtd, peso: row.peso, total: row.totalkg || row.vlt || null, lote: ctrl, geraproducao: null }); } } else { clearItemsList(); } }catch(_){ }
                 // Atualizar toggle com base em pendente_class
                 try{ const tgl = document.getElementById('toggleStatusNota'); if(tgl && j0.pendente_class){ const st = (j0.pendente_class||'').toString().toUpperCase(); tgl.checked = (st === 'N'); } }catch(_){ }
                 // Atualizar campo Descarte com QTDBATIDAS
@@ -2569,13 +2598,27 @@
   const itemsSearch = document.getElementById('itemsSearch');
   function clearItemsList(){ if(!itemsListBody) return; itemsListBody.innerHTML = '<tr><td colspan="7" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr>'; }
       function addItemRowToList(it){ if(!itemsListBody) return; if(itemsListBody.querySelector('td')){ const first = itemsListBody.querySelector('td').parentElement; if(first && first.childElementCount === 1 && first.children[0].getAttribute('colspan')) itemsListBody.innerHTML = ''; }
-        // Calcular total (qtd * peso)
-        const qtd = parseFloat(it.qtd) || 0;
-        const peso = parseFloat(it.peso) || 0;
-        const total = qtd * peso;
-        const totalFormatted = total > 0 ? Math.round(total).toLocaleString('pt-BR') : '';
+        // Função para formatar com 1 casa decimal (igual ao Portal)
+        const formatBR1 = (n) => Number(n||0).toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1});
         
-        const tr = document.createElement('tr'); tr.innerHTML = `\n          <td style="padding:8px">${it.lote||''}</td>\n          <td>${it.cod||''} ${it.descr||''}</td>\n          <td style="text-align:right">${it.codvol||''}</td>\n          <td style="text-align:right">${it.qtd!=null?String(it.qtd):''}</td>\n          <td style="text-align:right">${it.peso!=null?String(it.peso):''}</td>\n          <td style="text-align:right">${totalFormatted}</td>\n          <td style="text-align:right"><button class="icon-btn danger icon-btn--plain item-del" data-seq="${it.sequencia||''}" aria-label="Excluir">\n            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">\n              <polyline points="3 6 5 6 21 6"></polyline>\n              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>\n              <path d="M10 11v6"></path>\n              <path d="M14 11v6"></path>\n              <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>\n            </svg>\n          </button></td>\n        `; itemsListBody.appendChild(tr);
+        // Usar it.total do backend se disponível, senão pegar QTDNEG diretamente (não multiplicar por peso)
+        const totalFormatted = (function(){
+          const serverTotal = parseFloat(it?.total);
+          if (Number.isFinite(serverTotal)) {
+            return formatBR1(serverTotal);
+          }
+          // Fallback: usar QTDNEG diretamente (já está em KG)
+          const qtdneg = parseFloat(it?.qtd);
+          if (Number.isFinite(qtdneg)) {
+            return formatBR1(qtdneg);
+          }
+          return '';
+        })();
+        
+        const qtdFormatted = it.qtd != null ? formatBR1(parseFloat(it.qtd)) : '';
+        const pesoFormatted = it.peso != null ? formatBR1(parseFloat(it.peso)) : '';
+        
+        const tr = document.createElement('tr'); tr.innerHTML = `\n          <td style="padding:8px">${it.lote||''}</td>\n          <td>${it.cod||''} ${it.descr||''}</td>\n          <td style="text-align:right">${it.codvol||''}</td>\n          <td style="text-align:right">${qtdFormatted}</td>\n          <td style="text-align:right">${pesoFormatted}</td>\n          <td style="text-align:right">${totalFormatted}</td>\n          <td style="text-align:right"><button class="icon-btn danger icon-btn--plain item-del" data-seq="${it.sequencia||''}" aria-label="Excluir">\n            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">\n              <polyline points="3 6 5 6 21 6"></polyline>\n              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>\n              <path d="M10 11v6"></path>\n              <path d="M14 11v6"></path>\n              <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>\n            </svg>\n          </button></td>\n        `; itemsListBody.appendChild(tr);
   tr.querySelector('.item-del')?.addEventListener('click', async function(e){ const seq = e.currentTarget.dataset.seq; const nunRaw = document.getElementById('items_nunota')?.value; const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null; if(!nun || !seq) return; const productLabel = `${it.cod||''} ${it.descr||''}`; const loteLabel = it.lote ? ` Lote ${it.lote}` : ''; if(!confirm(`Excluir item ${productLabel}${loteLabel}?`)) return; const res = await postJSON('/sankhya/item/delete/', { nunota: parseInt(nun,10), sequencias: [ parseInt(seq,10) ] }); if(res.ok){ try{ if(typeof loadItems === 'function') loadItems(nun); }catch(_){ } try{ if(window.__LOTES_CACHE && it.lote && window.__LOTES_CACHE[it.lote]){ delete window.__LOTES_CACHE[it.lote]; } }catch(_){} try{ refreshClassifiedCard(it.lote); }catch(_){ } try{ resetItemForm(); }catch(_){ } try{ const prodVis = document.getElementById('item_prod_vis'); if(prodVis) prodVis.focus(); }catch(_){ } try{ updateHeaderQuantities(it.lote); }catch(_){ } } else { alert('Falha ao excluir: ' + (res.body?.errors||[]).join('\n')); } });
       }
       let itemsListController = null;
@@ -2748,29 +2791,43 @@
 
       // Override items helpers to align with portal behavior (edit mode, totals)
       function addItemRowToList(it){ if(!itemsListBody) return; if(itemsListBody.querySelector('td')){ const first = itemsListBody.querySelector('td').parentElement; if(first && first.childElementCount === 1 && first.children[0].getAttribute('colspan')) itemsListBody.innerHTML = ''; }
-        // Calcular total (qtd * peso) se não vier do servidor
-        const qtd = parseFloat(it.qtd) || 0;
-        const peso = parseFloat(it.peso) || 0;
-        const total = it.total != null ? parseFloat(it.total) : (qtd * peso);
-        const totalFormatted = total > 0 ? Math.round(total).toLocaleString('pt-BR') : '';
-        // Formatar quantidade para exibir '1.000 cx' com 'cx' menor e opaco
+        // Função para formatar com 1 casa decimal (igual ao Portal)
+        const formatBR1 = (n) => Number(n||0).toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1});
+        
+        // Usar it.total do backend se disponível, senão pegar QTDNEG diretamente (não multiplicar por peso)
+        const totalFormatted = (function(){
+          const serverTotal = parseFloat(it?.total);
+          if (Number.isFinite(serverTotal)) {
+            return formatBR1(serverTotal);
+          }
+          // Fallback: usar QTDNEG diretamente (já está em KG)
+          const qtdneg = parseFloat(it?.qtd);
+          if (Number.isFinite(qtdneg)) {
+            return formatBR1(qtdneg);
+          }
+          return '';
+        })();
+        
+        // Formatar quantidade para exibir '3,0 cx' com 'cx' menor e opaco
         let formattedQtd = '';
         try{
           if (it.qtd != null && it.qtd !== ''){
             const nQ = parseFloat(it.qtd);
-            const qTxt = Number.isFinite(nQ) ? nQ.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : String(it.qtd);
+            const qTxt = Number.isFinite(nQ) ? formatBR1(nQ) : String(it.qtd);
             const unit = (it.codvol && String(it.codvol).trim()) ? String(it.codvol).trim().toLowerCase() : '';
             const unitHtml = unit ? `<span class="unit-suffix" style="font-size:0.95em; opacity:0.7; margin-left:4px;">${unit}</span>` : '';
             formattedQtd = `${qTxt}${unitHtml}`;
           }
         }catch(_){ formattedQtd = (it.qtd!=null?String(it.qtd):''); }
+        
+        const pesoFormatted = it.peso != null ? formatBR1(parseFloat(it.peso)) : '';
 
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td style="padding:8px">${it.lote||''}</td>
           <td>${it.cod||''} ${it.descr||''}</td>
           <td style="text-align:right">${formattedQtd}</td>
-          <td style="text-align:right">${it.peso!=null?String(it.peso):''}</td>
+          <td style="text-align:right">${pesoFormatted}</td>
           <td style="text-align:right"><button class="icon-btn danger icon-btn--plain item-del" data-seq="${it.sequencia||''}" aria-label="Excluir">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <polyline points="3 6 5 6 21 6"></polyline>
@@ -2983,7 +3040,7 @@
           if(!rows.length){ clearItemsList(); return; }
           itemsListBody.innerHTML = '';
           for(const row of rows){
-            addItemRowToList({ nunota: row.nunota, sequencia: row.sequencia, cod: row.cod, descr: row.descr, codvol: row.codvol, qtd: row.qtd, peso: (typeof row.peso !== 'undefined' ? row.peso : null), total: row.vlt || null, lote: ctrl, geraproducao: null });
+            addItemRowToList({ nunota: row.nunota, sequencia: row.sequencia, cod: row.cod, descr: row.descr, codvol: row.codvol, qtd: row.qtd, peso: (typeof row.peso !== 'undefined' ? row.peso : null), total: row.totalkg || row.vlt || null, lote: ctrl, geraproducao: null });
           }
         }catch(err){ if(err && err.name === 'AbortError'){ return; } itemsListBody.innerHTML = '<tr><td colspan="7">Erro ao carregar.</td></tr>'; }
       }

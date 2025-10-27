@@ -245,7 +245,7 @@ def compras_portal(request: HttpRequest) -> HttpResponse:
     if controle.lower() in ("", "none", "null"):
         controle = None
     params = {
-        "days": _to_int(request.GET.get("days")) or 7,
+        "days": _to_int(request.GET.get("days")) or 10,
         "date_start": request.GET.get("start"),
         "date_end": request.GET.get("end"),
         "nronota_ini": request.GET.get("nronota_ini"),
@@ -397,10 +397,11 @@ def compras_portal(request: HttpRequest) -> HttpResponse:
                 vltot = r[8] if len(r) > 8 else None
                 obs = r[9] if len(r) > 9 else ''
                 gp = r[10] if len(r) > 10 else None
+                # QTDNEG já está em KG (unidade base), não multiplicar por peso
                 total = None
                 try:
-                    if qtdneg is not None and peso is not None:
-                        total = float(qtdneg) * float(peso)
+                    if qtdneg is not None:
+                        total = float(qtdneg)
                 except Exception:
                     total = None
                 items_out.append({
@@ -532,7 +533,7 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
             sql = (
                 f"""
                 SELECT i.CODAGREGACAO AS CTRL,
-                       MAX(UPPER(NVL(pr.RAZAOSOCIAL, pr.NOMEPARC))) AS PARCEIRO,
+                       MAX(UPPER(NVL(pr.NOMEPARC, pr.RAZAOSOCIAL))) AS PARCEIRO,
                        MAX(c.CODPARC) AS CODPARC
                   FROM TGFITE i
                   JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
@@ -1917,28 +1918,24 @@ def item_list(request: HttpRequest) -> JsonResponse:
             vltot = r[8] if len(r) > 8 else None
             obs = r[9] if len(r) > 9 else ''
             gp = r[10] if len(r) > 10 else None
-            total = None
-            try:
-                if qtdneg is not None and peso is not None:
-                    total = float(qtdneg) * float(peso)
-            except Exception:
-                total = None
-            # Ajustar quantidade para exibição quando CODVOL for alternativo (QTD armazenada na base)
-            disp_qtd = qtdneg
-            try:
-                if codp is not None and codvol:
-                    # Lazy import to avoid circular import issues during fallback
-                    from sankhya_integration.services.oracle_conn import get_base_unit_and_factor
-                    base, fator = get_base_unit_and_factor(int(codp), str(codvol))
-                    if base and str(base).upper() != str(codvol).upper() and fator and float(fator) > 0:
-                        try:
-                            disp_qtd = float(qtdneg or 0) / float(fator)
-                        except Exception:
-                            disp_qtd = qtdneg
-            except Exception:
-                disp_qtd = qtdneg
+            
+            # 🔥 CÁLCULO DIRETO PARA EXIBIÇÃO (sem conversão via TGFVOA)
+            # Total KG = QTDNEG (direto do banco)
+            # Peso = PESO (kg por unidade)
+            # Qtd = QTDNEG ÷ PESO (quantidade em unidade alternativa)
+            # Exemplo: QTDNEG=63, PESO=21 → Qtd = 63÷21 = 3 CX
+            
+            total = float(qtdneg) if qtdneg is not None else 0.0
+            disp_qtd = qtdneg  # Default: mostrar em KG
+            
+            # Se PESO > 0, calcular quantidade na unidade alternativa
+            if peso is not None and float(peso) > 0:
+                try:
+                    disp_qtd = float(qtdneg or 0) / float(peso)
+                except Exception:
+                    disp_qtd = qtdneg
 
-            out.append({
+            item_dict = {
                 'nunota': int(nunota),
                 'sequencia': int(seq) if seq is not None else None,
                 'cod': int(codp) if codp is not None else None,
@@ -1954,7 +1951,15 @@ def item_list(request: HttpRequest) -> JsonResponse:
                 'obs': obs or '',
                 'classifica': (None if gp is None else (str(gp).upper() != 'N')),
                 'geraproducao': (None if gp is None else str(gp).upper()),
-            })
+            }
+            
+            # 🔍 LOG para debug de conversão
+            print(f"🔍 [ITEM_LIST] SEQ={seq}, CODPROD={codp}, CODVOL={codvol}")
+            print(f"   └─ QTDNEG (banco)={qtdneg} KG, PESO={peso}, FATOR calculado")
+            print(f"   └─ disp_qtd (convertido)={disp_qtd}, total={total}")
+            print(f"   └─ Enviando ao frontend: qtd={item_dict['qtd']}, total={item_dict['total']}")
+            
+            out.append(item_dict)
         try:
             print(f"🔍🔍 ITEM_LIST - Returning {len(out)} items for nunota={nunota}")
             # print sample item to help debug missing totalkg
