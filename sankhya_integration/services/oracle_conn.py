@@ -1,4 +1,4 @@
-import os
+﻿import os
 import importlib
 try:
     # Dynamically import legacy driver if available
@@ -3885,21 +3885,29 @@ def listar_itens_portal_basico(
         binds["codprod"] = int(codprod)
 
     inner = (
-        "SELECT p.NOMEPARC, NVL(pr.FABRICANTE, pr.DESCRPROD) AS PRODNAME, i.QTDNEG, c.DTNEG, i.CODVOL, i.CODPROD, c.NUNOTA, i.SEQUENCIA, NVL(i.GERAPRODUCAO, 'S') AS GP, i.PESO AS PESO, i.PRECOBASE AS PRECOBASE, i.VLRUNIT AS VLRUNIT, "
-        # CRÍTICO: Buscar VLRTOT do VALE (TOP 13) se existir, senão usar VLRTOT do PEDIDO (TOP 11)
-        "  NVL((SELECT SUM(vale_i.VLRTOT) FROM TGFCAB vale_c JOIN TGFITE vale_i ON vale_i.NUNOTA = vale_c.NUNOTA WHERE vale_c.CODTIPOPER = 13 AND vale_c.NUMPEDIDO = c.NUNOTA), i.VLRTOT) AS VLRTOT, "
+        "SELECT /*+ INDEX(c TGFCAB_PK) */ p.NOMEPARC, NVL(pr.FABRICANTE, pr.DESCRPROD) AS PRODNAME, i.QTDNEG, c.DTNEG, i.CODVOL, i.CODPROD, c.NUNOTA, i.SEQUENCIA, NVL(i.GERAPRODUCAO, 'S') AS GP, i.PESO AS PESO, i.PRECOBASE AS PRECOBASE, i.VLRUNIT AS VLRUNIT, "
+        # 🚀 OTIMIZAÇÃO: Buscar VLRTOT do VALE (TOP 13) via LEFT JOIN agregado, senão usar VLRTOT do PEDIDO
+        "  COALESCE(vale_vlr.VLRTOT_VALE, i.VLRTOT, 0) AS VLRTOT, "
         "i.AD_SIMQTD1, i.AD_SIMQTD2, i.AD_SIMVLR1, i.AD_SIMVLR2, i.CODAGREGACAO, c.CODTIPOPER, c.NUMPEDIDO "
-        "  FROM TGFITE i "
-        "  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA "
+        "  FROM TGFCAB c "
+        "  JOIN TGFITE i ON c.NUNOTA = i.NUNOTA "
         "  LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC "
         "  LEFT JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD "
+        # LEFT JOIN para buscar VLRTOT do vale (TOP 13) se existir
+        "  LEFT JOIN ("
+        "    SELECT vale_c.NUMPEDIDO, SUM(vale_i.VLRTOT) AS VLRTOT_VALE "
+        "    FROM TGFCAB vale_c "
+        "    JOIN TGFITE vale_i ON vale_i.NUNOTA = vale_c.NUNOTA "
+        "    WHERE vale_c.CODTIPOPER = 13 "
+        "    GROUP BY vale_c.NUMPEDIDO"
+        "  ) vale_vlr ON vale_vlr.NUMPEDIDO = c.NUNOTA "
         f" WHERE {' AND '.join(where)} "
         "  ORDER BY c.DTNEG DESC, c.NUNOTA DESC, i.SEQUENCIA ASC"
     )
     sql = (
         "SELECT NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2, CODAGREGACAO, CODTIPOPER, NUMPEDIDO FROM ("
         "  SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.DTNEG DESC, t.NUNOTA DESC, t.SEQUENCIA ASC) rn FROM (" + inner + ") t"
-        ") WHERE rn BETWEEN :start_row AND :end_row ORDER BY rn"
+        ") WHERE rn BETWEEN :start_row AND :end_row"
     )
     binds["start_row"] = int(offset) + 1
     binds["end_row"] = int(offset) + int(limit)

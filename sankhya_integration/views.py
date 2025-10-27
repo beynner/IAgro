@@ -674,16 +674,11 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
         exemplo_map[ctrl] = {'nunota': info.get('exemplo_nunota'), 'sequencia': info.get('exemplo_seq')}
 
     # Seleção do lote (controle/codagregacao) por query param 'sel' (valor do controle)
-    sel_controle = (request.GET.get('sel') or (lotes[0][0] if lotes else None))
-    # Pré-carregar dados do lote selecionado (modo leve) para render instantânea no cliente
+    # NÃO seleciona automaticamente o primeiro lote - só quando houver 'sel' na URL
+    sel_controle = request.GET.get('sel') or None
+    # NÃO pré-carregar dados - os valores devem aparecer apenas ao clicar na linha
     produtos_classificados = []
     initial_lote = None
-    try:
-        if sel_controle:
-            from sankhya_integration.services.oracle_conn import consultar_lote_light
-            initial_lote = consultar_lote_light(sel_controle)
-    except Exception:
-        initial_lote = None
     selected_exemplo = exemplo_map.get(sel_controle) if sel_controle else None
     nunota_class_sel = None
 
@@ -733,8 +728,8 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
         'lotes': lotes,
         'produtos_classificados': produtos_classificados,
         'sel': sel_controle,
-        'initial_lote_ctrl': sel_controle,
-        'initial_lote_json': json.dumps(initial_lote) if initial_lote else None,
+        'initial_lote_ctrl': None,  # Removido pré-carga - valores só ao clicar
+        'initial_lote_json': None,  # Removido pré-carga - valores só ao clicar
         'params': params,
         'parc_display': parc_display,
         'page': page,
@@ -3097,6 +3092,7 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
         entradas_out = []
         for e in entradas:
             # expected tuple: (NUNOTA, SEQUENCIA, CODPROD, DESCRPROD, CODVOL, QTDNEG, PESO, VLRUNIT, VLRTOT, NOMEPARC)
+            qtdneg_kg = float(e[5] or 0) if len(e) > 5 else 0
             entradas_out.append({
                 'nunota': int(e[0]) if e and e[0] is not None else None,
                 'sequencia': int(e[1]) if e and e[1] is not None else None,
@@ -3105,6 +3101,7 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
                 'codvol': e[4] if e and len(e) > 4 else '',
                 'qtd': _disp_qty(e[2] if len(e) > 2 else None, e[4] if len(e) > 4 else '', e[5] if len(e) > 5 else None),
                 'peso': (float(e[6]) if (len(e) > 6 and e[6] is not None) else None),
+                'totalkg': qtdneg_kg,  # Total kg real (QTDNEG)
                 'vlu': float(e[7] or 0),
                 'vlt': float(e[8] or 0),
                 'parceiro': e[9] if e and len(e) > 9 else '',
@@ -3113,6 +3110,7 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
         # convert classificaveis to lightweight objects (same shape as classificacoes)
         classif_out = []
         for row in classificaveis:
+            qtdneg_kg = float(row[5] or 0)
             classif_out.append({
                 'nunota': int(row[0]) if row[0] is not None else None,
                 'sequencia': int(row[1]) if row[1] is not None else None,
@@ -3121,6 +3119,7 @@ def lote_consultar(request: HttpRequest) -> JsonResponse:
                 'codvol': row[4] or '',
                 'qtd': _disp_qty(row[2], row[4], row[5]),
                 'peso': (float(row[6]) if (len(row) > 6 and row[6] is not None) else None),
+                'totalkg': qtdneg_kg,  # Total kg real (QTDNEG)
                 'vlu': float(row[7] or 0),
                 'vlt': float(row[8] or 0),
             })
@@ -4538,48 +4537,35 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                     nunotas_pedidos = list(set([r[6] for r in rows if r[6]]))
                     
                     if nunotas_pedidos:
-                        # Buscar TOP 13 vinculadas via NUMPEDIDO
+                        # 🚀 OTIMIZAÇÃO: Uma única query com LEFT JOIN para buscar vale + NUFIN
                         placeholders = ','.join([':n' + str(i) for i in range(len(nunotas_pedidos))])
                         sql = f"""
-                            SELECT NUMPEDIDO, NUNOTA 
-                            FROM TGFCAB 
-                            WHERE CODTIPOPER = :top 
-                              AND NUMPEDIDO IN ({placeholders})
+                            SELECT c.NUMPEDIDO, c.NUNOTA, f.NUFIN, f.NURENEG, f.VLRBAIXA
+                            FROM TGFCAB c
+                            LEFT JOIN (
+                                SELECT NUNOTA, MIN(NUFIN) as NUFIN, 
+                                       MAX(NURENEG) as NURENEG, 
+                                       SUM(VLRBAIXA) as VLRBAIXA
+                                FROM TGFFIN 
+                                GROUP BY NUNOTA
+                            ) f ON f.NUNOTA = c.NUNOTA
+                            WHERE c.CODTIPOPER = :top 
+                              AND c.NUMPEDIDO IN ({placeholders})
                         """
                         bind_vars = {'top': top_13}
                         for i, nunota in enumerate(nunotas_pedidos):
                             bind_vars[f'n{i}'] = nunota
                         
                         cur.execute(sql, bind_vars)
-                        for numpedido, nunota_vale in cur.fetchall():
-                            if numpedido and nunota_vale:
-                                nunota_to_vale[int(numpedido)] = int(nunota_vale)
-                        
-                        # 🔥 Buscar NUFIN, NURENEG e VLRBAIXA dos vales (se já foram faturados)
-                        vale_to_nufin = {}
                         vale_to_nureneg = {}
                         vale_to_vlrbaixa = {}
-                        if nunota_to_vale:
-                            nunotas_vales = list(set(nunota_to_vale.values()))
-                            placeholders_v = ','.join([':v' + str(i) for i in range(len(nunotas_vales))])
-                            sql_nufin = f"""
-                                SELECT NUNOTA, NUFIN, NURENEG, VLRBAIXA
-                                FROM TGFFIN 
-                                WHERE NUNOTA IN ({placeholders_v})
-                                ORDER BY NUNOTA, NUFIN DESC
-                            """
-                            bind_vars_v = {}
-                            for i, nunota_vale in enumerate(nunotas_vales):
-                                bind_vars_v[f'v{i}'] = nunota_vale
-                            
-                            cur.execute(sql_nufin, bind_vars_v)
-                            for nunota_v, nufin_v, nureneg_v, vlrbaixa_v in cur.fetchall():
-                                if nunota_v and nufin_v:
-                                    # Pegar apenas o primeiro NUFIN (mais recente)
-                                    if nunota_v not in vale_to_nufin:
-                                        vale_to_nufin[int(nunota_v)] = int(nufin_v)
-                                        vale_to_nureneg[int(nunota_v)] = nureneg_v
-                                        vale_to_vlrbaixa[int(nunota_v)] = float(vlrbaixa_v) if vlrbaixa_v else 0.0
+                        for numpedido, nunota_vale, nufin_v, nureneg_v, vlrbaixa_v in cur.fetchall():
+                            if numpedido and nunota_vale:
+                                nunota_to_vale[int(numpedido)] = int(nunota_vale)
+                                if nufin_v:
+                                    vale_to_nufin[int(nunota_vale)] = int(nufin_v)
+                                    vale_to_nureneg[int(nunota_vale)] = nureneg_v
+                                    vale_to_vlrbaixa[int(nunota_vale)] = float(vlrbaixa_v) if vlrbaixa_v else 0.0
             except Exception as e:
                 logger.warning(f'Erro ao buscar vales associados: {e}')
                 vale_to_nufin = {}
@@ -4694,6 +4680,111 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
     except Exception as e:
         logger.exception('comercial_lista failed')
         return JsonResponse({ 'ok': False, 'error': str(e) }, status=500)
+
+
+def comercial_itens_vale(request: HttpRequest) -> JsonResponse:
+    """
+    🚀 Busca os itens de um VALE (TOP 13) específico para exibição no modal.
+    
+    GET /sankhya/comercial/api/itens_vale/?nunota=93838
+    
+    Retorna os itens do vale no mesmo formato que comercial_lista.
+    """
+    if request.method != 'GET':
+        return JsonResponse({'ok': False, 'error': 'Use GET'}, status=405)
+    
+    try:
+        nunota_vale = request.GET.get('nunota')
+        if not nunota_vale:
+            return JsonResponse({'ok': False, 'error': 'Parâmetro nunota obrigatório'}, status=400)
+        
+        try:
+            nunota_vale = int(nunota_vale)
+        except ValueError:
+            return JsonResponse({'ok': False, 'error': 'nunota deve ser numérico'}, status=400)
+        
+        from sankhya_integration.services.oracle_conn import get_connection, get_params
+        
+        with get_connection() as conn:
+            cur = conn.cursor()
+            params = get_params()
+            top_13 = int(params.get('TOP_VALE_COMPRA', 13))
+            
+            # Query similar à listar_itens_portal_basico mas filtrada por NUNOTA específico
+            sql = """
+                SELECT 
+                    c.CODPARC,
+                    parc.NOMEPARC,
+                    prod.DESCRPROD,
+                    i.CODPROD,
+                    i.QTDNEG,
+                    i.SEQUENCIA,
+                    c.NUNOTA,
+                    i.CODVOL,
+                    i.VLRUNIT,
+                    voa.QUANTIDADE as FATOR_CONVERSAO,
+                    i.VLRTOT,
+                    i.CODAGREGACAO,
+                    c.CODTIPOPER,
+                    c.NUMPEDIDO
+                FROM TGFCAB c
+                JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+                JOIN TGFPRO prod ON prod.CODPROD = i.CODPROD
+                LEFT JOIN TGFPAR parc ON parc.CODPARC = c.CODPARC
+                LEFT JOIN TGFVOA voa ON voa.CODPROD = i.CODPROD 
+                    AND voa.CODVOL = i.CODVOL 
+                    AND voa.ATIVO = 'S'
+                WHERE c.NUNOTA = :nunota
+                    AND c.CODTIPOPER = :top_13
+                ORDER BY i.SEQUENCIA
+            """
+            
+            cur.execute(sql, {'nunota': nunota_vale, 'top_13': top_13})
+            rows = cur.fetchall()
+            
+            out = []
+            for row in rows:
+                (codparc, nomeparc, descrprod, codprod, qtdneg, sequencia, nunota,
+                 codvol, vlrunit_val, fator_conversao, vlrtot_val,
+                 codagregacao_val, codtipoper_val, numpedido_val) = row
+                
+                # 🔥 IMPORTANTE: Manter fator_conversao como None se não existir (para frontend usar fator do pedido)
+                fator_conversao = float(fator_conversao) if fator_conversao not in (None, '') else None
+                
+                out.append({
+                    'codparc': int(codparc) if codparc is not None else None,
+                    'parceiro': str(nomeparc) if nomeparc else '',
+                    'produto': str(descrprod) if descrprod else '',
+                    'codprod': int(codprod) if codprod is not None else None,
+                    'qtdneg': float(qtdneg) if qtdneg not in (None, '') else 0.0,
+                    'nunota': int(nunota) if nunota is not None else None,
+                    'nunota_13': None,  # Vale não tem outro vale vinculado
+                    'nufin': None,
+                    'nureneg': None,
+                    'vlrbaixa': None,
+                    'bloqueado_financeiro': False,
+                    'sequencia': int(sequencia) if sequencia is not None else None,
+                    'classificavel': True,  # Assume que todos são classificáveis
+                    'codvol': (str(codvol).upper() if codvol is not None else None),
+                    'peso': None,  # Campo não disponível
+                    'preco_inicial': (float(vlrunit_val) if vlrunit_val not in (None, '') and float(vlrunit_val or 0) != 0 else None),
+                    'vlrunit': (float(vlrunit_val) if vlrunit_val not in (None, '') else None),
+                    'fator_conversao': fator_conversao,
+                    'vlrtot': (float(vlrtot_val) if vlrtot_val not in (None, '') and float(vlrtot_val or 0) != 0 else 0.0),
+                    'ad_simqtd1': None,
+                    'ad_simqtd2': None,
+                    'ad_simvlr1': None,
+                    'ad_simvlr2': None,
+                    'codagregacao': (str(codagregacao_val) if codagregacao_val not in (None, '') else None),
+                    'codtipoper': (int(codtipoper_val) if codtipoper_val is not None else None),
+                    'numpedido': (int(numpedido_val) if numpedido_val is not None else None),
+                })
+            
+            return JsonResponse({'ok': True, 'items': out, 'count': len(out)})
+            
+    except Exception as e:
+        logger.exception('comercial_itens_vale failed')
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
 
 def comercial_vale_verificar_ou_criar_cabecalho(request: HttpRequest) -> JsonResponse:

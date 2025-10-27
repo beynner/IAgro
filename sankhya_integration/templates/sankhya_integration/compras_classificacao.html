@@ -383,16 +383,16 @@
                 <th>Lote</th>
                 <th>Parceiro</th>
                 <th>Produtos (TOP 11 - Entradas)</th>
-                <th>Qtde cx</th>
+                <th>Qtde cx<br>InNatura</th>
                 <th>Peso<br>InNatura</th>
                 <th>Qtde Kg<br>InNatura</th>
-                <th>Qtde<br>Classificado</th>
+                <th>Qtde kg<br>Classificado</th>
               </tr>
             </thead>
             <tbody>
               {% for controle, parceiro, produto_descr, qtd_cx, peso, qtd_kg, qtd_class, pendente, exemplo_nunota, exemplo_seq, produtos_entrada, codparc, nunota_portal, nunota_top26 in lotes %}
               {% with is_sel=sel|default:0 %}
-        <tr class="row--click{% if controle == is_sel %} row--active{% endif %}"
+        <tr class="row--click"
           data-nunota="{{ controle }}"
           data-nunota-portal="{{ nunota_portal|default:'' }}"
           data-nunota-top26="{{ nunota_top26|default:'' }}"
@@ -890,7 +890,7 @@
                   <div id="cab_qtd_pedido_text" style="font-weight:700; font-size:18px; line-height:1.1; text-align:center; margin-top:8px;">—</div>
                 </div>
                 <div style="border:1px solid var(--border); border-radius:8px; padding:4px 8px 8px; background:#f9fafb; text-align:center;">
-                  <div style="font-size:11px; color:#6b7280; margin-top:-4px;">Qtde Classificado</div>
+                  <div style="font-size:11px; color:#6b7280; margin-top:-4px;">Qtde kg Classificado</div>
                   <div style="margin-top:8px;"><span id="cab_class_count_text" style="font-weight:700; font-size:18px; line-height:1.1; text-align:center; display:inline-block;">—</span></div>
                 </div>
                 <div style="border:1px solid var(--border); border-radius:8px; padding:4px 8px 8px; background:#f9fafb; text-align:center;">
@@ -1113,12 +1113,28 @@
         try{
           const entradas = Array.isArray(j.entradas) ? j.entradas : [];
           if (!entradas.length) return 0;
-          const sum = entradas.reduce((s,e)=>{
-            const vol = (e.codvol || e.CODVOL || '').toString().trim().toUpperCase();
-            const qtd = parseFloat(e.qtd || e.QTDNEG || 0) || 0;
-            return s + (vol === 'CX' ? qtd : 0);
-          }, 0);
-          return sum;
+          
+          // Obter produto In Natura e calcular total kg
+          const pin = j.prod_in_natura != null ? String(j.prod_in_natura) : '';
+          let totalKg = 0;
+          let peso = 0;
+          
+          if (pin) {
+            const match = entradas.find(e => String(e.codprod || e.CODPROD || '') === pin);
+            if (match) {
+              totalKg = parseFloat(match.totalkg || match.QTDNEG || 0);
+              peso = parseFloat(match.peso || match.PESO || 0);
+            }
+          }
+          
+          // Se não encontrou produto In Natura específico, usar primeiro item
+          if (totalKg === 0 && entradas.length > 0) {
+            totalKg = parseFloat(entradas[0].totalkg || entradas[0].QTDNEG || 0);
+            peso = parseFloat(entradas[0].peso || entradas[0].PESO || 0);
+          }
+          
+          // Calcular: Qtde kg InNatura / Peso InNatura = Qtde cx InNatura
+          return peso > 0 ? (totalKg / peso) : 0;
         }catch(_){ return 0; }
       }
       function computeQkgFromEntradas(j){
@@ -1147,13 +1163,15 @@
       function computeClassificadoFromClassificacoes(j){
         try{
           const rows = Array.isArray(j.classificacoes) ? j.classificacoes : [];
-          if (!rows.length) return 0;
           let sum = 0;
           for (const it of rows){
-            const q = parseFloat(it && it.qtd != null ? it.qtd : NaN);
-            const p = parseFloat(it && it.peso != null ? it.peso : NaN);
-            if (isFinite(q) && isFinite(p)) sum += (q * p);
+            // Usar totalkg (QTDNEG real do banco) ao invés de multiplicar qtd * peso
+            const totalkg = parseFloat(it && it.totalkg != null ? it.totalkg : NaN);
+            if (isFinite(totalkg)) sum += totalkg;
           }
+          // Adicionar descarte ao total classificado
+          const descarte = parseFloat(j && j.qtdbatidas != null ? j.qtdbatidas : 0);
+          if (isFinite(descarte)) sum += descarte;
           return sum;
         }catch(_){ return 0; }
       }
@@ -1511,7 +1529,7 @@
   window.loadClassifiedFor = loadClassifiedFor;
     // helpers for number formatting and total calculation
   function formatNum(val){ const n = parseFloat(val); return (isFinite(n) ? n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : ''); }
-  function totalKgValue(item){ try{ const q = parseFloat(item && item.qtd != null ? item.qtd : NaN); const p = parseFloat(item && item.peso != null ? item.peso : NaN); const v = q * p; return (isFinite(v) ? v : NaN); }catch(_){ return NaN; } }
+  function totalKgValue(item){ try{ const totalkg = parseFloat(item && item.totalkg != null ? item.totalkg : NaN); if(isFinite(totalkg)) return totalkg; const qtd = parseFloat(item && item.qtd != null ? item.qtd : NaN); return (isFinite(qtd) ? qtd : NaN); }catch(_){ return NaN; } }
         try{
           const entradas = Array.isArray(j.entradas) ? j.entradas : [];
           const pin = j.prod_in_natura || null;
@@ -1537,11 +1555,29 @@
         // Update 'Qtde cx' and 'Qtde kg' in the active LOTES row from entradas
         try{
           const entradas = Array.isArray(j.entradas) ? j.entradas : [];
-          const qCx = entradas.reduce((s,e)=>{
-            const vol = (e.codvol || e.CODVOL || '').toString().trim().toUpperCase();
-            const qtd = parseFloat(e.qtd || e.QTDNEG || 0) || 0;
-            return s + (vol === 'CX' ? qtd : 0);
-          }, 0);
+          
+          // Obter qKg (Qtde kg InNatura) que já foi calculado abaixo
+          // Vamos calcular qCx = qKg / peso do produto In Natura
+          const pin = j.prod_in_natura != null ? String(j.prod_in_natura) : '';
+          let peso = 0;
+          let totalKg = 0;
+          
+          if (pin) {
+            const match = entradas.find(e => String(e.codprod || e.CODPROD || '') === pin);
+            if (match) {
+              totalKg = parseFloat(match.totalkg || match.QTDNEG || 0);
+              peso = parseFloat(match.peso || match.PESO || 0);
+            }
+          }
+          
+          // Fallback: usar primeiro item
+          if (totalKg === 0 && entradas.length > 0) {
+            totalKg = parseFloat(entradas[0].totalkg || entradas[0].QTDNEG || 0);
+            peso = parseFloat(entradas[0].peso || entradas[0].PESO || 0);
+          }
+          
+          // Qtde cx InNatura = Qtde kg InNatura / Peso InNatura
+          const qCx = peso > 0 ? (totalKg / peso) : 0;
           // Qtde kg (LOTES) must show total de kg In Natura: QTDNEG do item cuja TOP = 11.
           // Backend exposes prod_in_natura (código do produto In Natura). Prefer that entry's QTDNEG.
           let qKg = 0;
@@ -1550,23 +1586,21 @@
             if (pin) {
               const match = entradas.find(e => String(e.codprod || e.CODPROD || '') === pin);
               if (match) {
-                const q = parseFloat(match.qtd || match.QTDNEG || NaN);
-                const p = parseFloat(match.peso || match.PESO || NaN);
-                qKg = (isFinite(q) && isFinite(p)) ? (q * p) : 0;
+                // Usar totalkg se disponível, senão qtd (já está em KG)
+                const totalkg = parseFloat(match.totalkg || match.QTDNEG || NaN);
+                qKg = isFinite(totalkg) ? totalkg : 0;
               } else {
-                // Fallback: sum qtd * peso across entradas when specific In Natura not found
+                // Fallback: somar totalkg das entradas
                 qKg = entradas.reduce((s,e)=>{
-                  const q = parseFloat(e.qtd || e.QTDNEG || NaN);
-                  const p = parseFloat(e.peso || e.PESO || NaN);
-                  return s + ((isFinite(q) && isFinite(p)) ? (q * p) : 0);
+                  const totalkg = parseFloat(e.totalkg || e.QTDNEG || NaN);
+                  return s + (isFinite(totalkg) ? totalkg : 0);
                 }, 0);
               }
             } else {
-              // No prod_in_natura from backend: fallback to sum qtd * peso across entradas
+              // No prod_in_natura from backend: fallback to sum totalkg across entradas
               qKg = entradas.reduce((s,e)=>{
-                const q = parseFloat(e.qtd || e.QTDNEG || NaN);
-                const p = parseFloat(e.peso || e.PESO || NaN);
-                return s + ((isFinite(q) && isFinite(p)) ? (q * p) : 0);
+                const totalkg = parseFloat(e.totalkg || e.QTDNEG || NaN);
+                return s + (isFinite(totalkg) ? totalkg : 0);
               }, 0);
             }
           }catch(_){ qKg = 0; }
@@ -1593,14 +1627,18 @@
             activeRow.cells[6].textContent = formatNum1BR(qKg || 0);
           }
     }catch(_){ }
-        // Update 'Qtde Classificado' (sum of Total kg = qtd * peso across all classificados)
+        // Update 'Qtde Classificado' (sum of Total kg from backend totalkg + descarte)
         try{
           let sumClassKg = 0;
           for (const it of rows) {
-            const q = parseFloat(it && it.qtd != null ? it.qtd : NaN);
-            const p = parseFloat(it && it.peso != null ? it.peso : NaN);
-            if (isFinite(q) && isFinite(p)) sumClassKg += (q * p);
+            // Usar totalkg se disponível (já é o valor em KG correto do banco)
+            const totalkg = parseFloat(it && it.totalkg != null ? it.totalkg : NaN);
+            if (isFinite(totalkg)) sumClassKg += totalkg;
           }
+          // Adicionar descarte ao total classificado
+          const descarte = parseFloat(j && j.qtdbatidas != null ? j.qtdbatidas : 0);
+          if (isFinite(descarte)) sumClassKg += descarte;
+          
           const activeRow = document.querySelector('#notasTable tbody tr.row--active');
           if(activeRow && activeRow.cells && activeRow.cells.length >= 8){
             activeRow.cells[7].textContent = formatNum1BR(sumClassKg || 0);
@@ -1613,7 +1651,7 @@
             try{ formatLotesRow(activeRow); }catch(_){ }
           }
         }catch(_){ }
-  if(rows.length===0){ bodyEl.innerHTML = '<tr><td colspan="7">Nenhum produto classificado para a seleção.</td></tr>'; updateResumoClassificacao([], j); return; } bodyEl.innerHTML = ''; for(const it of rows){ const tr = document.createElement('tr'); const qtdDisp = formatNum(it.qtd); const pesoDisp = formatNum(it.peso); const totalVal = totalKgValue(it); const totalDisp = isFinite(totalVal) ? totalVal.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : ''; tr.innerHTML = `<td>${it.nunota||''}</td><td>${it.sequencia||''}</td><td>${it.cod||''}</td><td>${it.descr||''}</td><td>${qtdDisp}</td><td>${pesoDisp}</td><td>${totalDisp}</td>`; bodyEl.appendChild(tr); } updateResumoClassificacao(rows, j); }catch(err){ bodyEl.innerHTML = '<tr><td colspan="7">Erro ao carregar.</td></tr>'; updateResumoClassificacao([], null); } finally { try { if (window.__PH_INITIAL_LOADING) { window.__PH_INITIAL_LOADING = false; window.PHOverlay && window.PHOverlay.hide && window.PHOverlay.hide(); } } catch(_) {} } }
+  if(rows.length===0){ bodyEl.innerHTML = '<tr><td colspan="7">Nenhum produto classificado para a seleção.</td></tr>'; updateResumoClassificacao([], j); return; } bodyEl.innerHTML = ''; for(const it of rows){ const tr = document.createElement('tr'); const qtdDisp = formatNum(it.qtd); const pesoDisp = formatNum(it.peso); const totalVal = totalKgValue(it); const totalDisp = isFinite(totalVal) ? totalVal.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : ''; tr.innerHTML = `<td>${it.nunota||''}</td><td>${it.sequencia||''}</td><td>${it.cod||''}</td><td>${it.descr||''}</td><td>${qtdDisp}</td><td>${pesoDisp}</td><td>${totalDisp}</td>`; bodyEl.appendChild(tr); } try{ const descarte = parseFloat(j && j.qtdbatidas != null ? j.qtdbatidas : 0); if(isFinite(descarte) && descarte > 0){ const trDesc = document.createElement('tr'); trDesc.style.backgroundColor = '#fee2e2'; trDesc.innerHTML = `<td colspan="4" style="font-weight:600;text-align:right;padding-right:8px;">Descarte (Avarias)</td><td></td><td></td><td>${formatNum(descarte)}</td>`; bodyEl.appendChild(trDesc); } }catch(_){ } updateResumoClassificacao(rows, j); }catch(err){ bodyEl.innerHTML = '<tr><td colspan="7">Erro ao carregar.</td></tr>'; updateResumoClassificacao([], null); } finally { try { if (window.__PH_INITIAL_LOADING) { window.__PH_INITIAL_LOADING = false; window.PHOverlay && window.PHOverlay.hide && window.PHOverlay.hide(); } } catch(_) {} } }
 
       // Update summary card with totals from classified products
       function updateResumoClassificacao(rows, jsonData) {
@@ -1625,7 +1663,7 @@
             return isFinite(val) ? val.toFixed(1) + '%' : '0%';
           };
 
-          // Calcular Total In Natura (qtd * peso das entradas)
+          // Calcular Total In Natura (totalkg das entradas)
           let totalInNatura = 0;
           let totalInNaturaCx = 0;
           if (jsonData && Array.isArray(jsonData.entradas)) {
@@ -1633,50 +1671,51 @@
             if (pin) {
               const match = jsonData.entradas.find(e => String(e.codprod || e.CODPROD || '') === pin);
               if (match) {
-                const q = parseFloat(match.qtd || match.QTDNEG || 0);
-                const p = parseFloat(match.peso || match.PESO || 0);
-                totalInNatura = (isFinite(q) && isFinite(p)) ? (q * p) : 0;
+                const totalkg = parseFloat(match.totalkg || match.QTDNEG || 0);
+                const q = parseFloat(match.qtd || 0);
+                totalInNatura = isFinite(totalkg) ? totalkg : 0;
                 totalInNaturaCx = isFinite(q) ? q : 0;
               } else {
                 totalInNatura = jsonData.entradas.reduce((s, e) => {
-                  const q = parseFloat(e.qtd || e.QTDNEG || 0);
-                  const p = parseFloat(e.peso || e.PESO || 0);
-                  return s + ((isFinite(q) && isFinite(p)) ? (q * p) : 0);
+                  const totalkg = parseFloat(e.totalkg || e.QTDNEG || 0);
+                  return s + (isFinite(totalkg) ? totalkg : 0);
                 }, 0);
                 totalInNaturaCx = jsonData.entradas.reduce((s, e) => {
-                  const q = parseFloat(e.qtd || e.QTDNEG || 0);
+                  const q = parseFloat(e.qtd || 0);
                   return s + (isFinite(q) ? q : 0);
                 }, 0);
               }
             } else {
               totalInNatura = jsonData.entradas.reduce((s, e) => {
-                const q = parseFloat(e.qtd || e.QTDNEG || 0);
-                const p = parseFloat(e.peso || e.PESO || 0);
-                return s + ((isFinite(q) && isFinite(p)) ? (q * p) : 0);
+                const totalkg = parseFloat(e.totalkg || e.QTDNEG || 0);
+                return s + (isFinite(totalkg) ? totalkg : 0);
               }, 0);
               totalInNaturaCx = jsonData.entradas.reduce((s, e) => {
-                const q = parseFloat(e.qtd || e.QTDNEG || 0);
+                const q = parseFloat(e.qtd || 0);
                 return s + (isFinite(q) ? q : 0);
               }, 0);
             }
           }
 
-          // Calcular Total Classificado (qtd * peso dos produtos classificados)
-          let totalClassificado = 0;
+          // Calcular Total Classificado (totalkg dos produtos classificados)
+          let totalClassificadoSemDescarte = 0;
           let totalClassificadoCx = 0;
           for (const it of rows) {
+            const totalkg = parseFloat(it && it.totalkg != null ? it.totalkg : 0);
             const q = parseFloat(it && it.qtd != null ? it.qtd : 0);
-            const p = parseFloat(it && it.peso != null ? it.peso : 0);
-            if (isFinite(q) && isFinite(p)) totalClassificado += (q * p);
+            if (isFinite(totalkg)) totalClassificadoSemDescarte += totalkg;
             if (isFinite(q)) totalClassificadoCx += q;
           }
+
+          // Buscar Descarte (vem de jsonData.qtdbatidas - campo QTDBATIDAS do cabeçalho)
+          const descarte = (jsonData && jsonData.qtdbatidas != null) ? parseFloat(jsonData.qtdbatidas) : 0;
+
+          // Total Classificado = Produtos classificados + Descarte
+          const totalClassificado = totalClassificadoSemDescarte + (isFinite(descarte) ? descarte : 0);
 
           // Calcular Estoque (In Natura - Classificado), não permitir valores negativos
           const estoque = Math.max(0, totalInNatura - totalClassificado);
           const estoqueCx = Math.max(0, totalInNaturaCx - totalClassificadoCx);
-
-          // Buscar Descarte (vem de jsonData.qtdbatidas - campo QTDBATIDAS do cabeçalho)
-          const descarte = (jsonData && jsonData.qtdbatidas != null) ? parseFloat(jsonData.qtdbatidas) : 0;
 
           // Calcular porcentagens
           const pctClassificado = totalInNatura > 0 ? (totalClassificado / totalInNatura) * 100 : 0;

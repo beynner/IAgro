@@ -1138,24 +1138,24 @@
                       <span class="dist-label">Qtde Total</span>
                       <div class="qty-top">
                         <span class="dist-value"></span>
-                        <span class="dist-suffix">cx</span>
+                        <span class="dist-suffix">kg</span>
                       </div>
                       <div class="qty-bottom">
                         <span class="dist-value"></span>
-                        <span class="dist-suffix">kg</span>
+                        <span class="dist-suffix">cx</span>
                       </div>
                     </div>
                     <div id="distMini2" class="dist-mini cost-split" aria-label="mini 2">
                       <span class="dist-label">Custo</span>
                       <div class="cost-top">
-                        <span id="costCxDisplay" class="dist-value editable" role="button" tabindex="0" aria-label="Editar custo por caixa"></span>
-                        <input id="costCxInput" class="value-input" type="text" inputmode="decimal" aria-label="Custo por caixa" />
-                        <span class="dist-suffix">/cx</span>
-                      </div>
-                      <div class="cost-bottom">
                         <span id="costKgDisplay" class="dist-value editable" role="button" tabindex="0" aria-label="Editar custo por quilo"></span>
                         <input id="costKgInput" class="value-input" type="text" inputmode="decimal" aria-label="Custo por quilo" />
                         <span class="dist-suffix">/kg</span>
+                      </div>
+                      <div class="cost-bottom">
+                        <span id="costCxDisplay" class="dist-value editable" role="button" tabindex="0" aria-label="Editar custo por caixa"></span>
+                        <input id="costCxInput" class="value-input" type="text" inputmode="decimal" aria-label="Custo por caixa" />
+                        <span class="dist-suffix">/cx</span>
                       </div>
                     </div>
                     <div id="distMini4" class="dist-mini" aria-label="mini 4">
@@ -2273,7 +2273,13 @@
         }
         return '';
       }
-      function fmtQty(n){ try{ return Number(n||0).toLocaleString('pt-BR', { maximumFractionDigits: 3 }); }catch(_){ return String(n||0); } }
+      // 🚀 Cache de formatadores para melhor performance
+      const qtyFormatter = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 });
+      function fmtQty(n){ try{ return qtyFormatter.format(Number(n||0)); }catch(_){ return String(n||0); } }
+      
+      // 🚀 Função otimizada para escape HTML
+      const escapeHTML = (str) => String(str||'').replace(/[<>"'&]/g, c => ({'<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','&':'&amp;'}[c]));
+      
       function buildListaHTML(rows, mode){
         const htmlParts = [];
         if(mode === 'vale'){
@@ -2286,7 +2292,7 @@
             const dt = fmtDate(arr[0].dtneg);
             const classif = arr.filter(x=> x.classificavel !== false);
             const nclass = arr.filter(x=> x.classificavel === false);
-            const nunSafe = String(nun).replace(/[<>"'&]/g, c => ({'<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','&':'&amp;'}[c]||c));
+            const nunSafe = escapeHTML(nun);
             const btnResumo = `<span class="lista-vale-ico" data-nunota="${nunSafe}" role="button" tabindex="0" title="Resumo do Vale ${nunSafe}" aria-label="Abrir resumo do vale ${nunSafe}" style="cursor:pointer; color:inherit; display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="9" cy="21" r="1"></circle>
@@ -2416,23 +2422,34 @@
       }
 
       async function loadLista(ev){
+        const t0 = performance.now();
         try{
           bodyEl.innerHTML = '<tr><td colspan="5" style="padding:8px; color:#64748b;">Carregando…</td></tr>';
           const qs = parseFilters(ev);
           const timestamp = new Date().getTime();
           const separator = qs ? '&' : '?';
           const url = '/sankhya/comercial/lista/' + (qs ? ('?' + qs) : '') + `${separator}_t=${timestamp}`;
+          
+          const t1 = performance.now();
           const r = await fetch(url, { 
             credentials: 'same-origin',
             cache: 'no-cache',
             headers: { 'Cache-Control': 'no-cache' }
           });
+          const t2 = performance.now();
+          console.log(`[LISTA] ⚡ Fetch em ${(t2-t1).toFixed(0)}ms`);
+          
           let j = {}; try{ j = await r.json(); }catch(_){ j = {}; }
           if(!j.ok){ bodyEl.innerHTML = '<tr><td colspan="5" style="padding:8px; color:#b91c1c;">Falha ao carregar.</td></tr>'; return; }
           const rows = Array.isArray(j.rows) ? j.rows : [];
           try{ rows.forEach((r,i)=> r._i = i); window.__COM_LIST_ROWS = rows; }catch(_){ }
           if(!rows.length){ bodyEl.innerHTML = '<tr><td colspan="5" style="padding:8px; color:#64748b;">Nenhum registro.</td></tr>'; return; }
+          
+          const t3 = performance.now();
           bodyEl.innerHTML = buildListaHTML(rows, currentViewMode);
+          const t4 = performance.now();
+          console.log(`[LISTA] ⚡ Render HTML em ${(t4-t3).toFixed(0)}ms`);
+          
           const table = document.getElementById('listaTable');
           if(table) table.setAttribute('data-view', String(currentViewMode));
           // Notify others that the list loaded
@@ -2447,6 +2464,9 @@
               if(it){ applyItemToEntrada(it); }
             }
           }catch{}
+          
+          const t5 = performance.now();
+          console.log(`[LISTA] ⚡ TOTAL: ${(t5-t0).toFixed(0)}ms (fetch=${(t2-t1).toFixed(0)}ms, render=${(t4-t3).toFixed(0)}ms)`);
           
         }catch(_){
           bodyEl.innerHTML = '<tr><td colspan="5" style="padding:8px; color:#b91c1c;">Erro ao carregar.</td></tr>';
@@ -3293,8 +3313,8 @@
             try {
               const qtyCard = document.getElementById('distMini3');
               if (qtyCard) {
-                const kgEl = qtyCard.querySelector('.qty-bottom .dist-value');
-                const cxEl = qtyCard.querySelector('.qty-top .dist-value');
+                const kgEl = qtyCard.querySelector('.qty-top .dist-value');
+                const cxEl = qtyCard.querySelector('.qty-bottom .dist-value');
                 const fmtInt = (n) => Number(n || 0).toLocaleString('pt-BR', {maximumFractionDigits: 0});
                 // Usar soma de CX já normalizada pelo backend (QTDNEG / TGFVOA.QUANTIDADE)
                 const cxVal = classifiedCx;
@@ -4037,274 +4057,240 @@
 
       // Modal: Resumo do Vale (Classificáveis + Não Classificáveis)
       async function openValeResumo(nunota){
-        console.log('[DEBUG] openValeResumo chamada com nunota:', nunota);
+        console.log('[DEBUG] 🚀 openValeResumo chamada com nunota:', nunota);
+        const t0Performance = performance.now();
+        
+        // 🚀 OTIMIZAÇÃO: Cache de seletores DOM no início
+        const els = {
+          spinner: document.getElementById('loadingSpinner'),
+          modal: document.getElementById('modalFaturamento'),
+          title: document.getElementById('valeResumoTitle'),
+          classBody: document.getElementById('valeClassBody'),
+          outrosBody: document.getElementById('valeOutrosBody'),
+          totalEl: document.getElementById('valeResumoTotal'),
+          btnGerarVale: document.getElementById('btnGerarVale'),
+          pedidoEl: document.getElementById('valeResumoPedido'),
+          pedidoNumEl: document.getElementById('valeResumoPedidoNum'),
+          valeEl: document.getElementById('valeResumoVale'),
+          valeNumEl: document.getElementById('valeResumoValeNum')
+        };
         
         // Mostrar spinner
-        const spinner = document.getElementById('loadingSpinner');
-        if(spinner) spinner.style.display = 'flex';
-        
-        // Declarar btnGerarVale uma única vez
-        let btnGerarVale = document.getElementById('btnGerarVale');
+        if(els.spinner) els.spinner.style.display = 'flex';
         
         try{
-          // 🔥 RECARREGAR DADOS em background (silencioso) antes de abrir o modal
-          console.log('[MODAL] Recarregando dados em background...');
-          await reloadDataSilent();
-          console.log('[MODAL] Dados atualizados!');
+          // 🚀 OTIMIZAÇÃO: Remover reload automático - usar dados já carregados
+          // O reload só será feito quando necessário (após save, delete, etc)
+          const t2 = performance.now();
           
           // 🔥 ARMAZENAR NUNOTA no botão para evitar closure problem
-          if(btnGerarVale){
-            btnGerarVale.setAttribute('data-nunota-atual', String(nunota));
-            console.log('[MODAL] NUNOTA armazenada no botão:', nunota);
+          if(els.btnGerarVale){
+            els.btnGerarVale.setAttribute('data-nunota-atual', String(nunota));
           }
           
-          const modal = document.getElementById('modalFaturamento');
-          const title = document.getElementById('valeResumoTitle');
-          const classBody = document.getElementById('valeClassBody');
-          const outrosBody = document.getElementById('valeOutrosBody');
-          const totalEl = document.getElementById('valeResumoTotal');
-          console.log('[DEBUG] Elementos encontrados:', { modal: !!modal, title: !!title, classBody: !!classBody, outrosBody: !!outrosBody, totalEl: !!totalEl });
-          if(!modal || !title || !classBody || !outrosBody || !totalEl) {
+          if(!els.modal || !els.title || !els.classBody || !els.outrosBody || !els.totalEl) {
             console.error('[ERROR] Elementos do modal não encontrados!');
-            if(spinner) spinner.style.display = 'none';
+            if(els.spinner) els.spinner.style.display = 'none';
             return;
           }
           
           // 🔥 Armazenar NUNOTA atual globalmente para verificações de faturamento
           window.__CURRENT_VALE_NUNOTA = nunota;
-          console.log('[MODAL] NUNOTA confirmado:', nunota);
           
-          const rows = (window.__COM_LIST_ROWS||[]).filter(r=> String(r.nunota||'') === String(nunota||''));
-          console.log('[DEBUG] Linhas filtradas:', rows.length);
-          const parc = rows[0]?.parceiro || '';
+          // 🚀 CRÍTICO: Buscar NUNOTA do vale (TOP 13) para exibir dados corretos
+          const pedidoRows = (window.__COM_LIST_ROWS||[]).filter(r=> String(r.nunota||'') === String(nunota||''));
+          console.log('[DEBUG] Linhas do pedido filtradas:', pedidoRows.length);
+          
+          // Buscar nunota_13 (vale) nos dados do pedido
+          let nunota13 = pedidoRows[0]?.nunota_13 || '';
+          if(!nunota13){
+            const itemComVale = pedidoRows.find(r => r.nunota_13);
+            if(itemComVale) nunota13 = itemComVale.nunota_13;
+          }
+          
+          // 🔥 Se tem vale, BUSCAR ITENS DO VALE DO BACKEND (não estão em cache)
+          let rows = pedidoRows;
+          if(nunota13){
+            console.log('[DEBUG] 🔍 Buscando itens do vale', nunota13, 'do backend...');
+            try {
+              const resp = await fetch(`/sankhya/comercial/api/itens_vale/?nunota=${nunota13}`);
+              if(resp.ok){
+                const valeData = await resp.json();
+                if(valeData.items && valeData.items.length > 0){
+                  rows = valeData.items;
+                  console.log('[DEBUG] ✅ Itens do vale carregados:', rows.length);
+                } else {
+                  console.warn('[DEBUG] ⚠️ Vale sem itens, usando pedido');
+                }
+              } else {
+                console.error('[DEBUG] ❌ Erro ao buscar vale:', resp.status);
+              }
+            } catch(e){
+              console.error('[DEBUG] ❌ Erro na requisição do vale:', e);
+            }
+          }
+          
+          console.log('[DEBUG] NUNOTA usado para modal:', nunota13 || nunota, 'Linhas filtradas:', rows.length);
+          
+          const parc = pedidoRows[0]?.parceiro || '';
           
           // Armazenar fabricante do primeiro produto para uso na impressão
-          const fabricanteProduto = rows[0]?.produto || 'N/A';
+          const fabricanteProduto = pedidoRows[0]?.produto || 'N/A';
           window.__CURRENT_FABRICANTE = fabricanteProduto;
           console.log('[DEBUG] Fabricante armazenado:', fabricanteProduto);
           
-          // Atualizar título: só o parceiro
-          title.textContent = parc || 'Parceiro';
-          
-          // Mostrar Pedido (TOP 11) e Vale (TOP 13) se disponíveis
-          const pedidoEl = document.getElementById('valeResumoPedido');
-          const pedidoNumEl = document.getElementById('valeResumoPedidoNum');
-          const valeEl = document.getElementById('valeResumoVale');
-          const valeNumEl = document.getElementById('valeResumoValeNum');
+          // 🚀 Atualizar título: só o parceiro (usando cache)
+          els.title.textContent = parc || 'Parceiro';
           
           console.log('[MODAL PEDIDO] Elementos:', {
-            pedidoEl: !!pedidoEl,
-            pedidoNumEl: !!pedidoNumEl,
+            pedidoEl: !!els.pedidoEl,
+            pedidoNumEl: !!els.pedidoNumEl,
             nunota: nunota
           });
           
           // Pedido = NUNOTA atual (TOP 11) - SEMPRE mostrar
-          if(pedidoEl && pedidoNumEl && nunota){
-            pedidoNumEl.textContent = nunota;
-            pedidoEl.style.display = 'block';
-            console.log('[VALE MODAL] ✅ Pedido exibido:', nunota, 'display:', pedidoEl.style.display);
+          if(els.pedidoEl && els.pedidoNumEl && nunota){
+            els.pedidoNumEl.textContent = nunota;
+            els.pedidoEl.style.display = 'block';
+            console.log('[VALE MODAL] ✅ Pedido exibido:', nunota, 'display:', els.pedidoEl.style.display);
           } else {
             console.log('[VALE MODAL] ❌ Pedido não exibido - elementos ou nunota faltando');
           }
           
           // Vale (TOP 13) - buscar se existe NUNOTA relacionado
-          if(valeEl && valeNumEl){
-            // Buscar nunota_13 nas rows do pedido (mesmo approach do card Entrada)
-            let nunota13 = rows[0]?.nunota_13 || '';
-            
-            // Se não tem na primeira row, buscar em qualquer row do mesmo pedido
-            if(!nunota13){
-              const itemComVale = rows.find(r => r.nunota_13);
-              if(itemComVale){
-                nunota13 = itemComVale.nunota_13;
-              }
-            }
+          if(els.valeEl && els.valeNumEl){
+            // Usar nunota13 já declarado acima
             
             if(nunota13){
-              valeNumEl.textContent = nunota13;
-              valeEl.style.display = 'block';
+              els.valeNumEl.textContent = nunota13;
+              els.valeEl.style.display = 'block';
             } else {
-              valeNumEl.textContent = '—';
-              valeEl.style.display = 'none';
+              els.valeNumEl.textContent = '—';
+              els.valeEl.style.display = 'none';
             }
           }
+          
+          // 🚀 OTIMIZAÇÃO: Criar formatadores UMA VEZ (fora do loop)
+          const moneyFormatter = new Intl.NumberFormat('pt-BR', {style:'decimal', minimumFractionDigits:2, maximumFractionDigits:2});
+          const qtyFormatter = new Intl.NumberFormat('pt-BR', {maximumFractionDigits: 0}); // 0 casas decimais
           
           const fmtMoney = (n)=> {
             if(isNaN(n)) return '<span class="valor-monetario"><span class="cifrao">R$</span> 0,00</span>';
-            const formatted = new Intl.NumberFormat('pt-BR',{style:'decimal',minimumFractionDigits:2,maximumFractionDigits:2}).format(n);
+            const formatted = moneyFormatter.format(n);
             return `<span class="valor-monetario"><span class="cifrao">R$</span> ${formatted}</span>`;
           };
-          const fmtQty = (n)=> isNaN(n) ? '0' : Number(n||0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+          const fmtQty = (n)=> isNaN(n) ? '0' : qtyFormatter.format(Number(n||0));
+          
           const classifs = rows.filter(r=> r.classificavel !== false);
           const nclass = rows.filter(r=> r.classificavel === false);
           
-          // Buscar o NUNOTA do vale de compra (TOP 13) vinculado a este pedido
-          let nunota13 = rows[0]?.nunota_13 || '';
-          if(!nunota13){
-            const itemComVale = rows.find(r => r.nunota_13);
-            if(itemComVale) nunota13 = itemComVale.nunota_13;
-          }
-          
+          // Usar nunota13 já declarado no início da função
           console.log('[MODAL] NUNOTA do pedido (TOP 11):', nunota, '| NUNOTA do vale (TOP 13):', nunota13);
           
-          // Buscar itens do VALE DE COMPRA (TOP 13) da lista comercial
+          // 🚀 Calcular totais de KG e CX dos itens classificáveis do pedido
           let totalKgFromItems = 0;
           let totalCxFromItems = 0;
           
-          if(nunota13) {
-            try {
-              console.log('[MODAL] Buscando lote do vale', nunota13, '...');
-              
-              // Buscar o lote (CODAGREGACAO) do primeiro item do vale
-              const respLote = await fetch(`/sankhya/item/get_lote/?nunota=${nunota13}&seq=1`, {
-                credentials: 'same-origin'
-              });
-              
-              if(respLote.ok) {
-                const dataLote = await respLote.json();
-                const loteControle = dataLote.lote || '';
-                console.log('[MODAL] Lote encontrado:', loteControle);
-                
-                if(loteControle) {
-                  // Buscar classificação deste lote
-                  const respClassif = await fetch(`/sankhya/classificacao/resumo/?lote=${encodeURIComponent(loteControle)}`, {
-                    credentials: 'same-origin'
-                  });
-                  
-                  if(respClassif.ok) {
-                    const dataClassif = await respClassif.json();
-                    console.log('[MODAL] Classificação recebida, linhas:', dataClassif.linhas?.length || 0);
-                    
-                    if(dataClassif.ok && Array.isArray(dataClassif.linhas)) {
-                      // Somar KG e CX de todas as linhas da classificação
-                      dataClassif.linhas.forEach(linha => {
-                        const kg = Number(linha.kg || 0);
-                        const cx = Number(linha.cx || 0);
-                        const produto = linha.produto || '';
-                        
-                        console.log('[MODAL ITEM CLASSIF]', { produto, kg, cx });
-                        
-                        totalKgFromItems += kg;
-                        totalCxFromItems += cx;
-                      });
-                    }
-                  }
-                }
-              }
-            } catch(e) {
-              console.error('[MODAL] Erro ao buscar dados do vale:', e);
+          // 🔥 IMPORTANTE: Buscar fator de conversão do PEDIDO (pedidoRows) porque o vale vem em KG sem fator
+          const fatorConversaoPedido = pedidoRows[0]?.fator_conversao || 22; // Default 22kg/cx para tomate
+          console.log('[MODAL] Fator conversão do pedido:', fatorConversaoPedido, 'pedidoRows[0]:', pedidoRows[0]);
+          
+          // Somar QTDNEG de todos os classificáveis
+          classifs.forEach((r, idx) => {
+            const qtd = Number(r.qtdneg || 0);
+            const unit = ((r.codvol || '') + '').toUpperCase();
+            // 🔥 CORRIGIDO: Usar fator do pedido se o item não tiver (null, 0, ou undefined)
+            const fatorItem = r.fator_conversao;
+            const fatorConv = (fatorItem != null && fatorItem > 0) ? Number(fatorItem) : fatorConversaoPedido;
+            
+            console.log(`[MODAL] Item ${idx}: qtd=${qtd} unit=${unit} fatorItem=${fatorItem} fatorUsado=${fatorConv}`);
+            
+            if(unit === 'CX'){
+              totalCxFromItems += qtd;
+              totalKgFromItems += qtd * fatorConv; // CX * kg_por_cx = kg_total
+            } else if(unit === 'KG'){
+              totalKgFromItems += qtd;
+              totalCxFromItems += (fatorConv > 0 ? qtd / fatorConv : 0); // kg / kg_por_cx = cx
+              console.log(`[MODAL] Convertendo KG→CX: ${qtd}kg ÷ ${fatorConv} = ${qtd / fatorConv}cx`);
             }
-          }
+          });
           
-          console.log('[MODAL] Totais do VALE - CX:', totalCxFromItems, 'KG:', totalKgFromItems);
+          console.log('[MODAL] Totais calculados - CX:', totalCxFromItems, 'KG:', totalKgFromItems);
           
-          // Classificáveis: com valores editáveis
+          // Classificáveis: exibir RESUMO consolidado (não detalhamento por produto)
           if(classifs.length){
             // Calcular totais dos produtos classificáveis
-            let totalCxClassif = 0;
-            let totalKgClassif = 0;
             let totalVlrClassif = 0;
             
             classifs.forEach(r => {
-              const qtd = Number(r.qtdneg || 0);
-              const unit = ((r.codvol || '') + '').toUpperCase();
               const vlrtot = Number(r.vlrtot || 0);
-              
-              if(unit === 'CX'){
-                totalCxClassif += qtd;
-              } else if(unit === 'KG'){
-                totalKgClassif += qtd;
-              }
               totalVlrClassif += vlrtot;
             });
             
-            // Pegar custo/cx da distribuição (se disponível)
-            const distState = window.__DIST_STATE || {};
-            const distCusto = distState.custo || {};
-            const custoPorCxDist = Number(distCusto.porCx || 0);
+            // Pegar nome do primeiro produto para exibir
+            const primeiroProduto = classifs[0]?.produto || 'PRODUTO';
+            const primeiroNunota = classifs[0]?.nunota || nunota;
+            const primeiraSeq = classifs[0]?.sequencia || 1;
             
-            // Calcular custo/cx baseado no total ou usar da distribuição
-            const custoPorCx = custoPorCxDist > 0 
-              ? custoPorCxDist 
-              : (totalCxClassif > 0 ? (totalVlrClassif / totalCxClassif) : 0);
+            console.log('[MODAL DEBUG] totalCx:', totalCxFromItems, 'totalKg:', totalKgFromItems, 'totalVlr:', totalVlrClassif);
             
-            console.log('[MODAL DEBUG] totalCx:', totalCxClassif, 'totalKg:', totalKgClassif, 'totalVlr:', totalVlrClassif, 'custoPorCx:', custoPorCx);
+            // Calcular valores unitários baseados no TOTAL do vale
+            const vlrKg = (totalVlrClassif > 0 && totalKgFromItems > 0) ? (totalVlrClassif / totalKgFromItems) : 0;
+            const vlrCx = (totalVlrClassif > 0 && totalCxFromItems > 0) ? (totalVlrClassif / totalCxFromItems) : 0;
             
-            classBody.innerHTML = classifs.map(r=>{
-              const prod = r.produto||'';
-              const unit = ((r.codvol||'')+'').toUpperCase();
-              const qnum = Number(r.qtdneg||0);
-              const vlrtot = Number(r.vlrtot||0) || 0;
-              let vlrunit = Number(r.vlrunit||0) || 0;  // valor em KG (unidade base)
-              const fatorConv = Number(r.fator_conversao||1) || 1;  // quantos KG em 1 CX
+            console.log('[TABLE GEN RESUMO]', {prod: primeiroProduto, vlrKg, vlrCx, vlrtot: totalVlrClassif, totalKg: totalKgFromItems, totalCx: totalCxFromItems});
+            
+            // Status: bolinha verde se totalVlr > 0
+            const statusOk = totalVlrClassif > 0;
+            const status = statusOk
+              ? `<span title="OK" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#16a34a;"></span>`
+              : `<span title="Pendente" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#dc2626;"></span>`;
+            
+            // Link para abrir o primeiro item
+            const abrir = (primeiroNunota && primeiraSeq) ? `
+              <a class="eye-open" href="/sankhya/comercial/?sel_nunota=${primeiroNunota}&sel_seq=${primeiraSeq}" target="_blank" rel="noopener" data-nun="${primeiroNunota}" data-seq="${primeiraSeq}" style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;color:#94a3b8;text-decoration:none;">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </a>` : '';
               
-              // Calcular peso em kg e quantidade em cx
-              let pesoKg, qtdCx;
-              if (unit === 'CX') {
-                // Se a unidade é CX, qtdneg já é em caixas
-                qtdCx = qnum;
-                pesoKg = qnum * fatorConv;  // caixas * kg_por_caixa = peso_total_kg
-              } else {
-                // Se a unidade é KG, qtdneg já é em kg
-                pesoKg = qnum;
-                qtdCx = fatorConv > 0 ? qnum / fatorConv : 0;  // kg / kg_por_caixa = qtd_caixas
-              }
-              
-              // Calcular valores unitários usando os totais do VALE (não do item individual)
-              const vlrKg = (vlrtot > 0 && totalKgFromItems > 0) ? (vlrtot / totalKgFromItems) : 0;
-              const vlrCx = (vlrtot > 0 && totalCxFromItems > 0) ? (vlrtot / totalCxFromItems) : 0;
-              
-              console.log('[TABLE GEN]', {prod, vlrKg, vlrCx, vlrtot, totalKg: totalKgFromItems, totalCx: totalCxFromItems});
-              
-              // Status: bolinha verde se vlrtot > 0, vermelho caso contrário
-              const status = (vlrtot > 0)
-                ? `<span title="OK" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#16a34a;"></span>`
-                : `<span title="Pendente" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#dc2626;"></span>`;
-              const nun = Number(r.nunota||0), seq = Number(r.sequencia||0);
-              
-              const abrir = (nun && seq) ? `
-                <a class="eye-open" href="/sankhya/comercial/?sel_nunota=${nun}&sel_seq=${seq}" target="_blank" rel="noopener" data-nun="${nun}" data-seq="${seq}" style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;color:#94a3b8;text-decoration:none;">
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                    <circle cx="12" cy="12" r="3"></circle>
-                  </svg>
-                </a>` : '';
-                
-              // Usar valores calculados dos itens do vale
-              const qtdeKgFormatted = fmtQty(totalKgFromItems);
-              const qtdeCxFormatted = fmtQty(totalCxFromItems);
-              const qtdeDisplay = `<div style="line-height:1.3;">
-                <div style="font-size:.85rem; color:#334155;">${qtdeKgFormatted}<span style="color:#64748b; font-size:.7rem; margin-left:2px;">kg</span></div>
-                <div style="font-size:.8rem; color:#64748b;">${qtdeCxFormatted}<span style="color:#94a3b8; font-size:.7rem; margin-left:2px;">cx</span></div>
+            // Quantidade: exibir KG e CX calculados dos totais
+            const qtdeKgFormatted = fmtQty(totalKgFromItems);
+            const qtdeCxFormatted = fmtQty(totalCxFromItems);
+            const qtdeDisplay = `<div style="line-height:1.3;">
+              <div style="font-size:.85rem; color:#334155;">${qtdeKgFormatted}<span style="color:#64748b; font-size:.7rem; margin-left:2px;">kg</span></div>
+              <div style="font-size:.8rem; color:#64748b;">${qtdeCxFormatted}<span style="color:#94a3b8; font-size:.7rem; margin-left:2px;">cx</span></div>
+            </div>`;
+            
+            // Formatar Vlr Unit em 2 linhas (R$/kg e R$/cx)
+            let vlrUnitDisplay = '';
+            if (vlrKg > 0 || vlrCx > 0) {
+              vlrUnitDisplay = `<div style="line-height:1.3;">
+                <div style="font-size:.85rem; color:#334155;">${vlrKg > 0 ? fmtMoney(vlrKg) : '—'}<span style="color:#64748b; font-size:.7rem;">/kg</span></div>
+                <div style="font-size:12.8px; color:#64748b;">${vlrCx > 0 ? fmtMoney(vlrCx) : '—'}<span style="color:#94a3b8; font-size:.7rem;">/cx</span></div>
               </div>`;
-              
-              // Formatar Vlr Unit em 2 linhas (R$/kg e R$/cx)
-              let vlrUnitDisplay = '';
-              if (vlrKg > 0 || vlrCx > 0) {
-                vlrUnitDisplay = `<div style="line-height:1.3;">
-                  <div style="font-size:.85rem; color:#334155;">${vlrKg > 0 ? fmtMoney(vlrKg) : '—'}<span style="color:#64748b; font-size:.7rem;">/kg</span></div>
-                  <div style="font-size:12.8px; color:#64748b;">${vlrCx > 0 ? fmtMoney(vlrCx) : '—'}<span style="color:#94a3b8; font-size:.7rem;">/cx</span></div>
-                </div>`;
-              } else {
-                vlrUnitDisplay = '—';
-              }
-              
-              return `<tr data-q="${qnum}" data-unit="${unit}" data-nun="${nun}" data-seq="${seq}">
-                <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${qtdeDisplay}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${vlrUnitDisplay}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${vlrtot>0 ? fmtMoney(vlrtot) : '—'}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:left;">${status}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${abrir}</td>
-              </tr>`;
-            }).join('');
-            console.log('[HTML GERADO]', classBody.innerHTML);
+            } else {
+              vlrUnitDisplay = '—';
+            }
+            
+            // Criar UMA ÚNICA linha de resumo
+            els.classBody.innerHTML = `<tr data-q="${totalKgFromItems}" data-unit="KG" data-nun="${primeiroNunota}" data-seq="${primeiraSeq}">
+              <td title="${primeiroProduto.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${primeiroProduto}</td>
+              <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${qtdeDisplay}</td>
+              <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${vlrUnitDisplay}</td>
+              <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${totalVlrClassif > 0 ? fmtMoney(totalVlrClassif) : '—'}</td>
+              <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:left;">${status}</td>
+              <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${abrir}</td>
+            </tr>`;
+            
+            console.log('[HTML GERADO RESUMO]', els.classBody.innerHTML);
           }else{
-            classBody.innerHTML = '<tr><td colspan="6" style="padding:8px; color:#64748b;">—</td></tr>';
+            els.classBody.innerHTML = '<tr><td colspan="6" style="padding:8px; color:#64748b;">—</td></tr>';
           }
           // Não Classificáveis: com preço
           if(nclass.length){
-            outrosBody.innerHTML = nclass.map((r, idx)=>{
+            els.outrosBody.innerHTML = nclass.map((r, idx)=>{
               const prod = r.produto||'';
               const unit = ((r.codvol||'')+'').toUpperCase();
               const q = Number(r.qtdneg||0);
@@ -4323,25 +4309,27 @@
               </tr>`;
             }).join('');
           }else{
-            outrosBody.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>';
+            els.outrosBody.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>';
           }
           
           // Validar status: habilitar GERAR VALE apenas se todos classificáveis tiverem status verde (VLRTOT > 0)
-          btnGerarVale = document.getElementById('btnGerarVale');
-          if(btnGerarVale){
+          if(els.btnGerarVale){
             const todosVerdes = classifs.every(r=> Number(r.vlrtot||0) > 0);
             if(todosVerdes){
-              btnGerarVale.disabled = false;
-              btnGerarVale.style.opacity = '1';
-              btnGerarVale.style.cursor = 'pointer';
-              btnGerarVale.title = '';
+              els.btnGerarVale.disabled = false;
+              els.btnGerarVale.style.opacity = '1';
+              els.btnGerarVale.style.cursor = 'pointer';
+              els.btnGerarVale.title = '';
             }else{
-              btnGerarVale.disabled = true;
-              btnGerarVale.style.opacity = '0.5';
-              btnGerarVale.style.cursor = 'not-allowed';
-              btnGerarVale.title = 'Todos os produtos classificáveis devem ter negociação salva (status verde) para gerar vale';
+              els.btnGerarVale.disabled = true;
+              els.btnGerarVale.style.opacity = '0.5';
+              els.btnGerarVale.style.cursor = 'not-allowed';
+              els.btnGerarVale.title = 'Todos os produtos classificáveis devem ter negociação salva (status verde) para gerar vale';
             }
           }
+          
+          const t3 = performance.now();
+          console.log(`[MODAL] ⚡ Tabelas renderizadas em ${(t3-t2).toFixed(0)}ms`);
           
           // 🔥 Verificar estado do vale (NUFIN, NURENEG, VLRBAIXA)
           const nufinBadge = document.getElementById('valeResumoNufinBadge');
@@ -4420,20 +4408,13 @@
               btnDesfaturar.disabled = false;
             }
             
-            // 🔒 Bloquear TODOS os campos
-            document.querySelectorAll('#valeResumoClassBody input, #valeResumoOutrosBody [contenteditable]').forEach(inp => {
-              if(inp.hasAttribute('contenteditable')){
-                inp.setAttribute('contenteditable', 'false');
-                inp.style.opacity = '0.6';
-                inp.style.cursor = 'not-allowed';
-                inp.style.background = '#f3f4f6';
-              } else {
-                inp.disabled = true;
-                inp.style.opacity = '0.6';
-                inp.style.cursor = 'not-allowed';
-                inp.style.background = '#f3f4f6';
-              }
-            });
+            // 🔒 Bloquear TODOS os campos (usando cache para melhor performance)
+            const editables = els.outrosBody.querySelectorAll('[contenteditable]');
+            for(let i = 0; i < editables.length; i++){
+              const inp = editables[i];
+              inp.setAttribute('contenteditable', 'false');
+              inp.style.cssText = 'opacity:0.6;cursor:not-allowed;background:#f3f4f6';
+            }
           }
           // ESTADO 3 ou 4: Bloqueado (tem NURENEG ou VLRBAIXA)
           else if(bloqueado){
@@ -4457,20 +4438,13 @@
             if(btnFaturar) btnFaturar.style.display = 'none';
             if(btnDesfaturar) btnDesfaturar.style.display = 'none';
             
-            // 🔒 Bloquear TODOS os campos
-            document.querySelectorAll('#valeResumoClassBody input, #valeResumoOutrosBody [contenteditable]').forEach(inp => {
-              if(inp.hasAttribute('contenteditable')){
-                inp.setAttribute('contenteditable', 'false');
-                inp.style.opacity = '0.6';
-                inp.style.cursor = 'not-allowed';
-                inp.style.background = '#f3f4f6';
-              } else {
-                inp.disabled = true;
-                inp.style.opacity = '0.6';
-                inp.style.cursor = 'not-allowed';
-                inp.style.background = '#f3f4f6';
-              }
-            });
+            // 🔒 Bloquear TODOS os campos (usando cache para melhor performance)
+            const editables = els.outrosBody.querySelectorAll('[contenteditable]');
+            for(let i = 0; i < editables.length; i++){
+              const inp = editables[i];
+              inp.setAttribute('contenteditable', 'false');
+              inp.style.cssText = 'opacity:0.6;cursor:not-allowed;background:#f3f4f6';
+            }
           }
           
           // 🔥 Bloquear botões "Zerar Negociação" e "Salvar" se vale estiver faturado
@@ -4524,9 +4498,9 @@
             }
           }
           
-          // Ocultar spinner e mostrar modal
-          if(spinner) spinner.style.display = 'none';
-          modal.style.display = 'flex';
+          // 🚀 Ocultar spinner e mostrar modal
+          if(els.spinner) els.spinner.style.display = 'none';
+          els.modal.style.display = 'flex';
           // Tooltip de distribuição no ícone olho (usa estado corrente de distribuição)
           const ensureDistTooltip = () => {
             let tip = document.getElementById('distEyeTooltip');
@@ -4580,7 +4554,9 @@
           };
           const tip = ensureDistTooltip();
           const attachEyeHover = (container) => {
-            container.querySelectorAll('a.eye-open')?.forEach(a => {
+            const eyes = container.querySelectorAll('a.eye-open');
+            for(let i = 0; i < eyes.length; i++){
+              const a = eyes[i];
               a.addEventListener('mouseenter', (e)=>{
                 tip.innerHTML = renderTipContent();
                 tip.style.display = 'block';
@@ -4589,9 +4565,13 @@
                 tip.style.top = Math.max(8, r.top - 6) + 'px';
               });
               a.addEventListener('mouseleave', ()=>{ tip.style.display = 'none'; tip.innerHTML = ''; });
-            });
+            }
           };
-          attachEyeHover(classBody);
+          attachEyeHover(els.classBody);
+          
+          const t4 = performance.now();
+          console.log(`[MODAL] ⚡ Event listeners em ${(t4-t3).toFixed(0)}ms`);
+          
           // cálculo total
           const parsePT = (text) => {
             if(!text) return NaN;
@@ -4604,7 +4584,7 @@
             let outrosTotal = 0;
             
             // soma dos classificáveis: usar vlrtot direto dos dados (somente leitura)
-            const classRows = Array.from(classBody.querySelectorAll('tr'));
+            const classRows = Array.from(els.classBody.querySelectorAll('tr'));
             classRows.forEach(tr => {
               const nun = Number(tr.getAttribute('data-nun')||'0');
               const seq = Number(tr.getAttribute('data-seq')||'0');
@@ -4614,7 +4594,7 @@
             });
             
             // soma dos não classificáveis: calcular dinamicamente
-            const trs = Array.from(outrosBody.querySelectorAll('tr'));
+            const trs = Array.from(els.outrosBody.querySelectorAll('tr'));
             trs.forEach((tr, i)=>{
               const q = Number(tr.getAttribute('data-q')||'0');
               const editableDiv = tr.querySelector('.vop-price');
@@ -4627,15 +4607,15 @@
             
             sum = classTotal + outrosTotal;
             console.log('[RECOMPUTE] Classificáveis:', fmtMoney(classTotal), 'Outros:', fmtMoney(outrosTotal), 'TOTAL:', fmtMoney(sum));
-            totalEl.innerHTML = fmtMoney(sum);
+            els.totalEl.innerHTML = fmtMoney(sum);
             
             // NÃO atualizar o card Distribuição quando estamos no modal de faturamento
             // O modal deve apenas calcular seu próprio total, não interferir nos cards externos
           }
-          outrosBody.addEventListener('input', (ev)=>{ 
+          els.outrosBody.addEventListener('input', (ev)=>{ 
             if(ev.target && (ev.target.classList.contains('vop-price') || ev.target.classList.contains('vop-preco-inicial'))) recompute(); 
           });
-          outrosBody.addEventListener('blur', (ev)=>{
+          els.outrosBody.addEventListener('blur', (ev)=>{
             if(ev.target && ev.target.classList.contains('vop-price')){
               // Reformatar ao perder foco
               const editableDiv = ev.target;
@@ -4645,6 +4625,9 @@
               }
             }
           }, true);
+          
+          const t5 = performance.now();
+          console.log(`[MODAL] ⚡ Event listeners registrados em ${(t5-t4).toFixed(0)}ms`);
           
           // ========================================
           // CLASSIFICÁVEIS: Event listeners REMOVIDOS
@@ -4774,7 +4757,7 @@
           */
           
           // Event listeners para itens NÃO CLASSIFICÁVEIS (salvar VLRUNIT no banco)
-          outrosBody.addEventListener('focus', (ev)=>{
+          els.outrosBody.addEventListener('focus', (ev)=>{
             if(ev.target && ev.target.classList.contains('vop-price')){
               const editableDiv = ev.target;
               
@@ -4789,7 +4772,7 @@
             }
           }, true);
           
-          outrosBody.addEventListener('keydown', (ev)=>{
+          els.outrosBody.addEventListener('keydown', (ev)=>{
             if(ev.target && ev.target.classList.contains('vop-price')){
               if(ev.key === 'Enter'){
                 ev.preventDefault();
@@ -4810,7 +4793,7 @@
             }
           }, true);
           
-          outrosBody.addEventListener('input', (ev)=>{ 
+          els.outrosBody.addEventListener('input', (ev)=>{ 
             if(ev.target && ev.target.classList.contains('vop-price')) {
               // Atualizar Total dinamicamente
               const tr = ev.target.closest('tr');
@@ -4827,7 +4810,7 @@
             }
           });
           
-          outrosBody.addEventListener('blur', async (ev)=>{
+          els.outrosBody.addEventListener('blur', async (ev)=>{
             if(ev.target && ev.target.classList.contains('vop-price')){
               const editableDiv = ev.target;
               const tr = editableDiv.closest('tr');
@@ -4920,16 +4903,16 @@
           recompute();
           // Close handlers
           document.getElementById('valeResumoClose')?.addEventListener('click', ()=>{ 
-            modal.style.display='none'; 
+            els.modal.style.display='none'; 
             window.__GERANDO_VALE = false; // Limpar flag ao fechar
             // Limpar display do vale para não mostrar dados antigos
             const valeEl = document.getElementById('valeResumoVale');
             if(valeEl) valeEl.style.display = 'none';
             console.log('[MODAL] Modal fechado, flag __GERANDO_VALE resetada e dados limpos');
           });
-          modal.addEventListener('click', (ev)=>{ 
-            if(ev.target === modal) {
-              modal.style.display='none'; 
+          els.modal.addEventListener('click', (ev)=>{ 
+            if(ev.target === els.modal) {
+              els.modal.style.display='none'; 
               window.__GERANDO_VALE = false; // Limpar flag ao fechar
               // Limpar display do vale para não mostrar dados antigos
               const valeEl = document.getElementById('valeResumoVale');
@@ -5203,7 +5186,7 @@
                 window.__GERANDO_VALE = false;
                 
                 alert(`✅ Vale criado com sucesso!\n\nNUNOTA: ${valeNum}\nItens criados: ${itemsCriados}`); 
-                modal.style.display = 'none';
+                els.modal.style.display = 'none';
                 
                 // Atualizar lista para refletir o vale gerado (force reload com cache-busting)
                 if(typeof loadLista === 'function') {
@@ -5281,20 +5264,13 @@
                     btnDesfaturarAtual.disabled = false;
                   }
                   
-                  // 🔒 Bloquear todos os campos
-                  document.querySelectorAll('#valeResumoClassBody input, #valeResumoOutrosBody [contenteditable]').forEach(inp => {
-                    if(inp.hasAttribute('contenteditable')){
-                      inp.setAttribute('contenteditable', 'false');
-                      inp.style.opacity = '0.6';
-                      inp.style.cursor = 'not-allowed';
-                      inp.style.background = '#f3f4f6';
-                    } else {
-                      inp.disabled = true;
-                      inp.style.opacity = '0.6';
-                      inp.style.cursor = 'not-allowed';
-                      inp.style.background = '#f3f4f6';
-                    }
-                  });
+                  // 🔒 Bloquear todos os campos (otimizado)
+                  const editablesOutros = document.querySelectorAll('#valeResumoOutrosBody [contenteditable]');
+                  for(let i = 0; i < editablesOutros.length; i++){
+                    const inp = editablesOutros[i];
+                    inp.setAttribute('contenteditable', 'false');
+                    inp.style.cssText = 'opacity:0.6;cursor:not-allowed;background:#f3f4f6';
+                  }
                   
                   // 🔒 Bloquear botões "Zerar Negociação" e "Salvar" do painel principal
                   const btnResetMain = document.getElementById('dist-btn-reset');
@@ -5455,9 +5431,13 @@
           console.error('[ERROR] openValeResumo falhou:', err);
           alert('Erro ao abrir modal: ' + err.message);
         }finally{
+          // 🚀 Log de performance e ocultar spinner
+          const t1Performance = performance.now();
+          const tempoTotal = (t1Performance - t0Performance).toFixed(0);
+          console.log(`[MODAL] ⚡ Modal aberto em ${tempoTotal}ms`);
+          
           // Garantir que spinner seja ocultado mesmo em caso de erro
-          const spinner = document.getElementById('loadingSpinner');
-          if(spinner) spinner.style.display = 'none';
+          if(els.spinner) els.spinner.style.display = 'none';
         }
       }
 
@@ -6500,10 +6480,10 @@
             return String(Math.round(num));
           }
         };
-        if(topVal) topVal.textContent = fmtInt(qtyCx);
-        if(botVal) botVal.textContent = fmtInt(qtyKg);
-        if(topSuf) topSuf.textContent = 'cx';
-        if(botSuf) botSuf.textContent = 'kg';
+        if(topVal) topVal.textContent = fmtInt(qtyKg);
+        if(botVal) botVal.textContent = fmtInt(qtyCx);
+        if(topSuf) topSuf.textContent = 'kg';
+        if(botSuf) botSuf.textContent = 'cx';
 
         if(!shouldUseOverride){
           try{
