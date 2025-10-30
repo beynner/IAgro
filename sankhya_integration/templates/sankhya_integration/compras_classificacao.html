@@ -321,7 +321,7 @@
           </div>
           <div>
             <label>Lote</label>
-            <input type="text" name="controle" value="{{ params.controle|default:'' }}" />
+            <input type="text" name="lote" value="{{ params.lote|default:'' }}" />
           </div>
           <div>
             <label>Parceiro</label>
@@ -333,6 +333,85 @@
           </div>
           
         </form>
+        <script>
+          (function(){
+            try{
+              const form = document.getElementById('filtersForm');
+              if(!form) return;
+              const endInput = form.querySelector('input[name="end"]');
+              const submitBtn = document.querySelector('button[type="submit"][form="filtersForm"]');
+
+              const applyFilters = ()=>{
+                try{
+                  console.debug('[CLASSIF] auto-apply triggered; start/end =', form.querySelector('input[name="start"]')?.value, endInput?.value);
+                  if(submitBtn){ submitBtn.click(); return; }
+                  if(typeof form.requestSubmit === 'function'){ form.requestSubmit(); return; }
+                  form.submit();
+                }catch(e){ console.error('[CLASSIF] applyFilters error', e); }
+              };
+
+              // debounce helper
+              const debounce = (fn, ms=300) => { let t; return (...args)=>{ clearTimeout(t); t = setTimeout(()=>fn(...args), ms); }; };
+
+              if(endInput){
+                // when user finishes typing a full ISO date (YYYY-MM-DD) apply
+                const tryApplyIfFullDate = debounce(()=>{
+                  const v = (endInput.value||'').trim();
+                  if(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(v)){
+                    applyFilters();
+                  }
+                }, 300);
+
+                endInput.addEventListener('input', tryApplyIfFullDate);
+
+                // change should apply immediately when non-empty
+                endInput.addEventListener('change', (e)=>{
+                  const v = (endInput.value||'').trim();
+                  if(v) applyFilters();
+                });
+
+                // light poll to catch programmatic sets that don't fire events
+                let prev = endInput.value || '';
+                setInterval(()=>{
+                  try{
+                    const cur = endInput.value || '';
+                    if(cur !== prev){
+                      // if it became non-empty, trigger apply
+                      if(cur && !prev){ applyFilters(); }
+                      prev = cur;
+                    }
+                  }catch(_){ }
+                }, 400);
+              }
+
+              // Auto-apply when user types Pedido (nunota_ini) - minimum 5 digits
+              const pedidoInput = form.querySelector('input[name="nunota_ini"]');
+              if(pedidoInput){
+                // Enter and change handlers
+                pedidoInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); try{ console.debug('[CLASSIF] pedido Enter -> applyFilters'); applyFilters(); }catch(_){} } });
+                pedidoInput.addEventListener('change', ()=>{ try{ console.debug('[CLASSIF] pedido change -> applyFilters'); applyFilters(); }catch(_){} });
+
+                // Debounced input listener for typing
+                let pedidoDeb = null;
+                pedidoInput.addEventListener('input', ()=>{
+                  try{
+                    if(pedidoDeb) clearTimeout(pedidoDeb);
+                    pedidoDeb = setTimeout(()=>{
+                      try{
+                        const v = (pedidoInput.value||'').trim();
+                        // trigger when we have at least 5 digits
+                        if(/^\d{5,}$/.test(v)){
+                          console.debug('[CLASSIF] pedido input debounce (5+ digits) -> applyFilters', v);
+                          applyFilters();
+                        }
+                      }catch(_){}
+                    }, 300);
+                  }catch(_){}
+                });
+              }
+            }catch(_){ }
+          })();
+        </script>
     </aside>
 
     <!-- Conteúdo (direita) com duas áreas de altura fixa -->
@@ -390,10 +469,10 @@
               </tr>
             </thead>
             <tbody>
-              {% for controle, parceiro, produto_descr, qtd_cx, peso, qtd_kg, qtd_class, pendente, exemplo_nunota, exemplo_seq, produtos_entrada, codparc, nunota_portal, nunota_top26 in lotes %}
+              {% for lote, parceiro, produto_descr, qtd_cx, peso, qtd_kg, qtd_class, pendente, exemplo_nunota, exemplo_seq, produtos_entrada, codparc, nunota_portal, nunota_top26 in lotes %}
               {% with is_sel=sel|default:0 %}
         <tr class="row--click"
-          data-nunota="{{ controle }}"
+          data-nunota="{{ lote }}"
           data-nunota-portal="{{ nunota_portal|default:'' }}"
           data-nunota-top26="{{ nunota_top26|default:'' }}"
           data-seq="{{ exemplo_seq }}"
@@ -410,7 +489,7 @@
                     {% endif %}
                   {% endwith %}
                 </td>
-                <td>{{ controle }}</td>
+                <td>{{ lote }}</td>
                 <td>{{ parceiro }}</td>
                 <td>
                   {# Prefer per-item render to allow styling missing manufacturer in red #}
@@ -689,7 +768,7 @@
               window.showCabModal();
               (async function(){
                 try{
-                  const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(sel), { credentials: 'same-origin' });
+                  const r = await fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(sel), { credentials: 'same-origin' });
                   const j = await r.json();
                   let nun = null;
                   if(j && j.ok){ nun = j.nunota_class || (Array.isArray(j.classificacoes) && j.classificacoes[0]?.nunota) || null; }
@@ -774,7 +853,7 @@
   <!-- Modal simples de Classificação -->
   <div id="modalClassify" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); align-items:center; justify-content:center; z-index:40;">
     <div style="background:#fff; border-radius:8px; width:760px; max-width:95%; padding:14px;">
-      <h3>Classificar Lote <span id="modalControle"></span></h3>
+      <h3>Classificar Lote <span id="modalLote"></span></h3>
       <div style="display:flex; gap:12px; margin-bottom:8px;">
         <div style="flex:1;">
           <label>Parceiro</label>
@@ -1175,7 +1254,7 @@
           return sum;
         }catch(_){ return 0; }
       }
-      function setPesoCellForControle(ctrl, pesoVal){
+      function setPesoCellForLote(ctrl, pesoVal){
         try{
           const row = document.querySelector(`#notasTable tbody tr.row--click[data-nunota="${CSS.escape(String(ctrl))}"]`);
           if(!row || !row.cells || row.cells.length < 8) return;
@@ -1184,7 +1263,7 @@
           }
         }catch(_){ }
       }
-      function setQcxCellForControle(ctrl, qcxVal){
+      function setQcxCellForLote(ctrl, qcxVal){
         try{
           const row = document.querySelector(`#notasTable tbody tr.row--click[data-nunota="${CSS.escape(String(ctrl))}"]`);
           if(!row || !row.cells || row.cells.length < 8) return;
@@ -1193,21 +1272,21 @@
           }
         }catch(_){ }
       }
-      function setQkgCellForControle(ctrl, qkgVal){
+      function setQkgCellForLote(ctrl, qkgVal){
         try{
           const row = document.querySelector(`#notasTable tbody tr.row--click[data-nunota="${CSS.escape(String(ctrl))}"]`);
           if(!row || !row.cells || row.cells.length < 8) return;
           if (isFinite(qkgVal)) row.cells[6].textContent = formatNum1BR(qkgVal);
         }catch(_){ }
       }
-      function setQClassCellForControle(ctrl, qClassVal){
+      function setQClassCellForLote(ctrl, qClassVal){
         try{
           const row = document.querySelector(`#notasTable tbody tr.row--click[data-nunota="${CSS.escape(String(ctrl))}"]`);
           if(!row || !row.cells || row.cells.length < 8) return;
           if (isFinite(qClassVal)) row.cells[7].textContent = formatNum1BR(qClassVal);
         }catch(_){ }
       }
-      function setStatusForControle(ctrl, state){
+      function setStatusForLote(ctrl, state){
         try{
           const row = document.querySelector(`#notasTable tbody tr.row--click[data-nunota="${CSS.escape(String(ctrl))}"]`);
           if(!row || !row.cells || row.cells.length < 8) return;
@@ -1227,28 +1306,28 @@
         if (LOTES_PREFETCH.inflight[c]) return;
         LOTES_PREFETCH.inflight[c] = true;
         try{
-          const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(c), { credentials: 'same-origin' });
+          const r = await fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(c), { credentials: 'same-origin' });
           let j={}; try{ j = await r.json(); }catch(_){ j = {}; }
           if(j && j.ok){ try{ window.__LOTES_CACHE = window.__LOTES_CACHE || {}; window.__LOTES_CACHE[String(c)] = j; }catch(_){ } }
-          // Opportunistically fill cells from entradas/classificacoes for this controle
+          // Opportunistically fill cells from entradas/classificacoes for this lote
           try{
             if (j && j.ok) {
               const pesoVal = computePesoFromEntradas(j);
-              if (isFinite(pesoVal)) setPesoCellForControle(c, pesoVal);
+              if (isFinite(pesoVal)) setPesoCellForLote(c, pesoVal);
               // Also fill Qtde cx based on entradas (vol='CX')
               const qcxVal = computeQcxFromEntradas(j);
-              if (isFinite(qcxVal)) setQcxCellForControle(c, qcxVal);
+              if (isFinite(qcxVal)) setQcxCellForLote(c, qcxVal);
               // Also fill Qtde kg using In Natura rule (qtd * peso)
               const qkgVal = computeQkgFromEntradas(j);
-              if (isFinite(qkgVal)) setQkgCellForControle(c, qkgVal);
+              if (isFinite(qkgVal)) setQkgCellForLote(c, qkgVal);
               // Also fill Qtde Classificado (sum(qtd * peso) dos classificados)
               const qClassVal = computeClassificadoFromClassificacoes(j);
-              if (isFinite(qClassVal)) setQClassCellForControle(c, qClassVal);
+              if (isFinite(qClassVal)) setQClassCellForLote(c, qClassVal);
               // Set status dot color (TOP 26 only): Verde se PENDENTE == 'N' (finalizado); caso contrário, amarelo se classificado>0, senão vermelho.
               try{
                 const st = (j.pendente_class||'').toString().toUpperCase();
                 const state = st==='N' ? 'green' : ((qClassVal>0)?'yellow':'red');
-                setStatusForControle(c, state);
+                setStatusForLote(c, state);
               }catch(_){ }
             }
           }catch(_){ }
@@ -1312,9 +1391,9 @@
             try{ const inu = document.getElementById('items_nunota'); if(inu) inu.value=''; }catch(_){ }
             try{ if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(null); }catch(_){ }
             try{ if(typeof window.showItemsModal === 'function') window.showItemsModal(null); }catch(_){ }
-            const controle = tr.dataset.nunota;
+            const lote = tr.dataset.nunota;
             try{
-              const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' });
+              const r = await fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(lote), { credentials: 'same-origin' });
               const j = await r.json();
               try {
                 if (j && j.ok) {
@@ -1341,7 +1420,7 @@
               }
               // No existing TOP 26 header per backend: fallback to session map (recently created headers)
               try{
-                const ctrl = controle;
+                const ctrl = lote;
                 const mapped = (window.__NUNOTA_CLASS_BY_CTRL && window.__NUNOTA_CLASS_BY_CTRL[ctrl]) ? window.__NUNOTA_CLASS_BY_CTRL[ctrl] : null;
                 if(mapped){
                   if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(mapped);
@@ -1375,13 +1454,13 @@
             if (window.__LOTES_CACHE && window.__LOTES_CACHE[ctrl] && window.__LOTES_CACHE[ctrl].ok){
               const j = window.__LOTES_CACHE[ctrl];
               const pesoVal = computePesoFromEntradas(j);
-              if (isFinite(pesoVal)) setPesoCellForControle(ctrl, pesoVal);
+              if (isFinite(pesoVal)) setPesoCellForLote(ctrl, pesoVal);
               const qcxVal = computeQcxFromEntradas(j);
-              if (isFinite(qcxVal)) setQcxCellForControle(ctrl, qcxVal);
+              if (isFinite(qcxVal)) setQcxCellForLote(ctrl, qcxVal);
               const qkgVal = computeQkgFromEntradas(j);
-              if (isFinite(qkgVal)) setQkgCellForControle(ctrl, qkgVal);
+              if (isFinite(qkgVal)) setQkgCellForLote(ctrl, qkgVal);
               const qClassVal = computeClassificadoFromClassificacoes(j);
-              if (isFinite(qClassVal)) setQClassCellForControle(ctrl, qClassVal);
+              if (isFinite(qClassVal)) setQClassCellForLote(ctrl, qClassVal);
             }
           }catch(_){ }
         }
@@ -1447,18 +1526,18 @@
         b.addEventListener('click', async function (){
           const active = tbl.querySelector('tbody tr.row--click.row--active');
           if(!active) return;
-          const controle = active.getAttribute('data-nunota'); // Este é o CONTROLE/LOTE
+          const lote = active.getAttribute('data-nunota'); // Este é o LOTE/LOTE
           const nunotaTop26 = active.getAttribute('data-nunota-top26'); // Este é o NUNOTA da TOP 26 (Classificação)
           const nunotaPortal = active.getAttribute('data-nunota-portal'); // Este é o NUNOTA do TOP 11 (Portal/Entrada)
           
-          console.log('[DELETE CLASSIF] Controle:', controle, 'NUNOTA TOP 26:', nunotaTop26, 'NUNOTA Portal:', nunotaPortal);
+          console.log('[DELETE CLASSIF] Lote:', lote, 'NUNOTA TOP 26:', nunotaTop26, 'NUNOTA Portal:', nunotaPortal);
           
-          // Se não tem TOP 26 ainda, usa o controle diretamente
+          // Se não tem TOP 26 ainda, usa o lote diretamente
           const hasNunota = nunotaTop26 && Number.isFinite(Number(nunotaTop26));
           const nunota = nunotaTop26; // Para usar na exclusão
           const queryParam = hasNunota 
             ? `nunota=${encodeURIComponent(nunota)}` 
-            : `controle=${encodeURIComponent(controle)}`;
+            : `lote=${encodeURIComponent(lote)}`;
           
           console.log('[DELETE CLASSIF] Verificando negociação com:', queryParam);
           
@@ -1507,7 +1586,7 @@
           
           // Só chega aqui se NÃO tiver negociação
           console.log('[DELETE CLASSIF] Mostrando confirmação...');
-          const ok = confirm(`Confirma excluir o lote ${controle} e todos os itens?`);
+          const ok = confirm(`Confirma excluir o lote ${lote} e todos os itens?`);
           if(!ok) return;
           const res = await postJSON('/sankhya/nota/delete/', { nunota: parseInt(nunota,10) });
           if (res.ok && (res.body?.deleted_cab || 0) > 0){
@@ -1524,7 +1603,7 @@
         });
       })();
       // Load classified products for selected lote via AJAX
-  async function loadClassifiedFor(controle, forceRefresh){ const bodyEl = document.getElementById('prodClassBody'); if(!bodyEl) return; bodyEl.innerHTML = '<tr><td colspan="7">Carregando...</td></tr>'; try{ let j = null; if(!forceRefresh){ try{ if(window.__LOTES_CACHE && window.__LOTES_CACHE[controle]){ j = window.__LOTES_CACHE[controle]; } }catch(_){ } } if(!j){ const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle) + '&_t=' + Date.now(), { credentials: 'same-origin' }); j = await r.json(); try{ window.__LOTES_CACHE = window.__LOTES_CACHE || {}; if(j && j.ok){ window.__LOTES_CACHE[controle] = j; } }catch(_){ } } if(!j || !j.ok){ bodyEl.innerHTML = `<tr><td colspan="7">Erro: ${(j&&j.error)||'falha'}</td></tr>`; return; } const rows = j.classificacoes || []; // update nunota TOP 26 badge
+  async function loadClassifiedFor(lote, forceRefresh){ const bodyEl = document.getElementById('prodClassBody'); if(!bodyEl) return; bodyEl.innerHTML = '<tr><td colspan="7">Carregando...</td></tr>'; try{ let j = null; if(!forceRefresh){ try{ if(window.__LOTES_CACHE && window.__LOTES_CACHE[lote]){ j = window.__LOTES_CACHE[lote]; } }catch(_){ } } if(!j){ const r = await fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(lote) + '&_t=' + Date.now(), { credentials: 'same-origin' }); j = await r.json(); try{ window.__LOTES_CACHE = window.__LOTES_CACHE || {}; if(j && j.ok){ window.__LOTES_CACHE[lote] = j; } }catch(_){ } } if(!j || !j.ok){ bodyEl.innerHTML = `<tr><td colspan="7">Erro: ${(j&&j.error)||'falha'}</td></tr>`; return; } const rows = j.classificacoes || []; // update nunota TOP 26 badge
   // Tornar função global para acesso de qualquer lugar
   window.loadClassifiedFor = loadClassifiedFor;
     // helpers for number formatting and total calculation
@@ -1646,7 +1725,7 @@
             try{
               const st = (j.pendente_class||'').toString().toUpperCase();
               const state = st==='N' ? 'green' : ((sumClassKg>0)?'yellow':'red');
-              const ctrl = activeRow.dataset.nunota; if(ctrl) setStatusForControle(ctrl, state);
+              const ctrl = activeRow.dataset.nunota; if(ctrl) setStatusForLote(ctrl, state);
             }catch(_){ }
             try{ formatLotesRow(activeRow); }catch(_){ }
           }
@@ -1745,14 +1824,14 @@
       let currentEditing = null; // { nunota, sequencia }
 
       async function openItemModal(data){ // data: { nunota, sequencia, codprod }
-        // Buscar controle (CODAGREGACAO) da linha ativa
-        let controle = null;
+        // Buscar lote (CODAGREGACAO) da linha ativa
+        let lote = null;
         try {
           const activeRow = tbl.querySelector('tbody tr.row--active');
-          controle = activeRow ? activeRow.dataset.nunota : null;
+          lote = activeRow ? activeRow.dataset.nunota : null;
         } catch(_) {}
         
-        currentEditing = { nunota: data.nunota, sequencia: data.sequencia, codagregacao: controle };
+        currentEditing = { nunota: data.nunota, sequencia: data.sequencia, codagregacao: lote };
         itemTitle.textContent = data.sequencia ? 'Editar Item' : 'Novo Item';
         // reset fields
         itemProdCod.value = data.codprod || '';
@@ -1768,9 +1847,9 @@
         if (data.nunota && data.sequencia){
           try{
             const activeRow = tbl.querySelector('tbody tr.row--active');
-            const controle = activeRow ? activeRow.dataset.nunota : null;
-            if(controle){
-              const resp = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' });
+            const lote = activeRow ? activeRow.dataset.nunota : null;
+            if(lote){
+              const resp = await fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(lote), { credentials: 'same-origin' });
               const j = await resp.json();
               if(j && j.ok){
 
@@ -1828,14 +1907,14 @@
     
     const nunota = parseInt(currentEditing.nunota, 10);
     const seq = parseInt(currentEditing.sequencia, 10);
-    const controle = currentEditing.codagregacao || null;
+    const lote = currentEditing.codagregacao || null;
     
-    console.log('[DELETE ITEM CLASSIF] NUNOTA:', nunota, 'SEQ:', seq, 'CODAGREGACAO:', controle);
+    console.log('[DELETE ITEM CLASSIF] NUNOTA:', nunota, 'SEQ:', seq, 'CODAGREGACAO:', lote);
     
     // CRÍTICO: Verificar se tem negociação comercial (VLRTOT > 0) antes de permitir exclusão
-    if (controle) {
+    if (lote) {
       try {
-        const checkRes = await fetch(`/sankhya/nota/check-negociacao/?controle=${encodeURIComponent(controle)}`, {credentials:'same-origin'});
+        const checkRes = await fetch(`/sankhya/nota/check-negociacao/?lote=${encodeURIComponent(lote)}`, {credentials:'same-origin'});
         
         if (!checkRes.ok) {
           if(typeof window.showToast === 'function'){
@@ -1908,19 +1987,19 @@
         const rawTotalKg = String(itemTotalKg.value||'0').replace(',','.'); const rawVlr = String(itemVlr.value||'0').replace(',','.');
         // codprod: prefer hidden value, else try to parse leading number from visible field
         let codprod = null; const ph = (document.getElementById('itemProdHidden').value||'').trim(); if(ph) codprod = parseInt(ph,10); else { const txt = (document.getElementById('itemProdCod').value||'').trim(); const m = txt.match(/^(\d+)/); if(m) codprod = parseInt(m[1],10); }
-        // attach controle (lote): prefer the Lote shown in the Cabeçalho card; fallback to active LOTES selection
-        let selectedControle = null;
+        // attach lote (lote): prefer the Lote shown in the Cabeçalho card; fallback to active LOTES selection
+        let selectedLote = null;
         try {
           const cabLote = document.getElementById('cab_lote_text');
           const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : '';
           if (cabeLoteText) {
-            selectedControle = cabeLoteText;
+            selectedLote = cabeLoteText;
           }
         } catch(_) {}
-        if (!selectedControle) {
-          try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedControle = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ }
+        if (!selectedLote) {
+          try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedLote = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ }
         }
-  const payload = { nunota: parseInt(nun,10), codprod: codprod || null, qtdneg: parseFloat(rawTotalKg || '0'), vlrunit: parseFloat(rawVlr || '0'), codvol: (document.getElementById('itemVolHidden').value || document.getElementById('itemVol').value || null), obs: itemObs.value || null, codagregacao: selectedControle };
+  const payload = { nunota: parseInt(nun,10), codprod: codprod || null, qtdneg: parseFloat(rawTotalKg || '0'), vlrunit: parseFloat(rawVlr || '0'), codvol: (document.getElementById('itemVolHidden').value || document.getElementById('itemVol').value || null), obs: itemObs.value || null, codagregacao: selectedLote };
         if(seq) payload.sequencia = parseInt(seq,10);
         // Run plan endpoint to validate and obtain SQL preview
         const planResp = await postJSON('/sankhya/item/plan/', payload);
@@ -1945,7 +2024,7 @@
       });
 
       // When selection changes, load classified products and enable classify button appropriately
-      function onSelectionChanged(){ const row = tbl.querySelector('tbody tr.row--active'); if(!row) return; updateClassifyBtn(); const controle = row.dataset.nunota; loadClassifiedFor(controle); }
+      function onSelectionChanged(){ const row = tbl.querySelector('tbody tr.row--active'); if(!row) return; updateClassifyBtn(); const lote = row.dataset.nunota; loadClassifiedFor(lote); }
   // Bind selection change observer
   tbl.addEventListener('click', onSelectionChanged);
   // On double click a LOTES row: focus/show the Produtos Classificados card
@@ -1966,9 +2045,9 @@
           try{ const inu = document.getElementById('items_nunota'); if(inu) inu.value=''; }catch(_){ }
           try{ if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(null); }catch(_){ }
           try{ if(typeof window.showItemsModal === 'function') window.showItemsModal(null); }catch(_){ }
-          const controle = tr.dataset.nunota;
+          const lote = tr.dataset.nunota;
           try{
-            const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' });
+            const r = await fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(lote), { credentials: 'same-origin' });
             const j = await r.json();
             try {
               if (j && j.ok) {
@@ -1993,7 +2072,7 @@
             }
             // Fallback to session map
             try{
-              const ctrl = controle;
+              const ctrl = lote;
               const mapped = (window.__NUNOTA_CLASS_BY_CTRL && window.__NUNOTA_CLASS_BY_CTRL[ctrl]) ? window.__NUNOTA_CLASS_BY_CTRL[ctrl] : null;
               if(mapped){
                 if (typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(mapped);
@@ -2013,7 +2092,7 @@
 
       // Classify modal logic
       const modal = document.getElementById('modalClassify');
-      const modalControle = document.getElementById('modalControle');
+      const modalLote = document.getElementById('modalLote');
       const modalParceiro = document.getElementById('modalParceiro');
       const modalInnTotal = document.getElementById('modalInnTotal');
       const modalInnClassTotal = document.getElementById('modalInnClassTotal');
@@ -2024,20 +2103,20 @@
         btn.addEventListener('click', async function () {
           const row = tbl.querySelector('tbody tr.row--active');
           if (!row) return;
-          const controle = row.dataset.nunota;
-          modalControle.textContent = controle;
+          const lote = row.dataset.nunota;
+          modalLote.textContent = lote;
           // populate partner and inn total by reading row
           modalParceiro.value = row.cells[1]?.textContent || '';
           modalInnTotal.value = row.cells[3]?.textContent || '';
           modalInnClassTotal.value = '';
           // clear messages
           const msg = document.getElementById('modalMessages'); if (msg) msg.textContent = '';
-          // populate origin select by fetching entradas for controle
+          // populate origin select by fetching entradas for lote
           const selOrig = document.getElementById('modalOrigem');
           if (selOrig) {
             selOrig.innerHTML = '';
             try {
-              const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' });
+              const r = await fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(lote), { credentials: 'same-origin' });
               const j = await r.json();
               if (j.ok) {
                 // Prefer already filtered 'classificaveis'; fallback to 'entradas'
@@ -2170,7 +2249,7 @@
           const messages = document.getElementById('modalMessages');
           if(messages) messages.textContent='';
           if(!row){ if(messages) messages.textContent='Selecione um lote.'; return; }
-          const controle = row.dataset.nunota;
+          const lote = row.dataset.nunota;
           // read origin from select
           const selOrig = document.getElementById('modalOrigem');
           const origemVal = selOrig && selOrig.value ? JSON.parse(selOrig.value) : null;
@@ -2310,8 +2389,8 @@
 
             // Populate details from lote consult (In Natura, Classificados, NUNOTA badge, and real product from TOP 11)
             try {
-              const controle = active?.dataset?.nunota || lote;
-              fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' })
+              const lote = active?.dataset?.nunota || lote;
+              fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(lote), { credentials: 'same-origin' })
                 .then(r=>r.json())
                 .then(j=>{
                   try { window.PH_INNATURA_CODPROD = j.prod_in_natura || null; } catch(_) {}
@@ -2479,9 +2558,9 @@
           if(listBody) listBody.innerHTML = '<tr><td colspan="7" style="padding:8px; color:var(--muted)">Carregando itens do lote...</td></tr>';
           // First open: load itens por lote e tentar resolver nunota_class existente
           try{
-            const ctrl = getCurrentControle();
+            const ctrl = getCurrentLote();
             if(ctrl){
-              const r0 = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(ctrl), { credentials: 'same-origin' });
+              const r0 = await fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(ctrl), { credentials: 'same-origin' });
               let j0 = {}; try{ j0 = await r0.json(); }catch(_){ j0 = {}; }
               if(j0 && j0.ok){
                 // Preencher lista com classificacoes existentes
@@ -2693,16 +2772,16 @@
         
         const obs = (document.getElementById('item_obs')?.value||'') || null;
         
-        let selectedControle = null;
+        let selectedLote = null;
         try{
           const cabLote = document.getElementById('cab_lote_text');
           const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : '';
-          if (cabeLoteText) { selectedControle = cabeLoteText; }
+          if (cabeLoteText) { selectedLote = cabeLoteText; }
         }catch(_){ }
-        if(!selectedControle){
+        if(!selectedLote){
           try{
             const active = document.querySelector('#notasTable tbody tr.row--active');
-            selectedControle = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null;
+            selectedLote = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null;
           }catch(_){ }
         }
         
@@ -2714,7 +2793,7 @@
           codvol: codvol,
           peso: peso,
           obs: obs || null,
-          codagregacao: selectedControle
+          codagregacao: selectedLote
         };
         
         console.log('🔍 PAYLOAD ENVIADO:', JSON.stringify(payload, null, 2));
@@ -2748,9 +2827,9 @@
           }catch(_){ }
           
           try{ const prodVis = document.getElementById('item_prod_vis'); if(prodVis) prodVis.focus(); }catch(_){ }
-          try{ if(window.__LOTES_CACHE && selectedControle && window.__LOTES_CACHE[selectedControle]){ delete window.__LOTES_CACHE[selectedControle]; } }catch(_){}
-          try{ refreshClassifiedCard(selectedControle); }catch(_){ }
-          try{ updateHeaderQuantities(selectedControle); }catch(_){ }
+          try{ if(window.__LOTES_CACHE && selectedLote && window.__LOTES_CACHE[selectedLote]){ delete window.__LOTES_CACHE[selectedLote]; } }catch(_){}
+          try{ refreshClassifiedCard(selectedLote); }catch(_){ }
+          try{ updateHeaderQuantities(selectedLote); }catch(_){ }
         } else {
           const body = saveResp.body || {};
           const errs = Array.isArray(body.errors) && body.errors.length ? body.errors.join('\n') : (body.error || '');
@@ -2779,12 +2858,12 @@
       cabSave?.addEventListener('click', async ()=>{
         const missing = []; const codemp = (document.getElementById('cab_codemp')?.value||'').trim(); const dtneg = (document.getElementById('cab_dtneg')?.value||'').trim(); const codparc = (document.getElementById('cab_codparc')?.value||'').trim(); const codtop = (document.getElementById('cab_top_cod')?.value||'').trim(); if(!codemp) missing.push('Empresa'); if(!dtneg) missing.push('Dt. Neg.'); if(!codparc) missing.push('Parceiro'); if(!codtop) missing.push('Tipo Operação'); if(missing.length){ alert('Preencha os campos obrigatórios: ' + missing.join(', ')); return; }
         const prodCod = (document.getElementById('cab_prod_cod')?.value||'').trim() || null;
-        // Resolve controle (CODAGREGACAO) from header card or active LOTES row
-        let selectedControle = null;
-        try{ const cabLote = document.getElementById('cab_lote_text'); const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : ''; if (cabeLoteText) { selectedControle = cabeLoteText; } }catch(_){ }
-        if(!selectedControle){ try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedControle = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ }
+        // Resolve lote (CODAGREGACAO) from header card or active LOTES row
+        let selectedLote = null;
+        try{ const cabLote = document.getElementById('cab_lote_text'); const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : ''; if (cabeLoteText) { selectedLote = cabeLoteText; } }catch(_){ }
+        if(!selectedLote){ try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedLote = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ }
         }
-        const payload = { codemp: codemp, dtneg: dtneg, dtmov: dtneg, dtentsai: dtneg, hrmov: null, codparc: codparc||null, codtipoper: codtop||null, codnat: (document.getElementById('cab_nat_cod')?.value||'')||null, codcencus: (document.getElementById('cab_cencus_cod')?.value||'')||null, obs: (document.getElementById('cab_obs')?.value||'')||null, prodcod_ref: prodCod, codagregacao: selectedControle };
+        const payload = { codemp: codemp, dtneg: dtneg, dtmov: dtneg, dtentsai: dtneg, hrmov: null, codparc: codparc||null, codtipoper: codtop||null, codnat: (document.getElementById('cab_nat_cod')?.value||'')||null, codcencus: (document.getElementById('cab_cencus_cod')?.value||'')||null, obs: (document.getElementById('cab_obs')?.value||'')||null, prodcod_ref: prodCod, codagregacao: selectedLote };
         // Request SQL preview/plan from server before saving
         try{
           const planResp = await postJSON('/sankhya/header/plan/', payload);
@@ -2905,7 +2984,7 @@
     // CRÍTICO: Verificar se tem negociação comercial (VLRTOT > 0) antes de permitir exclusão
     if (lote) {
       try {
-        const checkRes = await fetch(`/sankhya/nota/check-negociacao/?controle=${encodeURIComponent(lote)}`, {credentials:'same-origin'});
+        const checkRes = await fetch(`/sankhya/nota/check-negociacao/?lote=${encodeURIComponent(lote)}`, {credentials:'same-origin'});
         
         if (!checkRes.ok) {
           if(typeof window.showToast === 'function'){
@@ -3043,8 +3122,8 @@
       async function loadItems(nunota){ try{ if(itemsListController){ try{ itemsListController.abort(); }catch(_){ } itemsListController = null; try{ window.itemsListController = null; }catch(_){ } } }catch(_){ }
         const resolved = nunota!=null ? (parseInt(nunota,10)||null) : (parseInt(document.getElementById('items_nunota')?.value||'',10)||null); if(!resolved){ console.error('loadItems: nunota inválido', nunota); return; } document.getElementById('items_nunota').value = resolved; clearItemsList(); try{ itemsListController = new AbortController(); try{ window.itemsListController = itemsListController; }catch(_){ } const opts = { credentials: 'same-origin', signal: itemsListController.signal }; const url = '/sankhya/item/list/?nunota=' + encodeURIComponent(resolved); const r = await fetch(url, opts); itemsListController = null; try{ window.itemsListController = null; }catch(_){ } let j = {}; try{ j = await r.json(); }catch(_){ j = {}; } if(!j.ok){ itemsListBody.innerHTML = `<tr><td colspan="7">Erro: ${j.error||'falha'}</td></tr>`; return; } const rows = j.items || j.results || []; if(!rows.length){ clearItemsList(); return; } itemsListBody.innerHTML = ''; for(const it of rows){ addItemRowToList(it); } }catch(err){ if(err && err.name === 'AbortError'){ console.info('loadItems aborted for nunota', nunota); return; } itemsListBody.innerHTML = '<tr><td colspan="7">Erro ao carregar.</td></tr>'; } }
 
-      // Helpers to show items by Lote (controle/CODAGREGACAO)
-      function getCurrentControle(){
+      // Helpers to show items by Lote (lote/CODAGREGACAO)
+      function getCurrentLote(){
         try{
           const cabLote = document.getElementById('cab_lote_text');
           const txt = cabLote ? (cabLote.textContent||'').trim() : '';
@@ -3057,14 +3136,14 @@
         return '';
       }
 
-      async function loadItemsByControle(controle){
-        const ctrl = (controle || getCurrentControle() || '').toString().trim();
+      async function loadItemsByLote(lote){
+        const ctrl = (lote || getCurrentLote() || '').toString().trim();
         if(!ctrl){ clearItemsList(); return; }
         clearItemsList();
         try{
           itemsListController = new AbortController();
           try{ window.itemsListController = itemsListController; }catch(_){ }
-          const url = '/sankhya/lote/consultar/?controle=' + encodeURIComponent(ctrl);
+          const url = '/sankhya/lote/consultar/?lote=' + encodeURIComponent(ctrl);
           const r = await fetch(url, { credentials: 'same-origin', signal: itemsListController.signal });
           itemsListController = null; try{ window.itemsListController = null; }catch(_){ }
           let j = {}; try{ j = await r.json(); }catch(_){ j = {}; }
@@ -3084,15 +3163,15 @@
         }catch(err){ if(err && err.name === 'AbortError'){ return; } itemsListBody.innerHTML = '<tr><td colspan="7">Erro ao carregar.</td></tr>'; }
       }
 
-      function refreshItemsList(){ try{ const c = getCurrentControle(); if(c) loadItemsByControle(c); else clearItemsList(); }catch(_){ }
+      function refreshItemsList(){ try{ const c = getCurrentLote(); if(c) loadItemsByLote(c); else clearItemsList(); }catch(_){ }
       }
 
       // Refresh Produtos Classificados card (main page) while modal stays open
       function refreshClassifiedCard(ctrlOverride){
         try{
-          const ctrl = (ctrlOverride && String(ctrlOverride).trim()) || getCurrentControle();
-          console.log('[refreshClassifiedCard] Controle:', ctrl);
-          if(!ctrl) { console.warn('[refreshClassifiedCard] Sem controle!'); return; }
+          const ctrl = (ctrlOverride && String(ctrlOverride).trim()) || getCurrentLote();
+          console.log('[refreshClassifiedCard] Lote:', ctrl);
+          if(!ctrl) { console.warn('[refreshClassifiedCard] Sem lote!'); return; }
           try{ if(window.__LOTES_CACHE && window.__LOTES_CACHE[ctrl]){ delete window.__LOTES_CACHE[ctrl]; console.log('[refreshClassifiedCard] Cache deletado'); } }catch(_){ }
           console.log('[refreshClassifiedCard] Chamando window.loadClassifiedFor...');
           if(window.loadClassifiedFor) {
@@ -3104,11 +3183,11 @@
       }
 
       // Atualiza APENAS as quantidades do cabeçalho (In Natura e Classificado) sem recarregar a tabela
-      async function updateHeaderQuantities(controle){
+      async function updateHeaderQuantities(lote){
         try{
-          const ctrl = controle || getCurrentControle();
+          const ctrl = lote || getCurrentLote();
           if(!ctrl) return;
-          const r = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(ctrl), { credentials: 'same-origin' });
+          const r = await fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(ctrl), { credentials: 'same-origin' });
           const j = await r.json();
           if(j && j.ok){
             // Qtd In Natura
@@ -3474,7 +3553,7 @@
       const itemsNunotaEl = document.getElementById('items_nunota');
       const nunRaw = itemsNunotaEl?.value;
       let nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null;
-      // Validate nunota belongs to current controle; else, clear
+      // Validate nunota belongs to current lote; else, clear
       try{
         const activeRow = document.querySelector('#notasTable tbody tr.row--active');
         const ctrl = activeRow ? activeRow.dataset.nunota : null;
@@ -3499,7 +3578,7 @@
           let j0 = null;
           try { if (window.__LOTES_CACHE && window.__LOTES_CACHE[ctrl]) { j0 = window.__LOTES_CACHE[ctrl]; } } catch(_) {}
           if (!j0) {
-            const r0 = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(ctrl), { credentials: 'same-origin' });
+            const r0 = await fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(ctrl), { credentials: 'same-origin' });
             j0 = await r0.json();
             try { if (j0 && j0.ok) { window.__LOTES_CACHE = window.__LOTES_CACHE || {}; window.__LOTES_CACHE[ctrl] = j0; } } catch(_) {}
           }
@@ -3513,10 +3592,10 @@
           }
         }catch(_){ }
         // Defaults aligned with Cabeçalho card
-        // Resolve controle (CODAGREGACAO) from active row or header card
-        let selectedControle = null;
-        try{ const cabLote = document.getElementById('cab_lote_text'); const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : ''; if (cabeLoteText) { selectedControle = cabeLoteText; } }catch(_){ }
-        if(!selectedControle){ try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedControle = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ } }
+        // Resolve lote (CODAGREGACAO) from active row or header card
+        let selectedLote = null;
+        try{ const cabLote = document.getElementById('cab_lote_text'); const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : ''; if (cabeLoteText) { selectedLote = cabeLoteText; } }catch(_){ }
+        if(!selectedLote){ try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedLote = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ } }
         
         // 🔗 BUSCAR NUNOTA ORIGEM (TOP 11) para copiar NUMNOTA e NUMPEDIDO
         let nunotaOrigem = null;
@@ -3538,7 +3617,7 @@
           dtentsai: new Date().toISOString().slice(0,10),
           nronota: '',
           obs: '',
-          codagregacao: selectedControle,
+          codagregacao: selectedLote,
           nunota_origem: nunotaOrigem  // 🔗 Passar NUNOTA do TOP 11 para copiar NUMNOTA/NUMPEDIDO
         };
         const res = await postJSON('/sankhya/packing/central/salvar/', payload);
@@ -3550,7 +3629,7 @@
         if(itemsNunotaEl) itemsNunotaEl.value = String(nun);
         // Remember nunota for this lote (session cache) to avoid creating multiple headers if no items were inserted yet
         try { const ctrl = activeRow.dataset.nunota; if(ctrl) { window.__NUNOTA_CLASS_BY_CTRL[ctrl] = String(nun); } } catch(_) {}
-        // Invalidate cached consult for this controle so next open fetches fresh nunota_class
+        // Invalidate cached consult for this lote so next open fetches fresh nunota_class
         try{ const ctrl = activeRow.dataset.nunota; if(ctrl && window.__LOTES_CACHE && window.__LOTES_CACHE[ctrl]){ delete window.__LOTES_CACHE[ctrl]; } }catch(_){ }
         // Open Items list for the new nunota
         try{ if(typeof refreshItemsList === 'function') refreshItemsList(); }catch(_){ }
@@ -3582,20 +3661,20 @@
       const classificaEl = document.getElementById('item_classifica');
       const geraproducao = classificaEl ? (classificaEl.checked ? 'S' : 'N') : 'S';
   // Resolve codagregacao (lote) from header or active LOTES row
-  let selectedControle = null; try{ const cabLote = document.getElementById('cab_lote_text'); const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : ''; if (cabeLoteText) { selectedControle = cabeLoteText; } }catch(_){ } if(!selectedControle){ try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedControle = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ } }
-  const basePayload = { nunota: parseInt(nun,10), codprod: codprodNum, qtdneg: totalKg, vlrunit: vlr, codvol: codvol || null, peso: peso, obs: obs || null, geraproducao: geraproducao, codagregacao: selectedControle };
+  let selectedLote = null; try{ const cabLote = document.getElementById('cab_lote_text'); const cabeLoteText = cabLote ? (cabLote.textContent||'').trim() : ''; if (cabeLoteText) { selectedLote = cabeLoteText; } }catch(_){ } if(!selectedLote){ try{ const active = document.querySelector('#notasTable tbody tr.row--active'); selectedLote = active ? (active.dataset.nunota || active.cells[0]?.textContent||'') : null; }catch(_){ } }
+  const basePayload = { nunota: parseInt(nun,10), codprod: codprodNum, qtdneg: totalKg, vlrunit: vlr, codvol: codvol || null, peso: peso, obs: obs || null, geraproducao: geraproducao, codagregacao: selectedLote };
       if (isEdit){
         const payload = Object.assign({}, basePayload, { sequencia: parseInt(seqEditRaw,10) });
         const resp = await postJSON('/sankhya/item/save/', payload);
         if(resp.ok && resp.body && (resp.body.executed || resp.body.item)){
-          console.log('[EDIT] Item salvo, atualizando UI...', selectedControle);
+          console.log('[EDIT] Item salvo, atualizando UI...', selectedLote);
           try{ refreshItemsList(); }catch(_){ } 
-          try{ if(window.__LOTES_CACHE && selectedControle && window.__LOTES_CACHE[selectedControle]){ delete window.__LOTES_CACHE[selectedControle]; console.log('[EDIT] Cache limpo:', selectedControle); } }catch(_){} 
-          try{ console.log('[EDIT] Chamando refreshClassifiedCard...'); refreshClassifiedCard(selectedControle); }catch(e){ console.error('[EDIT] Erro refreshClassifiedCard:', e); }
+          try{ if(window.__LOTES_CACHE && selectedLote && window.__LOTES_CACHE[selectedLote]){ delete window.__LOTES_CACHE[selectedLote]; console.log('[EDIT] Cache limpo:', selectedLote); } }catch(_){} 
+          try{ console.log('[EDIT] Chamando refreshClassifiedCard...'); refreshClassifiedCard(selectedLote); }catch(e){ console.error('[EDIT] Erro refreshClassifiedCard:', e); }
           try{ resetItemForm(); }catch(_){ }
           try{ document.getElementById('item_seq_edit').value=''; const addBtn=document.getElementById('itemAddBtn'); if(addBtn){ addBtn.dataset.mode=''; addBtn.setAttribute('title','Adicionar'); const icon = addBtn.querySelector('svg'); if(icon){ icon.innerHTML = '<circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line>'; icon.setAttribute('viewBox','0 0 24 24'); } addBtn.classList.add('success'); } }catch(_){}
           try{ const prodVis = document.getElementById('item_prod_vis'); if(prodVis) prodVis.focus(); }catch(_){ }
-          try{ console.log('[EDIT] Chamando updateHeaderQuantities...'); updateHeaderQuantities(selectedControle); }catch(e){ console.error('[EDIT] Erro updateHeaderQuantities:', e); }
+          try{ console.log('[EDIT] Chamando updateHeaderQuantities...'); updateHeaderQuantities(selectedLote); }catch(e){ console.error('[EDIT] Erro updateHeaderQuantities:', e); }
           
         } else {
           const body = resp.body || {}; const errs = Array.isArray(body.errors)&&body.errors.length? body.errors.join('\n') : (body.error || ''); const dbmsg = (body.db_error && (body.db_error.message || body.db_error.msg)) ? (body.db_error.message || body.db_error.msg) : ''; alert('Falha ao atualizar item: ' + (errs || dbmsg || ('status ' + resp.status)));
@@ -3605,14 +3684,14 @@
       // SQL preview modal removed for better UX - direct save
       const saveResp = await postJSON('/sankhya/item/save/', basePayload);
       if(saveResp.ok && saveResp.body && (saveResp.body.executed || saveResp.body.item)){
-        console.log('[INSERT] Item salvo, atualizando UI...', selectedControle);
+        console.log('[INSERT] Item salvo, atualizando UI...', selectedLote);
         const created = saveResp.body.item || saveResp.body.created_item || null;
   if(created){ try{ addItemRowToList(created); }catch(_){ try{ refreshItemsList(); }catch(__){} } } else { try{ refreshItemsList(); }catch(_){ } }
-  try{ if(window.__LOTES_CACHE && selectedControle && window.__LOTES_CACHE[selectedControle]){ delete window.__LOTES_CACHE[selectedControle]; console.log('[INSERT] Cache limpo:', selectedControle); } }catch(_){} 
-  try{ console.log('[INSERT] Chamando refreshClassifiedCard...'); refreshClassifiedCard(selectedControle); }catch(e){ console.error('[INSERT] Erro refreshClassifiedCard:', e); }
+  try{ if(window.__LOTES_CACHE && selectedLote && window.__LOTES_CACHE[selectedLote]){ delete window.__LOTES_CACHE[selectedLote]; console.log('[INSERT] Cache limpo:', selectedLote); } }catch(_){} 
+  try{ console.log('[INSERT] Chamando refreshClassifiedCard...'); refreshClassifiedCard(selectedLote); }catch(e){ console.error('[INSERT] Erro refreshClassifiedCard:', e); }
         try{ resetItemForm(); }catch(_){ }
         try{ const prodVis = document.getElementById('item_prod_vis'); if(prodVis) prodVis.focus(); }catch(_){ }
-        try{ console.log('[INSERT] Chamando updateHeaderQuantities...'); updateHeaderQuantities(selectedControle); }catch(e){ console.error('[INSERT] Erro updateHeaderQuantities:', e); }
+        try{ console.log('[INSERT] Chamando updateHeaderQuantities...'); updateHeaderQuantities(selectedLote); }catch(e){ console.error('[INSERT] Erro updateHeaderQuantities:', e); }
       } else {
         const body = saveResp.body || {}; const errs = Array.isArray(body.errors) && body.errors.length ? body.errors.join('\n') : (body.error || ''); alert('Falha ao salvar item: ' + (errs || ('status ' + saveResp.status))); try{ loadItems(nun); }catch(_){ }
       }
@@ -3661,7 +3740,7 @@
                     const num = parseFloat(txt.replace(/\./g,'').replace(',','.'));
                     state = (Number.isFinite(num) && num > 0) ? 'yellow' : 'red';
                   }
-                  setStatusForControle(ctrl, state);
+                  setStatusForLote(ctrl, state);
                 }
               }catch(_){ }
         }catch(e){ console.error('toggle PENDENTE failed', e); }

@@ -234,8 +234,7 @@
     <aside class="panel">
       <header>Filtros</header>
       <div class="filters-actions" style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:8px; padding:0 14px; margin-top:20px;">
-        <button type="button" id="btnClear" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:5px 10px; font-size:.8rem; font-weight:600; cursor:pointer; line-height:1; color:#475569;">Limpar</button>
-        <button type="submit" form="filtersForm" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:5px 10px; font-size:.8rem; font-weight:600; cursor:pointer; line-height:1; color:#475569;">Aplicar</button>
+        <!-- Aplicar button removed; filters auto-apply on selection. Limpar moved to panel footer. -->
       </div>
       <form id="filtersForm" class="filters-grid" style="padding:0 14px;">
           <div>
@@ -273,11 +272,14 @@
           <div>
             <label>Lote</label>
             <div style="position:relative;">
-              <input type="text" name="controle" value="{{ params.controle|default:'' }}" />
+              <input type="text" name="lote" value="{{ params.lote|default:'' }}" />
             </div>
           </div>
           
         </form>
+        <div class="filters-footer" style="border-top:1px solid var(--border); margin-top:10px; padding:12px 14px; display:flex; justify-content:flex-end;">
+          <button type="button" id="btnClear" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:6px 12px; font-size:.9rem; font-weight:600; cursor:pointer; line-height:1; color:#475569;">Limpar</button>
+        </div>
     </aside>
 
     <!-- Conteúdo (direita) com duas áreas de altura fixa -->
@@ -320,21 +322,21 @@
               <tr>
                 <th>
                   {% with key='nunota' %}
-                  <a href="?start={{ params.date_start|default:'' }}&end={{ params.date_end|default:'' }}&nronota_ini={{ params.nronota_ini|default:'' }}&nronota_fim={{ params.nronota_fim|default:'' }}&nunota_ini={{ params.nunota_ini|default:'' }}&codparc={{ params.codparc|default:'' }}&codprod={{ params.codprod|default:'' }}&controle={{ params.controle|default:'' }}&days={{ params.days }}&page={{ page }}&sort={{ key }}&dir={% if params.sort == key and params.dir == 'asc' %}desc{% else %}asc{% endif %}">
+                  <a href="?start={{ params.date_start|default:'' }}&end={{ params.date_end|default:'' }}&nronota_ini={{ params.nronota_ini|default:'' }}&nronota_fim={{ params.nronota_fim|default:'' }}&nunota_ini={{ params.nunota_ini|default:'' }}&codparc={{ params.codparc|default:'' }}&codprod={{ params.codprod|default:'' }}&lote={{ params.lote|default:'' }}&days={{ params.days }}&page={{ page }}&sort={{ key }}&dir={% if params.sort == key and params.dir == 'asc' %}desc{% else %}asc{% endif %}">
                     Pedido{% if params.sort == key %}{% if params.dir == 'asc' %} ▲{% else %} ▼{% endif %}{% endif %}
                   </a>
                   {% endwith %}
                 </th>
                 <th>
                   {% with key='dtneg' %}
-                  <a href="?start={{ params.date_start|default:'' }}&end={{ params.date_end|default:'' }}&nronota_ini={{ params.nronota_ini|default:'' }}&nronota_fim={{ params.nronota_fim|default:'' }}&nunota_ini={{ params.nunota_ini|default:'' }}&codparc={{ params.codparc|default:'' }}&codprod={{ params.codprod|default:'' }}&controle={{ params.controle|default:'' }}&days={{ params.days }}&page={{ page }}&sort={{ key }}&dir={% if params.sort == key and params.dir == 'asc' %}desc{% else %}asc{% endif %}">
+                  <a href="?start={{ params.date_start|default:'' }}&end={{ params.date_end|default:'' }}&nronota_ini={{ params.nronota_ini|default:'' }}&nronota_fim={{ params.nronota_fim|default:'' }}&nunota_ini={{ params.nunota_ini|default:'' }}&codparc={{ params.codparc|default:'' }}&codprod={{ params.codprod|default:'' }}&lote={{ params.lote|default:'' }}&days={{ params.days }}&page={{ page }}&sort={{ key }}&dir={% if params.sort == key and params.dir == 'asc' %}desc{% else %}asc{% endif %}">
                     Data{% if params.sort == key %}{% if params.dir == 'asc' %} ▲{% else %} ▼{% endif %}{% endif %}
                   </a>
                   {% endwith %}
                 </th>
                 <th>
                   {% with key='parceiro' %}
-                  <a href="?start={{ params.date_start|default:'' }}&end={{ params.date_end|default:'' }}&nronota_ini={{ params.nronota_ini|default:'' }}&nronota_fim={{ params.nronota_fim|default:'' }}&nunota_ini={{ params.nunota_ini|default:'' }}&codparc={{ params.codparc|default:'' }}&codprod={{ params.codprod|default:'' }}&controle={{ params.controle|default:'' }}&days={{ params.days }}&page={{ page }}&sort={{ key }}&dir={% if params.sort == key and params.dir == 'asc' %}desc{% else %}asc{% endif %}">
+                  <a href="?start={{ params.date_start|default:'' }}&end={{ params.date_end|default:'' }}&nronota_ini={{ params.nronota_ini|default:'' }}&nronota_fim={{ params.nronota_fim|default:'' }}&nunota_ini={{ params.nunota_ini|default:'' }}&codparc={{ params.codparc|default:'' }}&codprod={{ params.codprod|default:'' }}&lote={{ params.lote|default:'' }}&days={{ params.days }}&page={{ page }}&sort={{ key }}&dir={% if params.sort == key and params.dir == 'asc' %}desc{% else %}asc{% endif %}">
                     Parceiro{% if params.sort == key %}{% if params.dir == 'asc' %} ▲{% else %} ▼{% endif %}{% endif %}
                   </a>
                   {% endwith %}
@@ -931,6 +933,18 @@
       // Limpar formulário sem aplicar filtros automaticamente
       const clearBtn = document.getElementById('btnClear');
       const form = document.getElementById('filtersForm');
+      // Helper to trigger the filters form submission (preserves existing submit handler)
+      function applyFilters(){
+        try{
+          const frm = document.getElementById('filtersForm'); if(!frm) return;
+          try{ console.debug('applyFilters called'); }catch(_){ }
+          // Prefer triggering the visible submit button so the existing submit handler runs
+          const submitBtn = document.querySelector('button[form="filtersForm"][type="submit"]');
+          if(submitBtn){ submitBtn.click(); return; }
+          if(typeof frm.requestSubmit === 'function'){ frm.requestSubmit(); return; }
+          frm.submit();
+        }catch(e){ console.error('applyFilters error', e); }
+      }
       if (clearBtn && form) {
         clearBtn.addEventListener('click', (e) => {
           e.preventDefault();
@@ -949,12 +963,20 @@
           if (prodHidden) prodHidden.value = '';
           const prodVisible = document.getElementById('prodSearch');
           if (prodVisible) prodVisible.value = '';
+          // After clearing visible and hidden fields, apply filters automatically
+          try{ applyFilters(); }catch(_){ }
         });
       }
 
       // Ao aplicar, forçar page=1
       if (form) {
-        form.addEventListener('submit', () => {
+        form.addEventListener('submit', (ev) => {
+          try{ // dump form values for debugging
+            const data = {};
+            new FormData(form).forEach((v,k)=>{ data[k]=v; });
+            console.debug('filtersForm submit - values:', data);
+          }catch(_){ }
+          // Ensure pagination resets
           let pg = form.querySelector('input[name="page"]');
           if (!pg) {
             pg = document.createElement('input');
@@ -963,6 +985,34 @@
             form.appendChild(pg);
           }
           pg.value = '1';
+
+          // Copy visible typeahead values into the hidden code inputs when appropriate
+          // This helps users that typed a code or selected a suggestion but the hidden
+          // inputs weren't populated (or user typed numeric code and didn't press Enter).
+          try {
+            // Product
+            const prodVis = document.getElementById('prodSearch');
+            const prodHidden = document.getElementById('codprod');
+            if (prodVis && prodHidden) {
+              const raw = (prodVis.value || '').trim();
+              // If hidden is empty but visible starts with digits, copy them
+              if ((!prodHidden.value || String(prodHidden.value).trim() === '') && raw) {
+                const m = raw.match(/^(\d+)/);
+                if (m && m[1]) prodHidden.value = m[1];
+              }
+            }
+            // Partner
+            const parcVis = document.getElementById('parcSearch');
+            const parcHidden = document.getElementById('codparc');
+            if (parcVis && parcHidden) {
+              const rawp = (parcVis.value || '').trim();
+              if ((!parcHidden.value || String(parcHidden.value).trim() === '') && rawp) {
+                const mp = rawp.match(/^(\d+)/);
+                if (mp && mp[1]) parcHidden.value = mp[1];
+              }
+            }
+          } catch (_e) { /* non-fatal */ }
+
           try{ PHOverlay.show(); }catch(_){ }
         });
         // Replicar data inicial para data final ao digitar no primeiro campo
@@ -970,9 +1020,54 @@
           const startDate = form.querySelector('input[name="start"]');
           const endDate = form.querySelector('input[name="end"]');
           if (startDate && endDate) {
-            const syncEnd = () => { if (startDate.value !== undefined) endDate.value = startDate.value; };
+            const syncEnd = () => {
+              try{
+                if (startDate.value !== undefined){
+                  const prev = endDate.value || '';
+                  endDate.value = startDate.value;
+                  // If we changed the end date from empty to a value, apply filters.
+                  try{ if ((endDate.value || '').trim() && prev !== endDate.value) { applyFilters(); } }catch(_){ }
+                }
+              }catch(_){ }
+            };
             startDate.addEventListener('input', syncEnd);
             startDate.addEventListener('change', syncEnd);
+
+            // Quando o usuário preencher a segunda data (end) — aplicar filtros automaticamente
+            endDate.addEventListener('change', () => {
+              try{
+                const v = (endDate.value || '').trim();
+                if (v) { applyFilters(); }
+              }catch(_){ }
+            });
+          }
+        } catch (_) { }
+        // Auto-apply when user types/changes Pedido (nunota_ini)
+        try {
+          const pedidoInput = form.querySelector('input[name="nunota_ini"]');
+          if (pedidoInput) {
+            // existing handlers (Enter and change)
+            pedidoInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); try{ console.debug('pedido Enter -> applyFilters'); applyFilters(); }catch(_){ } } });
+            pedidoInput.addEventListener('change', () => { try{ console.debug('pedido change -> applyFilters'); applyFilters(); }catch(_){ } });
+
+            // Also add a debounced input listener to catch typing without Enter/blur.
+            let pedidoDeb = null;
+            pedidoInput.addEventListener('input', () => {
+              try{
+                if (pedidoDeb) clearTimeout(pedidoDeb);
+                pedidoDeb = setTimeout(() => {
+                  try{
+                    const v = (pedidoInput.value||'').trim();
+                    // only trigger when we have at least one digit (prevents empty-field submits)
+                    // Only trigger auto-apply for Pedido when user typed at least 5 digits
+                    if (/^\d+$/.test(v)){
+                      console.debug('pedido input debounce -> applyFilters', v);
+                      applyFilters();
+                    }
+                  }catch(_){ }
+                }, 300);
+              }catch(_){ }
+            });
           }
         } catch (_) { }
       }
@@ -1036,11 +1131,11 @@
           if (dropdown.style.display !== 'none'){
             if(e.key==='ArrowDown'){ e.preventDefault(); const items=Array.from(dropdown.querySelectorAll('.dd-item')); if(!items.length) return; const cur=items.findIndex(x=>x.classList.contains('active')); let nxt=(cur+1+items.length)%items.length; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'}); return; }
             if(e.key==='ArrowUp'){ e.preventDefault(); const items=Array.from(dropdown.querySelectorAll('.dd-item')); if(!items.length) return; const cur=items.findIndex(x=>x.classList.contains('active')); let nxt=(cur-1+items.length)%items.length; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'}); return; }
-            if(e.key==='Enter' || e.key==='Tab'){ const el = dropdown.querySelector('.dd-item.active') || dropdown.querySelector('.dd-item'); if(el){ e.preventDefault(); codparcInput.value = el.dataset.cod; parcInput.value = `${el.dataset.cod} — ${el.dataset.nome}`; hideDropdown(); focusNext(parcInput); } }
+            if(e.key==='Enter' || e.key==='Tab'){ const el = dropdown.querySelector('.dd-item.active') || dropdown.querySelector('.dd-item'); if(el){ e.preventDefault(); codparcInput.value = el.dataset.cod; parcInput.value = `${el.dataset.cod} — ${el.dataset.nome}`; hideDropdown(); focusNext(parcInput); try{ applyFilters(); }catch(_){ } } }
             if(e.key==='Escape'){ hideDropdown(); }
           }
         });
-        dropdown?.addEventListener('click', (e) => { const item = e.target.closest('div[data-cod]'); if (!item) return; codparcInput.value = item.dataset.cod; parcInput.value = `${item.dataset.cod} — ${item.dataset.nome}`; hideDropdown(); focusNext(parcInput); });
+        dropdown?.addEventListener('click', (e) => { const item = e.target.closest('div[data-cod]'); if (!item) return; codparcInput.value = item.dataset.cod; parcInput.value = `${item.dataset.cod} — ${item.dataset.nome}`; hideDropdown(); focusNext(parcInput); try{ applyFilters(); }catch(_){ } });
         document.addEventListener('click', (e) => { if (!dropdown.contains(e.target) && e.target !== parcInput) hideDropdown(); });
       })();
 
@@ -1071,11 +1166,11 @@
             if (dropdown.style.display !== 'none'){
               if(e.key==='ArrowDown'){ e.preventDefault(); const items=Array.from(dropdown.querySelectorAll('.dd-item')); if(!items.length) return; const cur=items.findIndex(x=>x.classList.contains('active')); let nxt=(cur+1+items.length)%items.length; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'}); return; }
               if(e.key==='ArrowUp'){ e.preventDefault(); const items=Array.from(dropdown.querySelectorAll('.dd-item')); if(!items.length) return; const cur=items.findIndex(x=>x.classList.contains('active')); let nxt=(cur-1+items.length)%items.length; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'}); return; }
-              if(e.key==='Enter' || e.key==='Tab'){ const el = dropdown.querySelector('.dd-item.active') || dropdown.querySelector('.dd-item'); if(el){ e.preventDefault(); codprodInput.value = el.dataset.cod; prodInput.value = `${el.dataset.cod} — ${el.dataset.descr||''}`; hideDropdown(); focusNext(prodInput); } }
+              if(e.key==='Enter' || e.key==='Tab'){ const el = dropdown.querySelector('.dd-item.active') || dropdown.querySelector('.dd-item'); if(el){ e.preventDefault(); codprodInput.value = el.dataset.cod; prodInput.value = `${el.dataset.cod} — ${el.dataset.descr||''}`; hideDropdown(); focusNext(prodInput); try{ applyFilters(); }catch(_){ } } }
               if(e.key==='Escape'){ hideDropdown(); }
             }
           });
-          dropdown?.addEventListener('click', (e) => { const item = e.target.closest('div[data-cod]'); if (!item) return; codprodInput.value = item.dataset.cod; prodInput.value = `${item.dataset.cod} — ${item.dataset.descr||''}`; hideDropdown(); focusNext(prodInput); });
+          dropdown?.addEventListener('click', (e) => { const item = e.target.closest('div[data-cod]'); if (!item) return; codprodInput.value = item.dataset.cod; prodInput.value = `${item.dataset.cod} — ${item.dataset.descr||''}`; hideDropdown(); focusNext(prodInput); try{ applyFilters(); }catch(_){ } });
           document.addEventListener('click', (e) => { if (!dropdown.contains(e.target) && e.target !== prodInput) hideDropdown(); });
         })();
 
@@ -1897,7 +1992,7 @@
       attachTA('item_prod_vis','item_prod_hidden','item_prod_sugg','/sankhya/produtos/search/');
 
       // Lote/CODAGREGACAO typeahead com navegação e Tab/Enter avançando
-      (function(){ const loteVis = document.querySelector('input[name="controle"]'); if(!loteVis) return; const wrap = loteVis.parentElement; if(!wrap) return; let dd = document.createElement('div'); dd.id = 'loteDropdown'; dd.style.position='absolute'; dd.style.top='100%'; dd.style.left='0'; dd.style.right='0'; dd.style.background='#fff'; dd.style.border='1px solid var(--border)'; dd.style.borderRadius='6px'; dd.style.maxHeight='200px'; dd.style.overflow='auto'; dd.style.display='none'; dd.style.zIndex='10'; wrap.style.position='relative'; wrap.appendChild(dd); let t=null; function hide(){ dd.style.display='none'; dd.innerHTML=''; } function show(items){ if(!items||!items.length){ hide(); return; } dd.innerHTML = items.map((it,idx)=>`<div class="dd-item${idx===0?' active':''}" data-cod="${it.cod}">${it.cod}</div>`).join(''); dd.style.display='block'; }
+      (function(){ const loteVis = document.querySelector('input[name="lote"]'); if(!loteVis) return; const wrap = loteVis.parentElement; if(!wrap) return; let dd = document.createElement('div'); dd.id = 'loteDropdown'; dd.style.position='absolute'; dd.style.top='100%'; dd.style.left='0'; dd.style.right='0'; dd.style.background='#fff'; dd.style.border='1px solid var(--border)'; dd.style.borderRadius='6px'; dd.style.maxHeight='200px'; dd.style.overflow='auto'; dd.style.display='none'; dd.style.zIndex='10'; wrap.style.position='relative'; wrap.appendChild(dd); let t=null; function hide(){ dd.style.display='none'; dd.innerHTML=''; } function show(items){ if(!items||!items.length){ hide(); return; } dd.innerHTML = items.map((it,idx)=>`<div class="dd-item${idx===0?' active':''}" data-cod="${it.cod}">${it.cod}</div>`).join(''); dd.style.display='block'; }
   function fetchLotes(q){ const url='/sankhya/lote/search/?q='+encodeURIComponent(q)+'&limit=10'; console.debug('lote search:', url); return fetch(url,{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ try{ console.debug('lote results', (j.results||[]).length); }catch(_){ } return j; }); }
         loteVis.addEventListener('input', function(){
           // force uppercase while typing, preserving caret
@@ -1905,8 +2000,8 @@
           const q = (loteVis.value||'').trim(); if(t) clearTimeout(t); if(!q){ hide(); return; }
           t=setTimeout(()=>{ fetchLotes(q).then(j=>{ show(j.results||[]); }).catch(()=> hide()); }, 180);
         });
-        loteVis.addEventListener('keydown', function(e){ if(dd.style.display==='none') return; const items = Array.from(dd.querySelectorAll('.dd-item')); if(!items.length) return; let idx = items.findIndex(x=>x.classList.contains('active')); if(idx<0) idx=0; if(e.key==='ArrowDown'){ e.preventDefault(); idx=Math.min(items.length-1, idx+1); items.forEach(x=>x.classList.remove('active')); items[idx].classList.add('active'); items[idx].scrollIntoView({block:'nearest'}); } else if(e.key==='ArrowUp'){ e.preventDefault(); idx=Math.max(0, idx-1); items.forEach(x=>x.classList.remove('active')); items[idx].classList.add('active'); items[idx].scrollIntoView({block:'nearest'}); } else if(e.key==='Enter' || e.key==='Tab'){ const el = items.find(x=>x.classList.contains('active')) || items[0]; if(el){ e.preventDefault(); loteVis.value = el.dataset.cod; hide(); focusNext(loteVis); } } else if(e.key==='Escape'){ hide(); } });
-        dd.addEventListener('click', function(e){ const el = e.target.closest('.dd-item'); if(!el) return; loteVis.value = el.dataset.cod; hide(); focusNext(loteVis); });
+        loteVis.addEventListener('keydown', function(e){ if(dd.style.display==='none') return; const items = Array.from(dd.querySelectorAll('.dd-item')); if(!items.length) return; let idx = items.findIndex(x=>x.classList.contains('active')); if(idx<0) idx=0; if(e.key==='ArrowDown'){ e.preventDefault(); idx=Math.min(items.length-1, idx+1); items.forEach(x=>x.classList.remove('active')); items[idx].classList.add('active'); items[idx].scrollIntoView({block:'nearest'}); } else if(e.key==='ArrowUp'){ e.preventDefault(); idx=Math.max(0, idx-1); items.forEach(x=>x.classList.remove('active')); items[idx].classList.add('active'); items[idx].scrollIntoView({block:'nearest'}); } else if(e.key==='Enter' || e.key==='Tab'){ const el = items.find(x=>x.classList.contains('active')) || items[0]; if(el){ e.preventDefault(); loteVis.value = el.dataset.cod; hide(); focusNext(loteVis); try{ applyFilters(); }catch(_){ } } } else if(e.key==='Escape'){ hide(); } });
+        dd.addEventListener('click', function(e){ const el = e.target.closest('.dd-item'); if(!el) return; loteVis.value = el.dataset.cod; hide(); focusNext(loteVis); try{ applyFilters(); }catch(_){ } });
         document.addEventListener('click', (e)=>{ if(!dd.contains(e.target) && e.target!==loteVis) hide(); });
       })();
 
@@ -2230,25 +2325,18 @@
             alert([errs, dbmsg, warns].filter(Boolean).join('\n'));
           } else {
             const res = await postJSON('/sankhya/packing/central/salvar/', payload);
-            if (res.ok && res.body && res.body.executed && res.body.nunota){
-              // animate header left and show the items modal in-place
+              if (res.ok && res.body && res.body.executed && res.body.nunota){
+              // animate header left and show the items modal in-place WITHOUT reloading the page
               const nun = res.body.nunota;
               // mark editing state so further saves update this header instead of creating
               cabEditingNunota = nun;
               animateHeaderToLeft();
               // Important: ensure Save button is not captured as disabled baseline
-              try { cabSave.removeAttribute('disabled'); if (cabSave.dataset) delete cabSave.dataset.wasDisabled; } catch(_){}
-              // Refresh notes list after creating new header (reload page to update left panel)
-              try {
-                const url = new URL(window.location.href);
-                url.searchParams.set('sel', nun); // select the newly created note
-                url.searchParams.set('new', '1'); // indicate it's a new note to auto-open modal
-                window.location.href = url.pathname + '?' + url.searchParams.toString();
-              } catch(_) {
-                // Fallback: simple reload with parameters
-                const qs = window.location.search ? window.location.search + '&' : '?';
-                window.location.href = window.location.pathname + qs + 'sel=' + nun + '&new=1';
-              }
+              try { cabSave.removeAttribute('disabled'); if (cabSave.dataset) delete cabSave.dataset.wasDisabled; } catch(_){ }
+              // Load items into bottom panel and open the Items modal next to the header
+              try{ panelLoadItems(nun); }catch(_){ }
+              try{ showItemsModal(nun); }catch(err){ console.error('Erro ao abrir modal de Itens após salvar cabeçalho:', err); }
+              showToast(`✅ Cabeçalho criado (NUNOTA ${nun}). Itens abertos.`, 'success');
               return;
             }
             const errs = (res.body?.errors||[]).join('\n');

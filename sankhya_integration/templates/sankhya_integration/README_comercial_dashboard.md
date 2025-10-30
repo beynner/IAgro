@@ -8,7 +8,7 @@ Estrutura básica
 ----------------
 - `Filtros` (sidebar superior)
   - ID: `filtersCard`
-  - Uso: conter inputs e controles de filtragem (a implementar)
+  - Uso: conter inputs e lotes de filtragem (a implementar)
 - `Tabela` (sidebar inferior)
   - ID: `tableCard`
   - Uso: tabela de lotes/entradas (a implementar)

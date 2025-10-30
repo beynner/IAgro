@@ -150,6 +150,17 @@
   #filtersCard label{display:flex;align-items:center;gap:6px;font-size:.8rem;color:#334155}
   #filtersCard .stack{display:flex;flex-direction:column;gap:4px}
   #filtersCard input[type="text"],#filtersCard input[type="date"],#filtersCard select{width:100%;padding:5px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:.8rem}
+  #filtersCard .class-toggle{display:flex;width:100%;border:1px solid #cbd5e1;border-radius:999px;overflow:hidden;background:#fff;align-self:flex-start}
+  #filtersCard .class-toggle label{position:relative;display:flex;flex:1;min-height:32px;align-items:stretch}
+  #filtersCard .class-toggle input{position:absolute;opacity:0;pointer-events:none}
+  #filtersCard .class-toggle span{flex:1;display:flex;align-items:center;justify-content:center;height:100%;padding:6px 14px;font-size:.75rem;font-weight:600;color:#475569;cursor:pointer;user-select:none;letter-spacing:.03em;transition:all .15s ease}
+  #filtersCard .class-toggle label + label span{border-left:1px solid #cbd5e1}
+  #filtersCard .class-toggle input:checked + span{background:#0ea5e9;color:#fff}
+  #filtersCard .class-toggle label.is-active span{background:#0ea5e9;color:#fff}
+  #filtersCard .class-toggle label:focus-within span{outline:2px solid #0ea5e9;outline-offset:2px}
+  #listaTable tr.vale-header{transition:background-color .15s ease}
+  #listaTable tr.vale-header.vale--faturado{background:#ecfdf5}
+  #listaTable tr.vale-header.vale--aberto{background:#fefce8}
   #filtersCard .actions{display:flex;justify-content:flex-end}
   #filtersCard .btn{appearance:none;-webkit-appearance:none;border-radius:6px;padding:5px 10px;font-size:.8rem;font-weight:600;cursor:pointer;line-height:1;border:1px solid transparent;background:#fff}
   #filtersCard .btn-clear{border-color:#f59e0b;color:#b45309;background:#fff}
@@ -500,9 +511,9 @@
   #listaTable tbody tr:hover{background:#f3f4f6}
   /* Lista: prevent horizontal scroll */
   #listaTable{table-layout:fixed;width:100%}
-  #listaTable th, #listaTable td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #listaTable th, #listaTable td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 6px;font-size:0.78rem;line-height:1.3}
   /* Header: single-line, no wrap, show full labels (no ellipsis) */
-  #listaTable thead th{overflow:visible;text-overflow:clip;white-space:nowrap}
+  #listaTable thead th{overflow:visible;text-overflow:clip;white-space:nowrap;padding:4px 6px;font-size:0.75rem}
   /* Stronger guarantee: header labels fully visible without changing column width */
   #listaTable thead th, #listaTable thead td{
     overflow: visible !important;
@@ -512,16 +523,17 @@
     z-index: 1;
   }
   /* Lista: header row clickable for collapse/expand */
-  .vale-head-inner{display:flex;align-items:center;gap:8px}
-  .vale-head-nun{display:inline-block;padding:1px 4px;background:#475569;color:#fff;font-size:.62rem;font-weight:600;text-transform:uppercase;border-radius:3px;letter-spacing:.2px}
-  #listaTable tr.vale-header{cursor:pointer}
+  .vale-head-inner{display:flex;align-items:center;gap:6px}
+  .vale-head-nun{display:inline-block;padding:1px 3px;background:#475569;color:#fff;font-size:.58rem;font-weight:600;text-transform:uppercase;border-radius:3px;letter-spacing:.1px}
+  #listaTable tr.vale-header{cursor:pointer;padding:2px 6px;font-size:0.8rem;line-height:1.4}
+  #listaTable tr.vale-header td{padding:3px 6px !important;font-size:0.8rem;line-height:1.3}
   #listaTable tr.vale-header{color:#334155; background:rgba(203,213,225,0.5)}
   /* Ensure header row uses the same background, even if external CSS sets another */
   #listaTable thead tr, #listaTable thead th{background:#cbd5e1 !important}
   /* Lista header actions */
-  #tableCard .lista-title{display:block;margin-bottom:4px}
-  #tableCard .lista-actions-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px}
-  .lista-actions{display:inline-flex;gap:6px}
+  #tableCard .lista-title{display:block;margin-bottom:3px;font-size:0.95rem}
+  #tableCard .lista-actions-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:6px}
+  .lista-actions{display:inline-flex;gap:4px}
   /* Segmented toggle: Por Vale | Por Parceiro */
   .lista-view-toggle{display:inline-flex;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;background:#fff}
   .lista-view-toggle .seg{position:relative;display:inline-flex}
@@ -535,17 +547,20 @@
   /* Estilos para valores monetários nos modais */
   .valor-monetario{font-size:.85rem;color:#374151;font-weight:400}
   .valor-monetario .cifrao{font-size:.70rem;opacity:0.5;margin-right:2px;font-weight:400}
+  /* Total do Vale - fonte maior */
+  #valeResumoTotal .valor-monetario{font-size:1.6rem !important;color:#0a3392;font-weight:800}
+  #valeResumoTotal .valor-monetario .cifrao{font-size:1.2rem !important;opacity:0.7}
   /* Inline qty + unit in product cell (same line; qty right-aligned) */
-  .list-prod-inner{display:flex;justify-content:space-between;align-items:baseline;gap:8px;color:#334155}
+  .list-prod-inner{display:flex;justify-content:space-between;align-items:baseline;gap:6px;color:#334155}
   /* Product closer to left edge with a clear indent */
-  #listaTable tbody td:nth-child(2){padding-left:10px}
-  .list-prod-inner .list-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #listaTable tbody td:nth-child(2){padding-left:8px}
+  .list-prod-inner .list-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.85em}
   /* Right-side meta block (date + qty) */
-  .list-prod-inner .list-meta{display:flex;align-items:baseline;gap:10px;flex:0 0 auto}
+  .list-prod-inner .list-meta{display:flex;align-items:baseline;gap:8px;flex:0 0 auto}
   /* Slightly smaller date and a nudge to the left */
-  .list-meta .list-date{font-size:.72em;color:#64748b;margin-right:6px}
-  .list-qty{font-weight:800;color:inherit;flex:0 0 auto}
-  .list-qty .list-unit{font-size:.78em;color:#64748b;margin-left:4px}
+  .list-meta .list-date{font-size:.68em;color:#64748b;margin-right:4px}
+  .list-qty{font-weight:700;color:inherit;flex:0 0 auto;font-size:0.9em}
+  .list-qty .list-unit{font-size:.75em;color:#64748b;margin-left:3px}
   /* Quantity must never be hidden/wrapped */
 
   /* ==================== IMPRESSÃO TÉRMICA 80MM ==================== */
@@ -782,14 +797,48 @@
                 <div id="fltProdutoDropdown" class="ac-dropdown" style="position:absolute; z-index:50; inset-inline:0; top:100%; margin-top:2px; display:none; background:#fff; border:1px solid #e5e7eb; border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,.08); max-height:220px; overflow:auto;"></div>
               </div>
             </div>
-            <div class="row">
-              <div class="stack" style="grid-column:1 / -1">
+            <div class="row" style="grid-template-columns:1fr 1fr;">
+              <div class="stack">
                 <label for="fltDataCompra">Data</label>
                 <input type="date" id="fltDataCompra" tabindex="3" />
               </div>
+              <div class="stack">
+                <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.8rem; color:#334155; margin-top:auto;">
+                  <input type="checkbox" id="fltSemPreco" style="width:14px; height:14px; cursor:pointer;" tabindex="4" />
+                  <span>Sem Preço Inicial</span>
+                </label>
+              </div>
+            </div>
+            <div class="row" style="grid-template-columns:1fr 1fr;">
+              <div class="stack">
+                <span id="fltClassToggleLabel" style="font-size:.8rem; font-weight:700; color:#334155;">Classificação</span>
+                <div class="class-toggle" role="radiogroup" aria-labelledby="fltClassToggleLabel" id="fltClassToggle">
+                  <label>
+                    <input type="radio" name="fltClassificavel" value="S" />
+                    <span>Classifica</span>
+                  </label>
+                  <label>
+                    <input type="radio" name="fltClassificavel" value="N" />
+                    <span>Não Classifica</span>
+                  </label>
+                </div>
+              </div>
+              <div class="stack">
+                <span id="fltFatToggleLabel" style="font-size:.8rem; font-weight:700; color:#334155;">Faturamento</span>
+                <div class="class-toggle" role="radiogroup" aria-labelledby="fltFatToggleLabel" id="fltFatToggle">
+                  <label>
+                    <input type="radio" name="fltFaturado" value="S" />
+                    <span>Faturado</span>
+                  </label>
+                  <label>
+                    <input type="radio" name="fltFaturado" value="N" />
+                    <span>Não Faturado</span>
+                  </label>
+                </div>
+              </div>
             </div>
             <div class="actions">
-              <button type="button" id="btnLimparFiltros" class="btn btn-clear" style="font-size: 0.75rem; padding: 4px 12px; background: #e5e7eb; border: 1px solid #9ca3af; color: #6b7280; opacity: 0.8;" tabindex="4">Limpar filtros</button>
+              <button type="button" id="btnLimparFiltros" class="btn btn-clear" style="font-size: 0.75rem; padding: 4px 12px; background: #e5e7eb; border: 1px solid #9ca3af; color: #6b7280; opacity: 0.8;" tabindex="5">Limpar filtros</button>
             </div>
           </form>
         </div>
@@ -846,19 +895,22 @@
         <!-- Modal: Faturamento (por NUNOTA) -->
         <div id="modalFaturamento" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:1000; align-items:center; justify-content:center;">
           <div style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; width:min(600px, 60vw); max-height:88vh; display:flex; flex-direction:column; position:relative;">
-            <!-- 🎨 Marca d'água de fundo (muito sutil) -->
+            <!-- 🎨 Marca d'água de fundo -->
             <div id="modalMarcaDagua" style="
               position: absolute;
               top: 50%;
               left: 50%;
               transform: translate(-50%, -50%) rotate(-30deg);
-              font-size: 80px;
+              font-size: 96px;
               font-weight: 900;
-              color: rgba(22, 163, 74, 0.12);
+              color: rgba(22, 163, 74, 0.35);
               pointer-events: none;
-              z-index: 0;
+              z-index: 999;
               user-select: none;
-              display: none;
+              display: block;
+              opacity: 0.35;
+              text-shadow: 0 2px 8px rgba(22, 163, 74, 0.15);
+              -webkit-font-smoothing:antialiased;
             ">FATURADO</div>
             
             <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #e5e7eb; position:relative; z-index:1;">
@@ -867,13 +919,6 @@
                   <div style="display:flex; align-items:center; gap:8px;">
                     <div id="valeResumoTitle" style="font-weight:800; color:#0a3392; font-size:1.1rem;">—</div>
                     <span id="valeResumoNufinBadge" style="display:none; background:#16a34a; color:#fff; font-weight:700; font-size:.85rem; padding:4px 10px; border-radius:6px;">NUFIN <span id="valeResumoNufinNum">—</span></span>
-                    <button id="valeResumoPrint" class="btn" title="Imprimir" style="border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:5px 7px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center;">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="6 9 6 2 18 2 18 9"></polyline>
-                        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
-                        <rect x="6" y="14" width="12" height="8"></rect>
-                      </svg>
-                    </button>
                   </div>
                   <div style="display:flex; flex-direction:column; gap:4px; font-size:.8rem; color:#64748b;">
                     <div id="valeResumoVale" style="display:block;">
@@ -894,7 +939,7 @@
             <!-- 🚨 Banner de Status (Faturado/Bloqueado) -->
             <div id="valeResumoStatusBanner" style="display:none; position:relative; z-index:1;">
               <!-- Estado: Faturado (verde claro) -->
-              <div id="statusBannerFaturado" style="display:none;
+              <div id="statusBannerBloqueado" style="display:none;
                 background: linear-gradient(135deg, rgba(22,163,74,0.1) 0%, rgba(34,197,94,0.15) 100%);
                 border-left: 4px solid #16a34a;
                 padding: 8px 16px;
@@ -902,12 +947,12 @@
                 color: #15803d;
                 font-weight: 600;
               ">
-                ✅ FATURADO - NUFIN: <span id="bannerNufin">—</span>
+                ✅ Pagamento realizado pelo setor FINANCEIRO!!!
               </div>
               
               <!-- Estado: Bloqueado (vermelho claro) -->
               <div id="statusBannerBloqueado" style="display:none;
-                background: linear-gradient(135deg, rgba(220,38,38,0.1) 0%, rgba(239,68,68,0.15) 100%);
+                <span id="bannerMotivoBloqueio">BLOQUEADO - Existe negociação com o setor FINANCEIRO!!!</span>
                 border-left: 4px solid #dc2626;
                 padding: 8px 16px;
                 font-size: 0.9rem;
@@ -969,10 +1014,17 @@
               </div>
             </div>
             <div style="display:flex; align-items:center; justify-content:flex-end; gap:10px; padding:10px 12px; border-top:1px solid #e5e7eb; background:#f8fafb;">
-              <div style="font-weight:600; color:#334155;">Total do Vale</div>
-              <div id="valeResumoTotal" style="font-weight:800; color:#0a3392; font-size:1.1rem;">R$ 0,00</div>
+              <div style="font-weight:600; color:#334155; font-size:1rem;">Total do Vale</div>
+              <div id="valeResumoTotal" style="font-weight:800; color:#0a3392; font-size:1.6rem;">R$ 0,00</div>
             </div>
-            <div style="padding:0 12px 12px 12px; display:flex; gap:8px; justify-content:flex-end;">
+            <div style="padding:0 12px 12px 12px; display:flex; gap:8px; justify-content:flex-end; align-items:center;">
+              <button id="valeResumoFooterPrint" class="btn" title="Imprimir Vale" style="border:1px solid #cbd5e1; background:#fff; border-radius:8px; padding:10px 12px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; transition:all .2s;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="6 9 6 2 18 2 18 9"></polyline>
+                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                  <rect x="6" y="14" width="12" height="8"></rect>
+                </svg>
+              </button>
               <button id="valeResumoFaturar" class="btn" style="border:1px solid #16a34a; color:#16a34a; background:#fff; border-radius:8px; padding:10px 16px; font-weight:800;">FATURAR</button>
               <button id="valeResumoDesfaturar" class="btn" style="display:none; border:2px solid #dc2626; color:#dc2626; background:#fff; border-radius:8px; padding:10px 20px; font-weight:800; cursor:pointer; transition:all .2s;">🗑️ DESFATURAR</button>
             </div>
@@ -1111,7 +1163,7 @@
                     <button id="toggleProjecao" class="toggle-btn" role="radio" aria-checked="false" data-mode="projecao">
                       Projeção
                     </button>
-                    <button id="toggleReal" class="toggle-btn" role="radio" aria-checked="false" data-mode="real">
+                    <button id="toggleReal" class="toggle-btn active" role="radio" aria-checked="true" data-mode="real">
                       Real
                     </button>
                   </div>
@@ -1482,6 +1534,30 @@
       };
     })();
 
+    window.__isClassificavelItem = function(item){
+      if(!item) return false;
+      try{
+        const tipo = (item.tipo || '').toString().toLowerCase();
+        if(tipo === 'classificavel') return true;
+        if(tipo.indexOf('nao') !== -1) return false;
+        const flag = item.classificavel;
+        if(typeof flag === 'boolean') return flag;
+        if(typeof flag === 'number') return flag === 1;
+        if(typeof flag === 'string'){
+          const base = typeof flag.normalize === 'function' ? flag.normalize('NFD') : flag;
+          const normalized = base.replace(/[^\x00-\x7F]/g,'').trim().toUpperCase();
+          if(['S','SIM','1','TRUE','Y'].includes(normalized)) return true;
+          if(['N','NAO','FALSE','0'].includes(normalized)) return false;
+        }
+      }catch(err){
+        console.warn('[CLASSIFICAVEL HELPER] Falha ao avaliar flag:', err, item);
+      }
+      return false;
+    };
+    window.__isNaoClassificavelItem = function(item){
+      return !window.__isClassificavelItem(item);
+    };
+
     // Histórico de Margens (mini gráfico linha)
     (function(){
       const canvas = document.getElementById('histMarginChart');
@@ -1676,6 +1752,18 @@
       const produtoInput  = form.querySelector('#fltProduto');
       const produtoDrop   = form.querySelector('#fltProdutoDropdown');
 
+      const syncToggleState = () => {
+        ['fltClassificavel','fltFaturado'].forEach(name => {
+          const radios = form.querySelectorAll(`input[name="${name}"]`);
+          radios.forEach(radio => {
+            const label = radio.closest('label');
+            if(!label) return;
+            if(radio.checked) label.classList.add('is-active');
+            else label.classList.remove('is-active');
+          });
+        });
+      };
+
       const toPayload = () => {
         const data = new FormData(form);
         const payload = {
@@ -1684,19 +1772,23 @@
           finalizarClass: form.querySelector('#fltFinalizarClass')?.checked || false,
           historico: data.get('hist') || '60',
           classif: data.get('classif') || '',
-          faturado: data.get('fat') || '',
           cracha: (form.querySelector('#fltCracha')?.value || '').trim(),
           dataCompra: form.querySelector('#fltDataCompra')?.value || '',
           // fornecedor/codparc vai pelo hidden code
           fornecedor: parceiroCode?.value || '',
           produtos: Array.from(form.querySelectorAll('input[name="produtoTipo"]:checked')).map(i=>i.value),
           // produto será pesquisado por FABRICANTE (texto)
-          produto: produtoInput?.value || ''
+          produto: produtoInput?.value || '',
+          classificavelFiltro: form.querySelector('input[name="fltClassificavel"]:checked')?.value || '',
+          faturadoFiltro: form.querySelector('input[name="fltFaturado"]:checked')?.value || '',
+          semPreco: form.querySelector('#fltSemPreco')?.checked || false
         };
         return payload;
       };
       const emit = () => {
+        syncToggleState();
         const payload = toPayload();
+        window.__COM_FILTER_STATE = payload;
         window.dispatchEvent(new CustomEvent('filtros:change', { detail: payload }));
       };
       form.addEventListener('change', emit);
@@ -2072,7 +2164,7 @@
       if(!toggleProjecao || !toggleReal) return;
 
       // Estado inicial (será definido baseado em pendenteClass)
-      window.__VALOR_TOTAL_MODE = 'projecao';
+      window.__VALOR_TOTAL_MODE = 'real';
 
       const setActiveToggle = (mode, isAutomatic = false) => {
         window.__VALOR_TOTAL_MODE = mode;
@@ -2169,15 +2261,9 @@
         const pendenteClass = (classCard.getAttribute('data-pendente-class') || '').toUpperCase();
         console.log('[TOGGLE] pendenteClass detectado:', pendenteClass);
         
-        if(pendenteClass === 'N'){
-          // Finalizado - usar modo Real
-          console.log('[TOGGLE] PENDENTE=N (finalizado) - ativando modo Real');
-          setActiveToggle('real', true);
-        } else {
-          // Não finalizado - usar modo Projeção
-          console.log('[TOGGLE] PENDENTE!="N" (não finalizado) - ativando modo Projeção');
-          setActiveToggle('projecao', true);
-        }
+        // 🔥 SEMPRE INICIAR EM REAL (independente do pendenteClass)
+        console.log('[TOGGLE] Iniciando em modo Real (padrão)');
+        setActiveToggle('real', true);
       };
 
       // Eventos de clique manual
@@ -2232,7 +2318,7 @@
       });
       // header removed: no head2 toggle logic
       function parseFilters(ev){
-        const d = (ev && ev.detail) ? ev.detail : {};
+        const d = (ev && ev.detail) ? ev.detail : (window.__COM_FILTER_STATE || {});
         const qs = new URLSearchParams();
         if(d.historico && d.historico !== 'all') qs.set('days', d.historico);
         if(d.dataCompra) { qs.set('start', d.dataCompra); qs.set('end', d.dataCompra); }
@@ -2242,6 +2328,11 @@
           if(/^\d+$/.test(String(d.produto))) qs.set('codprod', d.produto);
           else qs.set('fabricante', d.produto);
         }
+        if(d.classificavelFiltro === 'N') qs.set('classificavel', 'N');
+        if(d.classificavelFiltro === 'S') qs.set('classificavel', 'S');
+        if(d.faturadoFiltro === 'S') qs.set('faturado', 'S');
+        if(d.faturadoFiltro === 'N') qs.set('faturado', 'N');
+        if(d.semPreco) qs.set('sem_preco', '1');
         return qs.toString();
       }
       function fmtDate(s){
@@ -2290,8 +2381,20 @@
             if(!arr.length) continue;
             const parc = arr[0].parceiro||'';
             const dt = fmtDate(arr[0].dtneg);
-            const classif = arr.filter(x=> x.classificavel !== false);
-            const nclass = arr.filter(x=> x.classificavel === false);
+            const classif = arr.filter(x=> window.__isClassificavelItem(x));
+            const nclass = arr.filter(x=> window.__isNaoClassificavelItem(x));
+            const isFaturado = arr.some(x=> x && x.nufin);
+            
+            // Verificar se algum produto tem precobase zerado
+            // Nota: arr contém produtos já filtrados por NUNOTA (pode ser PEDIDO ou VALE)
+            const temPrecoZerado = arr.some(r => {
+              const pb = Number(r.precobase || r.preco_inicial || 0);
+              return pb <= 0;
+            });
+            const headerBgStyle = temPrecoZerado ? 'background-color:#fee2e2;' : '';
+            
+            const headerClass = isFaturado ? 'vale-header vale--faturado' : 'vale-header vale--aberto';
+            const statusAttr = isFaturado ? 'faturado' : 'aberto';
             const nunSafe = escapeHTML(nun);
             const btnResumo = `<span class="lista-vale-ico" data-nunota="${nunSafe}" role="button" tabindex="0" title="Resumo do Vale ${nunSafe}" aria-label="Abrir resumo do vale ${nunSafe}" style="cursor:pointer; color:inherit; display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -2301,10 +2404,10 @@
               </svg>
             </span>`;
             htmlParts.push(`
-              <tr class="vale-header" data-expanded="true">
+              <tr class="${headerClass}" data-expanded="true" data-status="${statusAttr}" style="${headerBgStyle}">
                 <td colspan="3" title="${parc.replace(/\"/g,'&quot;')} - Vale ${nunSafe}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.78rem; color:#334155;">
                   <span class="vale-head-inner">
-                    <span style="font-weight:700">${parc}</span>
+                    <span>${parc}</span>
                   </span>
                 </td>
                 <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.78rem; color:#334155; text-align:right;">
@@ -2358,8 +2461,22 @@
             if(!arr.length) continue;
             const dates = Array.from(new Set(arr.map(x=> fmtDate(x.dtneg)))).filter(Boolean);
             const dtCell = dates.length === 1 ? dates[0] : '—';
-            const classif = arr.filter(x=> x.classificavel !== false);
-            const nclass = arr.filter(x=> x.classificavel === false);
+            const classif = arr.filter(x=> window.__isClassificavelItem(x));
+            const nclass = arr.filter(x=> window.__isNaoClassificavelItem(x));
+            const allFaturado = arr.length > 0 && arr.every(x=> x && x.nufin);
+            const allAberto = arr.length > 0 && arr.every(x=> !x || !x.nufin);
+            
+            // Verificar se algum produto tem precobase zerado
+            const temPrecoZerado = arr.some(r => {
+              const pb = Number(r.precobase || r.preco_inicial || 0);
+              return pb <= 0;
+            });
+            const headerBgStyle = temPrecoZerado ? 'background-color:#fee2e2;' : '';
+            
+            let headerClass = 'vale-header';
+            if(allFaturado) headerClass += ' vale--faturado';
+            else if(allAberto) headerClass += ' vale--aberto';
+            const statusAttr = allFaturado ? 'faturado' : (allAberto ? 'aberto' : 'mixed');
             const icoParc = `<span class="lista-parc-ico" role="button" tabindex="0" data-parceiro="${parc.replace(/\"/g,'&quot;')}" aria-label="Resumo do Parceiro" title="Resumo do Parceiro" style="cursor:pointer; color:inherit; display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="9" cy="21" r="1"></circle>
@@ -2368,10 +2485,10 @@
               </svg>
             </span>`;
             htmlParts.push(`
-              <tr class="vale-header" data-expanded="true">
+              <tr class="${headerClass}" data-expanded="true" data-status="${statusAttr}" style="${headerBgStyle}">
                 <td colspan="3" title="${parc.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.78rem; color:#334155;">
                   <span class="vale-head-inner">
-                    <span style="font-weight:700">${parc}</span>
+                    <span>${parc}</span>
                   </span>
                 </td>
                 <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; font-size:.78rem; color:#334155;">${dtCell}</td>
@@ -2447,6 +2564,13 @@
           
           const t3 = performance.now();
           bodyEl.innerHTML = buildListaHTML(rows, currentViewMode);
+          // Default UX: collapse all groups after render so the list starts compacted
+          try{
+            collapseAllGrupos();
+            console.log('[LISTA] grupos colapsados por padrão');
+          }catch(e){
+            console.error('[LISTA] falha ao colapsar grupos por padrão', e);
+          }
           const t4 = performance.now();
           console.log(`[LISTA] ⚡ Render HTML em ${(t4-t3).toFixed(0)}ms`);
           
@@ -3270,7 +3394,7 @@
           
           // Buscar PENDENTE do lote para atualizar o gauge
           try{
-            const rdet = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(lote), { credentials: 'same-origin' });
+            const rdet = await fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(lote), { credentials: 'same-origin' });
             const jdet = await rdet.json();
             console.log('[COMERCIAL] Busca PENDENTE para lote:', lote, 'pendente_class:', jdet?.pendente_class);
             if(jdet && jdet.ok && jdet.pendente_class){
@@ -3357,7 +3481,7 @@
               // Total de CX classificados: preferir somatório de qtd em /lote/consultar (classificacoes)
               let classCx = 0;
               try{
-                const rdet = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(lote), { credentials: 'same-origin' });
+                const rdet = await fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(lote), { credentials: 'same-origin' });
                 const jdet = await rdet.json();
                 console.log('[RESUMO] Busca PENDENTE para lote:', lote, 'pendente_class:', jdet?.pendente_class);
                 if(jdet && jdet.ok && Array.isArray(jdet.classificacoes)){
@@ -4074,6 +4198,9 @@
           valeEl: document.getElementById('valeResumoVale'),
           valeNumEl: document.getElementById('valeResumoValeNum')
         };
+        // Expor referências locais para evitar problemas de closure dentro de helpers
+        const classBody = els.classBody;
+        const outrosBody = els.outrosBody;
         
         // Mostrar spinner
         if(els.spinner) els.spinner.style.display = 'flex';
@@ -4097,6 +4224,9 @@
           // 🔥 Armazenar NUNOTA atual globalmente para verificações de faturamento
           window.__CURRENT_VALE_NUNOTA = nunota;
           
+          // 🔥 CRÍTICO: Armazenar NUNOTA do PEDIDO (TOP 11) para usar no auto-save
+          window.__CURRENT_PEDIDO_NUNOTA = nunota;
+          
           // 🚀 CRÍTICO: Buscar NUNOTA do vale (TOP 13) para exibir dados corretos
           const pedidoRows = (window.__COM_LIST_ROWS||[]).filter(r=> String(r.nunota||'') === String(nunota||''));
           console.log('[DEBUG] Linhas do pedido filtradas:', pedidoRows.length);
@@ -4107,6 +4237,10 @@
             const itemComVale = pedidoRows.find(r => r.nunota_13);
             if(itemComVale) nunota13 = itemComVale.nunota_13;
           }
+          
+          // 🔥 CRÍTICO: Armazenar NUNOTA do VALE (TOP 13) para usar no auto-save
+          window.__CURRENT_VALE_NUNOTA_TOP13 = nunota13 || null;
+          console.log('[MODAL] 🔥 NUNOTAs armazenados - PEDIDO:', window.__CURRENT_PEDIDO_NUNOTA, 'VALE:', window.__CURRENT_VALE_NUNOTA_TOP13);
           
           // 🔥 Se tem vale, BUSCAR ITENS DO VALE DO BACKEND (não estão em cache)
           let rows = pedidoRows;
@@ -4181,8 +4315,8 @@
           };
           const fmtQty = (n)=> isNaN(n) ? '0' : qtyFormatter.format(Number(n||0));
           
-          const classifs = rows.filter(r=> r.classificavel !== false);
-          const nclass = rows.filter(r=> r.classificavel === false);
+          const classifs = rows.filter(r=> window.__isClassificavelItem(r));
+          const nclass = rows.filter(r=> window.__isNaoClassificavelItem(r));
           
           // Usar nunota13 já declarado no início da função
           console.log('[MODAL] NUNOTA do pedido (TOP 11):', nunota, '| NUNOTA do vale (TOP 13):', nunota13);
@@ -4217,74 +4351,123 @@
           
           console.log('[MODAL] Totais calculados - CX:', totalCxFromItems, 'KG:', totalKgFromItems);
           
-          // Classificáveis: exibir RESUMO consolidado (não detalhamento por produto)
+          // Classificáveis: exibir RESUMO CONSOLIDADO por FABRICANTE (não detalhar Extra/Médio)
+          let totalVlrClassif = 0;  // 🔥 Declarar ANTES do bloco if
+          
           if(classifs.length){
-            // Calcular totais dos produtos classificáveis
-            let totalVlrClassif = 0;
+            // Agrupar por FABRICANTE e somar valores
+            const fabricantesMap = {};
             
-            classifs.forEach(r => {
-              const vlrtot = Number(r.vlrtot || 0);
-              totalVlrClassif += vlrtot;
+            classifs.forEach((r) => {
+              // Usar FABRICANTE se disponível, senão extrair nome base do produto
+              let fabricante = r.fabricante;
+              
+              if (!fabricante || fabricante.trim() === '') {
+                // Extrair nome do produto removendo EXTRA, MÉDIO, MEDIO, etc
+                const produtoNome = (r.produto || '').toUpperCase();
+                fabricante = produtoNome
+                  .replace(/\s+(EXTRA|MEDIO|MÉDIO|MEDIA|MÉDIA)\s*$/i, '')
+                  .replace(/\s+(EXTRA|MEDIO|MÉDIO|MEDIA|MÉDIA)\s+/i, ' ')
+                  .trim();
+                
+                // Se ainda estiver vazio, usar o nome completo
+                if (!fabricante) {
+                  fabricante = r.produto || 'Produto';
+                }
+              }
+              
+              if (!fabricantesMap[fabricante]) {
+                fabricantesMap[fabricante] = {
+                  fabricante: fabricante,
+                  qtdKg: 0,
+                  qtdCx: 0,
+                  vlrtot: 0,
+                  items: []
+                };
+              }
+              
+              const unit = ((r.codvol || '') + '').toUpperCase();
+              const fatorItem = r.fator_conversao;
+              const fatorConv = (fatorItem != null && Number(fatorItem) > 0) ? Number(fatorItem) : fatorConversaoPedido;
+              let qtdEntrada = Number(r.qtdneg || 0);
+              let qtdKg = qtdEntrada;
+              let qtdCx = 0;
+              
+              if(unit === 'CX'){
+                qtdCx = qtdEntrada;
+                qtdKg = qtdEntrada * fatorConv;
+              }else if(unit === 'KG'){
+                qtdKg = qtdEntrada;
+                qtdCx = fatorConv > 0 ? qtdEntrada / fatorConv : 0;
+              }
+              
+              fabricantesMap[fabricante].qtdKg += qtdKg;
+              fabricantesMap[fabricante].qtdCx += qtdCx;
+              fabricantesMap[fabricante].vlrtot += Number(r.vlrtot || 0);
+              fabricantesMap[fabricante].items.push(r);
             });
             
-            // Pegar nome do primeiro produto para exibir
-            const primeiroProduto = classifs[0]?.produto || 'PRODUTO';
-            const primeiroNunota = classifs[0]?.nunota || nunota;
-            const primeiraSeq = classifs[0]?.sequencia || 1;
+            // 💰 CALCULAR TOTAL DOS CLASSIFICÁVEIS ANTES de gerar HTML
+            Object.values(fabricantesMap).forEach(fab => {
+              totalVlrClassif += fab.vlrtot;
+            });
             
-            console.log('[MODAL DEBUG] totalCx:', totalCxFromItems, 'totalKg:', totalKgFromItems, 'totalVlr:', totalVlrClassif);
+            console.log('[MODAL] 💰 Total Classificáveis calculado:', totalVlrClassif);
             
-            // Calcular valores unitários baseados no TOTAL do vale
-            const vlrKg = (totalVlrClassif > 0 && totalKgFromItems > 0) ? (totalVlrClassif / totalKgFromItems) : 0;
-            const vlrCx = (totalVlrClassif > 0 && totalCxFromItems > 0) ? (totalVlrClassif / totalCxFromItems) : 0;
-            
-            console.log('[TABLE GEN RESUMO]', {prod: primeiroProduto, vlrKg, vlrCx, vlrtot: totalVlrClassif, totalKg: totalKgFromItems, totalCx: totalCxFromItems});
-            
-            // Status: bolinha verde se totalVlr > 0
-            const statusOk = totalVlrClassif > 0;
-            const status = statusOk
-              ? `<span title="OK" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#16a34a;"></span>`
-              : `<span title="Pendente" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#dc2626;"></span>`;
-            
-            // Link para abrir o primeiro item
-            const abrir = (primeiroNunota && primeiraSeq) ? `
-              <a class="eye-open" href="/sankhya/comercial/?sel_nunota=${primeiroNunota}&sel_seq=${primeiraSeq}" target="_blank" rel="noopener" data-nun="${primeiroNunota}" data-seq="${primeiraSeq}" style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;color:#94a3b8;text-decoration:none;">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                  <circle cx="12" cy="12" r="3"></circle>
-                </svg>
-              </a>` : '';
+            // Gerar HTML do resumo consolidado
+            const classRowsHtml = Object.values(fabricantesMap).map((fab) => {
+              const prod = fab.fabricante;
+              const qtdKg = fab.qtdKg;
+              const qtdCx = fab.qtdCx;
+              const vlrtot = fab.vlrtot;
               
-            // Quantidade: exibir KG e CX calculados dos totais
-            const qtdeKgFormatted = fmtQty(totalKgFromItems);
-            const qtdeCxFormatted = fmtQty(totalCxFromItems);
-            const qtdeDisplay = `<div style="line-height:1.3;">
-              <div style="font-size:.85rem; color:#334155;">${qtdeKgFormatted}<span style="color:#64748b; font-size:.7rem; margin-left:2px;">kg</span></div>
-              <div style="font-size:.8rem; color:#64748b;">${qtdeCxFormatted}<span style="color:#94a3b8; font-size:.7rem; margin-left:2px;">cx</span></div>
-            </div>`;
-            
-            // Formatar Vlr Unit em 2 linhas (R$/kg e R$/cx)
-            let vlrUnitDisplay = '';
-            if (vlrKg > 0 || vlrCx > 0) {
-              vlrUnitDisplay = `<div style="line-height:1.3;">
-                <div style="font-size:.85rem; color:#334155;">${vlrKg > 0 ? fmtMoney(vlrKg) : '—'}<span style="color:#64748b; font-size:.7rem;">/kg</span></div>
-                <div style="font-size:12.8px; color:#64748b;">${vlrCx > 0 ? fmtMoney(vlrCx) : '—'}<span style="color:#94a3b8; font-size:.7rem;">/cx</span></div>
+              const qtdeDisplay = `<div style="line-height:1.3;">
+                <div style="font-size:.85rem; color:#334155;">${fmtQty(qtdKg)}<span style="color:#64748b; font-size:.7rem; margin-left:2px;">kg</span></div>
+                <div style="font-size:.8rem; color:#64748b;">${fmtQty(qtdCx)}<span style="color:#94a3b8; font-size:.7rem; margin-left:2px;">cx</span></div>
               </div>`;
-            } else {
-              vlrUnitDisplay = '—';
-            }
+              
+              // Calcular preço médio
+              const precoKg = (vlrtot > 0 && qtdKg > 0) ? (vlrtot / qtdKg) : 0;
+              const precoCx = (vlrtot > 0 && qtdCx > 0) ? (vlrtot / qtdCx) : 0;
+              
+              let vlrUnitDisplay = '—';
+              if(precoKg > 0 || precoCx > 0){
+                vlrUnitDisplay = `<div style="line-height:1.3;">
+                  <div style="font-size:.85rem; color:#334155;">${precoKg > 0 ? fmtMoney(precoKg) : '—'}<span style="color:#64748b; font-size:.7rem;">/kg</span></div>
+                  <div style="font-size:12.8px; color:#64748b;">${precoCx > 0 ? fmtMoney(precoCx) : '—'}<span style="color:#94a3b8; font-size:.7rem;">/cx</span></div>
+                </div>`;
+              }
+              
+              const statusOk = vlrtot > 0;
+              const status = statusOk
+                ? `<span title="OK" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#16a34a;"></span>`
+                : `<span title="Pendente" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#dc2626;"></span>`;
+              
+              // Link para abrir o primeiro item do fabricante
+              const primeiroItem = fab.items[0];
+              const nunItem = Number(primeiroItem.nunota || nunota);
+              const seqItem = Number(primeiroItem.sequencia || 0);
+              
+              const abrir = (nunItem && seqItem) ? `
+                <a class="eye-open" href="/sankhya/comercial/?sel_nunota=${nunItem}&sel_seq=${seqItem}" target="_blank" rel="noopener" data-nun="${nunItem}" data-seq="${seqItem}" style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;color:#94a3b8;text-decoration:none;">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </a>` : '';
+              
+              return `
+                <tr data-fabricante="${prod}">
+                  <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}</td>
+                  <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${qtdeDisplay}</td>
+                  <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${vlrUnitDisplay}</td>
+                  <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${vlrtot > 0 ? fmtMoney(vlrtot) : '—'}</td>
+                  <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:left;">${status}</td>
+                  <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${abrir}</td>
+                </tr>`;
+            }).join('');
             
-            // Criar UMA ÚNICA linha de resumo
-            els.classBody.innerHTML = `<tr data-q="${totalKgFromItems}" data-unit="KG" data-nun="${primeiroNunota}" data-seq="${primeiraSeq}">
-              <td title="${primeiroProduto.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${primeiroProduto}</td>
-              <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${qtdeDisplay}</td>
-              <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${vlrUnitDisplay}</td>
-              <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${totalVlrClassif > 0 ? fmtMoney(totalVlrClassif) : '—'}</td>
-              <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:left;">${status}</td>
-              <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${abrir}</td>
-            </tr>`;
-            
-            console.log('[HTML GERADO RESUMO]', els.classBody.innerHTML);
+            els.classBody.innerHTML = classRowsHtml;
           }else{
             els.classBody.innerHTML = '<tr><td colspan="6" style="padding:8px; color:#64748b;">—</td></tr>';
           }
@@ -4299,7 +4482,9 @@
               // Calcular preço por unidade (CX) = VLRTOT / QTDNEG
               const preco = (q > 0 && vlrtot > 0) ? (vlrtot / q) : 0;
               const total = vlrtot;
-              return `<tr data-idx="${idx}" data-q="${q}" data-unit="${unit}" data-nun="${Number(r.nunota||0)}" data-seq="${Number(r.sequencia||0)}">
+              const codprod = Number(r.codprod||0);
+              const lote = String(r.codagregacao||r.lote||'');
+              return `<tr data-idx="${idx}" data-q="${q}" data-unit="${unit}" data-nun="${Number(r.nunota||0)}" data-seq="${Number(r.sequencia||0)}" data-codprod="${codprod}" data-lote="${lote}">
                 <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${fmtQty(q)}${unit?`<span style='color:#64748b; font-size:.72rem; margin-left:2px;'>${unit.toLowerCase()}</span>`:''}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">
@@ -4310,6 +4495,29 @@
             }).join('');
           }else{
             els.outrosBody.innerHTML = '<tr><td colspan="4" style="padding:8px; color:#64748b;">—</td></tr>';
+          }
+          
+          // 💰 Calcular e atualizar Total do Vale
+          let totalVlrNaoClassif = 0;
+          nclass.forEach(r => {
+            const vlr = Number(r.vlrtot || 0);
+            totalVlrNaoClassif += vlr;
+            console.log('[MODAL] 💰 Item Não Classificável:', r.produto, 'VLRTOT:', vlr);
+          });
+          
+          const totalGeral = totalVlrClassif + totalVlrNaoClassif;
+          console.log('[MODAL] 💰 ========== TOTAIS FINAIS ==========');
+          console.log('[MODAL] 💰 Classificáveis:', totalVlrClassif);
+          console.log('[MODAL] 💰 Não Classificáveis:', totalVlrNaoClassif);
+          console.log('[MODAL] 💰 TOTAL GERAL:', totalGeral);
+          console.log('[MODAL] 💰 =====================================');
+          
+          if(els.totalEl){
+            const textoFormatado = fmtMoney(totalGeral);
+            console.log('[MODAL] 💰 Atualizando display com:', textoFormatado);
+            els.totalEl.innerHTML = textoFormatado;  // Usar innerHTML ao invés de textContent
+          } else {
+            console.error('[MODAL] ❌ Elemento totalEl não encontrado!');
           }
           
           // Validar status: habilitar GERAR VALE apenas se todos classificáveis tiverem status verde (VLRTOT > 0)
@@ -4339,7 +4547,6 @@
           const statusBanner = document.getElementById('valeResumoStatusBanner');
           const statusBannerFaturado = document.getElementById('statusBannerFaturado');
           const statusBannerBloqueado = document.getElementById('statusBannerBloqueado');
-          const bannerNufin = document.getElementById('bannerNufin');
           const bannerMotivoBloqueio = document.getElementById('bannerMotivoBloqueio');
           const marcaDagua = document.getElementById('modalMarcaDagua');
           
@@ -4395,7 +4602,6 @@
             // if(statusBanner) statusBanner.style.display = 'block';
             // if(statusBannerFaturado){
             //   statusBannerFaturado.style.display = 'block';
-            //   if(bannerNufin) bannerNufin.textContent = String(nufinExistente);
             // }
             
             // Mostrar marca d'água sutil
@@ -4430,8 +4636,13 @@
             if(statusBanner) statusBanner.style.display = 'block';
             if(statusBannerBloqueado){
               statusBannerBloqueado.style.display = 'block';
-              const motivo = nureneg ? `NURENEG (${nureneg})` : `VLRBAIXA (${vlrbaixa})`;
-              if(bannerMotivoBloqueio) bannerMotivoBloqueio.textContent = `Aguardando Financeiro limpar ${motivo}`;
+              if(bannerMotivoBloqueio){
+                bannerMotivoBloqueio.textContent = 'BLOQUEADO - Existe negociação com o setor FINANCEIRO!!!';
+              }
+            }
+
+            if(marcaDagua){
+              marcaDagua.style.display = 'block';
             }
             
             // Botões: Ambos ocultos
@@ -4583,15 +4794,12 @@
             let classTotal = 0;
             let outrosTotal = 0;
             
-            // soma dos classificáveis: usar vlrtot direto dos dados (somente leitura)
-            const classRows = Array.from(els.classBody.querySelectorAll('tr'));
-            classRows.forEach(tr => {
-              const nun = Number(tr.getAttribute('data-nun')||'0');
-              const seq = Number(tr.getAttribute('data-seq')||'0');
-              const rowData = classifs.find(r=> Number(r.nunota||0)===nun && Number(r.sequencia||0)===seq);
-              const vlrtot = Number(rowData?.vlrtot || 0);
-              classTotal += vlrtot;
+            // 💰 Soma dos classificáveis: usar o array de dados diretamente
+            // (não usar as linhas HTML porque estão agrupadas por FABRICANTE)
+            classifs.forEach(item => {
+              classTotal += Number(item.vlrtot || 0);
             });
+            console.log('[RECOMPUTE] 💰 Classificáveis somados:', classifs.length, 'itens, total:', classTotal);
             
             // soma dos não classificáveis: calcular dinamicamente
             const trs = Array.from(els.outrosBody.querySelectorAll('tr'));
@@ -4726,7 +4934,7 @@
                     
                     console.log('[MODAL AUTO-SAVE CLASSIFICÁVEL] Salvando:', payload);
                     
-                    const result = await window.__postJSON('/sankhya/comercial/modal/auto-save/', payload);
+                    const result = await AutoSaveQueue.add(payload);
                     
                     if(result.ok){
                       console.log('[MODAL AUTO-SAVE CLASSIFICÁVEL] ✅ Sucesso - NUNOTA_VALE:', result.nunota_vale, 'VLRNOTA_PEDIDO:', result.vlrnota_pedido, 'VLRUNIT:', result.vlrunit, 'VLRTOT:', vlrtot);
@@ -4827,24 +5035,30 @@
                 
                 // Auto-salvar usando novo endpoint (NÃO CLASSIFICÁVEL)
                 if(nunota_val && seq_val){
-                  // Buscar dados do item do cache
-                  const itemData = window.__COM_LIST_ROWS?.find(r => 
-                    Number(r.nunota||0) === nunota_val && 
-                    Number(r.sequencia||0) === seq_val
-                  );
+                  // 🔥 CRÍTICO: Buscar dados da própria TR (data-attributes) ao invés do cache
+                  // Isso funciona mesmo quando o modal mostra itens do VALE que não estão no cache
+                  const codprod = Number(tr.getAttribute('data-codprod') || 0);
+                  const codagregacao = String(tr.getAttribute('data-lote') || '');
+                  const qtdneg_item = Number(tr.getAttribute('data-q') || 0);
                   
-                  if(!itemData){
-                    console.error('[MODAL AUTO-SAVE] Item não encontrado no cache');
+                  // Log de diagnóstico
+                  console.log('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] Dados da TR:', {
+                    nunota: nunota_val,
+                    sequencia: seq_val,
+                    codprod: codprod,
+                    lote: codagregacao,
+                    qtdneg: qtdneg_item,
+                    preco_digitado: val
+                  });
+                  
+                  if(!codprod){
+                    console.error('[MODAL AUTO-SAVE] CODPROD não disponível');
+                    alert('Erro: Código do produto não identificado');
                     return;
                   }
                   
-                  const codprod = Number(itemData.codprod || 0);
-                  const codagregacao = String(itemData.codagregacao || itemData.lote || '');
-                  const qtdneg_item = Number(itemData.qtdneg || 0);
-                  
-                  if(!codprod || !codagregacao){
-                    console.error('[MODAL AUTO-SAVE] CODPROD ou LOTE não disponível');
-                    return;
+                  if(!codagregacao){
+                    console.warn('[MODAL AUTO-SAVE] ⚠️ LOTE vazio, continuando mesmo assim');
                   }
                   
                   if(qtdneg_item === 0){
@@ -4856,10 +5070,34 @@
                   // Calcular VLRTOT a partir do valor digitado (que é tratado como preço unitário)
                   const vlrtot_calculado = val * qtdneg_item;
                   
+                  // 🔥 CRÍTICO: Usar NUNOTA do PEDIDO (não do vale) para atualizar corretamente
+                  // Se o modal está mostrando itens do VALE, data-nun terá o NUNOTA do vale
+                  // Precisamos buscar o NUNOTA do PEDIDO que foi armazenado globalmente
+                  const nunota_pedido_real = window.__CURRENT_PEDIDO_NUNOTA || nunota_val;
+                  
+                  // Buscar sequencia do item no PEDIDO (pode ser diferente da sequencia no vale)
+                  // Para isso, precisamos do mapeamento codprod+lote -> sequencia do pedido
+                  let seq_pedido = seq_val; // default: usar mesma sequencia
+                  
+                  // Tentar encontrar item correspondente no cache do pedido
+                  if(window.__COM_LIST_ROWS){
+                    const itemPedido = window.__COM_LIST_ROWS.find(r => 
+                      Number(r.nunota||0) === Number(nunota_pedido_real||0) && 
+                      Number(r.codprod||0) === codprod &&
+                      String(r.codagregacao||r.lote||'').toUpperCase() === codagregacao.toUpperCase()
+                    );
+                    if(itemPedido){
+                      seq_pedido = Number(itemPedido.sequencia || seq_val);
+                      console.log('[MODAL AUTO-SAVE] Item encontrado no pedido - SEQ_PEDIDO:', seq_pedido);
+                    } else {
+                      console.warn('[MODAL AUTO-SAVE] ⚠️ Item não encontrado no pedido, usando SEQ:', seq_val);
+                    }
+                  }
+                  
                   try{
                     const payload = { 
-                      nunota_pedido: nunota_val, 
-                      sequencia: seq_val, 
+                      nunota_pedido: nunota_pedido_real, 
+                      sequencia: seq_pedido, 
                       codprod: codprod,
                       codagregacao: codagregacao,
                       vlrtot: vlrtot_calculado,
@@ -4868,15 +5106,24 @@
                     
                     console.log('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] Salvando:', payload);
                     
-                    const result = await window.__postJSON('/sankhya/comercial/modal/auto-save/', payload);
+                    const result = await AutoSaveQueue.add(payload);
                     
                     if(result.ok){
                       console.log('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] ✅ Sucesso - NUNOTA_VALE:', result.nunota_vale, 'VLRNOTA_PEDIDO:', result.vlrnota_pedido, 'VLRNOTA_VALE:', result.vlrnota_vale, 'VLRUNIT:', result.vlrunit, 'VLRTOT:', vlrtot_calculado);
                       
-                      // Atualizar cache local
-                      if(itemData){
-                        itemData.vlrunit = result.vlrunit;
-                        itemData.vlrtot = vlrtot_calculado;
+                      // Atualizar cache do PEDIDO (não do vale)
+                      if(window.__COM_LIST_ROWS){
+                        const itemPedido = window.__COM_LIST_ROWS.find(r => 
+                          Number(r.nunota||0) === Number(nunota_pedido_real||0) && 
+                          Number(r.sequencia||0) === seq_pedido
+                        );
+                        if(itemPedido){
+                          itemPedido.vlrunit = result.vlrunit;
+                          itemPedido.vlrtot = vlrtot_calculado;
+                          console.log('[MODAL AUTO-SAVE] Cache do PEDIDO atualizado - NUNOTA:', nunota_pedido_real, 'SEQ:', seq_pedido);
+                        } else {
+                          console.log('[MODAL AUTO-SAVE] Item do pedido não está no cache');
+                        }
                       }
                       
                       // Atualizar Total na UI
@@ -4922,23 +5169,101 @@
           });
 
           // Botão de impressão
-          document.getElementById('valeResumoPrint')?.addEventListener('click', ()=>{
+          // Botão de impressão no rodapé
+          document.getElementById('valeResumoFooterPrint')?.addEventListener('click', ()=>{
             printVale();
           });
+
+          // =========================
+          // AutoSaveQueue (client-side queue para evitar requisições concorrentes)
+          // =========================
+          (function(window){
+            // � Lote de loading do botão FATURAR durante auto-save
+            let pendingSavesCount = 0;
+            
+            function updateFaturarSpinner(){
+              const btn = document.getElementById('valeResumoFaturar');
+              if(!btn) return;
+              
+              if(pendingSavesCount > 0){
+                // Mostrar loading e desabilitar botão
+                btn.disabled = true;
+                btn.style.opacity = '0.6';
+                btn.style.cursor = 'not-allowed';
+                btn.title = `Salvando alterações... (${pendingSavesCount} pendente${pendingSavesCount > 1 ? 's' : ''})`;
+                btn.textContent = '🔄 SALVANDO...';
+              } else {
+                // Restaurar estado normal
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer';
+                btn.title = '';
+                btn.textContent = 'FATURAR';
+              }
+            }
+            
+            const AutoSaveQueue = (function(){
+              const queue = [];
+              let inFlight = false;
+              const RETRIES = 3;
+
+              function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+
+              async function process(){
+                if(inFlight) return;
+                inFlight = true;
+                while(queue.length){
+                  const job = queue.shift();
+                  try{
+                    const res = await window.__postJSON('/sankhya/comercial/modal/auto-save/', job.payload);
+                    job.resolve(res);
+                    pendingSavesCount--;
+                    updateFaturarSpinner();
+                  }catch(err){
+                    job.attempt = (job.attempt||0) + 1;
+                    if(job.attempt <= RETRIES){
+                      const backoff = 150 * Math.pow(2, job.attempt);
+                      await sleep(backoff);
+                      queue.unshift(job);
+                    } else {
+                      job.reject(err);
+                      pendingSavesCount--;
+                      updateFaturarSpinner();
+                    }
+                  }
+                }
+                inFlight = false;
+              }
+
+              return {
+                add(payload){
+                  pendingSavesCount++;
+                  updateFaturarSpinner();
+                  return new Promise((resolve, reject) => {
+                    queue.push({ payload, resolve, reject, attempt: 0 });
+                    // slight debounce to allow quick successive edits to queue
+                    setTimeout(process, 30);
+                  });
+                },
+                getPendingCount(){ return pendingSavesCount; }
+              };
+            })();
+            window.AutoSaveQueue = AutoSaveQueue;
+          })(window);
 
           // Salvar/Faturar emit
           // Build payload with sequences for precise updates (inclui preco_inicial para ambas tabelas)
           const buildValeItems = () => {
             const items = [];
             // Classificáveis: só preco_inicial (usando contenteditable)
-            Array.from(classBody.querySelectorAll('tr')).forEach(tr => {
+            Array.from(els.classBody.querySelectorAll('tr')).forEach(tr => {
               const seq = Number(tr.getAttribute('data-seq')||'0');
               const editableDiv = tr.querySelector('.vcl-preco-inicial');
               const p0 = parsePT(editableDiv?.textContent||'');
               if(seq){ items.push({ sequencia: seq, preco_inicial: isNaN(p0)?null:p0 }); }
             });
             // Não Classificáveis: preco_inicial (opcional) + preco (VLRUNIT) - usando contenteditable
-            Array.from(outrosBody.querySelectorAll('tr')).forEach((tr)=>{
+            Array.from(els.outrosBody.querySelectorAll('tr')).forEach((tr)=>{
               const seq = Number(tr.getAttribute('data-seq')||'0');
               const editableDiv = tr.querySelector('.vop-price');
               const p = parsePT(editableDiv?.textContent||'');
@@ -4987,8 +5312,8 @@
             }
             
             // Separar itens classificáveis e não classificáveis
-            const classifs = rows.filter(r=> r.classificavel !== false);
-            const naoClassifs = rows.filter(r=> r.classificavel === false);
+            const classifs = rows.filter(r=> window.__isClassificavelItem(r));
+            const naoClassifs = rows.filter(r=> window.__isNaoClassificavelItem(r));
             
             console.log(`[GERAR VALE] Total: ${rows.length} itens | Classificáveis: ${classifs.length} | Não classificáveis: ${naoClassifs.length}`);
             
@@ -5224,6 +5549,14 @@
           btnFaturarEl.parentNode.replaceChild(btnFaturarClone, btnFaturarEl);
           
           btnFaturarClone.addEventListener('click', async ()=>{
+            // 🔥 CRÍTICO: Verificar se há saves pendentes antes de faturar
+            const pendingSaves = window.AutoSaveQueue?.getPendingCount() || 0;
+            if(pendingSaves > 0){
+              alert(`⏳ Aguarde!\n\nHá ${pendingSaves} salvamento${pendingSaves > 1 ? 's' : ''} em andamento.\n\nPor favor, aguarde a conclusão antes de faturar.`);
+              console.warn('[FATURAR] ⚠️ Bloqueado - Saves pendentes:', pendingSaves);
+              return;
+            }
+            
             const items = buildValeItems();
             console.log('[FATURAR] Iniciando faturamento...', { nunota, items });
             try{
@@ -5262,6 +5595,12 @@
                     btnFaturarClone.style.display = 'none';
                     btnDesfaturarAtual.style.display = 'inline-block';
                     btnDesfaturarAtual.disabled = false;
+                    // Garantir texto/estilo corretos (caso tenha sido alterado por outro flow)
+                    try{
+                      btnDesfaturarAtual.textContent = '🗑️ DESFATURAR';
+                      btnDesfaturarAtual.style.opacity = '1';
+                      btnDesfaturarAtual.style.cursor = 'pointer';
+                    }catch(_){ }
                   }
                   
                   // 🔒 Bloquear todos os campos (otimizado)
@@ -5295,6 +5634,20 @@
                   }
                   
                   window.showToast('✅ Vale faturado com sucesso!', 'success');
+                  // Atualizar cor/estado na lista imediatamente
+                  try{
+                    const nunStr = String(nunota);
+                    const headers = Array.from(document.querySelectorAll('#listaBody tr.vale-header'));
+                    const found = headers.find(h => (h.querySelector('.vale-head-nun')?.textContent||'').trim() === nunStr);
+                    if(found){
+                      found.classList.remove('vale--aberto');
+                      found.classList.add('vale--faturado');
+                      found.setAttribute('data-status','faturado');
+                    } else {
+                      // Se não encontrou o header correspondente, forçar reload
+                      if(typeof loadLista === 'function') loadLista();
+                    }
+                  }catch(e){ console.error('[FATURAR] Falha ao atualizar cor na lista:', e); }
                 }else{
                   console.log('[FATURAR] Financeiro não criado ou sem NUFIN:', res.body?.financeiro);
                   window.showToast('✅ Vale faturado com sucesso!', 'success');
@@ -5325,7 +5678,17 @@
           const btnDesfaturarClone = btnDesfaturarEl.cloneNode(true);
           btnDesfaturarEl.parentNode.replaceChild(btnDesfaturarClone, btnDesfaturarEl);
           
+          console.log('[MODAL] Registrando handler DESFATURAR (clone)');
+          // Defensive delegated tracer in case listener is not invoked for any reason
+          document.addEventListener('click', (ev)=>{
+            try{
+              const t = ev.target.closest && ev.target.closest('#valeResumoDesfaturar');
+              if(t){ console.log('[MODAL] Click delegated detected on #valeResumoDesfaturar', t); }
+            }catch(_){ }
+          });
+
           btnDesfaturarClone.addEventListener('click', async ()=>{            // Confirmação
+            console.log('[DESFATURAR] handler (clone) invoked');
             const confirma = confirm(
               '⚠️ ATENÇÃO!\n\n' +
               'Isso irá DELETAR o registro financeiro (TGFFIN) e reabrir o vale para edição.\n\n' +
@@ -5336,20 +5699,89 @@
             
             try{
               // Desabilitar botão durante a operação
-              btnDesfaturar.disabled = true;
-              btnDesfaturar.textContent = 'DESFATURANDO...';
-              btnDesfaturar.style.opacity = '0.5';
+              const btnEl = document.getElementById('valeResumoDesfaturar') || btnDesfaturarClone;
+              console.log('[DESFATURAR] iniciando desfaturar - btnEl:', btnEl);
+              if(btnEl){ btnEl.disabled = true; btnEl.textContent = 'DESFATURANDO...'; btnEl.style.opacity = '0.5'; }
               
               // Buscar NUFIN do primeiro item (todos têm o mesmo)
               const primeiroItem = rows.length > 0 ? rows[0] : null;
-              const nufinParaDesfaturar = primeiroItem?.nufin || null;
+              let nufinParaDesfaturar = primeiroItem?.nufin || null;
               
               if(!nufinParaDesfaturar){
-                window.showToast('❌ NUFIN não encontrado', 'error');
-                btnDesfaturar.disabled = false;
-                btnDesfaturar.textContent = '🗑️ DESFATURAR';
-                btnDesfaturar.style.opacity = '1';
-                return;
+                console.warn('[DESFATURAR] NUFIN não encontrado no primeiroItem, tentando buscar no cache e servidor');
+                // tentativa adicional: procurar em cache por qualquer item com nufin
+                let fallbackNufin = null;
+                try{ fallbackNufin = (window.__COM_LIST_ROWS||[]).find(r=> r && r.nunota && (String(r.nunota) === String(window.__CURRENT_VALE_NUNOTA)) && r.nufin)?.nufin || null; }catch(_){ }
+                if(fallbackNufin){
+                  console.log('[DESFATURAR] NUFIN encontrado via fallback cache:', fallbackNufin);
+                  nufinParaDesfaturar = fallbackNufin;
+                } else {
+                  // Fallback: pedir ao servidor os itens do vale para obter NUFIN de forma confiável
+                  try{
+                    console.log('[DESFATURAR] Fazendo fallback ao servidor: GET /sankhya/comercial/api/itens_vale/?nunota=' + window.__CURRENT_VALE_NUNOTA);
+                    const resp = await fetch(`/sankhya/comercial/api/itens_vale/?nunota=${encodeURIComponent(window.__CURRENT_VALE_NUNOTA)}`, { method: 'GET', headers: { 'Accept': 'application/json' }});
+                    if(resp && resp.ok){
+                      const body = await resp.json();
+                      if(body && body.items && body.items.length > 0){
+                        const first = body.items[0];
+                        if(first && first.nufin){
+                          console.log('[DESFATURAR] NUFIN encontrado via servidor:', first.nufin);
+                          nufinParaDesfaturar = first.nufin;
+                        } else {
+                          console.log('[DESFATURAR] Servidor respondeu, mas sem NUFIN nos items:', body);
+                        }
+                      } else {
+                        console.log('[DESFATURAR] Servidor respondeu sem items:', body);
+                      }
+                    } else {
+                      console.warn('[DESFATURAR] Falha ao consultar servidor para NUFIN, status:', resp && resp.status);
+                    }
+                  }catch(err){
+                    console.error('[DESFATURAR] Erro no fetch fallback para NUFIN:', err);
+                  }
+                }
+              }
+              if(!nufinParaDesfaturar){
+                console.warn('[DESFATURAR] Ainda sem NUFIN após cache+server fallback; tentando extrair do DOM (badge)');
+                try{
+                  const badgeNumEl = document.getElementById('valeResumoNufinNum');
+                  const badgeEl = document.getElementById('valeResumoNufinBadge');
+                  if(badgeNumEl && badgeEl && badgeEl.style && badgeEl.style.display !== 'none'){
+                    const txt = (badgeNumEl.textContent || '').trim();
+                    const m = txt.match(/(\d+)/);
+                    if(m){
+                      nufinParaDesfaturar = Number(m[1]);
+                      console.log('[DESFATURAR] NUFIN extraído do badge DOM:', nufinParaDesfaturar);
+                    } else {
+                      console.log('[DESFATURAR] badge presente mas não contém número:', txt);
+                    }
+                  } else {
+                    // Tentar buscar qualquer elemento contendo 'NUFIN' no modal
+                    const modal = document.getElementById('modalFaturamento');
+                    if(modal){
+                      const found = modal.querySelector("*[id*='Nufin']") || modal.querySelector("span:contains('NUFIN')");
+                      // querySelector with :contains is not standard — fallback to scanning text nodes
+                      if(!found){
+                        // scan for nodes that include 'NUFIN' text
+                        const walker = document.createTreeWalker(modal, NodeFilter.SHOW_TEXT, null, false);
+                        let node;
+                        while((node = walker.nextNode())){
+                          if(node.nodeValue && node.nodeValue.toUpperCase().includes('NUFIN')){
+                            const m2 = node.nodeValue.match(/(\d{4,})/);
+                            if(m2){ nufinParaDesfaturar = Number(m2[1]); console.log('[DESFATURAR] NUFIN extraído via text walker:', nufinParaDesfaturar); break; }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }catch(e){ console.error('[DESFATURAR] Falha ao extrair NUFIN do DOM:', e); }
+
+                if(!nufinParaDesfaturar){
+                  window.showToast('❌ NUFIN não encontrado', 'error');
+                  const btnEl2 = document.getElementById('valeResumoDesfaturar') || btnDesfaturarClone;
+                  if(btnEl2){ btnEl2.disabled = false; btnEl2.textContent = '🗑️ DESFATURAR'; btnEl2.style.opacity = '1'; }
+                  return;
+                }
               }
               
               console.log('[DESFATURAR] Enviando NUFIN:', nufinParaDesfaturar);
@@ -5405,26 +5837,66 @@
                 }
                 
                 console.log('[DESFATURAR] Botões reativados - Modo:', modoAtual, 'Pode editar:', podeEditar);
-                
-                // Fechar modal
-                document.getElementById('modalFaturamento').style.display = 'none';
-                // Recarregar lista para atualizar dados
+
+                // Restaurar UI do modal para estado NÃO-FATURADO:
+                try{
+                  // Remover marca d'água
+                  const marcaDagua = document.getElementById('modalMarcaDagua');
+                  if(marcaDagua) marcaDagua.style.display = 'none';
+
+                  // Esconder badge NUFIN e resetar número
+                  const nufinBadge = document.getElementById('valeResumoNufinBadge');
+                  const nufinNum = document.getElementById('valeResumoNufinNum');
+                  if(nufinBadge) nufinBadge.style.display = 'none';
+                  if(nufinNum) nufinNum.textContent = '—';
+
+                  // Mostrar botão FATURAR e esconder DESFATURAR (se existem)
+                  const btnFaturarNow = document.getElementById('valeResumoFaturar');
+                  const btnDesfNow = document.getElementById('valeResumoDesfaturar');
+                  if(btnFaturarNow){ btnFaturarNow.style.display = 'inline-block'; btnFaturarNow.disabled = false; btnFaturarNow.textContent = 'FATURAR'; btnFaturarNow.style.opacity = '1'; btnFaturarNow.style.cursor = 'pointer'; }
+                  if(btnDesfNow){ btnDesfNow.style.display = 'none'; btnDesfNow.disabled = false; btnDesfNow.textContent = '🗑️ DESFATURAR'; btnDesfNow.style.opacity = '1'; }
+
+                  // Reabilitar campos editáveis do modal (remoção do bloqueio aplicado ao faturar)
+                  const editablesOutros = document.querySelectorAll('#valeResumoOutrosBody [contenteditable]');
+                  for(let i = 0; i < editablesOutros.length; i++){
+                    const inp = editablesOutros[i];
+                    try{ inp.setAttribute('contenteditable','true'); inp.style.cssText = ''; }catch(_){ }
+                  }
+
+                  // Ocultar ícone de cadeado se presente
+                  const lockIcon = document.getElementById('lockIconContainer');
+                  if(lockIcon) lockIcon.style.display = 'none';
+                }catch(e){ console.error('[DESFATURAR] Falha ao restaurar UI do modal:', e); }
+
+                // NÃO fechar modal automaticamente após desfaturar — manter aberto para revisão pelo usuário
+                // Atualizar lista (preferimos reload para garantir consistência)
+                try{
+                  const nunStr = String(nunota);
+                  const headers = Array.from(document.querySelectorAll('#listaBody tr.vale-header'));
+                  const found = headers.find(h => (h.querySelector('.vale-head-nun')?.textContent||'').trim() === nunStr);
+                  if(found){
+                    found.classList.remove('vale--faturado');
+                    found.classList.add('vale--aberto');
+                    found.setAttribute('data-status','aberto');
+                  }
+                }catch(e){ console.error('[DESFATURAR] Falha ao ajustar cor local:', e); }
+                // Recarregar lista para garantir estado completo atualizado no UI
                 await window.loadLista?.();
               } else {
                 const erro = res.body?.error || 'Erro ao desfaturar';
                 window.showToast(`❌ ${erro}`, 'error');
                 // Reabilitar botão
-                btnDesfaturar.disabled = false;
-                btnDesfaturar.textContent = '🗑️ DESFATURAR';
-                btnDesfaturar.style.opacity = '1';
+                btnDesfaturarClone.disabled = false;
+                btnDesfaturarClone.textContent = '🗑️ DESFATURAR';
+                btnDesfaturarClone.style.opacity = '1';
               }
             }catch(e){
               console.error('[DESFATURAR] Exceção:', e);
               window.showToast(`❌ Erro ao desfaturar: ${e.message}`, 'error');
               // Reabilitar botão
-              btnDesfaturar.disabled = false;
-              btnDesfaturar.textContent = '🗑️ DESFATURAR';
-              btnDesfaturar.style.opacity = '1';
+              btnDesfaturarClone.disabled = false;
+              btnDesfaturarClone.textContent = '🗑️ DESFATURAR';
+              btnDesfaturarClone.style.opacity = '1';
             }
           });
         }catch(err){
@@ -5454,8 +5926,8 @@
           title.textContent = `Parceiro — ${parceiro}`;
           const fmtMoney = (n)=> isNaN(n) ? 'R$\u00A00,00' : new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n);
           const fmtQty = (n)=> isNaN(n) ? '0' : Number(n||0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
-          const classifs = rows.filter(r=> r.classificavel !== false);
-          const nclass = rows.filter(r=> r.classificavel === false);
+          const classifs = rows.filter(r=> window.__isClassificavelItem(r));
+          const nclass = rows.filter(r=> window.__isNaoClassificavelItem(r));
           // Classificáveis: somente leitura com 2 linhas em Qtde e Vlr Unit
           if(classifs.length){
             classBody.innerHTML = classifs.map(r=>{
@@ -6805,7 +7277,7 @@
       // SISTEMA DE SINCRONIZAÇÃO DE VALORES (Valor Total ↔ Custo ↔ Extra/Médio)
       // ============================================================================
       
-      // Estado global para controle de propagação (evita loops infinitos)
+      // Estado global para lote de propagação (evita loops infinitos)
       window.__DIST_SYNC_STATE = {
         isUpdating: false,           // Flag para bloquear atualizações recursivas
         lastSource: null,            // Último campo que disparou atualização
@@ -7902,9 +8374,9 @@
             Number(r?.sequencia || 0) === Number(sequencia)
           );
           
-          // Tentar campos: codagregacao, controle, lote
+          // Tentar campos: codagregacao, lote, lote
           if (match) {
-            const lote = match.codagregacao || match.controle || match.lote;
+            const lote = match.codagregacao || match.lote || match.lote;
             if (lote) {
               console.log('[LOTE] Encontrado no cache:', lote);
               return lote;
@@ -7933,6 +8405,18 @@
       }
 
       async function handleSave(){
+        // Helper para formatação de moeda
+        const formatMoney = (value) => {
+          const num = Number(value);
+          const safe = Number.isFinite(num) ? num : 0;
+          try{
+            return new Intl.NumberFormat('pt-BR',{ style:'currency', currency:'BRL' }).format(safe);
+          }catch(_){
+            const fixed = (Math.round(safe * 100) / 100).toFixed(2).replace('.', ',');
+            return 'R$ ' + fixed;
+          }
+        };
+        
         // NÃO chamar refresh aqui - pode recalcular valores incorretamente
         // try { if(typeof window.__DIST_refresh === 'function') window.__DIST_refresh(); } catch(_){ }
         const st = getState();
@@ -8016,6 +8500,22 @@
           
           if(res.ok){
             showToast('Salvo no Vale com sucesso', 'success');
+            
+            // Feedback sobre consolidação no PEDIDO
+            if (res.body?.pedido_consolidation) {
+              const consol = res.body.pedido_consolidation;
+              if (consol.success) {
+                const totalConsolidado = consol.total_consolidated || 0;
+                const msg = `✅ PEDIDO atualizado! Total consolidado: ${formatMoney(totalConsolidado)}`;
+                console.log('[VALE SAVE] ' + msg);
+                showToast(msg, 'success');
+              } else {
+                console.warn('[VALE SAVE] Consolidação falhou:', consol.error);
+                if (consol.error) {
+                  showToast(`⚠️ VALE salvo, mas consolidação falhou: ${consol.error}`, 'warning');
+                }
+              }
+            }
             
             // Atualizar badge se NUNOTA do VALE mudou
             if (res.body?.nunota_vale) {
@@ -8852,13 +9352,13 @@
         console.log('[PREÇO INICIAL] Clique no valor', precoCxDisplay.textContent, 'para editar');
       })();
 
-    // Comercial: carregar dados reais do lote (se ?controle= estiver presente) e salvar simulação ao aplicar
+    // Comercial: carregar dados reais do lote (se ?lote= estiver presente) e salvar simulação ao aplicar
     (function(){
       function getQS(name){ try{ return new URL(window.location.href).searchParams.get(name); }catch(_){ return null; } }
-      const controle = getQS('controle');
-      if(controle){
+      const lote = getQS('lote');
+      if(lote){
         // Buscar agregados do lote já existentes no backend (usado também pela página de Classificação)
-        fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' })
+        fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(lote), { credentials: 'same-origin' })
           .then(r=>r.json()).then(j=>{
             if(!j || !j.ok) return;
             // Extrair fornecedor/produto básicos quando disponíveis (fallback mantém placeholders)

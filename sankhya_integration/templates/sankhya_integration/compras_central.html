@@ -512,7 +512,7 @@
         </div>
         <div>
           <label>Lote / CODAGREGACAO (se aplicável)</label>
-          <input type="text" id="item_controle" />
+          <input type="text" id="item_lote" />
         </div>
         <div style="display:flex; gap:8px; justify-content:flex-end;">
           <button class="icon-btn" type="button" id="itemCancel" title="Cancelar">
@@ -743,8 +743,8 @@
         document.getElementById('item_codvol').value = document.getElementById('item_codvol_hidden')?.value || '';
     document.getElementById('item_qtd').value = '';
   try{ const v = document.getElementById('item_vlrunit'); if (v){ v.disabled = false; v.value = ''; } }catch(_){ }
-    // Ensure controle is editable for NEW items
-    try{ const c = document.getElementById('item_controle'); if (c){ c.disabled = false; c.value = ''; } }catch(_){ }
+    // Ensure lote is editable for NEW items
+    try{ const c = document.getElementById('item_lote'); if (c){ c.disabled = false; c.value = ''; } }catch(_){ }
         try{ document.getElementById('itemModal').querySelector('strong').textContent = 'Novo Item'; }catch(_){ }
   window.openItemModal();
       });
@@ -765,7 +765,7 @@
       (function(){
         const prodInput = document.getElementById('item_produto');
         const prodHidden = document.getElementById('item_codprod');
-        const ctrlInput = document.getElementById('item_controle');
+        const ctrlInput = document.getElementById('item_lote');
         function tryFetchLote(){
           const codprod = (prodHidden?.value||'').trim();
           const dtneg = document.getElementById('dtneg')?.value?.trim();
@@ -870,7 +870,7 @@
             vlrunit: parseFloat(document.getElementById('item_vlrunit')?.value||'0'),
             codvol: (document.getElementById('item_codvol_hidden')?.value||'KG').trim()||'KG',
             codlocal: 101,
-            controle: (document.getElementById('item_controle')?.value||'').trim()||null,
+            lote: (document.getElementById('item_lote')?.value||'').trim()||null,
             obs: null,
           };
         }
@@ -1213,7 +1213,7 @@
           const vol = getCellText(row, 5);
           const qtd = getCellText(row, 6);
           const vlu = getCellText(row, 7);
-          const controle = getCellText(row, 1);
+          const lote = getCellText(row, 1);
 
           const modal = document.getElementById('itemModal');
           if (!modal) return;
@@ -1264,9 +1264,9 @@
           const qtdNorm = normalizeNumberString(qtd);
           const vluNorm = normalizeNumberString(vlu);
           try{ const qtdEl = document.getElementById('item_qtd'); if(qtdEl) qtdEl.value = qtdNorm !== '' ? qtdNorm : ''; }catch(_){ }
-          // In EDIT mode: disable editing of unit value and controle
+          // In EDIT mode: disable editing of unit value and lote
           try{ const vluEl = document.getElementById('item_vlrunit'); if(vluEl){ vluEl.disabled = true; vluEl.value = vluNorm !== '' ? vluNorm : ''; } }catch(_){ }
-          try{ const ctrlEl = document.getElementById('item_controle'); if(ctrlEl){ ctrlEl.disabled = true; ctrlEl.value = controle || ''; } }catch(_){ }
+          try{ const ctrlEl = document.getElementById('item_lote'); if(ctrlEl){ ctrlEl.disabled = true; ctrlEl.value = lote || ''; } }catch(_){ }
 
           // update modal title and open
           try{ const strong = modal.querySelector('strong'); if (strong) strong.textContent = 'Editar Item'; } catch(_) {}
@@ -1425,7 +1425,7 @@
         // Fallback: if table row had no quantity, try to fetch origin entry via AJAX
         if (!qn){
           try{
-            const resp = await fetch(`/sankhya/lote/consultar/?controle=${encodeURIComponent(row ? (row.cells[1]?.textContent||'') : '')}`);
+            const resp = await fetch(`/sankhya/lote/consultar/?lote=${encodeURIComponent(row ? (row.cells[1]?.textContent||'') : '')}`);
             if (resp.ok){
               const j = await resp.json();
               // j.entradas contains origin entries; find matching nunota/sequencia

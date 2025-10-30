@@ -2262,7 +2262,7 @@
               // Total de CX classificados: preferir somatÃ³rio de qtd em /lote/consultar (classificacoes)
               let classCx = 0;
               try{
-                const rdet = await fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(lote), { credentials: 'same-origin' });
+                const rdet = await fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(lote), { credentials: 'same-origin' });
                 const jdet = await rdet.json();
                 if(jdet && jdet.ok && Array.isArray(jdet.classificacoes)){
                   classCx = jdet.classificacoes.reduce((s,it)=>{
@@ -3367,7 +3367,7 @@
           }
 
           // REMOVIDO: NÃ£o sobrescrever valores do bucket - usar apenas para leitura
-          // Permite que o sistema de sync mantenha controle dos valores
+          // Permite que o sistema de sync mantenha lote dos valores
           // bucket.custoKg = custoKg > 0 ? custoKg : 0;
           // bucket.custoCx = custoCx > 0 ? custoCx : 0;
           // bucket.custoTotal = custoTotal > 0 ? custoTotal : 0;
@@ -3645,7 +3645,7 @@
       // SISTEMA DE SINCRONIZAÃ‡ÃƒO DE VALORES (Valor Total â†” Custo â†” Extra/MÃ©dio)
       // ============================================================================
       
-      // Estado global para controle de propagaÃ§Ã£o (evita loops infinitos)
+      // Estado global para lote de propagaÃ§Ã£o (evita loops infinitos)
       window.__DIST_SYNC_STATE = {
         isUpdating: false,           // Flag para bloquear atualizaÃ§Ãµes recursivas
         lastSource: null,            // Ãšltimo campo que disparou atualizaÃ§Ã£o
@@ -4993,13 +4993,13 @@
         });
       })();
 
-    // Comercial: carregar dados reais do lote (se ?controle= estiver presente) e salvar simulaÃ§Ã£o ao aplicar
+    // Comercial: carregar dados reais do lote (se ?lote= estiver presente) e salvar simulaÃ§Ã£o ao aplicar
     (function(){
       function getQS(name){ try{ return new URL(window.location.href).searchParams.get(name); }catch(_){ return null; } }
-      const controle = getQS('controle');
-      if(controle){
+      const lote = getQS('lote');
+      if(lote){
         // Buscar agregados do lote jÃ¡ existentes no backend (usado tambÃ©m pela pÃ¡gina de ClassificaÃ§Ã£o)
-        fetch('/sankhya/lote/consultar/?controle=' + encodeURIComponent(controle), { credentials: 'same-origin' })
+        fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(lote), { credentials: 'same-origin' })
           .then(r=>r.json()).then(j=>{
             if(!j || !j.ok) return;
             // Extrair fornecedor/produto bÃ¡sicos quando disponÃ­veis (fallback mantÃ©m placeholders)
@@ -5038,7 +5038,7 @@
               }
             }catch(_){ }
             // Atualizar badge de lote (canto superior direito do card Entrada)
-            try{ const loteEl = document.getElementById('entBadgeLote'); if(loteEl) loteEl.textContent = String(controle); }catch(_){ }
+            try{ const loteEl = document.getElementById('entBadgeLote'); if(loteEl) loteEl.textContent = String(lote); }catch(_){ }
           }).catch(()=>{});
       }
 
@@ -5047,7 +5047,7 @@
         try{
           const det = ev.detail || {};
           const total = (typeof det.totalGeral === 'number') ? det.totalGeral : null;
-          const payload = { name: 'SimulaÃ§Ã£o Comercial', lote: controle || null, total, data: new Date().toISOString(), values: det };
+          const payload = { name: 'SimulaÃ§Ã£o Comercial', lote: lote || null, total, data: new Date().toISOString(), values: det };
           const res = await window.__postJSON('/sankhya/comercial/sim/save/', payload);
           if(res.ok){ alert('SimulaÃ§Ã£o salva' + (res.body?.id? (' (#'+res.body.id+')') : '')); }
           else { alert('Falha ao salvar simulaÃ§Ã£o: ' + (res.body?.error || ('status ' + res.status))); }

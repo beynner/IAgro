@@ -45,7 +45,7 @@ Este arquivo consolida o histórico das conversas e decisões técnicas aplicada
 
 ## Endpoints relevantes
 
-- GET /sankhya/lote/consultar/?controle=... — Detalhes do lote (agregados, classificações, classificáveis, entradas, nunota_class, prod_in_natura).
+- GET /sankhya/lote/consultar/?lote=... — Detalhes do lote (agregados, classificações, classificáveis, entradas, nunota_class, prod_in_natura).
 - GET /sankhya/item/list/?nunota=... — Lista itens da nota (inclui classifica/geraproducao; calcula total = qtd×peso).
 - POST /sankhya/item/plan | /sankhya/item/save | /sankhya/item/delete — Planejamento, gravação e exclusão de item.
 - POST /sankhya/header/plan | /sankhya/packing/central/salvar | /sankhya/header/update — Cabeçalho TOP 26 (plan/insert/update).
@@ -82,7 +82,7 @@ Este arquivo consolida o histórico das conversas e decisões técnicas aplicada
    - Trocar a “Origem” deve atualizar o filtro do autocomplete.
 
 4) Cabeçalho 26:
-   - Executar classificação; se já houver nota 26 do mesmo controle, deve reutilizar; senão criar nova (ver badge de NUNOTA).
+   - Executar classificação; se já houver nota 26 do mesmo lote, deve reutilizar; senão criar nova (ver badge de NUNOTA).
 
 ## Observações e próximos passos
 
@@ -118,7 +118,7 @@ Se precisar, crio também um arquivo em `docs/` com changelog incremental (por d
 
 ## Contratos (inputs/outputs)
 
-- GET `/sankhya/lote/consultar/?controle={string}`
+- GET `/sankhya/lote/consultar/?lote={string}`
   - ok, agregados, classificacoes[], classificaveis[], entradas[], nunota_class, prod_in_natura.
 - GET `/sankhya/produtos/search/?q={string}&limit={int}&cod_innatura={int?}`
   - results: [{ cod, descr }], filtrado por FABRICANTE do In Natura; TOMATE → token (SALADA/ITALIANO).

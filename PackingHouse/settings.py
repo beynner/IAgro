@@ -104,3 +104,9 @@ SANKHYA_CONFIG = {
         'SEPARATE_INTERFACES': True,       # Portal=TOP11, Classificação=TOP26
     }
 }
+
+# apenas em desenvolvimento/DEBUG
+if DEBUG:
+    # desativa os headers COOP/COEP enquanto testa via HTTP na LAN
+    SECURE_CROSS_ORIGIN_OPENER_POLICY = None
+    SECURE_CROSS_ORIGIN_EMBEDDER_POLICY = None
