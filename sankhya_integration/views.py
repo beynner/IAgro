@@ -4574,10 +4574,10 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                     nunotas_pedidos = list(set([r[6] for r in rows if r[6]]))
                     
                     if nunotas_pedidos:
-                        # 🚀 OTIMIZAÇÃO: Uma única query com LEFT JOIN para buscar vale + NUFIN
+                        # 🚀 OTIMIZAÇÃO: Uma única query com LEFT JOIN para buscar vale + NUFIN + VLROUTROS
                         placeholders = ','.join([':n' + str(i) for i in range(len(nunotas_pedidos))])
                         sql = f"""
-                            SELECT c.NUMPEDIDO, c.NUNOTA, f.NUFIN, f.NURENEG, f.VLRBAIXA
+                            SELECT c.NUMPEDIDO, c.NUNOTA, f.NUFIN, f.NURENEG, f.VLRBAIXA, c.VLROUTROS
                             FROM TGFCAB c
                             LEFT JOIN (
                                 SELECT NUNOTA, MIN(NUFIN) as NUFIN, 
@@ -4593,14 +4593,19 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                         for i, nunota in enumerate(nunotas_pedidos):
                             bind_vars[f'n{i}'] = nunota
                         
+                        # Adicionar mapa para VLROUTROS
+                        vale_to_vlroutros = {}
+                        
                         cur.execute(sql, bind_vars)
-                        for numpedido, nunota_vale, nufin_v, nureneg_v, vlrbaixa_v in cur.fetchall():
+                        for numpedido, nunota_vale, nufin_v, nureneg_v, vlrbaixa_v, vlroutros_v in cur.fetchall():
                             if numpedido and nunota_vale:
                                 nunota_to_vale[int(numpedido)] = int(nunota_vale)
                                 if nufin_v:
                                     vale_to_nufin[int(nunota_vale)] = int(nufin_v)
                                     vale_to_nureneg[int(nunota_vale)] = nureneg_v
                                     vale_to_vlrbaixa[int(nunota_vale)] = float(vlrbaixa_v) if vlrbaixa_v else 0.0
+                                if vlroutros_v:
+                                    vale_to_vlroutros[int(nunota_vale)] = float(vlroutros_v)
             except Exception as e:
                 logger.warning(f'Erro ao buscar vales associados: {e}')
                 vale_to_nufin = {}
@@ -4665,10 +4670,11 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
             
             # Buscar vale associado a este pedido
             nunota_13_val = nunota_to_vale.get(int(nunota_val)) if nunota_val else None
-            # Buscar NUFIN, NURENEG e VLRBAIXA se vale já foi faturado
+            # Buscar NUFIN, NURENEG, VLRBAIXA e VLROUTROS se vale já foi faturado
             nufin_val = vale_to_nufin.get(nunota_13_val) if nunota_13_val else None
             nureneg_val = vale_to_nureneg.get(nunota_13_val) if nunota_13_val else None
             vlrbaixa_val = vale_to_vlrbaixa.get(nunota_13_val) if nunota_13_val else None
+            vlroutros_val = vale_to_vlroutros.get(nunota_13_val) if nunota_13_val else None
             
             # 🔒 Calcular se está bloqueado pelo financeiro
             bloqueado_financeiro = bool(
@@ -4692,6 +4698,7 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                 'nufin': nufin_val,  # 🔥 NUFIN do financeiro se já foi faturado
                 'nureneg': nureneg_val,  # 🔥 NURENEG (número da renegociação)
                 'vlrbaixa': vlrbaixa_val,  # 🔥 VLRBAIXA (valor da baixa)
+                'vlroutros': vlroutros_val,  # 💰 VLROUTROS (desconto INSS)
                 'bloqueado_financeiro': bloqueado_financeiro,  # 🔒 Bloqueado se tem NURENEG ou VLRBAIXA
                 'sequencia': int(sequencia_val) if sequencia_val is not None else None,
                 'classificavel': (None if gp_val is None else (str(gp_val).upper() != 'N')),
@@ -4932,4 +4939,66 @@ def comercial_vale_verificar_ou_criar_cabecalho(request: HttpRequest) -> JsonRes
     except Exception as e:
         logger.exception('comercial_vale_verificar_ou_criar_cabecalho failed')
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+
+def comercial_vale_update_vlroutros(request: HttpRequest) -> JsonResponse:
+    """Atualizar VLROUTROS (desconto INSS) no cabeçalho do vale (TGFCAB).
+    
+    POST JSON:
+    {
+        "nunota": int,      # NUNOTA do vale (TOP 13)
+        "vlroutros": float  # Valor do desconto INSS (0 para remover)
+    }
+    
+    Retorna:
+    {
+        "ok": True/False,
+        "vlroutros": float,
+        "error": string (se houver erro)
+    }
+    """
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'Use POST'}, status=405)
+    
+    try:
+        import json
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except Exception as e:
+        return JsonResponse({'ok': False, 'error': f'JSON inválido: {str(e)}'}, status=400)
+    
+    nunota = payload.get('nunota')
+    vlroutros = payload.get('vlroutros', 0)
+    
+    if not nunota:
+        return JsonResponse({'ok': False, 'error': 'nunota obrigatório'}, status=400)
+    
+    try:
+        vlroutros_float = float(vlroutros)
+    except (ValueError, TypeError):
+        return JsonResponse({'ok': False, 'error': 'vlroutros deve ser numérico'}, status=400)
+    
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            
+            # Atualizar VLROUTROS
+            cur.execute("""
+                UPDATE TGFCAB 
+                SET VLROUTROS = :vlroutros 
+                WHERE NUNOTA = :nunota
+            """, vlroutros=vlroutros_float, nunota=nunota)
+            
+            conn.commit()
+            
+            logger.info(f'[VLROUTROS] Atualizado VLROUTROS={vlroutros_float} para NUNOTA={nunota}')
+            
+            return JsonResponse({
+                'ok': True,
+                'vlroutros': vlroutros_float
+            })
+            
+    except Exception as e:
+        logger.exception(f'[VLROUTROS] Erro ao atualizar VLROUTROS para NUNOTA={nunota}')
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
 

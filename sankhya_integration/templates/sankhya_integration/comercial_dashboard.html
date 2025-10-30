@@ -764,6 +764,13 @@
   .partner-icon svg{width:14px;height:14px;display:block}
   #listaTable tbody tr.row--sel{background:#fef3c7}
   
+  /* Animação de shake para feedback de campo bloqueado */
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-4px); }
+    50% { transform: translateX(4px); }
+    75% { transform: translateX(-4px); }
+  }
 
   </style>
 </head>
@@ -1013,9 +1020,28 @@
                 </table>
               </div>
             </div>
-            <div style="display:flex; align-items:center; justify-content:flex-end; gap:10px; padding:10px 12px; border-top:1px solid #e5e7eb; background:#f8fafb;">
-              <div style="font-weight:600; color:#334155; font-size:1rem;">Total do Vale</div>
-              <div id="valeResumoTotal" style="font-weight:800; color:#0a3392; font-size:1.6rem;">R$ 0,00</div>
+            <div style="padding:12px; border-top:1px solid #e5e7eb; background:#f8fafb;">
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                <div style="font-weight:700; color:#334155; font-size:1rem;">Resumo Financeiro</div>
+                <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.85rem; color:#334155; user-select:none;">
+                  <input type="checkbox" id="valeDescontaINSS" style="cursor:pointer; width:16px; height:16px;" />
+                  <span style="font-weight:600;">Desconta INSS</span>
+                </label>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:8px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px 12px;">
+                <div style="display:flex; align-items:center; justify-content:space-between;">
+                  <span style="font-size:0.9rem; color:#64748b; font-weight:500;">Valor Bruto:</span>
+                  <span id="valeResumoTotalBruto" style="font-size:1rem; color:#334155; font-weight:700;">R$ 0,00</span>
+                </div>
+                <div style="display:flex; align-items:center; justify-content:space-between;">
+                  <span style="font-size:0.9rem; color:#64748b; font-weight:500;">INSS 1,5%:</span>
+                  <span id="valeResumoINSS" style="font-size:1rem; color:#dc2626; font-weight:700;">R$ 0,00</span>
+                </div>
+                <div style="display:flex; align-items:center; justify-content:space-between; padding-top:8px; border-top:2px solid #e5e7eb;">
+                  <span style="font-size:1.1rem; color:#0a3392; font-weight:700;">Valor Líquido:</span>
+                  <span id="valeResumoTotal" style="font-size:1.4rem; color:#0a3392; font-weight:800;">R$ 0,00</span>
+                </div>
+              </div>
             </div>
             <div style="padding:0 12px 12px 12px; display:flex; gap:8px; justify-content:flex-end; align-items:center;">
               <button id="valeResumoFooterPrint" class="btn" title="Imprimir Vale" style="border:1px solid #cbd5e1; background:#fff; border-radius:8px; padding:10px 12px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; transition:all .2s;">
@@ -1026,7 +1052,13 @@
                 </svg>
               </button>
               <button id="valeResumoFaturar" class="btn" style="border:1px solid #16a34a; color:#16a34a; background:#fff; border-radius:8px; padding:10px 16px; font-weight:800;">FATURAR</button>
-              <button id="valeResumoDesfaturar" class="btn" style="display:none; border:2px solid #dc2626; color:#dc2626; background:#fff; border-radius:8px; padding:10px 20px; font-weight:800; cursor:pointer; transition:all .2s;">🗑️ DESFATURAR</button>
+              <button id="valeResumoDesfaturar" class="btn" style="display:none; border:2px solid #dc2626; color:#dc2626; background:#fff; border-radius:8px; padding:10px 20px; font-weight:800; cursor:pointer; transition:all .2s; display:inline-flex; align-items:center; gap:6px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 7v6h6"></path>
+                  <path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13"></path>
+                </svg>
+                DESFATURAR
+              </button>
             </div>
           </div>
         </div>
@@ -3556,26 +3588,63 @@
         const title = document.getElementById('valeResumoTitle')?.textContent || '—';
         const pedidoNum = document.getElementById('valeResumoPedidoNum')?.textContent || ''; // TOP 11
         const valeNum = document.getElementById('valeResumoValeNum')?.textContent || ''; // TOP 13
-        const total = document.getElementById('valeResumoTotal')?.textContent || 'R$ 0,00';
         
-        // Buscar data da compra (DTNEG) do pedido atual
-        const nunota = pedidoNum; // O pedido é o TOP 11
-        const rows = (window.__COM_LIST_ROWS||[]).filter(r=> String(r.nunota||'') === String(nunota||''));
-        const dataCompra = rows[0]?.dtneg || null;
+        // 💰 Buscar valores Bruto, INSS e Líquido dos elementos do modal
+        const totalBrutoEl = document.getElementById('valeResumoTotalBruto');
+        const totalInssEl = document.getElementById('valeResumoINSS');
+        const totalLiquidoEl = document.getElementById('valeResumoTotal');
+        
+        const valorBruto = totalBrutoEl?.textContent || 'R$ 0,00';
+        const valorInss = totalInssEl?.textContent || 'R$ 0,00';
+        const valorLiquido = totalLiquidoEl?.textContent || 'R$ 0,00';
+        
+        console.log('[PRINT DEBUG] Valores para impressão - Bruto:', valorBruto, 'INSS:', valorInss, 'Líquido:', valorLiquido);
+        
+        // Buscar data da compra (DTNEG) do vale atual (TOP 13)
+        // Usar a variável global que já armazena o NUNOTA do vale
+        const nunotaVale = window.__CURRENT_VALE_NUNOTA || valeNum;
+        const valeRows = (window.__COM_LIST_ROWS||[]).filter(r=> String(r.nunota||'') === String(nunotaVale||''));
+        const dataCompra = valeRows[0]?.dtneg || null;
+        
+        console.log('[PRINT DEBUG] Buscando DTNEG - VALE:', nunotaVale, 'Rows encontrados:', valeRows.length, 'Row[0]:', valeRows[0], 'DTNEG:', dataCompra);
         
         // Formatar data para exibição (DD/MM/YYYY)
         let dataFormatada = '';
         if(dataCompra){
           try {
-            const d = new Date(dataCompra);
-            const dia = String(d.getDate()).padStart(2, '0');
-            const mes = String(d.getMonth() + 1).padStart(2, '0');
-            const ano = d.getFullYear();
-            dataFormatada = `${dia}/${mes}/${ano}`;
+            // Se já vier formatado como DD/MM ou DD/MM/YYYY, usar direto
+            if(typeof dataCompra === 'string' && dataCompra.includes('/')){
+              const partes = dataCompra.split('/');
+              if(partes.length === 2){
+                // Formato DD/MM - adicionar ano atual
+                const anoAtual = new Date().getFullYear();
+                dataFormatada = `${partes[0]}/${partes[1]}/${anoAtual}`;
+              } else if(partes.length === 3){
+                // Formato DD/MM/YYYY - usar direto
+                dataFormatada = dataCompra;
+              }
+            } else {
+              // Tentar parsear como Date
+              const d = new Date(dataCompra);
+              if(!isNaN(d.getTime())){
+                const dia = String(d.getDate()).padStart(2, '0');
+                const mes = String(d.getMonth() + 1).padStart(2, '0');
+                const ano = d.getFullYear();
+                dataFormatada = `${dia}/${mes}/${ano}`;
+              } else {
+                // Tentar formato ISO string YYYY-MM-DD
+                const partes = String(dataCompra).split('T')[0].split('-');
+                if(partes.length === 3){
+                  dataFormatada = `${partes[2]}/${partes[1]}/${partes[0]}`;
+                }
+              }
+            }
           } catch(e){
-            dataFormatada = String(dataCompra).substring(0, 10);
+            console.error('[PRINT DEBUG] Erro ao formatar data:', e);
           }
         }
+        
+        console.log('[PRINT DEBUG] Data formatada:', dataFormatada);
         
         // GERAR TABELA DE PRODUTOS CONFORME MODELO SELECIONADO
         let itemsHTML = '';
@@ -3891,7 +3960,7 @@
                 <span style="font-size:8pt; white-space:nowrap;">61&nbsp;9&nbsp;8229-1258</span>
                 <span style="font-size:8pt; white-space:nowrap;">61&nbsp;9&nbsp;9644-4860</span>
               </div>
-              <div style="flex:0 0 15%; text-align:right; font-size:6pt; display:flex; flex-direction:column; gap:1mm; margin-top:0.5mm;">
+              <div style="flex:0 0 15%; text-align:left; font-size:6pt; display:flex; flex-direction:column; gap:1mm; margin-top:0.5mm; padding-left:2mm;">
                 <span>Dudu</span>
                 <span>Casé</span>
                 <span>Vandson</span>
@@ -3905,10 +3974,6 @@
               <span style="font-weight:bold;">Vale de Compra:</span>
               <span>${valeNum || 'N/A'}</span>
             </div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:1mm;">
-              <span style="font-weight:bold;">Pedido:</span>
-              <span>${pedidoNum || 'N/A'}</span>
-            </div>
             <div style="display:flex; justify-content:space-between; margin-bottom:0.5mm;">
               <span style="font-weight:bold;">Data da compra:</span>
               <span>${dataFormatada || ''}</span>
@@ -3918,7 +3983,7 @@
           <!-- Parceiro -->
           <div style="padding:2mm 0mm; margin:0; background:white; border-top:1px solid #000; border-bottom:1px solid #000;">
             <div style="font-size:8pt; font-weight:bold; margin-bottom:0.5mm;">Parceiro</div>
-            <div style="font-size:10pt; font-weight:bold; text-transform:uppercase;">${title}</div>
+            <div style="font-size:14pt; font-weight:bold; text-transform:uppercase;">${title}</div>
           </div>
           
           <!-- Resumo da Classificação (Tabela de itens) -->
@@ -3936,15 +4001,15 @@
             <table style="width:100%; border-collapse:collapse; font-size:8pt;">
               <tr>
                 <td style="padding:0.5mm 0; font-weight:bold;">Valor Bruto</td>
-                <td style="padding:0.5mm 0; text-align:right; font-weight:bold;">${total}</td>
+                <td style="padding:0.5mm 0; text-align:right; font-weight:bold;">${valorBruto}</td>
               </tr>
               <tr>
                 <td style="padding:0.5mm 0;">INSS 1.5%</td>
-                <td style="padding:0.5mm 0; text-align:right;">R$ 0,00</td>
+                <td style="padding:0.5mm 0; text-align:right;">${valorInss}</td>
               </tr>
               <tr style="border-top:1px solid #000;">
                 <td style="padding:1mm 0; font-weight:bold; font-size:11pt;">Total Líquido</td>
-                <td style="padding:1mm 0; text-align:right; font-weight:bold; font-size:11pt;">${total}</td>
+                <td style="padding:1mm 0; text-align:right; font-weight:bold; font-size:11pt;">${valorLiquido}</td>
               </tr>
             </table>
           </div>
@@ -4179,6 +4244,50 @@
         }
       });
 
+      // 🔢 Função auxiliar para formatar valores monetários (global)
+      const moneyFormatterGlobal = new Intl.NumberFormat('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 });
+      window.__fmtMoney = function(n){
+        if(isNaN(n)) return '<span class="valor-monetario"><span class="cifrao">R$</span> 0,00</span>';
+        const formatted = moneyFormatterGlobal.format(n);
+        return `<span class="valor-monetario"><span class="cifrao">R$</span> ${formatted}</span>`;
+      };
+
+      // 🔢 Função para aplicar desconto INSS (definida ANTES de openValeResumo)
+      window.__aplicarDescontoINSS = function(){
+        const checkbox = document.getElementById('valeDescontaINSS');
+        const totalEl = document.getElementById('valeResumoTotal');
+        const brutoEl = document.getElementById('valeResumoTotalBruto');
+        const inssEl = document.getElementById('valeResumoINSS');
+        
+        if(!checkbox || !totalEl) return;
+        
+        const totalOriginal = parseFloat(totalEl.getAttribute('data-total-original') || '0');
+        
+        if(checkbox.checked){
+          // Aplicar desconto de 1.5%
+          const desconto = totalOriginal * 0.015;
+          const totalComDesconto = totalOriginal - desconto;
+          
+          console.log('[INSS] Aplicando desconto:', {
+            original: totalOriginal,
+            desconto: desconto,
+            comDesconto: totalComDesconto
+          });
+          
+          // Atualizar os três campos (usar innerHTML para renderizar o HTML formatado)
+          if(brutoEl) brutoEl.innerHTML = window.__fmtMoney(totalOriginal);
+          if(inssEl) inssEl.innerHTML = '- ' + window.__fmtMoney(desconto);
+          totalEl.innerHTML = window.__fmtMoney(totalComDesconto);
+        } else {
+          // Sem desconto - Bruto = Líquido, INSS = 0
+          console.log('[INSS] Sem desconto, Bruto = Líquido');
+          
+          if(brutoEl) brutoEl.innerHTML = window.__fmtMoney(totalOriginal);
+          if(inssEl) inssEl.innerHTML = window.__fmtMoney(0);
+          totalEl.innerHTML = window.__fmtMoney(totalOriginal);
+        }
+      };
+
       // Modal: Resumo do Vale (Classificáveis + Não Classificáveis)
       async function openValeResumo(nunota){
         console.log('[DEBUG] 🚀 openValeResumo chamada com nunota:', nunota);
@@ -4241,6 +4350,18 @@
           // 🔥 CRÍTICO: Armazenar NUNOTA do VALE (TOP 13) para usar no auto-save
           window.__CURRENT_VALE_NUNOTA_TOP13 = nunota13 || null;
           console.log('[MODAL] 🔥 NUNOTAs armazenados - PEDIDO:', window.__CURRENT_PEDIDO_NUNOTA, 'VALE:', window.__CURRENT_VALE_NUNOTA_TOP13);
+          
+          // 🔥 Carregar VLROUTROS (desconto INSS) do vale
+          const vlroutros = pedidoRows[0]?.vlroutros || 0;
+          const checkboxINSS = document.getElementById('valeDescontaINSS');
+          if(checkboxINSS){
+            if(vlroutros > 0){
+              checkboxINSS.checked = true;
+              console.log('[MODAL] ✅ INSS carregado de VLROUTROS:', vlroutros);
+            } else {
+              checkboxINSS.checked = false;
+            }
+          }
           
           // 🔥 Se tem vale, BUSCAR ITENS DO VALE DO BACKEND (não estão em cache)
           let rows = pedidoRows;
@@ -4516,6 +4637,14 @@
             const textoFormatado = fmtMoney(totalGeral);
             console.log('[MODAL] 💰 Atualizando display com:', textoFormatado);
             els.totalEl.innerHTML = textoFormatado;  // Usar innerHTML ao invés de textContent
+            // Armazenar o total original para cálculo do INSS
+            els.totalEl.setAttribute('data-total-original', totalGeral);
+            // Aplicar desconto INSS após garantir que modal está visível
+            setTimeout(() => {
+              if(typeof window.__aplicarDescontoINSS === 'function'){
+                window.__aplicarDescontoINSS();
+              }
+            }, 0);
           } else {
             console.error('[MODAL] ❌ Elemento totalEl não encontrado!');
           }
@@ -4586,6 +4715,13 @@
               btnFaturar.style.borderColor = '#16a34a';
               btnFaturar.textContent = 'FATURAR';
             }
+            // Habilitar checkbox INSS
+            const checkboxINSS = document.getElementById('valeDescontaINSS');
+            if(checkboxINSS){
+              checkboxINSS.disabled = false;
+              checkboxINSS.style.cursor = 'pointer';
+              checkboxINSS.style.opacity = '1';
+            }
             // Campos editáveis (padrão, sem bloqueios)
           }
           // ESTADO 2: Faturado livre (tem NUFIN, mas sem NURENEG/VLRBAIXA)
@@ -4614,12 +4750,21 @@
               btnDesfaturar.disabled = false;
             }
             
+            // 🔒 Desabilitar checkbox INSS quando faturado
+            const checkboxINSS = document.getElementById('valeDescontaINSS');
+            if(checkboxINSS){
+              checkboxINSS.disabled = true;
+              checkboxINSS.style.cursor = 'not-allowed';
+              checkboxINSS.style.opacity = '0.5';
+            }
+            
             // 🔒 Bloquear TODOS os campos (usando cache para melhor performance)
             const editables = els.outrosBody.querySelectorAll('[contenteditable]');
             for(let i = 0; i < editables.length; i++){
               const inp = editables[i];
               inp.setAttribute('contenteditable', 'false');
-              inp.style.cssText = 'opacity:0.6;cursor:not-allowed;background:#f3f4f6';
+              inp.style.cssText = 'opacity:0.6;cursor:not-allowed;background:#f3f4f6;pointer-events:none;user-select:none;';
+              inp.title = 'Não é possível editar vale faturado';
             }
           }
           // ESTADO 3 ou 4: Bloqueado (tem NURENEG ou VLRBAIXA)
@@ -4649,12 +4794,21 @@
             if(btnFaturar) btnFaturar.style.display = 'none';
             if(btnDesfaturar) btnDesfaturar.style.display = 'none';
             
+            // 🔒 Desabilitar checkbox INSS quando bloqueado
+            const checkboxINSS = document.getElementById('valeDescontaINSS');
+            if(checkboxINSS){
+              checkboxINSS.disabled = true;
+              checkboxINSS.style.cursor = 'not-allowed';
+              checkboxINSS.style.opacity = '0.5';
+            }
+            
             // 🔒 Bloquear TODOS os campos (usando cache para melhor performance)
             const editables = els.outrosBody.querySelectorAll('[contenteditable]');
             for(let i = 0; i < editables.length; i++){
               const inp = editables[i];
               inp.setAttribute('contenteditable', 'false');
-              inp.style.cssText = 'opacity:0.6;cursor:not-allowed;background:#f3f4f6';
+              inp.style.cssText = 'opacity:0.6;cursor:not-allowed;background:#f3f4f6;pointer-events:none;user-select:none;';
+              inp.title = 'Vale bloqueado pelo Financeiro';
             }
           }
           
@@ -4817,14 +4971,64 @@
             console.log('[RECOMPUTE] Classificáveis:', fmtMoney(classTotal), 'Outros:', fmtMoney(outrosTotal), 'TOTAL:', fmtMoney(sum));
             els.totalEl.innerHTML = fmtMoney(sum);
             
+            // 🔄 Atualizar o valor bruto original e recalcular INSS
+            els.totalEl.setAttribute('data-total-original', sum);
+            if(typeof window.__aplicarDescontoINSS === 'function') {
+              window.__aplicarDescontoINSS();
+            }
+            
             // NÃO atualizar o card Distribuição quando estamos no modal de faturamento
             // O modal deve apenas calcular seu próprio total, não interferir nos cards externos
           }
           els.outrosBody.addEventListener('input', (ev)=>{ 
-            if(ev.target && (ev.target.classList.contains('vop-price') || ev.target.classList.contains('vop-preco-inicial'))) recompute(); 
+            if(ev.target && (ev.target.classList.contains('vop-price') || ev.target.classList.contains('vop-preco-inicial'))) {
+              // 🔒 BLOQUEAR se vale faturado
+              if(ev.target.getAttribute('contenteditable') === 'false'){
+                ev.preventDefault();
+                ev.stopPropagation();
+                return false;
+              }
+              recompute(); 
+            }
+          });
+          els.outrosBody.addEventListener('beforeinput', (ev)=>{
+            if(ev.target && (ev.target.classList.contains('vop-price') || ev.target.classList.contains('vop-preco-inicial'))){
+              // 🔒 BLOQUEAR edição se vale faturado
+              if(ev.target.getAttribute('contenteditable') === 'false'){
+                console.log('[MODAL] ⛔ Edição bloqueada - vale faturado');
+                ev.preventDefault();
+                return false;
+              }
+            }
+          }, true);
+          els.outrosBody.addEventListener('paste', (ev)=>{
+            if(ev.target && (ev.target.classList.contains('vop-price') || ev.target.classList.contains('vop-preco-inicial'))){
+              // 🔒 BLOQUEAR paste se vale faturado
+              if(ev.target.getAttribute('contenteditable') === 'false'){
+                console.log('[MODAL] ⛔ Paste bloqueado - vale faturado');
+                ev.preventDefault();
+                return false;
+              }
+            }
+          }, true);
+          els.outrosBody.addEventListener('click', (ev)=>{
+            // 🔒 Alertar usuário se tentar clicar em campo bloqueado
+            const target = ev.target;
+            if(target && (target.classList.contains('vop-price') || target.classList.contains('vop-preco-inicial'))){
+              if(target.getAttribute('contenteditable') === 'false'){
+                console.log('[MODAL] ⛔ Clique bloqueado - vale faturado');
+                // Mostrar feedback visual sutil (sem alert irritante)
+                target.style.animation = 'shake 0.3s';
+                setTimeout(() => { target.style.animation = ''; }, 300);
+              }
+            }
           });
           els.outrosBody.addEventListener('blur', (ev)=>{
             if(ev.target && ev.target.classList.contains('vop-price')){
+              // 🔒 BLOQUEAR se vale faturado
+              if(ev.target.getAttribute('contenteditable') === 'false'){
+                return false;
+              }
               // Reformatar ao perder foco
               const editableDiv = ev.target;
               const val = parsePT(editableDiv.textContent||'');
@@ -5020,6 +5224,12 @@
           
           els.outrosBody.addEventListener('blur', async (ev)=>{
             if(ev.target && ev.target.classList.contains('vop-price')){
+              // 🔒 BLOQUEAR se vale faturado
+              if(ev.target.getAttribute('contenteditable') === 'false'){
+                console.log('[MODAL AUTO-SAVE] ⛔ Bloqueado - vale faturado');
+                return false;
+              }
+              
               const editableDiv = ev.target;
               const tr = editableDiv.closest('tr');
               if(!tr) return;
@@ -5172,6 +5382,52 @@
           // Botão de impressão no rodapé
           document.getElementById('valeResumoFooterPrint')?.addEventListener('click', ()=>{
             printVale();
+          });
+
+          // Event listener para o checkbox INSS (função já definida no início)
+          document.getElementById('valeDescontaINSS')?.addEventListener('change', async function(){
+            window.__aplicarDescontoINSS();
+            
+            // 💾 Salvar VLROUTROS no backend
+            const checkbox = this;
+            const nunotaVale = window.__CURRENT_VALE_NUNOTA_TOP13;
+            
+            if(!nunotaVale){
+              console.warn('[INSS SAVE] ⚠️ NUNOTA do vale não encontrado');
+              return;
+            }
+            
+            // Calcular valor do desconto INSS
+            const totalEl = document.getElementById('valeResumoTotal');
+            const totalOriginal = parseFloat(totalEl?.getAttribute('data-total-original') || '0');
+            const vlroutros = checkbox.checked ? (totalOriginal * 0.015) : 0;
+            
+            console.log('[INSS SAVE] 💾 Salvando VLROUTROS:', vlroutros, 'para vale:', nunotaVale);
+            
+            try {
+              const response = await window.__postJSON('/sankhya/comercial/vale/update_vlroutros/', {
+                nunota: nunotaVale,
+                vlroutros: vlroutros
+              });
+              
+              if(response.ok){
+                console.log('[INSS SAVE] ✅ VLROUTROS salvo com sucesso');
+                // Atualizar cache local
+                if(window.__COM_LIST_ROWS){
+                  window.__COM_LIST_ROWS.forEach(row => {
+                    if(String(row.nunota) === String(nunotaVale)){
+                      row.vlroutros = vlroutros;
+                    }
+                  });
+                }
+              } else {
+                console.error('[INSS SAVE] ❌ Erro ao salvar VLROUTROS:', response);
+                window.showToast('Erro ao salvar desconto INSS', 'error');
+              }
+            } catch(e){
+              console.error('[INSS SAVE] ❌ Exceção ao salvar VLROUTROS:', e);
+              window.showToast('Erro ao salvar desconto INSS', 'error');
+            }
           });
 
           // =========================
@@ -5593,22 +5849,35 @@
                   // 🗑️ Trocar botão FATURAR por DESFATURAR
                   if(btnFaturarClone && btnDesfaturarAtual){
                     btnFaturarClone.style.display = 'none';
-                    btnDesfaturarAtual.style.display = 'inline-block';
+                    btnDesfaturarAtual.style.display = 'inline-flex';
                     btnDesfaturarAtual.disabled = false;
-                    // Garantir texto/estilo corretos (caso tenha sido alterado por outro flow)
-                    try{
-                      btnDesfaturarAtual.textContent = '🗑️ DESFATURAR';
-                      btnDesfaturarAtual.style.opacity = '1';
-                      btnDesfaturarAtual.style.cursor = 'pointer';
-                    }catch(_){ }
+                    btnDesfaturarAtual.style.opacity = '1';
+                    btnDesfaturarAtual.style.cursor = 'pointer';
                   }
                   
                   // 🔒 Bloquear todos os campos (otimizado)
-                  const editablesOutros = document.querySelectorAll('#valeResumoOutrosBody [contenteditable]');
+                  console.log('[FATURAR] 🔒 Bloqueando campos editáveis...');
+                  const editablesOutros = document.querySelectorAll('#valeOutrosBody .vop-price');
+                  console.log('[FATURAR] 🔒 Encontrados', editablesOutros.length, 'campos editáveis');
                   for(let i = 0; i < editablesOutros.length; i++){
                     const inp = editablesOutros[i];
                     inp.setAttribute('contenteditable', 'false');
-                    inp.style.cssText = 'opacity:0.6;cursor:not-allowed;background:#f3f4f6';
+                    inp.style.opacity = '0.6';
+                    inp.style.cursor = 'not-allowed';
+                    inp.style.background = '#f3f4f6';
+                    inp.style.pointerEvents = 'none';
+                    inp.style.userSelect = 'none';
+                    inp.title = 'Não é possível editar vale faturado';
+                    console.log('[FATURAR] 🔒 Campo bloqueado:', inp.id || inp.className);
+                  }
+                  console.log('[FATURAR] ✅ Bloqueio concluído');
+                  
+                  // 🔒 Bloquear checkbox INSS
+                  const checkboxINSS = document.getElementById('valeDescontaINSS');
+                  if(checkboxINSS){
+                    checkboxINSS.disabled = true;
+                    checkboxINSS.style.cursor = 'not-allowed';
+                    checkboxINSS.style.opacity = '0.5';
                   }
                   
                   // 🔒 Bloquear botões "Zerar Negociação" e "Salvar" do painel principal
@@ -5856,11 +6125,31 @@
                   if(btnFaturarNow){ btnFaturarNow.style.display = 'inline-block'; btnFaturarNow.disabled = false; btnFaturarNow.textContent = 'FATURAR'; btnFaturarNow.style.opacity = '1'; btnFaturarNow.style.cursor = 'pointer'; }
                   if(btnDesfNow){ btnDesfNow.style.display = 'none'; btnDesfNow.disabled = false; btnDesfNow.textContent = '🗑️ DESFATURAR'; btnDesfNow.style.opacity = '1'; }
 
-                  // Reabilitar campos editáveis do modal (remoção do bloqueio aplicado ao faturar)
-                  const editablesOutros = document.querySelectorAll('#valeResumoOutrosBody [contenteditable]');
+                  // 🔓 Reabilitar campos editáveis do modal (remoção do bloqueio aplicado ao faturar)
+                  console.log('[DESFATURAR] 🔓 Desbloqueando campos editáveis...');
+                  const editablesOutros = document.querySelectorAll('#valeOutrosBody .vop-price');
+                  console.log('[DESFATURAR] 🔓 Encontrados', editablesOutros.length, 'campos editáveis');
                   for(let i = 0; i < editablesOutros.length; i++){
                     const inp = editablesOutros[i];
-                    try{ inp.setAttribute('contenteditable','true'); inp.style.cssText = ''; }catch(_){ }
+                    try{ 
+                      inp.setAttribute('contenteditable','true'); 
+                      inp.style.opacity = '1';
+                      inp.style.cursor = 'text';
+                      inp.style.background = '';
+                      inp.style.pointerEvents = '';
+                      inp.style.userSelect = '';
+                      inp.removeAttribute('title');
+                      console.log('[DESFATURAR] 🔓 Campo desbloqueado:', inp.id || inp.className);
+                    }catch(_){ }
+                  }
+                  console.log('[DESFATURAR] ✅ Desbloqueio concluído');
+
+                  // 🔓 Reabilitar checkbox INSS
+                  const checkboxINSS = document.getElementById('valeDescontaINSS');
+                  if(checkboxINSS){
+                    checkboxINSS.disabled = false;
+                    checkboxINSS.style.cursor = 'pointer';
+                    checkboxINSS.style.opacity = '1';
                   }
 
                   // Ocultar ícone de cadeado se presente
