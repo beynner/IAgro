@@ -500,14 +500,23 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
         db_error = str(e)
     t_list1 = time.perf_counter()
     # Extrair lotes para compatibilidade com código existente
-    lotes = [lote[0] for lote in lotes_class]  # Primeiro campo é o lote
+    # Garantir que extraímos apenas strings válidas
+    lote_ctrls = []
+    for lote_row in lotes_class:
+        if isinstance(lote_row, (list, tuple)) and len(lote_row) > 0:
+            valor = lote_row[0]
+            if valor and str(valor).strip():  # Só adiciona se não for vazio
+                lote_ctrls.append(str(valor).strip())
+        elif lote_row and not isinstance(lote_row, (list, tuple, dict, set)):
+            # Se é um valor simples (string, int, etc), converte para string
+            if str(lote_row).strip():
+                lote_ctrls.append(str(lote_row).strip())
 
     # Construir lista de lotes com resumo LEVE (apenas TOP 11 classificáveis) para performance
-    lotes = []
     exemplo_map = {}
     try:
         t_sum0 = time.perf_counter()
-        sum_map = consultar_lotes_sumario_top11_classificaveis(lotes)
+        sum_map = consultar_lotes_sumario_top11_classificaveis(lote_ctrls)
         t_sum1 = time.perf_counter()
     except Exception:
         sum_map = {}
@@ -515,7 +524,7 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
     # Fill lotes list; ensure partner name is available. If missing from summary, fetch via fallback batch.
     # Identify controls missing partner info
     missing_partner_ctrls = []
-    for ctrl in lotes:
+    for ctrl in lote_ctrls:
         info = sum_map.get(ctrl, {})
         if not info.get('parceiro'):
             missing_partner_ctrls.append(ctrl)
@@ -559,7 +568,7 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
             pass
 
     # If any control has no fabricantes list, backfill manufacturers in a single batch for those controls
-    missing_fab_ctrls = [c for c in lotes if not (sum_map.get(c, {}).get('produtos_entrada') or [])]
+    missing_fab_ctrls = [c for c in lote_ctrls if not (sum_map.get(c, {}).get('produtos_entrada') or [])]
     if missing_fab_ctrls:
         try:
             from sankhya_integration.services.oracle_conn import get_connection, get_params as _get_params
@@ -595,7 +604,15 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
         except Exception:
             pass
 
-    for ctrl in lotes:
+    # 🐛 DEBUG: Verificar cada ctrl no loop
+    lotes_rows = []
+    for idx, ctrl in enumerate(lote_ctrls):
+        if idx < 3:  # Mostrar apenas os primeiros 3
+            print(f"[DEBUG] Loop {idx}: ctrl = {ctrl}, type = {type(ctrl)}")
+        # 🔍 Verificar se ctrl é hashable antes de usar como chave
+        if isinstance(ctrl, (list, dict, set)):
+            print(f"[ERRO] Item {idx} não é hashable: {ctrl}, type = {type(ctrl)}")
+            continue  # Pular este item
         info = sum_map.get(ctrl, {})
         # Produto: concatenar fabricantes (por produto)
         produtos_list = info.get('produtos_entrada') or []
@@ -657,7 +674,7 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
             else:
                 _qcx_disp = _qcx_raw
 
-        lotes.append((
+        lotes_rows.append((
             ctrl,
             info.get('parceiro') or '',
             produto_descr,
@@ -702,7 +719,7 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
         'list_ms': int((t_list1 - t_list0) * 1000),
         'sum_ms': int((t_sum1 - t_sum0) * 1000),
         'total_ms': int((t_end - t0) * 1000),
-        'count_lotes': len(lotes),
+        'count_lotes': len(lotes_rows),
     }
     try:
         logger.info('[classificacao] perf list=%dms sum=%dms total=%dms lotes=%d', timings['list_ms'], timings['sum_ms'], timings['total_ms'], timings['count_lotes'])
@@ -727,7 +744,7 @@ def compras_classificacao(request: HttpRequest) -> HttpResponse:
         parc_display = ''
 
     ctx = {
-        'lotes': lotes,
+        'lotes': lotes_rows,
         'produtos_classificados': produtos_classificados,
         'sel': sel_lote,
         'initial_lote_ctrl': None,  # Removido pré-carga - valores só ao clicar
@@ -3346,8 +3363,6 @@ def comercial_dist_save(request: HttpRequest) -> JsonResponse:
 
     total = _to_float_or(payload.get('valor_total', payload.get('custo_total')))
     custo_kg = _to_float_or(payload.get('custo_kg', payload.get('valor_kg')))
-    if total is None or custo_kg is None:
-        return JsonResponse({'ok': False, 'error': 'Informe valor_total e custo_kg válidos'}, status=400)
 
     # Extract simulation fields: sim_qtd1→extraCx, sim_vlr1→extraCustoTotal, sim_qtd2→medioCx, sim_vlr2→medioCustoTotal
     sim_qtd1 = _to_float_or(payload.get('sim_qtd1'))
@@ -3355,16 +3370,33 @@ def comercial_dist_save(request: HttpRequest) -> JsonResponse:
     sim_qtd2 = _to_float_or(payload.get('sim_qtd2'))
     sim_vlr2 = _to_float_or(payload.get('sim_vlr2'))
 
+    sim_fields_present = any(val is not None for val in (sim_qtd1, sim_vlr1, sim_qtd2, sim_vlr2))
+
+    if total is None and custo_kg is None and not sim_fields_present:
+        return JsonResponse({'ok': False, 'error': 'Informe valor_total/custo_kg ou campos de simulação válidos'}, status=400)
+
+    if (total is None) != (custo_kg is None):
+        return JsonResponse({'ok': False, 'error': 'valor_total e custo_kg devem ser informados juntos'}, status=400)
+
     update_payload = {
         'NUNOTA': nunota,
         'SEQUENCIA': sequencia,
-        'VLRUNIT': custo_kg,
-        'VLRTOT': total,
-        'AD_SIMQTD1': sim_qtd1,
-        'AD_SIMVLR1': sim_vlr1,
-        'AD_SIMQTD2': sim_qtd2,
-        'AD_SIMVLR2': sim_vlr2,
     }
+    if custo_kg is not None:
+        update_payload['VLRUNIT'] = custo_kg
+    if total is not None:
+        update_payload['VLRTOT'] = total
+    if sim_qtd1 is not None:
+        update_payload['AD_SIMQTD1'] = sim_qtd1
+    if sim_vlr1 is not None:
+        update_payload['AD_SIMVLR1'] = sim_vlr1
+    if sim_qtd2 is not None:
+        update_payload['AD_SIMQTD2'] = sim_qtd2
+    if sim_vlr2 is not None:
+        update_payload['AD_SIMVLR2'] = sim_vlr2
+
+    if len(update_payload) <= 2:
+        return JsonResponse({'ok': False, 'error': 'Nenhum campo válido para atualizar'}, status=400)
 
     try:
         plan = update_item(update_payload, dry_run=False)
@@ -3375,14 +3407,32 @@ def comercial_dist_save(request: HttpRequest) -> JsonResponse:
     executed = bool(plan.get('executed'))
     plan_ok = bool(plan.get('ok'))
     plan['plan_ok'] = plan_ok
-    plan['inputs'] = {
-        'valor_total': total,
-        'custo_kg': custo_kg,
-        'custo_extra_total': _to_float_or(payload.get('custo_extra_total')),
-        'custo_medio_total': _to_float_or(payload.get('custo_medio_total')),
-        'custo_extra_kg': _to_float_or(payload.get('custo_extra_kg')),
-        'custo_medio_kg': _to_float_or(payload.get('custo_medio_kg')),
-    }
+    inputs_debug = {}
+    if total is not None:
+        inputs_debug['valor_total'] = total
+    if custo_kg is not None:
+        inputs_debug['custo_kg'] = custo_kg
+    extra_total_debug = _to_float_or(payload.get('custo_extra_total'))
+    medio_total_debug = _to_float_or(payload.get('custo_medio_total'))
+    extra_kg_debug = _to_float_or(payload.get('custo_extra_kg'))
+    medio_kg_debug = _to_float_or(payload.get('custo_medio_kg'))
+    if extra_total_debug is not None:
+        inputs_debug['custo_extra_total'] = extra_total_debug
+    if medio_total_debug is not None:
+        inputs_debug['custo_medio_total'] = medio_total_debug
+    if extra_kg_debug is not None:
+        inputs_debug['custo_extra_kg'] = extra_kg_debug
+    if medio_kg_debug is not None:
+        inputs_debug['custo_medio_kg'] = medio_kg_debug
+    if sim_qtd1 is not None:
+        inputs_debug['sim_qtd1'] = sim_qtd1
+    if sim_vlr1 is not None:
+        inputs_debug['sim_vlr1'] = sim_vlr1
+    if sim_qtd2 is not None:
+        inputs_debug['sim_qtd2'] = sim_qtd2
+    if sim_vlr2 is not None:
+        inputs_debug['sim_vlr2'] = sim_vlr2
+    plan['inputs'] = inputs_debug
     if not executed:
         if 'error' not in plan:
             err_msg = None
@@ -3396,7 +3446,7 @@ def comercial_dist_save(request: HttpRequest) -> JsonResponse:
     plan['write_enabled'] = is_write_enabled()
     
     # Atualizar VLRNOTA se o update foi executado com sucesso
-    if executed:
+    if executed and total is not None:
         vlrnota_result = update_vlrnota_for_nota(nunota)
         plan['vlrnota_update'] = vlrnota_result
     
@@ -3554,6 +3604,12 @@ def comercial_vale_sync(request: HttpRequest) -> JsonResponse:
     
     # 5. Atualizar VLRNOTA do VALE
     vlrnota_result = None
+    if results:
+        for r in results:
+            if r.get('success'):
+                logger.info('[VALE SYNC] Item %s gravado com sucesso: %s', r.get('tipo'), r)
+            else:
+                logger.error('[VALE SYNC] Falha ao gravar item %s: %s', r.get('tipo'), r)
     if any(r.get('success') for r in results):
         try:
             vlrnota_result = update_vlrnota_for_nota(nunota_vale)
@@ -3705,6 +3761,39 @@ def modal_faturamento_auto_save(request: HttpRequest) -> JsonResponse:
     codagregacao = payload.get('codagregacao')  # String (lote)
     vlrtot = _to_float_or(payload.get('vlrtot'))
     is_classificavel = bool(payload.get('is_classificavel', False))
+
+    raw_snapshot = payload.get('items_snapshot') or payload.get('items_precos') or payload.get('items')
+    items_snapshot = []
+    if isinstance(raw_snapshot, list):
+        for entry in raw_snapshot:
+            if not isinstance(entry, dict):
+                continue
+            seq_snap = _to_int_or(entry.get('sequencia'))
+            codprod_snap = _to_int_or(entry.get('codprod'))
+            codagregacao_snap = entry.get('codagregacao')
+            if codagregacao_snap is not None:
+                codagregacao_snap = str(codagregacao_snap).strip().upper()
+            if not seq_snap or not codprod_snap or not codagregacao_snap:
+                continue
+
+            item_compilado = {
+                'nunota_pedido': _to_int_or(entry.get('nunota_pedido')),
+                'nunota_vale': _to_int_or(entry.get('nunota_vale')),
+                'sequencia': seq_snap,
+                'codprod': codprod_snap,
+                'codagregacao': codagregacao_snap,
+                'vlrunit': _to_float_or(entry.get('vlrunit')),
+                'vlrtot': _to_float_or(entry.get('vlrtot')),
+                'qtdneg_base': _to_float_or(entry.get('qtdneg_base')),
+                'peso_unitario': _to_float_or(entry.get('peso_unitario')),
+                'is_classificavel': bool(entry.get('is_classificavel', False)),
+            }
+            items_snapshot.append(item_compilado)
+    else:
+        items_snapshot = []
+
+    if items_snapshot:
+        logger.info('[MODAL AUTO-SAVE API] Snapshot recebido com %s itens', len(items_snapshot))
     
     # Validações
     if not all([nunota_pedido, sequencia, codprod, codagregacao]):
@@ -3729,7 +3818,8 @@ def modal_faturamento_auto_save(request: HttpRequest) -> JsonResponse:
             codprod=codprod,
             codagregacao=codagregacao,
             vlrtot=vlrtot,
-            is_classificavel=is_classificavel
+            is_classificavel=is_classificavel,
+            items_snapshot=items_snapshot
         )
         
         if not result.get('success'):
@@ -3817,14 +3907,15 @@ def comercial_dist_reset(request: HttpRequest) -> JsonResponse:
 def comercial_vale_save(request: HttpRequest) -> JsonResponse:
     """Salvar preços para itens não classificáveis de um Vale e, opcionalmente, faturar.
 
-    POST JSON:
-    {
-      "nunota": int,                  # Vale (TOP 11)
-      "items": [
+        POST JSON:
+        {
+            "nunota": int,                  # Vale (TOP 11)
+            "items": [
         { "sequencia": int, "preco": number },   # atualiza VLRUNIT e VLRTOT = preco * qtd
         ...
       ],
-      "faturar": bool (optional)     # se true, tenta alterar STATUSNOTA para 'L'
+            "faturar": bool (optional),    # se true, tenta alterar STATUSNOTA para 'L'
+            "valor_liquido": number (optional)  # valor líquido exibido no modal (após desconto INSS)
     }
     Retorna { ok, updated, errors?, header? }.
     """
@@ -3839,6 +3930,7 @@ def comercial_vale_save(request: HttpRequest) -> JsonResponse:
     nunota = _to_int_or(payload.get('nunota'))
     items = payload.get('items') or []
     faturar = bool(payload.get('faturar'))
+    valor_liquido = _to_float_or(payload.get('valor_liquido'), None)
     if not nunota:
         return JsonResponse({'ok': False, 'error': 'nunota obrigatório'}, status=400)
     if not isinstance(items, list):
@@ -3934,11 +4026,13 @@ def comercial_vale_save(request: HttpRequest) -> JsonResponse:
 
             # Se não foi possível resolver o VALE, não prosseguir faturamento
             if not nunota_para_faturar:
+                # Não foi possível resolver o VALE; sinaliza sem tentar atualizar o cabeçalho
+                plan_h = {'executed': False}
                 header = {'executed': False, 'status': None}
             else:
                 # 2. Alterar STATUSNOTA para 'L' (Liberado) no VALE
                 plan_h = update_cabecalho({'NUNOTA': nunota_para_faturar, 'STATUSNOTA': 'L'}, dry_run=False)
-            header = {'executed': bool(plan_h.get('executed')), 'status': 'L'}
+                header = {'executed': bool(plan_h.get('executed')), 'status': 'L'}
             
             if nunota_para_faturar and not plan_h.get('executed'):
                 msg = None
@@ -3954,7 +4048,7 @@ def comercial_vale_save(request: HttpRequest) -> JsonResponse:
                 
                 try:
                     if nunota_para_faturar:
-                        nufin_result = criar_tgffin(nunota_para_faturar)
+                        nufin_result = criar_tgffin(nunota_para_faturar, valor_liquido=valor_liquido)
                     
                     if not nufin_result.get('ok'):
                         # Erro ao criar TGFFIN - reportar mas manter TGFCAB
@@ -4638,14 +4732,15 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
             precobase_val = (r[10] if len(r) > 10 else None)
             vlrunit_val = (r[11] if len(r) > 11 else None)
             vlrtot_val = (r[12] if len(r) > 12 else None)
-            ad_simqtd1_val = (r[13] if len(r) > 13 else None)
-            ad_simqtd2_val = (r[14] if len(r) > 14 else None)
-            ad_simvlr1_val = (r[15] if len(r) > 15 else None)
-            ad_simvlr2_val = (r[16] if len(r) > 16 else None)
-            codagregacao_val = (r[17] if len(r) > 17 else None)
-            codtipoper_val = (r[18] if len(r) > 18 else None)
-            numpedido_val = (r[19] if len(r) > 19 else None)
-            fabricante_val = (r[20] if len(r) > 20 else None)
+            vlrnota_cab_val = (r[13] if len(r) > 13 else None)
+            ad_simqtd1_val = (r[14] if len(r) > 14 else None)
+            ad_simqtd2_val = (r[15] if len(r) > 15 else None)
+            ad_simvlr1_val = (r[16] if len(r) > 16 else None)
+            ad_simvlr2_val = (r[17] if len(r) > 17 else None)
+            codagregacao_val = (r[18] if len(r) > 18 else None)
+            codtipoper_val = (r[19] if len(r) > 19 else None)
+            numpedido_val = (r[20] if len(r) > 20 else None)
+            fabricante_val = (r[21] if len(r) > 21 else None)
             try:
                 # compact date for UI: send DD/MM
                 if hasattr(dt, 'strftime'):
@@ -4692,6 +4787,8 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                 'produto': prod or '',
                 'codprod': int(codprod_val) if codprod_val is not None else None,
                 'qtdneg': float(disp_qtd or 0),
+                'qtdneg_base': float(qtd or 0) if qtd not in (None, '') else None,
+                '__raw_qtdneg': float(qtd or 0) if qtd not in (None, '') else None,
                 'dtneg': dt_iso,
                 'nunota': int(nunota_val) if nunota_val is not None else None,
                 'nunota_13': nunota_13_val,  # NUNOTA da TOP 13 (vale) se existir
@@ -4703,7 +4800,9 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                 'sequencia': int(sequencia_val) if sequencia_val is not None else None,
                 'classificavel': (None if gp_val is None else (str(gp_val).upper() != 'N')),
                 'codvol': (str(codvol).upper() if codvol is not None else None),
-                'peso': (float(peso_val) if peso_val is not None else None),
+                '__raw_codvol': str(codvol) if codvol not in (None, '') else None,
+                'peso': (float(peso_val) if peso_val not in (None, '') else None),
+                'peso_unitario_original': (float(peso_val) if peso_val not in (None, '') else None),
                 # Preço Inicial: usar PRECOBASE; se estiver vazio/zero, usar VLRUNIT como fallback para exibir
                 'preco_inicial': (
                     float(precobase_val) if precobase_val not in (None, '') and float(precobase_val or 0) != 0 else (
@@ -4715,6 +4814,7 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                 'vlrtot': (
                     float(vlrtot_val) if vlrtot_val not in (None, '') and float(vlrtot_val or 0) != 0 else 0.0
                 ),
+                'vlrnota_cab': (float(vlrnota_cab_val) if vlrnota_cab_val not in (None, '') else None),
                 # Simulation fields: AD_SIMQTD1→extraCx, AD_SIMVLR1→extraCustoTotal, AD_SIMQTD2→medioCx, AD_SIMVLR2→medioCustoTotal
                 'ad_simqtd1': (float(ad_simqtd1_val) if ad_simqtd1_val not in (None, '') else None),
                 'ad_simqtd2': (float(ad_simqtd2_val) if ad_simqtd2_val not in (None, '') else None),
@@ -4775,6 +4875,11 @@ def comercial_itens_vale(request: HttpRequest) -> JsonResponse:
                     i.VLRUNIT,
                     voa.QUANTIDADE as FATOR_CONVERSAO,
                     i.VLRTOT,
+                    c.VLRNOTA,
+                    i.AD_SIMQTD1,
+                    i.AD_SIMQTD2,
+                    i.AD_SIMVLR1,
+                    i.AD_SIMVLR2,
                     i.CODAGREGACAO,
                     c.CODTIPOPER,
                     c.NUMPEDIDO,
@@ -4830,6 +4935,7 @@ def comercial_itens_vale(request: HttpRequest) -> JsonResponse:
             for row in rows:
                 (codparc, nomeparc, descrprod, codprod, qtdneg, sequencia, nunota,
                  codvol, gp_val, peso_val, vlrunit_val, fator_conversao, vlrtot_val,
+                 vlrnota_cab_val, ad_simqtd1_val, ad_simqtd2_val, ad_simvlr1_val, ad_simvlr2_val,
                  codagregacao_val, codtipoper_val, numpedido_val, fabricante_val) = row
                 
                 # 🔥 IMPORTANTE: Manter fator_conversao como None se não existir (para frontend usar fator do pedido)
@@ -4865,11 +4971,12 @@ def comercial_itens_vale(request: HttpRequest) -> JsonResponse:
                     'vlrunit': (float(vlrunit_val) if vlrunit_val not in (None, '') else None),
                     'fator_conversao': fator_conversao,
                     'vlrtot': (float(vlrtot_val) if vlrtot_val not in (None, '') and float(vlrtot_val or 0) != 0 else 0.0),
+                    'vlrnota_cab': (float(vlrnota_cab_val) if vlrnota_cab_val not in (None, '') else None),
                     'fabricante': fabricante,
-                    'ad_simqtd1': None,
-                    'ad_simqtd2': None,
-                    'ad_simvlr1': None,
-                    'ad_simvlr2': None,
+                    'ad_simqtd1': (float(ad_simqtd1_val) if ad_simqtd1_val not in (None, '') else None),
+                    'ad_simqtd2': (float(ad_simqtd2_val) if ad_simqtd2_val not in (None, '') else None),
+                    'ad_simvlr1': (float(ad_simvlr1_val) if ad_simvlr1_val not in (None, '') else None),
+                    'ad_simvlr2': (float(ad_simvlr2_val) if ad_simvlr2_val not in (None, '') else None),
                     'codagregacao': (str(codagregacao_val) if codagregacao_val not in (None, '') else None),
                     'codtipoper': (int(codtipoper_val) if codtipoper_val is not None else None),
                     'numpedido': (int(numpedido_val) if numpedido_val is not None else None),

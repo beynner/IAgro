@@ -280,6 +280,17 @@
       
       <div class="filters-actions" style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:8px; padding:0 14px; margin-top:8px;">
         <button type="button" id="btnClear" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:5px 10px; font-size:.8rem; font-weight:600; cursor:pointer; line-height:1; color:#475569;">Limpar</button>
+        <button type="button" id="btnReloadFilters" title="Reaplicar filtros" aria-label="Reaplicar filtros" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:5px 10px; font-size:.8rem; font-weight:600; cursor:pointer; line-height:1; color:#475569; display:inline-flex; align-items:center; gap:6px;">
+          <span style="display:inline-flex; align-items:center; justify-content:center;">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <polyline points="1 20 1 14 7 14"></polyline>
+              <path d="M3.51 9a9 9 0 0 1 14.13-3.36L23 10"></path>
+              <path d="M20.49 15a9 9 0 0 1-14.13 3.36L1 14"></path>
+            </svg>
+          </span>
+          <span>Atualizar</span>
+        </button>
         <button type="submit" form="filtersForm" style="appearance:none; -webkit-appearance:none; border:1px solid #cbd5e1; background:#fff; border-radius:6px; padding:5px 10px; font-size:.8rem; font-weight:600; cursor:pointer; line-height:1; color:#475569;">Aplicar</button>
       </div>
       
@@ -340,6 +351,7 @@
               if(!form) return;
               const endInput = form.querySelector('input[name="end"]');
               const submitBtn = document.querySelector('button[type="submit"][form="filtersForm"]');
+              const reloadBtn = document.getElementById('btnReloadFilters');
 
               const applyFilters = ()=>{
                 try{
@@ -352,6 +364,15 @@
 
               // debounce helper
               const debounce = (fn, ms=300) => { let t; return (...args)=>{ clearTimeout(t); t = setTimeout(()=>fn(...args), ms); }; };
+
+              if(reloadBtn){
+                reloadBtn.addEventListener('click', (ev)=>{
+                  ev.preventDefault();
+                  try{
+                    applyFilters();
+                  }catch(err){ console.error('[CLASSIF] reload apply error', err); }
+                });
+              }
 
               if(endInput){
                 // when user finishes typing a full ISO date (YYYY-MM-DD) apply

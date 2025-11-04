@@ -2077,15 +2077,15 @@ def insert_item_fast(d: dict, dry_run: bool = False) -> dict:
     
     Retorna: dict com {'ok': bool, 'nunota': int, 'sequencia': int, 'executed': bool}
     """
-    print(f"🔍🔍🔍 INSERT_ITEM_FAST RECEBEU: {d}")
-    
-    out = {'ok': False, 'executed': False, 'nunota': None, 'sequencia': None}
+    out = {'ok': False, 'executed': False, 'nunota': None, 'sequencia': None, 'warnings': []}
     
     if dry_run or not is_write_enabled():
         out['error'] = 'Modo dry_run ou escrita desabilitada'
         return out
     
     # Validações mínimas
+    warnings: list[str] = []
+
     try:
         nunota = int(d.get('NUNOTA'))
         codprod = int(d.get('CODPROD'))
@@ -2102,7 +2102,41 @@ def insert_item_fast(d: dict, dry_run: bool = False) -> dict:
     try:
         with get_connection() as conn:
             cur = conn.cursor()
-            
+            table_cols = _get_table_columns(conn, 'TGFITE')
+
+            col_len_map: Dict[str, int] = {}
+            cur_meta = None
+            try:
+                cur_meta = conn.cursor()
+                cur_meta.execute(
+                    "SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH FROM USER_TAB_COLS WHERE TABLE_NAME = :t",
+                    t='TGFITE'
+                )
+                for name, dtype, length in cur_meta:
+                    try:
+                        if dtype and str(dtype).upper() in {'CHAR', 'NCHAR', 'VARCHAR2', 'NVARCHAR2'}:
+                            col_len_map[str(name).upper()] = int(length or 0)
+                    except Exception:
+                        continue
+            except Exception:
+                col_len_map = {}
+            finally:
+                try:
+                    if cur_meta is not None:
+                        cur_meta.close()
+                except Exception:
+                    pass
+
+            def clamp_text(col: str, value) -> Optional[str]:
+                if value is None:
+                    return None
+                text = str(value)
+                limit = col_len_map.get(col.upper())
+                if limit and limit > 0 and len(text) > limit:
+                    warnings.append(f"{col.upper()} truncado de {len(text)} para {limit} caracteres")
+                    return text[:limit]
+                return text
+
             # Buscar apenas CODEMP e CODTIPOPER (dados essenciais)
             cur.execute("SELECT CODEMP, CODTIPOPER FROM TGFCAB WHERE NUNOTA=:n", n=nunota)
             cab_row = cur.fetchone()
@@ -2121,15 +2155,26 @@ def insert_item_fast(d: dict, dry_run: bool = False) -> dict:
             peso = d.get('PESO') or 0
             # CODVOL: usar unidade alternativa do payload (ex: CX)
             codvol = d.get('CODVOL') or 'UN'
+            codvol = clamp_text('CODVOL', str(codvol).strip().upper())
             codlocalorig = int(d.get('CODLOCALORIG') or d.get('CODLOCAL') or 101)
-            codagregacao = d.get('CODAGREGACAO')
+            codagregacao = d.get('CODAGREGACAO') or d.get('LOTE')
+            if codagregacao is not None:
+                codagregacao = str(codagregacao).strip()
+                if codagregacao == '':
+                    codagregacao = None
+            controle_val = d.get('CONTROLE') or d.get('CODCONTROLE')
+            if controle_val is not None:
+                controle_val = str(controle_val).strip()
+                if controle_val == '':
+                    controle_val = None
+            if not codagregacao and controle_val:
+                codagregacao = controle_val
             observacao = d.get('OBSERVACAO') or d.get('OBS')
             geraproducao = d.get('GERAPRODUCAO') or d.get('geraproducao')
             
             # QTDNEG já vem em KG do frontend (Total kg)
             # CODVOL mantém unidade alternativa original (ex: CX)
             # Não faz conversão de unidade - salva diretamente o valor recebido
-            print(f'🔍 INSERT: QTDNEG={qtdneg} kg, CODVOL={codvol}')
             
             # Gerar lote se não fornecido (exceto TOP classificação)
             top_class = None
@@ -2164,42 +2209,81 @@ def insert_item_fast(d: dict, dry_run: bool = False) -> dict:
             else:
                 geraproducao = None
             
-            # Construir INSERT
-            cols = ['NUNOTA', 'SEQUENCIA', 'CODEMP', 'CODPROD', 'QTDNEG', 'PESO', 
-                   'VLRUNIT', 'VLRTOT', 'CODVOL', 'CODLOCALORIG', 'DTALTER']
-            vals = [':NUNOTA', ':SEQUENCIA', ':CODEMP', ':CODPROD', ':QTDNEG', ':PESO',
-                   ':VLRUNIT', ':VLRTOT', ':CODVOL', ':CODLOCALORIG', 'SYSDATE']
-            
+            # Construir INSERT com colunas apenas quando disponíveis na tabela alvo
+            cols_sql = ['NUNOTA', 'SEQUENCIA', 'CODEMP', 'CODPROD', 'QTDNEG', 'VLRUNIT', 'VLRTOT']
+            vals_sql = [':NUNOTA', ':SEQUENCIA', ':CODEMP', ':CODPROD', ':QTDNEG', ':VLRUNIT', ':VLRTOT']
+
             binds = {
                 'NUNOTA': nunota,
                 'SEQUENCIA': sequencia,
                 'CODEMP': codemp,
                 'CODPROD': codprod,
                 'QTDNEG': qtdneg,
-                'PESO': peso,
                 'VLRUNIT': vlrunit,
                 'VLRTOT': vlrtot,
-                'CODVOL': codvol,
-                'CODLOCALORIG': codlocalorig,
             }
+
+            if 'PESO' in table_cols:
+                cols_sql.append('PESO')
+                vals_sql.append(':PESO')
+                binds['PESO'] = peso
+            if 'CODVOL' in table_cols:
+                cols_sql.append('CODVOL')
+                vals_sql.append(':CODVOL')
+                binds['CODVOL'] = codvol
+
+            # Compat: alguns bancos usam CODLOCAL ou CODLOCALORIG
+            if 'CODLOCALORIG' in table_cols:
+                cols_sql.append('CODLOCALORIG')
+                vals_sql.append(':CODLOCALORIG')
+                binds['CODLOCALORIG'] = codlocalorig
+            elif 'CODLOCAL' in table_cols:
+                cols_sql.append('CODLOCAL')
+                vals_sql.append(':CODLOCAL')
+                binds['CODLOCAL'] = codlocalorig
+            if 'CODLOCALDEST' in table_cols:
+                cols_sql.append('CODLOCALDEST')
+                vals_sql.append(':CODLOCALDEST')
+                binds['CODLOCALDEST'] = codlocalorig
+
+            if 'DTALTER' in table_cols:
+                cols_sql.append('DTALTER')
+                vals_sql.append('SYSDATE')
             
             # Adicionar campos opcionais
             if codagregacao:
-                cols.append('CODAGREGACAO')
-                vals.append(':CODAGREGACAO')
-                binds['CODAGREGACAO'] = codagregacao
+                lote_val = str(codagregacao)
+                for col_name in ('CODAGREGACAO', 'LOTE'):
+                    if col_name in table_cols and col_name not in binds:
+                        val = clamp_text(col_name, lote_val)
+                        if val is None:
+                            continue
+                        cols_sql.append(col_name)
+                        vals_sql.append(f':{col_name}')
+                        binds[col_name] = val
+
+            if controle_val:
+                ctrl_text = clamp_text('CONTROLE', controle_val)
+                if ctrl_text is not None:
+                    for col_name in ('CONTROLE', 'CODCONTROLE'):
+                        if col_name in table_cols and col_name not in binds:
+                            cols_sql.append(col_name)
+                            vals_sql.append(f':{col_name}')
+                            binds[col_name] = ctrl_text
             
             if observacao:
-                cols.append('OBSERVACAO')
-                vals.append(':OBSERVACAO')
-                binds['OBSERVACAO'] = observacao
+                obs_val = clamp_text('OBSERVACAO', observacao)
+                if obs_val:
+                    cols_sql.append('OBSERVACAO')
+                    vals_sql.append(':OBSERVACAO')
+                    binds['OBSERVACAO'] = obs_val
             
             if geraproducao:
-                cols.append('GERAPRODUCAO')
-                vals.append(':GERAPRODUCAO')
+                cols_sql.append('GERAPRODUCAO')
+                vals_sql.append(':GERAPRODUCAO')
                 binds['GERAPRODUCAO'] = geraproducao
             
-            sql = f"INSERT INTO TGFITE ({', '.join(cols)}) VALUES ({', '.join(vals)})"
+            sql = f"INSERT INTO TGFITE ({', '.join(cols_sql)}) VALUES ({', '.join(vals_sql)})"
             
             cur.execute(sql, binds)
             conn.commit()
@@ -2210,12 +2294,39 @@ def insert_item_fast(d: dict, dry_run: bool = False) -> dict:
             out['sequencia'] = sequencia
             out['sql'] = sql
             out['binds'] = binds
+            if warnings:
+                out['warnings'] = warnings
             
             return out
             
     except Exception as e:
         out['error'] = str(e)
         out['db_error'] = {'message': str(e)}
+        try:
+            import logging
+            logger = logging.getLogger(__name__)
+            binds_debug = locals().get('binds')
+            debug_payload = {
+                'payload': d,
+                'binds': binds_debug,
+                'warnings': warnings,
+            }
+            if isinstance(binds_debug, dict):
+                debug_payload['bind_lengths'] = {
+                    key: len(val) if isinstance(val, str) else None for key, val in binds_debug.items()
+                }
+            try:
+                col_len_map  # type: ignore[name-defined]
+            except NameError:
+                pass
+            else:
+                debug_payload['col_limits'] = col_len_map  # type: ignore[assignment]
+            try:
+                logger.warning('insert_item_fast failed: %s | debug=%s', e, debug_payload)
+            except Exception:
+                pass
+        except Exception:
+            pass
         try:
             if hasattr(e, 'args') and e.args:
                 err = e.args[0]
@@ -3884,7 +3995,7 @@ def listar_itens_portal_basico(
     offset: int = 0,
 ):
     """Lista itens de TOP 11 (Portal) com colunas básicas para o painel Comercial.
-    Retorna tuplas: (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2, CODAGREGACAO, CODTIPOPER, NUMPEDIDO, FABRICANTE)
+    Retorna tuplas: (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, VLRNOTA_CAB, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2, CODAGREGACAO, CODTIPOPER, NUMPEDIDO, FABRICANTE)
     Suporta filtros por data, parceiro, produto e flag de classificável, com paginação segura via ROW_NUMBER.
     """
     from datetime import datetime, date as _date
@@ -3941,26 +4052,26 @@ def listar_itens_portal_basico(
 
     inner = (
         "SELECT /*+ INDEX(c TGFCAB_PK) */ p.NOMEPARC, NVL(pr.FABRICANTE, pr.DESCRPROD) AS PRODNAME, i.QTDNEG, c.DTNEG, i.CODVOL, i.CODPROD, c.NUNOTA, i.SEQUENCIA, NVL(i.GERAPRODUCAO, 'S') AS GP, i.PESO AS PESO, i.PRECOBASE AS PRECOBASE, i.VLRUNIT AS VLRUNIT, "
-        # 🚀 OTIMIZAÇÃO: Buscar VLRTOT do VALE (TOP 13) via LEFT JOIN agregado, senão usar VLRTOT do PEDIDO
-        "  COALESCE(vale_vlr.VLRTOT_VALE, i.VLRTOT, 0) AS VLRTOT, "
-        "i.AD_SIMQTD1, i.AD_SIMQTD2, i.AD_SIMVLR1, i.AD_SIMVLR2, i.CODAGREGACAO, c.CODTIPOPER, c.NUMPEDIDO, pr.FABRICANTE "
+        "  COALESCE("
+        "    (SELECT SUM(vale_i.VLRTOT)"
+        "       FROM TGFITE vale_i"
+        "      WHERE vale_c.NUNOTA IS NOT NULL"
+        "        AND vale_i.NUNOTA = vale_c.NUNOTA"
+        "        AND vale_i.CODPROD = i.CODPROD"
+        "        AND NVL(vale_i.CODAGREGACAO, '__SEM_LOTE__') = NVL(i.CODAGREGACAO, '__SEM_LOTE__')"
+        "    ), i.VLRTOT, 0) AS VLRTOT, "
+        "  NVL(vale_c.VLRNOTA, c.VLRNOTA) AS VLRNOTA_CAB, "
+        "  i.AD_SIMQTD1, i.AD_SIMQTD2, i.AD_SIMVLR1, i.AD_SIMVLR2, i.CODAGREGACAO, c.CODTIPOPER, c.NUMPEDIDO, pr.FABRICANTE "
         "  FROM TGFCAB c "
         "  JOIN TGFITE i ON c.NUNOTA = i.NUNOTA "
         "  LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC "
         "  LEFT JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD "
-        # LEFT JOIN para buscar VLRTOT do vale (TOP 13) se existir
-        "  LEFT JOIN ("
-        "    SELECT vale_c.NUMPEDIDO, SUM(vale_i.VLRTOT) AS VLRTOT_VALE "
-        "    FROM TGFCAB vale_c "
-        "    JOIN TGFITE vale_i ON vale_i.NUNOTA = vale_c.NUNOTA "
-        "    WHERE vale_c.CODTIPOPER = 13 "
-        "    GROUP BY vale_c.NUMPEDIDO"
-        "  ) vale_vlr ON vale_vlr.NUMPEDIDO = c.NUNOTA "
+        "  LEFT JOIN TGFCAB vale_c ON vale_c.CODTIPOPER = 13 AND vale_c.NUMPEDIDO = c.NUNOTA "
         f" WHERE {' AND '.join(where)} "
         "  ORDER BY c.DTNEG DESC, c.NUNOTA DESC, i.SEQUENCIA ASC"
     )
     sql = (
-        "SELECT NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2, CODAGREGACAO, CODTIPOPER, NUMPEDIDO, FABRICANTE FROM ("
+        "SELECT NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, VLRNOTA_CAB, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2, CODAGREGACAO, CODTIPOPER, NUMPEDIDO, FABRICANTE FROM ("
         "  SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.DTNEG DESC, t.NUNOTA DESC, t.SEQUENCIA ASC) rn FROM (" + inner + ") t"
         ") WHERE rn BETWEEN :start_row AND :end_row"
     )
@@ -4065,18 +4176,27 @@ def upsert_vale_item(nunota_vale: int, codprod: int, qtdneg: float,
     import logging
     logger = logging.getLogger(__name__)
     
-    # 1. Verificar se item já existe (mesmo CODPROD + LOTE)
-    # Verifica tanto LOTE quanto CODAGREGACAO para garantir
-    sql_check = """
-        SELECT SEQUENCIA, QTDNEG, VLRUNIT, VLRTOT
-        FROM TGFITE
-        WHERE NUNOTA = :nunota 
-          AND CODPROD = :codprod
-          AND (LOTE = :lote OR CODAGREGACAO = :lote)
-    """
-    
     with get_connection() as conn:
         cur = conn.cursor()
+        cols = _get_table_columns(conn, 'TGFITE')
+        lote_candidates = ('LOTE', 'CODAGREGACAO', 'CONTROLE', 'CODCONTROLE')
+        lote_cols = [c for c in lote_candidates if c in cols]
+        if not lote_cols:
+            logger.error(f"[VALE] Nenhuma coluna de lote encontrada em TGFITE: candidatos {lote_candidates}")
+            return {
+                'action': None,
+                'success': False,
+                'error': 'TGFITE não possui coluna de lote compatível (LOTE/CODAGREGACAO/CONTROLE/CODCONTROLE)'
+            }
+        lote_filters = ' OR '.join(f"{col} = :lote" for col in lote_cols)
+        sql_check = f"""
+            SELECT SEQUENCIA, QTDNEG, VLRUNIT, VLRTOT
+              FROM TGFITE
+             WHERE NUNOTA = :nunota
+               AND CODPROD = :codprod
+               AND ({lote_filters})
+        """
+
         cur.execute(sql_check, nunota=int(nunota_vale), codprod=int(codprod), lote=str(lote))
         rows = cur.fetchall()
         existing = rows[0] if rows else None
@@ -4119,8 +4239,8 @@ def upsert_vale_item(nunota_vale: int, codprod: int, qtdneg: float,
             # INSERT novo item (MAX(SEQUENCIA)+1)
             sql_max_seq = """
                 SELECT COALESCE(MAX(SEQUENCIA), 0) + 1
-                FROM TGFITE
-                WHERE NUNOTA = :nunota
+                  FROM TGFITE
+                 WHERE NUNOTA = :nunota
             """
             cur.execute(sql_max_seq, nunota=int(nunota_vale))
             nova_sequencia = int(cur.fetchone()[0])
@@ -4155,23 +4275,48 @@ def upsert_vale_item(nunota_vale: int, codprod: int, qtdneg: float,
                 'QTDNEG': float(qtdneg),
                 'VLRUNIT': float(vlrunit),
                 'CODVOL': 'KG',  # Sempre KG
-                'CODAGREGACAO': str(lote),  # LOTE obrigatório
+                'CODAGREGACAO': str(lote),  # Mantém compatibilidade com ambientes que utilizam CODAGREGACAO
                 'LOTE': str(lote),
+                'CONTROLE': str(lote),
+                'CODCONTROLE': str(lote),
             }
             
             result = insert_item_fast(insert_payload, dry_run=False)
-            
-            logger.info(f'[VALE] INSERT {produto_tipo} - NUNOTA={nunota_vale} SEQ={nova_sequencia} CODPROD={codprod}')
+            success = bool(result.get('executed'))
+            details: dict[str, Any] = {'fast': result}
+
+            if not success:
+                logger.warning('[VALE] INSERT fast falhou para NUNOTA=%s CODPROD=%s lote=%s; tentando fallback padrão', nunota_vale, codprod, lote)
+                fallback_payload = {
+                    'NUNOTA': int(nunota_vale),
+                    'CODPROD': int(codprod),
+                    'QTDNEG': float(qtdneg),
+                    'VLRUNIT': float(vlrunit),
+                    'CODVOL': 'KG',
+                    'CODAGREGACAO': str(lote),
+                    'OBSERVACAO': insert_payload.get('OBSERVACAO') or f'{produto_tipo} gerado via portal',
+                    'GERAPRODUCAO': insert_payload.get('GERAPRODUCAO'),
+                }
+                try:
+                    fallback = insert_item(fallback_payload, dry_run=False)
+                except Exception as fallback_exc:  # pragma: no cover - defensive
+                    fallback = {'ok': False, 'executed': False, 'error': str(fallback_exc)}
+                details['fallback'] = fallback
+                success = bool(fallback.get('executed'))
+                if success:
+                    result = fallback  # expose fields úteis (nunota/seq)
+
+            logger.info('[VALE] INSERT %s - NUNOTA=%s CODPROD=%s sucesso=%s', produto_tipo, nunota_vale, codprod, success)
             
             return {
                 'action': 'INSERT',
-                'sequencia': nova_sequencia,
+                'sequencia': result.get('sequencia') or nova_sequencia,
                 'codprod': codprod,
                 'qtdneg': qtdneg,
                 'vlrunit': vlrunit,
                 'vlrtot': vlrtot,
-                'success': result.get('executed', False),
-                'result': result
+                'success': success,
+                'result': details
             }
 
 
@@ -4327,7 +4472,7 @@ def delete_vale_items(nunota_vale: int, codprod_in_natura: int):
         }
 
 
-def criar_tgffin(nunota_vale: int) -> Dict[str, Any]:
+def criar_tgffin(nunota_vale: int, valor_liquido: Optional[float] = None) -> Dict[str, Any]:
     """
     Cria registro financeiro (TGFFIN) para TOP 13 confirmado.
     
@@ -4353,6 +4498,7 @@ def criar_tgffin(nunota_vale: int) -> Dict[str, Any]:
         - error: str - Mensagem de erro (se houver)
     """
     import logging
+    import math
     logger = logging.getLogger(__name__)
     
     out: Dict[str, Any] = {'ok': False, 'nufin': None}
@@ -4414,6 +4560,22 @@ def criar_tgffin(nunota_vale: int) -> Dict[str, Any]:
             CODNAT = int(CODNAT) if CODNAT and str(CODNAT).strip() else None
             CODCENCUS = int(CODCENCUS) if CODCENCUS and str(CODCENCUS).strip() else None
             VLRNOTA = float(VLRNOTA) if VLRNOTA is not None else 0.0
+
+            liquido_override = None
+            if valor_liquido is not None:
+                try:
+                    candidate = float(valor_liquido)
+                    if math.isfinite(candidate) and candidate >= 0:
+                        liquido_override = round(candidate, 2)
+                except Exception:
+                    liquido_override = None
+
+            if liquido_override is not None and abs(liquido_override - VLRNOTA) > 0.01:
+                logger.info('[CRIAR TGFFIN] Ajustando VLRDESDOB pelo valor líquido informado: %s (VLRNOTA cabeçalho: %s)', liquido_override, VLRNOTA)
+
+            vlrdesdob_value = liquido_override if liquido_override is not None else VLRNOTA
+            if vlrdesdob_value < 0:
+                vlrdesdob_value = 0.0
             
             logger.debug(f'[CRIAR TGFFIN] Dados: CODEMP={CODEMP}, NUMNOTA={NUMNOTA}, '
                         f'CODPARC={CODPARC}, CODTIPOPER={CODTIPOPER}, VLRNOTA={VLRNOTA}, '
@@ -4538,19 +4700,20 @@ def criar_tgffin(nunota_vale: int) -> Dict[str, Any]:
                 'CODNAT': CODNAT,
                 'CODCENCUS': CODCENCUS,
                 'CODTIPTIT': int(CODTIPTIT),
-                'VLRDESDOB': float(VLRNOTA)
+                'VLRDESDOB': float(vlrdesdob_value)
             })
             
             # Commit isolado para TGFFIN (rollback não afeta TGFCAB)
             conn.commit()
             
-            logger.info(f'[CRIAR TGFFIN] ✅ Sucesso! NUFIN={NUFIN}, VLRDESDOB={VLRNOTA}, '
+            logger.info(f'[CRIAR TGFFIN] ✅ Sucesso! NUFIN={NUFIN}, VLRDESDOB={vlrdesdob_value}, '
                        f'DTVENC={dtvenc.strftime("%d/%m/%Y")}')
             
             out['ok'] = True
             out['nufin'] = NUFIN
-            out['vlrdesdob'] = float(VLRNOTA or 0)
+            out['vlrdesdob'] = float(vlrdesdob_value)
             out['dtvenc'] = dtvenc.strftime('%d/%m/%Y')
+            out['valor_liquido'] = liquido_override if liquido_override is not None else VLRNOTA
             
             return out
             
@@ -4566,7 +4729,8 @@ def modal_faturamento_auto_save(
     codprod: int,
     codagregacao: str,
     vlrtot: float,
-    is_classificavel: bool
+    is_classificavel: bool,
+    items_snapshot: Optional[List[Dict[str, Any]]] = None
 ) -> dict:
     """
     Auto-salva alterações do modalFaturamento.
@@ -4600,6 +4764,10 @@ def modal_faturamento_auto_save(
     logger.info(f'[MODAL AUTO-SAVE] Iniciando - NUNOTA={nunota_pedido}, SEQ={sequencia}, '
                 f'CODPROD={codprod}, LOTE={codagregacao}, VLRTOT={vlrtot}, '
                 f'IS_CLASSIFICAVEL={is_classificavel}')
+
+    snapshot_payload = items_snapshot or []
+    if snapshot_payload:
+        logger.info('[MODAL AUTO-SAVE] Snapshot recebido com %s itens', len(snapshot_payload))
     
     try:
         with get_connection() as conn:
