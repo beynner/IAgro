@@ -61,6 +61,7 @@ urlpatterns = [
     path("comercial/vale/verificar_ou_criar_cabecalho/", views.comercial_vale_verificar_ou_criar_cabecalho, name="comercial_vale_verificar_ou_criar_cabecalho"),
     path("comercial/vale/save/", views.comercial_vale_save, name="comercial_vale_save"),
     path("comercial/vale/update_vlroutros/", views.comercial_vale_update_vlroutros, name="comercial_vale_update_vlroutros"),
+    path("comercial/vale/observacao/", views.comercial_vale_observacao, name="comercial_vale_observacao"),
     path("comercial/vale/sync/", views.comercial_vale_sync, name="comercial_vale_sync"),
     path("comercial/vale/clear/", views.comercial_vale_clear, name="comercial_vale_clear"),
     path("comercial/vale/desfaturar/", views.comercial_vale_desfaturar, name="comercial_vale_desfaturar"),

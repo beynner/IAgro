@@ -3344,8 +3344,6 @@ def update_vlrnota_for_nota(nunota: int) -> dict:
         result['error'] = error_msg
     
     return result
-
-
 def comercial_dist_save(request: HttpRequest) -> JsonResponse:
     """Persistir custo total e custo por kg da distribuição para o item de entrada (TGFITE)."""
     if request.method != 'POST':
@@ -3357,9 +3355,105 @@ def comercial_dist_save(request: HttpRequest) -> JsonResponse:
         payload = {}
 
     nunota = _to_int_or(payload.get('nunota'))
-    sequencia = _to_int_or(payload.get('sequencia') or payload.get('seq'))
-    if not nunota or not sequencia:
-        return JsonResponse({'ok': False, 'error': 'Informe nunota e sequencia válidos'}, status=400)
+
+    codagregacao_raw = payload.get('codagregacao') or payload.get('lote') or payload.get('codag')
+    codagregacao = ''
+    if codagregacao_raw not in (None, ''):
+        try:
+            codagregacao = str(codagregacao_raw).strip()
+        except Exception:
+            codagregacao = ''
+    if codagregacao and codagregacao.lower() in ('none', 'null'):
+        codagregacao = ''
+
+    def _parse_seq_list(value):
+        seqs: list[int] = []
+        if value in (None, ''):
+            return seqs
+        if isinstance(value, (list, tuple, set)):
+            iterable = value
+        else:
+            iterable = str(value).split(',')
+        for item in iterable:
+            seq_val = _to_int_or(item)
+            if seq_val:
+                seqs.append(seq_val)
+        # Preserve order but remove duplicates
+        seen: set[int] = set()
+        ordered: list[int] = []
+        for seq_val in seqs:
+            if seq_val not in seen:
+                seen.add(seq_val)
+                ordered.append(seq_val)
+        return ordered
+
+    sequencias_payload = _parse_seq_list(
+        payload.get('sequencias')
+        or payload.get('seq_list')
+        or payload.get('seqs')
+        or payload.get('sequencia_list')
+    )
+
+    sequencia_input = _to_int_or(payload.get('sequencia') or payload.get('seq'))
+
+    def _resolve_sequencia(nunota_val: int | None, seq_primary: int | None, seq_list: list[int], lot: str) -> tuple[int | None, list[int]]:
+        candidates: list[int] = []
+        if seq_primary:
+            candidates.append(seq_primary)
+        for seq_val in seq_list:
+            if seq_val not in candidates:
+                candidates.append(seq_val)
+
+        lot_candidates: list[int] = []
+        normalized_lot = lot.strip().upper() if isinstance(lot, str) else ''
+        if normalized_lot and nunota_val:
+            try:
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                                SELECT SEQUENCIA
+                                  FROM TGFITE
+                                 WHERE NUNOTA = :nunota
+                                   AND UPPER(TRIM(CODAGREGACAO)) = :lote
+                                 ORDER BY SEQUENCIA
+                            """,
+                            {'nunota': int(nunota_val), 'lote': normalized_lot},
+                        )
+                        lot_candidates = [
+                            int(row[0])
+                            for row in cur.fetchall()
+                            if row and row[0] is not None
+                        ]
+            except Exception:
+                logger.exception(
+                    'Erro ao buscar sequência por CODAGREGACAO no comercial_dist_save: NUNOTA=%s LOTE=%s',
+                    nunota_val,
+                    normalized_lot,
+                )
+
+        ordered: list[int] = []
+        seen: set[int] = set()
+        for seq_val in list(lot_candidates) + candidates:
+            if seq_val and seq_val not in seen:
+                seen.add(seq_val)
+                ordered.append(seq_val)
+
+        resolved = ordered[0] if ordered else None
+        return resolved, ordered
+
+    sequencia_resolved, sequencias_order = _resolve_sequencia(nunota, sequencia_input, sequencias_payload, codagregacao)
+
+    if not nunota:
+        return JsonResponse({'ok': False, 'error': 'Informe nunota válido'}, status=400)
+
+    if not sequencia_resolved:
+        msg = 'Informe sequencia válida'
+        if codagregacao:
+            msg = f'Não foi possível localizar item para o lote {codagregacao} na nota {nunota}'
+        return JsonResponse({'ok': False, 'error': msg}, status=400)
+
+    sequencia = sequencia_resolved
 
     total = _to_float_or(payload.get('valor_total', payload.get('custo_total')))
     custo_kg = _to_float_or(payload.get('custo_kg', payload.get('valor_kg')))
@@ -3370,7 +3464,21 @@ def comercial_dist_save(request: HttpRequest) -> JsonResponse:
     sim_qtd2 = _to_float_or(payload.get('sim_qtd2'))
     sim_vlr2 = _to_float_or(payload.get('sim_vlr2'))
 
-    sim_fields_present = any(val is not None for val in (sim_qtd1, sim_vlr1, sim_qtd2, sim_vlr2))
+    sim_qtd_desc = _to_float_or(payload.get('ad_simqtddesc'))
+    if sim_qtd_desc is None:
+        sim_qtd_desc = _to_float_or(payload.get('quebra_valor'))
+    if sim_qtd_desc is None:
+        sim_qtd_desc = _to_float_or(payload.get('quebra'))
+
+    sim_fields_present = any(
+        val is not None for val in (
+            sim_qtd1,
+            sim_vlr1,
+            sim_qtd2,
+            sim_vlr2,
+            sim_qtd_desc,
+        )
+    )
 
     if total is None and custo_kg is None and not sim_fields_present:
         return JsonResponse({'ok': False, 'error': 'Informe valor_total/custo_kg ou campos de simulação válidos'}, status=400)
@@ -3378,35 +3486,110 @@ def comercial_dist_save(request: HttpRequest) -> JsonResponse:
     if (total is None) != (custo_kg is None):
         return JsonResponse({'ok': False, 'error': 'valor_total e custo_kg devem ser informados juntos'}, status=400)
 
-    update_payload = {
+    item_payload_base: dict[str, object] = {
         'NUNOTA': nunota,
-        'SEQUENCIA': sequencia,
     }
     if custo_kg is not None:
-        update_payload['VLRUNIT'] = custo_kg
+        item_payload_base['VLRUNIT'] = custo_kg
     if total is not None:
-        update_payload['VLRTOT'] = total
+        item_payload_base['VLRTOT'] = total
     if sim_qtd1 is not None:
-        update_payload['AD_SIMQTD1'] = sim_qtd1
+        item_payload_base['AD_SIMQTD1'] = sim_qtd1
     if sim_vlr1 is not None:
-        update_payload['AD_SIMVLR1'] = sim_vlr1
+        item_payload_base['AD_SIMVLR1'] = sim_vlr1
     if sim_qtd2 is not None:
-        update_payload['AD_SIMQTD2'] = sim_qtd2
+        item_payload_base['AD_SIMQTD2'] = sim_qtd2
     if sim_vlr2 is not None:
-        update_payload['AD_SIMVLR2'] = sim_vlr2
+        item_payload_base['AD_SIMVLR2'] = sim_vlr2
+    if sim_qtd_desc is not None:
+        item_payload_base['AD_SIMQTDDESC'] = sim_qtd_desc
 
-    if len(update_payload) <= 2:
-        return JsonResponse({'ok': False, 'error': 'Nenhum campo válido para atualizar'}, status=400)
+    item_update_required = len(item_payload_base) > 1
 
-    try:
-        plan = update_item(update_payload, dry_run=False)
-    except Exception as e:
-        logger.exception('comercial_dist_save update_item failed')
-        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+    target_sequences = sequencias_order[:] if sequencias_order else []
+    if sequencia not in target_sequences:
+        target_sequences.insert(0, sequencia)
+    # Garantir apenas inteiros válidos e ordem estável
+    seq_seen: set[int] = set()
+    normalized_sequences: list[int] = []
+    for seq_val in target_sequences:
+        if not seq_val:
+            continue
+        if seq_val in seq_seen:
+            continue
+        seq_seen.add(seq_val)
+        normalized_sequences.append(seq_val)
+    target_sequences = normalized_sequences
 
-    executed = bool(plan.get('executed'))
-    plan_ok = bool(plan.get('ok'))
-    plan['plan_ok'] = plan_ok
+    if item_update_required and not target_sequences:
+        return JsonResponse({'ok': False, 'error': 'Nenhuma sequência válida para atualizar'}, status=400)
+
+    batch_results: list[dict[str, object]] = []
+    executed_all = True
+    plan_ok_all = True
+
+    if item_update_required:
+        for seq_val in target_sequences:
+            seq_payload = dict(item_payload_base)
+            seq_payload['SEQUENCIA'] = seq_val
+            try:
+                seq_plan = update_item(seq_payload, dry_run=False)
+            except Exception as e:
+                logger.exception('comercial_dist_save update_item failed para sequencia %s', seq_val)
+                return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+            seq_plan = seq_plan or {}
+            seq_plan['sequencia'] = seq_val
+            executed_flag = bool(seq_plan.get('executed'))
+            plan_ok_flag = bool(seq_plan.get('ok'))
+            seq_plan['executed'] = executed_flag
+            seq_plan['plan_ok'] = plan_ok_flag
+            seq_plan['ok'] = executed_flag
+            batch_results.append(seq_plan)
+            if not executed_flag:
+                executed_all = False
+                plan_ok_all = plan_ok_all and plan_ok_flag
+                break
+            plan_ok_all = plan_ok_all and plan_ok_flag
+    else:
+        executed_all = True
+        plan_ok_all = True
+
+    batch_results_serializable: list[dict[str, object]] = []
+    for seq_plan in batch_results:
+        if isinstance(seq_plan, dict):
+            entry = {k: v for k, v in seq_plan.items()}
+            if isinstance(seq_plan.get('inputs'), dict):
+                entry['inputs'] = dict(seq_plan['inputs'])
+            batch_results_serializable.append(entry)
+        else:
+            batch_results_serializable.append({'value': str(seq_plan)})
+
+    if item_update_required:
+        latest_plan_raw = batch_results_serializable[-1] if batch_results_serializable else None
+        if latest_plan_raw:
+            plan = {k: v for k, v in latest_plan_raw.items()}
+            if isinstance(latest_plan_raw.get('inputs'), dict):
+                plan['inputs'] = dict(latest_plan_raw['inputs'])
+        else:
+            plan = {
+                'ok': False,
+                'executed': False,
+                'plan_ok': False,
+                'inputs': {},
+            }
+    else:
+        plan = {
+            'ok': True,
+            'executed': True,
+            'plan_ok': True,
+            'inputs': {},
+        }
+
+    executed = executed_all
+    plan['plan_ok'] = plan_ok_all
+    plan['ok'] = executed
+    plan['sequencia'] = sequencia
+
     inputs_debug = {}
     if total is not None:
         inputs_debug['valor_total'] = total
@@ -3432,7 +3615,18 @@ def comercial_dist_save(request: HttpRequest) -> JsonResponse:
         inputs_debug['sim_qtd2'] = sim_qtd2
     if sim_vlr2 is not None:
         inputs_debug['sim_vlr2'] = sim_vlr2
-    plan['inputs'] = inputs_debug
+    if sim_qtd_desc is not None:
+        inputs_debug['ad_simqtddesc'] = sim_qtd_desc
+    if batch_results_serializable:
+        for seq_plan in batch_results_serializable:
+            if 'inputs' in seq_plan and isinstance(seq_plan['inputs'], dict):
+                seq_plan['inputs'].update(inputs_debug)
+            else:
+                seq_plan['inputs'] = dict(inputs_debug)
+    if 'inputs' in plan and isinstance(plan['inputs'], dict):
+        plan['inputs'].update(inputs_debug)
+    else:
+        plan['inputs'] = dict(inputs_debug)
     if not executed:
         if 'error' not in plan:
             err_msg = None
@@ -3444,13 +3638,20 @@ def comercial_dist_save(request: HttpRequest) -> JsonResponse:
                 plan['error'] = err_msg
     plan['ok'] = executed
     plan['write_enabled'] = is_write_enabled()
-    
+
     # Atualizar VLRNOTA se o update foi executado com sucesso
     if executed and total is not None:
         vlrnota_result = update_vlrnota_for_nota(nunota)
         plan['vlrnota_update'] = vlrnota_result
+
+    plan['batch_results'] = batch_results_serializable
+    plan['resolved_sequencias'] = sequencias_order
+    plan['target_sequencias'] = target_sequences
+    plan['sequencias_payload'] = sequencias_payload
+    if codagregacao:
+        plan['codagregacao'] = codagregacao
     
-    status_code = 200 if executed else 400
+    status_code = 200 if plan.get('ok') else 400
     return JsonResponse(plan, status=status_code)
 
 
@@ -4718,7 +4919,7 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
             rows = [r for r in rows if _ok(r)]
         out = []
         for r in rows:
-            # (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2, CODAGREGACAO, CODTIPOPER, NUMPEDIDO, FABRICANTE)
+            # (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, VLRNOTA_CAB, AD_SIMQTDDESC, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2, CODAGREGACAO, CODTIPOPER, NUMPEDIDO, FABRICANTE)
             parc = r[0] if len(r) > 0 else ''
             prod = r[1] if len(r) > 1 else ''
             qtd = r[2] if len(r) > 2 else 0
@@ -4733,14 +4934,15 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
             vlrunit_val = (r[11] if len(r) > 11 else None)
             vlrtot_val = (r[12] if len(r) > 12 else None)
             vlrnota_cab_val = (r[13] if len(r) > 13 else None)
-            ad_simqtd1_val = (r[14] if len(r) > 14 else None)
-            ad_simqtd2_val = (r[15] if len(r) > 15 else None)
-            ad_simvlr1_val = (r[16] if len(r) > 16 else None)
-            ad_simvlr2_val = (r[17] if len(r) > 17 else None)
-            codagregacao_val = (r[18] if len(r) > 18 else None)
-            codtipoper_val = (r[19] if len(r) > 19 else None)
-            numpedido_val = (r[20] if len(r) > 20 else None)
-            fabricante_val = (r[21] if len(r) > 21 else None)
+            ad_simqtddesc_val = (r[14] if len(r) > 14 else None)
+            ad_simqtd1_val = (r[15] if len(r) > 15 else None)
+            ad_simqtd2_val = (r[16] if len(r) > 16 else None)
+            ad_simvlr1_val = (r[17] if len(r) > 17 else None)
+            ad_simvlr2_val = (r[18] if len(r) > 18 else None)
+            codagregacao_val = (r[19] if len(r) > 19 else None)
+            codtipoper_val = (r[20] if len(r) > 20 else None)
+            numpedido_val = (r[21] if len(r) > 21 else None)
+            fabricante_val = (r[22] if len(r) > 22 else None)
             try:
                 # compact date for UI: send DD/MM
                 if hasattr(dt, 'strftime'):
@@ -4815,6 +5017,7 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                     float(vlrtot_val) if vlrtot_val not in (None, '') and float(vlrtot_val or 0) != 0 else 0.0
                 ),
                 'vlrnota_cab': (float(vlrnota_cab_val) if vlrnota_cab_val not in (None, '') else None),
+                'ad_simqtddesc': (float(ad_simqtddesc_val) if ad_simqtddesc_val not in (None, '') else None),
                 # Simulation fields: AD_SIMQTD1→extraCx, AD_SIMVLR1→extraCustoTotal, AD_SIMQTD2→medioCx, AD_SIMVLR2→medioCustoTotal
                 'ad_simqtd1': (float(ad_simqtd1_val) if ad_simqtd1_val not in (None, '') else None),
                 'ad_simqtd2': (float(ad_simqtd2_val) if ad_simqtd2_val not in (None, '') else None),
@@ -5107,5 +5310,52 @@ def comercial_vale_update_vlroutros(request: HttpRequest) -> JsonResponse:
     except Exception as e:
         logger.exception(f'[VLROUTROS] Erro ao atualizar VLROUTROS para NUNOTA={nunota}')
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+
+@csrf_exempt
+def comercial_vale_observacao(request: HttpRequest) -> JsonResponse:
+    """Consulta ou salva a observação do cabeçalho do vale (TGFCAB.OBSERVACAO)."""
+    if request.method == 'GET':
+        nunota = _to_int_or(request.GET.get('nunota'))
+        if not nunota:
+            return JsonResponse({'ok': False, 'error': 'nunota obrigatório'}, status=400)
+        try:
+            from sankhya_integration.services.oracle_conn import get_connection
+            with get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT OBSERVACAO FROM TGFCAB WHERE NUNOTA = :nunota", nunota=nunota)
+                row = cur.fetchone()
+                observacao = row[0] if row and row[0] is not None else ''
+            return JsonResponse({'ok': True, 'observacao': observacao})
+        except Exception as e:
+            logger.exception('comercial_vale_observacao GET failed')
+            return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+    if request.method == 'POST':
+        try:
+            payload = json.loads(request.body.decode('utf-8') or '{}')
+        except Exception:
+            payload = {}
+        nunota = _to_int_or(payload.get('nunota'))
+        if not nunota:
+            return JsonResponse({'ok': False, 'error': 'nunota obrigatório'}, status=400)
+        observacao_raw = payload.get('observacao')
+        observacao = (str(observacao_raw).strip()) if observacao_raw not in (None, '') else None
+        try:
+            from sankhya_integration.services.oracle_conn import get_connection
+            with get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE TGFCAB SET OBSERVACAO = :obs WHERE NUNOTA = :nunota",
+                    obs=observacao,
+                    nunota=nunota
+                )
+                conn.commit()
+            return JsonResponse({'ok': True, 'observacao': observacao or ''})
+        except Exception as e:
+            logger.exception('comercial_vale_observacao POST failed')
+            return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+    return JsonResponse({'ok': False, 'error': 'Use GET ou POST'}, status=405)
 
 

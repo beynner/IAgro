@@ -329,6 +329,8 @@
   #distSim .sim-total-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-weight:700;color:#0a3392;border-top:1px solid #e5e7eb;font-size:.85rem}
   #distSim .sim-total-row:first-child{border-top:none;padding-top:0}
   #distSim .sim-total-row span:first-child{font-weight:400;color:#334155}
+  #distSim .sim-total-row--input .sim-control{flex:0 0 auto;justify-content:flex-end}
+  #distSim .sim-total-row--input .sim-control input{max-width:90px;text-align:right}
   #distSim .sim-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px;margin-bottom:8px}
   #distSim .btn{appearance:none;-webkit-appearance:none;border-radius:6px;padding:5px 10px;font-size:.8rem;font-weight:600;cursor:pointer;line-height:1;border:1px solid transparent;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);transition:box-shadow .2s ease,background-color .2s ease}
   /* Limpar: borda laranja, fundo branco */
@@ -1060,6 +1062,14 @@
               </div>
             </div>
             <div style="padding:0 12px 12px 12px; display:flex; gap:8px; justify-content:flex-end; align-items:center;">
+              <button id="valeResumoObsBtn" class="btn" title="Adicionar observação do vale" style="border:1px solid #cbd5e1; background:#fff; border-radius:8px; padding:10px 12px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; transition:all .2s; color:#475569;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2z"></path>
+                  <polyline points="14 3 14 8 19 8"></polyline>
+                  <line x1="9" y1="13" x2="15" y2="13"></line>
+                  <line x1="9" y1="17" x2="15" y2="17"></line>
+                </svg>
+              </button>
               <button id="valeResumoFooterPrint" class="btn" title="Imprimir Vale" style="border:1px solid #cbd5e1; background:#fff; border-radius:8px; padding:10px 12px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; transition:all .2s;">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <polyline points="6 9 6 2 18 2 18 9"></polyline>
@@ -1113,10 +1123,16 @@
               <option value="modelo4">Modelo 4 — Classificação</option>
             </select>
             <span style="color:#9ca3af; font-size:0.8rem;">A visualização atualiza conforme a seleção.</span>
-            <label id="printModel2Options" style="display:none; align-items:center; gap:6px; color:#d1d5db; font-size:0.8rem; font-weight:600;">
-              <input type="checkbox" id="printModel2SubtotalOnly" style="width:14px; height:14px; cursor:pointer;" />
-              Exibir somente subtotal
-            </label>
+            <div id="printModel2Options" style="display:none; align-items:center; gap:12px; color:#d1d5db; font-size:0.8rem; font-weight:600;">
+              <label style="display:inline-flex; align-items:center; gap:6px;">
+                <input type="checkbox" id="printModel2SubtotalOnly" style="width:14px; height:14px; cursor:pointer;" />
+                Exibir somente subtotal
+              </label>
+              <label style="display:inline-flex; align-items:center; gap:6px;">
+                <input type="checkbox" id="printModel2OnlyExtraMedio" style="width:14px; height:14px; cursor:pointer;" />
+                Exibir somente Extra/Médio
+              </label>
+            </div>
           </div>
           <div style="padding:16px; overflow:auto; background:#1f1f1f;">
             <!-- Simulação de papel térmico 80mm -->
@@ -1129,6 +1145,32 @@
           <div style="display:flex; gap:8px; padding:12px 16px; border-top:2px solid #444; background:#1f1f1f; justify-content:flex-end;">
             <button id="printPreviewCancel" style="border:1px solid #6b7280; background:#374151; color:#fff; border-radius:6px; padding:8px 16px; cursor:pointer; font-weight:600;">Cancelar</button>
             <button id="printPreviewConfirm" style="border:1px solid #10b981; background:#10b981; color:#fff; border-radius:6px; padding:8px 16px; cursor:pointer; font-weight:700;">Imprimir Agora</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="valeObservacaoModal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,.4); z-index:1600; align-items:center; justify-content:center;">
+        <div style="background:#fff; border:1px solid #d1d5db; border-radius:12px; width:min(420px, 92vw); max-height:82vh; display:flex; flex-direction:column; box-shadow:0 18px 48px rgba(15,23,42,.18);">
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid #e2e8f0;">
+            <div style="display:flex; flex-direction:column; gap:2px;">
+              <span style="font-weight:700; color:#0f172a; font-size:1.05rem;">Observação do Vale</span>
+              <span id="valeObservacaoIdent" style="font-size:0.8rem; color:#64748b;">Vale —</span>
+            </div>
+            <button id="valeObservacaoClose" style="border:none; background:transparent; cursor:pointer; color:#64748b; padding:4px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px;">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <div style="padding:16px 18px; display:flex; flex-direction:column; gap:10px; overflow:auto;">
+            <label for="valeObservacaoInput" style="font-size:0.82rem; color:#475569; font-weight:600;">Observação</label>
+            <textarea id="valeObservacaoInput" rows="6" maxlength="1000" style="resize:vertical; min-height:150px; border:1px solid #cbd5e1; border-radius:10px; padding:10px 12px; font-size:0.92rem; color:#0f172a; line-height:1.45; background:#f9fafb;"></textarea>
+            <span style="font-size:0.75rem; color:#94a3b8;">Salva em TGFCAB.OBSERVACAO. Máximo de 1000 caracteres.</span>
+          </div>
+          <div style="display:flex; justify-content:flex-end; gap:10px; padding:12px 18px; border-top:1px solid #e2e8f0; background:#f8fafc;">
+            <button id="valeObservacaoCancel" style="border:1px solid #cbd5e1; background:#fff; color:#475569; border-radius:8px; padding:8px 16px; font-weight:600; cursor:pointer;">Cancelar</button>
+            <button id="valeObservacaoSave" style="border:1px solid #0ea5e9; background:#0ea5e9; color:#fff; border-radius:8px; padding:8px 18px; font-weight:700; cursor:pointer;">Salvar observação</button>
           </div>
         </div>
       </div>
@@ -1405,6 +1447,12 @@
                   </div>
                   <div class="sim-footer">
                     <div class="sim-summary">
+                      <div class="sim-total-row sim-total-row--input">
+                        <span>Quebra</span>
+                        <div class="sim-control">
+                          <input id="sim-quebra" type="text" inputmode="decimal" placeholder="0" />
+                        </div>
+                      </div>
                       <div class="sim-total-row"><span>Total CX</span><span id="sim-sum-cx"></span></div>
                       <div class="sim-total-row"><span>Valor/CX</span><span id="sim-sum-unit"></span></div>
                       <div class="sim-total-row"><span>Total Geral</span><span id="sim-total-geral"></span></div>
@@ -2266,6 +2314,11 @@
         const valeFaturado = window.__isCurrentValeFaturado ? window.__isCurrentValeFaturado() : false;
         if(typeof window.__applyEntradaLockState === 'function'){
           window.__applyEntradaLockState(valeFaturado);
+        }
+
+        if(typeof window.__setSimulationButtonsDisabled === 'function'){
+          const reason = valeFaturado ? 'Simulação bloqueada: vale faturado.' : '';
+          window.__setSimulationButtonsDisabled(valeFaturado, reason);
         }
         console.log('[TOGGLE] setActiveToggle chamado:', { mode, isAutomatic, valeFaturado });
         
@@ -3174,6 +3227,7 @@
           try{
             const targetCodprod = codprod != null ? String(codprod) : null;
             const targetLote = item?.codagregacao ?? item?.lote ?? null;
+            const normalizedLoteAttr = targetLote != null ? String(targetLote) : '';
             const seqList = (window.__COM_LIST_ROWS || [])
               .filter(row => {
                 if(Number(row?.nunota ?? row?.NUNOTA ?? 0) !== Number(nunota || 0)) return false;
@@ -3200,6 +3254,7 @@
               card.setAttribute('data-nunota', String(nunota||'')); 
               card.setAttribute('data-seq', String(sequencia||''));
               card.setAttribute('data-codprod', String(codprod||''));
+              card.setAttribute('data-codagregacao', normalizedLoteAttr);
               if(joinedSeq){
                 card.setAttribute('data-seq-list', joinedSeq);
               } else {
@@ -3212,6 +3267,7 @@
               entCard.setAttribute('data-nunota', String(nunota||'')); 
               entCard.setAttribute('data-seq', String(sequencia||''));
               entCard.setAttribute('data-codprod', String(codprod||''));
+              entCard.setAttribute('data-codagregacao', normalizedLoteAttr);
               if(joinedSeq){
                 entCard.setAttribute('data-seq-list', joinedSeq);
               } else {
@@ -3223,83 +3279,103 @@
           // Limpar campos da simulação ANTES de aplicar novos valores
           const limparCamposSimulacao = () => {
             const campos = ['#sim-extra-qty', '#sim-extra-unit', '#sim-extra-total', 
-                           '#sim-medio-qty', '#sim-medio-unit', '#sim-medio-total'];
+                           '#sim-medio-qty', '#sim-medio-unit', '#sim-medio-total', '#sim-quebra'];
             campos.forEach(sel => {
               const input = document.querySelector(sel);
               if(input) input.value = '';
             });
           };
           
-          // Apply simulation fields to state if loaded from database
+          // Resetar estado de distribuição para o novo item selecionado
+          if(window.__DIST_EXTRA_MEDIO_STATE){
+            const distState = window.__DIST_EXTRA_MEDIO_STATE;
+            distState.extraCx = 0;
+            distState.extraKg = 0;
+            distState.extraCustoCx = 0;
+            distState.extraCustoKg = 0;
+            distState.extraCustoTotal = 0;
+            distState.medioCx = 0;
+            distState.medioKg = 0;
+            distState.medioCustoCx = 0;
+            distState.medioCustoKg = 0;
+            distState.medioCustoTotal = 0;
+          }
+
+          // Apply simulation fields from database (mantém mundos separados: simulação ≠ distribuição)
           if(typeof window.__DIST_EXTRA_MEDIO_STATE !== 'undefined' && window.__DIST_EXTRA_MEDIO_STATE){
             try{
-              console.log('[LOAD DEBUG] Aplicando ao estado global...');
-              
-              // Resetar estado
-              window.__DIST_EXTRA_MEDIO_STATE.extraCx = 0;
-              window.__DIST_EXTRA_MEDIO_STATE.extraCustoTotal = 0;
-              window.__DIST_EXTRA_MEDIO_STATE.medioCx = 0;
-              window.__DIST_EXTRA_MEDIO_STATE.medioCustoTotal = 0;
-              
-              // Limpar campos visuais primeiro
+              console.log('[LOAD DEBUG] Convertendo simulação carregada em cache visual...');
+
+              // Limpa campos visuais antes de aplicar novos valores
               limparCamposSimulacao();
-              
-              // Aplicar valores do banco (se existirem)
-              if(simExtraCx != null && Number.isFinite(simExtraCx)) window.__DIST_EXTRA_MEDIO_STATE.extraCx = simExtraCx;
-              if(simExtraTotal != null && Number.isFinite(simExtraTotal)) window.__DIST_EXTRA_MEDIO_STATE.extraCustoTotal = simExtraTotal;
-              if(simMedioCx != null && Number.isFinite(simMedioCx)) window.__DIST_EXTRA_MEDIO_STATE.medioCx = simMedioCx;
-              if(simMedioTotal != null && Number.isFinite(simMedioTotal)) window.__DIST_EXTRA_MEDIO_STATE.medioCustoTotal = simMedioTotal;
-              console.log('[LOAD DEBUG] Estado após aplicação:', {
-                extraCx: window.__DIST_EXTRA_MEDIO_STATE.extraCx,
-                extraCustoTotal: window.__DIST_EXTRA_MEDIO_STATE.extraCustoTotal,
-                medioCx: window.__DIST_EXTRA_MEDIO_STATE.medioCx,
-                medioCustoTotal: window.__DIST_EXTRA_MEDIO_STATE.medioCustoTotal
-              });
-              
-              // Preencher os campos visuais da simulação com os valores carregados do banco
+
+              const quebraValorRaw =
+                item?.ad_simqtddesc ??
+                (item && item.__simFields ? item.__simFields.ad_simqtddesc ?? item.__simFields.vlrdescparceria : undefined) ??
+                item?.vlrdescparceria ??
+                null;
+              const quebraValorNum = Number(quebraValorRaw);
+              const hasQuebraValor = quebraValorRaw !== null && quebraValorRaw !== undefined && Number.isFinite(quebraValorNum);
+
+              const simCache = {
+                extraCx: Number.isFinite(simExtraCx) ? simExtraCx : 0,
+                extraTotal: Number.isFinite(simExtraTotal) ? simExtraTotal : 0,
+                medioCx: Number.isFinite(simMedioCx) ? simMedioCx : 0,
+                medioTotal: Number.isFinite(simMedioTotal) ? simMedioTotal : 0,
+                quebra: hasQuebraValor ? quebraValorNum : null
+              };
+
+              window.__DIST_SIM_CACHE = simCache;
+
               const fmtMoney = (n) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
               const fmtQty = (n) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
-              
-              if(simExtraCx != null && Number.isFinite(simExtraCx)) {
+
+              if(simCache.extraCx > 0){
                 const input = document.querySelector('#sim-extra-qty');
-                if(input) input.value = fmtQty(simExtraCx);
+                if(input) input.value = fmtQty(simCache.extraCx);
               }
-              if(simExtraTotal != null && Number.isFinite(simExtraTotal)) {
+              if(simCache.extraTotal > 0){
                 const input = document.querySelector('#sim-extra-total');
-                if(input) input.value = fmtMoney(simExtraTotal);
+                if(input) input.value = fmtMoney(simCache.extraTotal);
               }
-              if(simMedioCx != null && Number.isFinite(simMedioCx)) {
+              if(simCache.medioCx > 0){
                 const input = document.querySelector('#sim-medio-qty');
-                if(input) input.value = fmtQty(simMedioCx);
+                if(input) input.value = fmtQty(simCache.medioCx);
               }
-              if(simMedioTotal != null && Number.isFinite(simMedioTotal)) {
+              if(simCache.medioTotal > 0){
                 const input = document.querySelector('#sim-medio-total');
-                if(input) input.value = fmtMoney(simMedioTotal);
+                if(input) input.value = fmtMoney(simCache.medioTotal);
               }
-              
-              // Calcular Valor/CX do Extra (se tiver Qtd e Total)
-              if(simExtraCx != null && Number.isFinite(simExtraCx) && simExtraCx > 0 &&
-                 simExtraTotal != null && Number.isFinite(simExtraTotal)) {
-                const valorCxExtra = simExtraTotal / simExtraCx;
+
+              const quebraInput = document.getElementById('sim-quebra');
+              if(quebraInput){
+                if(hasQuebraValor){
+                  const displayQuebra = Math.abs(quebraValorNum) > 1e-9 ? fmtQty(quebraValorNum) : '0';
+                  quebraInput.value = displayQuebra;
+                } else {
+                  quebraInput.value = '';
+                }
+              }
+
+              if(simCache.extraCx > 0 && simCache.extraTotal > 0){
+                const valorCxExtra = simCache.extraTotal / simCache.extraCx;
                 const inputExtraUnit = document.querySelector('#sim-extra-unit');
                 if(inputExtraUnit) inputExtraUnit.value = fmtMoney(valorCxExtra);
               }
-              
-              // Calcular Valor/CX do Médio (se tiver Qtd e Total)
-              if(simMedioCx != null && Number.isFinite(simMedioCx) && simMedioCx > 0 &&
-                 simMedioTotal != null && Number.isFinite(simMedioTotal)) {
-                const valorCxMedio = simMedioTotal / simMedioCx;
+
+              if(simCache.medioCx > 0 && simCache.medioTotal > 0){
+                const valorCxMedio = simCache.medioTotal / simCache.medioCx;
                 const inputMedioUnit = document.querySelector('#sim-medio-unit');
                 if(inputMedioUnit) inputMedioUnit.value = fmtMoney(valorCxMedio);
               }
-              
-              // Acionar evento de atualização dos campos para recalcular resumo
+
+              // Notificar apenas os controles de simulação para recalcular seus próprios resumos
               const updateSimEvent = new Event('input', { bubbles: true });
               document.querySelector('#sim-extra-qty')?.dispatchEvent(updateSimEvent);
-              
-              console.log('[LOAD DEBUG] Campos visuais da simulação preenchidos!');
-            }catch(err){ 
-              console.error('[LOAD DEBUG] Erro ao aplicar ao estado:', err);
+
+              console.log('[LOAD DEBUG] Simulação carregada no painel (estado de distribuição preservado).');
+            }catch(err){
+              console.error('[LOAD DEBUG] Erro ao preparar simulação carregada:', err);
             }
           }
           // Atualizar linha de produto no cabeçalho da Classificação: usar o nome COMPLETO
@@ -3976,8 +4052,10 @@
         // Obter modelo selecionado
         const modelSelect = document.getElementById('printModelSelect');
         const model2SubtotalToggle = document.getElementById('printModel2SubtotalOnly');
+        const model2OnlyExtraMedioToggle = document.getElementById('printModel2OnlyExtraMedio');
         const selectedModel = modelSelect ? modelSelect.value : 'modelo1';
         const model2SubtotalOnly = !!(model2SubtotalToggle && model2SubtotalToggle.checked);
+        const model2OnlyExtraMedio = !!(model2OnlyExtraMedioToggle && model2OnlyExtraMedioToggle.checked);
         console.log('[PRINT DEBUG] Gerando relatório para modelo:', selectedModel);
         
         const title = document.getElementById('valeResumoTitle')?.textContent || '—';
@@ -3994,6 +4072,11 @@
         const valorLiquido = totalLiquidoEl?.textContent || 'R$ 0,00';
         
         console.log('[PRINT DEBUG] Valores para impressão - Bruto:', valorBruto, 'INSS:', valorInss, 'Líquido:', valorLiquido);
+
+        const observacaoValeRaw = (window.__CURRENT_VALE_OBSERVACAO || '').trim();
+        const observacaoPrintBlock = observacaoValeRaw
+          ? `<div style="min-height:8mm; font-size:7pt; color:#0f172a; white-space:pre-wrap;">${escapeHTML(observacaoValeRaw)}</div>`
+          : `<div style="min-height:8mm; font-size:7pt; color:#666;">—</div>`;
         
         // Buscar data da compra (DTNEG) do vale atual (TOP 13)
         // Usar a variável global que já armazena o NUNOTA do vale
@@ -4249,7 +4332,8 @@
                   extraQtd: 0,
                   extraTotal: 0,
                   medioQtd: 0,
-                  medioTotal: 0
+                  medioTotal: 0,
+                  quebraRaw: null
                 });
               }
               const aggregate = productMap.get(key);
@@ -4257,6 +4341,12 @@
               aggregate.extraTotal += parseNumberAttr(node, 'data-sim-vlr1');
               aggregate.medioQtd += parseNumberAttr(node, 'data-sim-qtd2');
               aggregate.medioTotal += parseNumberAttr(node, 'data-sim-vlr2');
+              if(aggregate.quebraRaw === null){
+                const quebraAttr = node.getAttribute('data-sim-quebra');
+                if(quebraAttr !== null && quebraAttr !== ''){
+                  aggregate.quebraRaw = quebraAttr;
+                }
+              }
             });
 
             const products = Array.from(productMap.values()).filter(item => {
@@ -4323,7 +4413,30 @@
                   }
                 }
 
+                const quebraRawDisplay = typeof info.quebraRaw === 'string' ? info.quebraRaw.trim() : '';
+                const quebraQtd = Number.parseFloat(quebraRawDisplay.replace(/[^0-9,.-]/g, '').replace(',', '.'));
+                const hasQuebraQtd = Number.isFinite(quebraQtd) && Math.abs(quebraQtd) > 1e-9;
+                const quebraQtyText = hasQuebraQtd ? formatQty(quebraQtd) : (quebraRawDisplay || '');
+                const quebraSuffix = hasQuebraQtd ? ' <span style="font-size:6pt;">CX</span>' : '';
+
+                if(quebraRawDisplay){
+                  itemsHTML += `
+                    <tr>
+                      <td style="border-left:1px solid #000; border-right:0; border-top:0; border-bottom:0; padding:1mm 0.5mm 1mm 3mm; text-align:left; font-size:8pt; line-height:1.2;">Quebra</td>
+                      <td style="border-left:0; border-right:0; border-top:0; border-bottom:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${escapeHtml(quebraQtyText)}${quebraSuffix}</td>
+                      <td style="border-left:0; border-right:0; border-top:0; border-bottom:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"></td>
+                      <td style="border-left:0; border-right:1px solid #000; border-top:0; border-bottom:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"></td>
+                    </tr>
+                  `;
+                }
+
                 if(subtotalQtd > 0 || subtotalTotal > 0){
+                  qtdTotalGeral += subtotalQtd;
+                  valorTotalGeral += subtotalTotal;
+                }
+
+                // Skip product subtotal when showing only the Extra/Médio breakdown
+                if((subtotalQtd > 0 || subtotalTotal > 0) && !model2OnlyExtraMedio){
                   itemsHTML += `
                     <tr style="background:#f1f5f9; font-weight:bold;">
                       <td style="border-left:1px solid #000; border-right:0; border-bottom:1px solid #000; border-top:0; padding:1mm 0.5mm 1mm 3mm; text-align:left; font-size:8pt; line-height:1.2;">Subtotal</td>
@@ -4332,24 +4445,10 @@
                       <td style="border-left:0; border-right:1px solid #000; border-bottom:1px solid #000; border-top:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${formatMoney(subtotalTotal)}</td>
                     </tr>
                   `;
-                  qtdTotalGeral += subtotalQtd;
-                  valorTotalGeral += subtotalTotal;
                 }
               });
 
-              const totalQtd = overallExtraQtd + overallMedioQtd;
-              const totalValor = overallExtraTotal + overallMedioTotal;
-              if(totalQtd > 0 || totalValor > 0){
-                const totalUnit = (totalQtd > 0 && totalValor > 0) ? (totalValor / totalQtd) : 0;
-                itemsHTML += `
-                  <tr style="background:#e2e8f0; font-weight:bold;">
-                    <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">TOTAL</td>
-                    <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${formatQty(totalQtd)} <span style="font-size:6pt;">CX</span></td>
-                    <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${formatMoney(totalUnit)}</td>
-                    <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${formatMoney(totalValor)}</td>
-                  </tr>
-                `;
-              }
+              // Nota: totais gerais removidos a pedido do usuário para Modelo 2
             }
           
         } else if(selectedModel === 'modelo3'){
@@ -4588,7 +4687,7 @@
           <!-- Observação -->
           <div style="padding:2mm 0mm; margin:0; background:white; border-bottom:1px solid #000;">
             <div style="font-size:8pt; font-weight:bold; margin-bottom:0.5mm;">Observação</div>
-            <div style="min-height:8mm; font-size:7pt; color:#666;"></div>
+            ${observacaoPrintBlock}
           </div>
           
           <!-- Rodapé -->
@@ -4633,10 +4732,10 @@
       
       const updatePrintModel2Options = () => {
         const selectEl = document.getElementById('printModelSelect');
-        const optionsLabel = document.getElementById('printModel2Options');
-        if(!optionsLabel) return;
+        const optionsContainer = document.getElementById('printModel2Options');
+        if(!optionsContainer) return;
         const shouldShow = selectEl && selectEl.value === 'modelo2';
-        optionsLabel.style.display = shouldShow ? 'inline-flex' : 'none';
+        optionsContainer.style.display = shouldShow ? 'inline-flex' : 'none';
       };
 
       // Eventos do modal de preview
@@ -4655,7 +4754,19 @@
         // Regenerar o preview com o novo modelo
         printVale();
       });
-      document.getElementById('printModel2SubtotalOnly')?.addEventListener('change', ()=>{
+      const model2SubtotalOnlyEl = document.getElementById('printModel2SubtotalOnly');
+      const model2OnlyExtraMedioEl = document.getElementById('printModel2OnlyExtraMedio');
+
+      model2SubtotalOnlyEl?.addEventListener('change', ()=>{
+        if(model2SubtotalOnlyEl.checked && model2OnlyExtraMedioEl){
+          model2OnlyExtraMedioEl.checked = false;
+        }
+        printVale();
+      });
+      model2OnlyExtraMedioEl?.addEventListener('change', ()=>{
+        if(model2OnlyExtraMedioEl.checked && model2SubtotalOnlyEl){
+          model2SubtotalOnlyEl.checked = false;
+        }
         printVale();
       });
       updatePrintModel2Options();
@@ -4862,8 +4973,73 @@
             modalValeWrap.style.display = 'none';
           }
         }
+        if(typeof window.__syncValeObservationButton === 'function'){
+          window.__syncValeObservationButton(window.__CURRENT_VALE_OBSERVACAO || '');
+        }
       }
       window.__refreshValeUI = refreshValeUI;
+
+      window.__CURRENT_VALE_OBSERVACAO = '';
+      function syncValeObservationButton(text){
+        window.__CURRENT_VALE_OBSERVACAO = typeof text === 'string' ? text : '';
+        const normalized = window.__CURRENT_VALE_OBSERVACAO.trim();
+        const nunotaVale = window.__CURRENT_VALE_NUNOTA_TOP13 || window.__CURRENT_VALE_NUNOTA || null;
+        const btn = document.getElementById('valeResumoObsBtn');
+        if(btn){
+          const hasVale = !!nunotaVale;
+          btn.disabled = !hasVale;
+          btn.style.opacity = hasVale ? '1' : '0.45';
+          btn.style.cursor = hasVale ? 'pointer' : 'not-allowed';
+          btn.title = hasVale ? (normalized ? 'Editar observação do vale' : 'Adicionar observação do vale') : 'Vale não disponível';
+          if(hasVale){
+            if(normalized){
+              btn.style.borderColor = '#0ea5e9';
+              btn.style.color = '#0ea5e9';
+              btn.style.background = '#f0f9ff';
+            }else{
+              btn.style.borderColor = '#cbd5e1';
+              btn.style.color = '#475569';
+              btn.style.background = '#fff';
+            }
+          }else{
+            btn.style.borderColor = '#cbd5e1';
+            btn.style.color = '#94a3b8';
+            btn.style.background = '#f8fafc';
+          }
+        }
+        const ident = document.getElementById('valeObservacaoIdent');
+        if(ident){
+          ident.textContent = nunotaVale ? `Vale ${nunotaVale}` : 'Vale —';
+        }
+      }
+      window.__syncValeObservationButton = syncValeObservationButton;
+
+      async function fetchValeObservation(nunotaVale){
+        const target = nunotaVale ? String(nunotaVale).trim() : '';
+        if(!target){
+          syncValeObservationButton('');
+          return '';
+        }
+        syncValeObservationButton('');
+        try{
+          const resp = await fetch(`/sankhya/comercial/vale/observacao/?nunota=${encodeURIComponent(target)}`, {
+            credentials: 'same-origin',
+            cache: 'no-store'
+          });
+          if(!resp.ok){
+            return '';
+          }
+          const data = await resp.json();
+          const obs = (data && typeof data.observacao === 'string') ? data.observacao : '';
+          syncValeObservationButton(obs);
+          return obs;
+        }catch(err){
+          console.error('[OBS] Falha ao carregar observação:', err);
+          return '';
+        }
+      }
+      window.__fetchValeObservation = fetchValeObservation;
+      syncValeObservationButton('');
 
       // 🔢 Função para aplicar desconto INSS (definida ANTES de openValeResumo)
       window.__aplicarDescontoINSS = function(){
@@ -4983,6 +5159,13 @@
           fragments.push(buildNumericAttr('sim-qtd2', sim?.ad_simqtd2));
           fragments.push(buildNumericAttr('sim-vlr1', sim?.ad_simvlr1));
           fragments.push(buildNumericAttr('sim-vlr2', sim?.ad_simvlr2));
+          const quebraValue =
+            sim?.ad_simqtddesc ??
+            row?.ad_simqtddesc ??
+            sim?.vlrdescparceria ??
+            row?.vlrdescparceria ??
+            null;
+          fragments.push(buildNumericAttr('sim-quebra', quebraValue));
           return fragments.join('');
         };
 
@@ -5072,6 +5255,17 @@
           // 🔥 CRÍTICO: Armazenar NUNOTA do VALE (TOP 13) para usar no auto-save
           window.__CURRENT_VALE_NUNOTA_TOP13 = nunota13 || null;
           console.log('[MODAL] 🔥 NUNOTAs armazenados - PEDIDO:', window.__CURRENT_PEDIDO_NUNOTA, 'VALE:', window.__CURRENT_VALE_NUNOTA_TOP13);
+
+          try{
+            const obsPromise = fetchValeObservation(window.__CURRENT_VALE_NUNOTA_TOP13);
+            if(obsPromise && typeof obsPromise.catch === 'function'){
+              obsPromise.catch(err => {
+                try{ console.error('[OBS] Falha ao inicializar observação do vale:', err); }catch(_){ }
+              });
+            }
+          }catch(err){
+            try{ console.error('[OBS] Falha ao inicializar observação do vale:', err); }catch(_){ }
+          }
           
           // 🔥 Carregar VLROUTROS (desconto INSS) do vale
           const vlroutros = pedidoRows[0]?.vlroutros || 0;
@@ -6258,6 +6452,12 @@
           if(btnFaturar) btnFaturar.style.display = 'inline-block';
           if(btnDesfaturar) btnDesfaturar.style.display = 'none';
           
+          const toggleSimulationButtons = (disabled, reason = '') => {
+            if(typeof window.__setSimulationButtonsDisabled === 'function'){
+              window.__setSimulationButtonsDisabled(disabled, reason);
+            }
+          };
+
           // ESTADO 1: Não faturado (sem NUFIN)
           if(!nufinExistente){
             console.log('[MODAL] Estado: NÃO FATURADO');
@@ -6279,6 +6479,7 @@
               checkboxINSS.style.opacity = '1';
             }
             // Campos editáveis (padrão, sem bloqueios)
+            toggleSimulationButtons(false);
           }
           // ESTADO 2: Faturado livre (tem NUFIN, mas sem NURENEG/VLRBAIXA)
           else if(nufinExistente && !bloqueado){
@@ -6322,6 +6523,8 @@
               inp.style.cssText = 'opacity:0.6;cursor:not-allowed;background:#f3f4f6;pointer-events:none;user-select:none;';
               inp.title = 'Não é possível editar vale faturado';
             }
+
+            toggleSimulationButtons(true, 'Simulação bloqueada: vale faturado.');
           }
           // ESTADO 3 ou 4: Bloqueado (tem NURENEG ou VLRBAIXA)
           else if(bloqueado){
@@ -6366,6 +6569,8 @@
               inp.style.cssText = 'opacity:0.6;cursor:not-allowed;background:#f3f4f6;pointer-events:none;user-select:none;';
               inp.title = 'Vale bloqueado pelo Financeiro';
             }
+
+            toggleSimulationButtons(true, 'Simulação bloqueada pelo Financeiro.');
           }
           
           // 🔥 Bloquear botões "Zerar Negociação" e "Salvar" se vale estiver faturado
@@ -6392,6 +6597,9 @@
               btnSaveMain.style.opacity = '0.3';
               btnSaveMain.style.cursor = 'not-allowed';
               btnSaveMain.title = 'Não é possível salvar vale faturado';
+
+            const simReason = bloqueado ? 'Simulação bloqueada pelo Financeiro.' : 'Simulação bloqueada: vale faturado.';
+            toggleSimulationButtons(true, simReason);
             }
           } else {
             // Vale não faturado - reativar botões (se não estiver em modo projeção)
@@ -7314,6 +7522,15 @@
           document.getElementById('valeResumoFooterPrint')?.addEventListener('click', ()=>{
             printVale();
           });
+          document.getElementById('valeResumoObsBtn')?.addEventListener('click', openValeObservacaoModal);
+          document.getElementById('valeObservacaoCancel')?.addEventListener('click', closeValeObservacaoModal);
+          document.getElementById('valeObservacaoClose')?.addEventListener('click', closeValeObservacaoModal);
+          document.getElementById('valeObservacaoSave')?.addEventListener('click', saveValeObservacao);
+          document.getElementById('valeObservacaoModal')?.addEventListener('click', (ev)=>{
+            if(ev.target === ev.currentTarget){
+              closeValeObservacaoModal();
+            }
+          });
 
           // Event listener para o checkbox INSS (função já definida no início)
           document.getElementById('valeDescontaINSS')?.addEventListener('change', async function(){
@@ -8041,6 +8258,10 @@
                     btnSaveMain.style.cursor = 'not-allowed';
                     btnSaveMain.title = 'Não é possível salvar vale faturado';
                   }
+
+                  if(typeof window.__setSimulationButtonsDisabled === 'function'){
+                    window.__setSimulationButtonsDisabled(true, 'Simulação bloqueada: vale faturado.');
+                  }
                   
                   window.showToast('✅ Vale faturado com sucesso!', 'success');
                   // Atualizar cor/estado na lista imediatamente
@@ -8293,6 +8514,8 @@
                   }
                   console.log('[DESFATURAR] ✅ Desbloqueio concluído');
 
+                  toggleSimulationButtons(false);
+
                   // 🔓 Reabilitar checkbox INSS
                   const checkboxINSS = document.getElementById('valeDescontaINSS');
                   if(checkboxINSS){
@@ -8348,6 +8571,74 @@
           
           // Garantir que spinner seja ocultado mesmo em caso de erro
           if(els.spinner) els.spinner.style.display = 'none';
+        }
+      }
+
+      function openValeObservacaoModal(){
+        const nunotaVale = window.__CURRENT_VALE_NUNOTA_TOP13 || window.__CURRENT_VALE_NUNOTA || null;
+        if(!nunotaVale){
+          try{ showToast('Crie o vale antes de adicionar observação.', 'warning'); }catch(_){ alert('Crie o vale antes de adicionar observação.'); }
+          return;
+        }
+        const modal = document.getElementById('valeObservacaoModal');
+        if(!modal) return;
+        const textarea = document.getElementById('valeObservacaoInput');
+        const ident = document.getElementById('valeObservacaoIdent');
+        if(ident) ident.textContent = `Vale ${nunotaVale}`;
+        if(textarea){
+          textarea.value = window.__CURRENT_VALE_OBSERVACAO || '';
+          setTimeout(()=>{
+            try{ textarea.focus({ preventScroll: true }); }catch(_){ textarea.focus(); }
+          }, 50);
+        }
+        modal.style.display = 'flex';
+      }
+
+      function closeValeObservacaoModal(){
+        const modal = document.getElementById('valeObservacaoModal');
+        if(modal) modal.style.display = 'none';
+      }
+
+      async function saveValeObservacao(){
+        const nunotaVale = window.__CURRENT_VALE_NUNOTA_TOP13 || window.__CURRENT_VALE_NUNOTA || null;
+        if(!nunotaVale){
+          try{ showToast('Vale não disponível para salvar observação.', 'warning'); }catch(_){ alert('Vale não disponível para salvar observação.'); }
+          return;
+        }
+        const textarea = document.getElementById('valeObservacaoInput');
+        if(!textarea) return;
+        const texto = textarea.value || '';
+        const btnSave = document.getElementById('valeObservacaoSave');
+        if(btnSave){
+          btnSave.disabled = true;
+          btnSave.textContent = 'Salvando...';
+        }
+        try{
+          const resp = await fetch('/sankhya/comercial/vale/observacao/', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nunota: Number(nunotaVale), observacao: texto })
+          });
+          let data = {};
+          try{ data = await resp.json(); }catch(_){ data = {}; }
+          if(resp.ok && data.ok !== false){
+            const normalized = (data && typeof data.observacao === 'string') ? data.observacao : texto;
+            syncValeObservationButton(normalized);
+            try{ showToast('Observação salva com sucesso.', 'success'); }catch(_){ alert('Observação salva com sucesso.'); }
+            closeValeObservacaoModal();
+          }else{
+            const msg = (data && data.error) ? data.error : 'Erro ao salvar observação';
+            try{ showToast(msg, 'error'); }catch(_){ alert(msg); }
+          }
+        }catch(err){
+          console.error('[OBS] Erro ao salvar observação:', err);
+          try{ showToast('Erro ao salvar observação.', 'error'); }catch(_){ alert('Erro ao salvar observação.'); }
+        }finally{
+          if(btnSave){
+            btnSave.disabled = false;
+            btnSave.textContent = 'Salvar observação';
+          }
         }
       }
 
@@ -8866,9 +9157,30 @@
         geral: $('#sim-total-geral'),
         sumCx: $('#sim-sum-cx'),
         sumUnit: $('#sim-sum-unit'),
+        quebra: $('#sim-quebra'),
         clearBtn: $('#sim-btn-clear'),
         applyBtn: $('#sim-btn-apply')
       };
+
+      const setSimulationButtonsDisabled = (disabled, reason = '') => {
+        const setState = (btn) => {
+          if(!btn) return;
+          btn.disabled = !!disabled;
+          btn.style.opacity = disabled ? '0.5' : '0.85';
+          btn.style.cursor = disabled ? 'not-allowed' : 'pointer';
+          if(disabled && reason){
+            btn.setAttribute('data-disabled-reason', reason);
+            btn.title = reason;
+          }else{
+            btn.removeAttribute('data-disabled-reason');
+            btn.title = '';
+          }
+        };
+        setState(els.clearBtn);
+        setState(els.applyBtn);
+      };
+      window.__setSimulationButtonsDisabled = setSimulationButtonsDisabled;
+
       if(!els.extra.qty || !els.medio.qty) return;
 
       const parsePT = (text) => {
@@ -8963,6 +9275,13 @@
         total.addEventListener('blur', ()=>{ const v = parsePT(total.value); total.value = isNaN(v)?'':fmtMoney(v); solveSection(sec); updateSummary(); });
       });
 
+      if(els.quebra){
+        els.quebra.addEventListener('blur', ()=>{
+          const v = parsePT(els.quebra.value);
+          els.quebra.value = isNaN(v) ? '' : fmtQty(v);
+        });
+      }
+
       // Hint inicial: usar Custo CX (EXTRA) se disponível
       const extraCxHint = document.getElementById('extraCustoCxDisplay');
       if(extraCxHint && els.extra.unit && !els.extra.unit.value){
@@ -8989,6 +9308,12 @@
           total.value = '';
           markAuto(qty,false); markAuto(unit,false); markAuto(total,false);
         });
+        if(els.quebra){
+          els.quebra.value = '';
+        }
+        if(window.__DIST_SIM_CACHE){
+          window.__DIST_SIM_CACHE.quebra = null;
+        }
         updateSummary();
         
         // Limpar as 4 colunas de simulação no banco de dados (AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2)
@@ -9015,6 +9340,7 @@
               sim_vlr1: 0,
               sim_qtd2: 0,
               sim_vlr2: 0,
+              ad_simqtddesc: 0,
             };
             
             const res = await window.__postJSON('/sankhya/comercial/dist/save/', payload);
@@ -9059,14 +9385,34 @@
         try {
           const card = document.getElementById('quantidadeInnCard');
           const nunota = card ? Number(card.getAttribute('data-nunota') || '0') : 0;
+          const codagregacaoRaw = card ? (card.getAttribute('data-codagregacao') || '') : '';
+          const codagregacao = typeof codagregacaoRaw === 'string' ? codagregacaoRaw.trim() : String(codagregacaoRaw || '').trim();
           const sequenciasAttr = card ? (card.getAttribute('data-seq-list') || card.getAttribute('data-seq')) : '';
-          const sequencias = (sequenciasAttr || '')
+          const sequenciasFromAttr = (sequenciasAttr || '')
             .split(',')
             .map(s => Number(s.trim()))
             .filter(n => Number.isFinite(n) && n > 0);
 
-          if(!nunota || !sequencias.length){
-            console.warn('[SIMULAÇÃO] Não foi possível identificar nunota/seq para salvar simulação', { nunota, sequencias });
+          const seqSet = new Set(sequenciasFromAttr);
+          if(codagregacao){
+            const cacheRows = Array.isArray(window.__COM_LIST_ROWS) ? window.__COM_LIST_ROWS : [];
+            cacheRows.forEach(row => {
+              if(!row || typeof row !== 'object') return;
+              const rowNunota = Number(row.nunota ?? row.NUNOTA ?? row.nunota_pedido ?? 0);
+              if(rowNunota !== nunota) return;
+              const rowLote = String(row.codagregacao ?? row.lote ?? row.CODAGREGACAO ?? '').trim();
+              if(!rowLote || rowLote !== codagregacao) return;
+              const seqVal = Number(row.sequencia ?? row.SEQUENCIA ?? row.sequencia_pedido ?? 0);
+              if(Number.isFinite(seqVal) && seqVal > 0){
+                seqSet.add(seqVal);
+              }
+            });
+          }
+
+          const sequencias = Array.from(seqSet);
+
+          if(!nunota || (!sequencias.length && !codagregacao)){
+            console.warn('[SIMULAÇÃO] Não foi possível identificar nunota/seq para salvar simulação', { nunota, sequencias, codagregacao });
             return;
           }
 
@@ -9074,6 +9420,7 @@
           const extraTotalRaw = parsePT(els.extra.total.value);
           const medioQtyRaw = parsePT(els.medio.qty.value);
           const medioTotalRaw = parsePT(els.medio.total.value);
+          const quebraValorRaw = els.quebra ? parsePT(els.quebra.value) : NaN;
 
           const distState = window.__DIST_EXTRA_MEDIO_STATE || null;
           const hasExtraBucket = !!(distState && ((Number(distState.extraCx) > 0) || (Number(distState.extraKg) > 0)));
@@ -9106,6 +9453,14 @@
           if(Number.isFinite(extraTotalRaw)) payload.sim_vlr1 = Number(extraTotalRaw.toFixed(2));
           if(Number.isFinite(medioQtyRaw)) payload.sim_qtd2 = Number(medioQtyRaw.toFixed(4));
           if(Number.isFinite(medioTotalRaw)) payload.sim_vlr2 = Number(medioTotalRaw.toFixed(2));
+          if(Number.isFinite(quebraValorRaw)) payload.ad_simqtddesc = quebraValorRaw;
+          if(codagregacao) payload.codagregacao = codagregacao;
+          if(sequencias.length){
+            payload.sequencias = sequencias;
+            if(!payload.sequencia){
+              payload.sequencia = sequencias[0];
+            }
+          }
 
           if(Object.keys(payload).length <= 1){
             console.warn('[SIMULAÇÃO] Nenhum valor de simulação válido para salvar');
@@ -9118,31 +9473,12 @@
             btn.style.opacity = '0.6';
           }
 
-          const sendPayloadForSeq = async (seqValue) => {
-            const body = { ...payload, sequencia: seqValue };
-            return window.__postJSON('/sankhya/comercial/dist/save/', body);
-          };
-
-          const responses = [];
-          for(const seqValue of sequencias){
-            try {
-              const resp = await sendPayloadForSeq(seqValue);
-              responses.push({ ok: resp.ok, body: resp.body, sequencia: seqValue });
-              if(!resp.ok){
-                break;
-              }
-            } catch(seqErr){
-              responses.push({ ok: false, body: { error: seqErr?.message || String(seqErr) }, sequencia: seqValue });
-              break;
-            }
-          }
-
-          const res = responses[responses.length - 1] || { ok: false, body: { error: 'Falha desconhecida' } };
+          const res = await window.__postJSON('/sankhya/comercial/dist/save/', payload);
           if(res.ok){
             if(typeof window.showToast === 'function'){
               window.showToast('Simulação salva no banco', 'success');
             }
-            console.log('[SIMULAÇÃO] ✅ Campos de simulação salvos para sequências', sequencias, payload);
+            console.log('[SIMULAÇÃO] ✅ Campos de simulação salvos', { sequencias, codagregacao, payload });
 
             const simUpdate = {};
             if(Object.prototype.hasOwnProperty.call(payload, 'sim_qtd1')){
@@ -9157,21 +9493,34 @@
             if(Object.prototype.hasOwnProperty.call(payload, 'sim_vlr2')){
               simUpdate.ad_simvlr2 = payload.sim_vlr2;
             }
+            if(Object.prototype.hasOwnProperty.call(payload, 'ad_simqtddesc')){
+              simUpdate.ad_simqtddesc = payload.ad_simqtddesc;
+            }
             if(Object.keys(simUpdate).length){
               const seqSet = new Set(sequencias);
+              const codagKey = codagregacao;
               const applyToRow = (row) => {
                 if(!row || typeof row !== 'object') return;
                 const rowNunota = Number(row.nunota ?? row.NUNOTA ?? row.nunota_pedido ?? 0);
                 const rowSeq = Number(row.sequencia ?? row.SEQUENCIA ?? row.sequencia_pedido ?? 0);
-                if(rowNunota !== nunota || (seqSet.size && !seqSet.has(rowSeq))) return;
+                if(rowNunota !== nunota) return;
+                if(!row.__simFields || typeof row.__simFields !== 'object'){
+                  row.__simFields = {};
+                }
+                if(Object.prototype.hasOwnProperty.call(simUpdate, 'ad_simqtddesc')){
+                  row.ad_simqtddesc = simUpdate.ad_simqtddesc;
+                  row.__simFields.ad_simqtddesc = simUpdate.ad_simqtddesc;
+                }
+                const rowLote = String(row.codagregacao ?? row.lote ?? row.CODAGREGACAO ?? '').trim();
+                const matchesLot = codagKey ? (rowLote === codagKey) : false;
+                if(seqSet.size && !seqSet.has(rowSeq) && !matchesLot){
+                  return;
+                }
                 ['ad_simqtd1','ad_simvlr1','ad_simqtd2','ad_simvlr2'].forEach(field => {
                   if(Object.prototype.hasOwnProperty.call(simUpdate, field)){
                     row[field] = simUpdate[field];
                   }
                 });
-                if(!row.__simFields || typeof row.__simFields !== 'object'){
-                  row.__simFields = {};
-                }
                 Object.assign(row.__simFields, simUpdate);
 
                 const toNum = (value) => {
@@ -9234,6 +9583,13 @@
             btn.disabled = false;
             btn.textContent = originalText || 'Aplicar';
             btn.style.opacity = '0.85';
+          }
+
+          if(Number.isFinite(quebraValorRaw)){
+            if(!window.__DIST_SIM_CACHE){
+              window.__DIST_SIM_CACHE = {};
+            }
+            window.__DIST_SIM_CACHE.quebra = Number(quebraValorRaw);
           }
         } catch(err) {
           console.error('[SIMULAÇÃO] ❌ Exceção ao salvar campos de simulação', err);
@@ -11055,6 +11411,7 @@
         const nunota = card ? Number(card.getAttribute('data-nunota') || '0') : 0;
         const sequencia = card ? Number(card.getAttribute('data-seq') || '0') : 0;
         const codprod = card ? Number(card.getAttribute('data-codprod') || '0') : 0;
+        const codprodInNatura = codprod || (window.__DIST_EXTRA_MEDIO_STATE?.codprod ? Number(window.__DIST_EXTRA_MEDIO_STATE.codprod) : 0);
         
         if(!(nunota > 0) || !(sequencia > 0)){
           alert('Selecione um vale da lista antes de salvar os valores.');
@@ -11103,12 +11460,80 @@
         }
         
         console.log('[VALE SAVE] LOTE encontrado:', lote);
+
+        // Garante que o cabeçalho do VALE exista antes da sincronização
+        const resolveNovoPreco = () => {
+          const candidates = [
+            state?.precoBase,
+            st?.custo?.porCx,
+            state?.extraCustoCx,
+            state?.medioCustoCx
+          ];
+          for(const candidate of candidates){
+            const num = Number(candidate);
+            if(Number.isFinite(num) && num > 0){
+              return num;
+            }
+          }
+          return 0;
+        };
+
+        const novoPrecoBase = resolveNovoPreco();
+        if(!(codprodInNatura > 0)){
+          alert('Não foi possível identificar o produto IN NATURA para o Vale.');
+          if(btnSave){
+            btnSave.disabled = false;
+            btnSave.textContent = originalLabel;
+          }
+          return;
+        }
+        if(!(novoPrecoBase > 0)){
+          alert('Informe o preço base (R$/cx) antes de salvar para o Vale.');
+          if(btnSave){
+            btnSave.disabled = false;
+            btnSave.textContent = originalLabel;
+          }
+          return;
+        }
+
+        if(btnSave){
+          btnSave.textContent = 'Preparando Vale...';
+        }
+
+        try{
+          const headerRes = await window.__postJSON('/sankhya/comercial/vale/verificar_ou_criar_cabecalho/', {
+            nunota_11: nunota,
+            codprod: codprodInNatura,
+            novo_preco: novoPrecoBase
+          });
+
+          if(!headerRes.ok || headerRes?.body?.ok === false){
+            const errMsg = headerRes?.body?.error || 'Falha ao preparar o Vale.';
+            console.warn('[VALE SAVE] Erro ao preparar cabeçalho do Vale:', headerRes);
+            alert(errMsg);
+            if(btnSave){
+              btnSave.disabled = false;
+              btnSave.textContent = originalLabel;
+            }
+            return;
+          }
+
+          console.log('[VALE SAVE] Cabeçalho preparado:', headerRes.body);
+        }catch(err){
+          console.error('[VALE SAVE] Exceção ao preparar cabeçalho do Vale:', err);
+          alert('Erro ao preparar o Vale. Tente novamente.');
+          if(btnSave){
+            btnSave.disabled = false;
+            btnSave.textContent = originalLabel;
+          }
+          return;
+        }
         
         // Montar payload para sincronização do VALE
         const payload = {
           nunota_pedido: nunota,
           sequencia_pedido: sequencia,
-          codprod_in_natura: codprod || state.codprod,
+          codprod_in_natura: codprodInNatura,
           lote: lote,
           
           // EXTRA (quantidades da classificação, valores editados pelo comercial)
@@ -11150,6 +11575,14 @@
             
             // Atualizar badge se NUNOTA do VALE mudou
             if (res.body?.nunota_vale) {
+              try {
+                if (typeof window.__refreshValeUI === 'function') {
+                  window.__refreshValeUI(res.body.nunota_vale);
+                }
+              } catch (uiErr) {
+                console.warn('[VALE SAVE] Falha ao sincronizar UI do vale:', uiErr);
+              }
+
               const valeEl = document.getElementById('entBadgeVale13');
               if (valeEl) {
                 valeEl.textContent = `Vale ${res.body.nunota_vale}`;
@@ -11169,6 +11602,26 @@
                 console.log('[VALE SAVE] Cache atualizado com nunota_13:', match);
               }
             }catch(_){}
+
+            // Recarregar dados em background para refletir novos totais
+            try {
+              if (typeof reloadDataSilent === 'function') {
+                await reloadDataSilent();
+              }
+            } catch (silentErr) {
+              console.warn('[VALE SAVE] Reload silencioso falhou:', silentErr);
+            }
+
+            // Se modal de faturamento estiver aberto, reprocessar conteúdo com dados atuais
+            try {
+              const modal = document.getElementById('modalFaturamento');
+              const isOpen = modal && modal.style.display && modal.style.display !== 'none';
+              if (isOpen && typeof openValeResumo === 'function') {
+                await openValeResumo(nunota);
+              }
+            } catch (modalErr) {
+              console.error('[VALE SAVE] Falha ao atualizar modal após salvar:', modalErr);
+            }
             
           }else{
             const errMsg = res.body?.error || 'Falha ao salvar no Vale';
