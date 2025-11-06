@@ -1137,12 +1137,16 @@
             <span style="color:#9ca3af; font-size:0.8rem;">A visualização atualiza conforme a seleção.</span>
             <div id="printModel2Options" style="display:none; align-items:center; gap:12px; color:#d1d5db; font-size:0.8rem; font-weight:600;">
               <label style="display:inline-flex; align-items:center; gap:6px;">
-                <input type="checkbox" id="printModel2SubtotalOnly" style="width:14px; height:14px; cursor:pointer;" />
-                Exibir somente subtotal
+                <input type="checkbox" id="printModel2SubtotalOnly" style="width:14px; height:14px; cursor:pointer;" checked />
+                Subtotal
               </label>
               <label style="display:inline-flex; align-items:center; gap:6px;">
-                <input type="checkbox" id="printModel2OnlyExtraMedio" style="width:14px; height:14px; cursor:pointer;" />
-                Exibir somente Extra/Médio
+                <input type="checkbox" id="printModel2OnlyExtraMedio" style="width:14px; height:14px; cursor:pointer;" checked />
+                Extra/Médio
+              </label>
+              <label style="display:inline-flex; align-items:center; gap:6px;">
+                <input type="checkbox" id="printModel2ShowQuebra" style="width:14px; height:14px; cursor:pointer;" checked />
+                Quebra
               </label>
             </div>
           </div>
@@ -4144,9 +4148,11 @@
         const modelToggle = document.getElementById('printModelToggle');
         const model2SubtotalToggle = document.getElementById('printModel2SubtotalOnly');
         const model2OnlyExtraMedioToggle = document.getElementById('printModel2OnlyExtraMedio');
+        const model2ShowQuebraToggle = document.getElementById('printModel2ShowQuebra');
         const selectedModel = modelToggle?.querySelector('.toggle-btn.is-active')?.dataset?.model || 'modelo1';
-        const model2SubtotalOnly = !!(model2SubtotalToggle && model2SubtotalToggle.checked);
-        const model2OnlyExtraMedio = !!(model2OnlyExtraMedioToggle && model2OnlyExtraMedioToggle.checked);
+        const model2ShowSubtotal = !!(model2SubtotalToggle && model2SubtotalToggle.checked);
+        const model2ShowExtraMedio = !!(model2OnlyExtraMedioToggle && model2OnlyExtraMedioToggle.checked);
+        const model2ShowQuebra = !!(model2ShowQuebraToggle && model2ShowQuebraToggle.checked);
         console.log('[PRINT DEBUG] Gerando relatório para modelo:', selectedModel);
         
         const title = document.getElementById('valeResumoTitle')?.textContent || '—';
@@ -4488,7 +4494,7 @@
                 if(hasExtra){
                   overallExtraQtd += info.extraQtd;
                   overallExtraTotal += info.extraTotal;
-                  if(!model2SubtotalOnly){
+                  if(model2ShowExtraMedio){
                     itemsHTML += `
                       <tr>
                         <td style="border-left:1px solid #000; border-right:0; border-top:0; border-bottom:0; padding:1mm 0.5mm 1mm 3mm; text-align:left; font-size:8pt; line-height:1.2;">Extra</td>
@@ -4503,7 +4509,7 @@
                 if(hasMedio){
                   overallMedioQtd += info.medioQtd;
                   overallMedioTotal += info.medioTotal;
-                  if(!model2SubtotalOnly){
+                  if(model2ShowExtraMedio){
                     itemsHTML += `
                       <tr>
                         <td style="border-left:1px solid #000; border-right:0; border-top:0; border-bottom:0; padding:1mm 0.5mm 1mm 3mm; text-align:left; font-size:8pt; line-height:1.2;">Médio</td>
@@ -4515,13 +4521,14 @@
                   }
                 }
 
+                // 🔥 Exibir quebra somente se o checkbox estiver marcado
                 const quebraRawDisplay = typeof info.quebraRaw === 'string' ? String(info.quebraRaw).trim() : (Number.isFinite(info.quebraRaw) ? String(info.quebraRaw) : '');
                 const quebraQtd = Number.parseFloat(quebraRawDisplay.replace(/[^0-9,.-]/g, '').replace(',', '.'));
                 const hasQuebraQtd = Number.isFinite(quebraQtd) && Math.abs(quebraQtd) > 1e-9;
                 const quebraQtyText = hasQuebraQtd ? formatQty(quebraQtd) : (quebraRawDisplay || '');
                 const quebraSuffix = hasQuebraQtd ? ' <span style="font-size:6pt;">CX</span>' : '';
 
-                if(quebraRawDisplay){
+                if(model2ShowQuebra && quebraRawDisplay){
                   itemsHTML += `
                     <tr>
                       <td style="border-left:1px solid #000; border-right:0; border-top:0; border-bottom:0; padding:1mm 0.5mm 1mm 3mm; text-align:left; font-size:8pt; line-height:1.2;">Quebra</td>
@@ -4537,8 +4544,8 @@
                   valorTotalGeral += subtotalTotal;
                 }
 
-                // Skip product subtotal when showing only the Extra/Médio breakdown
-                if((subtotalQtd > 0 || subtotalTotal > 0) && !model2OnlyExtraMedio){
+                // Exibir subtotal do produto se checkbox estiver marcado
+                if((subtotalQtd > 0 || subtotalTotal > 0) && model2ShowSubtotal){
                   itemsHTML += `
                     <tr style="background:#f1f5f9; font-weight:bold;">
                       <td style="border-left:1px solid #000; border-right:0; border-bottom:1px solid #000; border-top:0; padding:1mm 0.5mm 1mm 3mm; text-align:left; font-size:8pt; line-height:1.2;">Subtotal</td>
@@ -4653,11 +4660,14 @@
             const medioCustoCx = medioCx > 0 ? (produto.medioVlrtot / medioCx) : 0;
             const medioCustoTotal = produto.medioVlrtot;
             
-            // Adicionar nome do produto como cabeçalho
+            // Adicionar nome do produto como cabeçalho + linha em branco
             if(extraCx > 0 || medioCx > 0){
               itemsHTML += `
                 <tr style="background:#e8f4f8;">
-                  <td colspan="4" style="border:1px solid #000; padding:1.5mm 0.5mm; text-align:center; font-size:8pt; font-weight:bold; line-height:1.2;">${produto.nome}</td>
+                  <td colspan="4" style="border:1px solid #000; border-bottom:0; padding:1.5mm 0.5mm; text-align:left; font-size:8pt; font-weight:bold; line-height:1.2;">${produto.nome}</td>
+                </tr>
+                <tr style="background:#fff;">
+                  <td colspan="4" style="border-left:1px solid #000; border-right:1px solid #000; border-top:0; border-bottom:0; padding:0.5mm; line-height:1;"></td>
                 </tr>
               `;
             }
@@ -4665,10 +4675,10 @@
             if(extraCx > 0){
               itemsHTML += `
                 <tr>
-                  <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">EXTRA</td>
-                  <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${extraCx.toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1})} <span style="font-size:6pt;">CX</span></td>
-                  <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${extraCustoCx.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                  <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${extraCustoTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                  <td style="border-left:1px solid #000; border-bottom:${medioCx > 0 ? '0' : '1px solid #000'}; border-right:0; border-top:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">EXTRA</td>
+                  <td style="border-bottom:${medioCx > 0 ? '0' : '1px solid #000'}; border-left:0; border-right:0; border-top:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${extraCx.toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1})} <span style="font-size:6pt;">CX</span></td>
+                  <td style="border-bottom:${medioCx > 0 ? '0' : '1px solid #000'}; border-left:0; border-right:0; border-top:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${extraCustoCx.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                  <td style="border-right:1px solid #000; border-bottom:${medioCx > 0 ? '0' : '1px solid #000'}; border-left:0; border-top:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${extraCustoTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                 </tr>
               `;
               totalItens++;
@@ -4679,10 +4689,10 @@
             if(medioCx > 0){
               itemsHTML += `
                 <tr>
-                  <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">MÉDIO</td>
-                  <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${medioCx.toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1})} <span style="font-size:6pt;">CX</span></td>
-                  <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${medioCustoCx.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                  <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${medioCustoTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                  <td style="border:1px solid #000; border-right:0; border-top:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">MÉDIO</td>
+                  <td style="border-bottom:1px solid #000; border-left:0; border-right:0; border-top:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${medioCx.toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1})} <span style="font-size:6pt;">CX</span></td>
+                  <td style="border-bottom:1px solid #000; border-left:0; border-right:0; border-top:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${medioCustoCx.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                  <td style="border:1px solid #000; border-left:0; border-top:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${medioCustoTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                 </tr>
               `;
               totalItens++;
@@ -4705,102 +4715,244 @@
           }
           
         } else if(selectedModel === 'modelo4'){
-          // MODELO 4 - CLASSIFICAÇÃO COMPLETA
-          // Todos os produtos da classificação + distribuição (Extra/Médio) + porcentagens
-          const classBody = document.getElementById('valeClassBody');
-          const outrosBody = document.getElementById('valeOutrosBody');
+          // MODELO 4 - CLASSIFICAÇÃO
+          // Buscar produtos da TOP 26 (classificação) diretamente do banco
+          const formatQty = (value) => {
+            if(!Number.isFinite(value) || Math.abs(value) < 1e-9) return '0';
+            const decimals = Math.abs(value - Math.trunc(value)) > 1e-6 ? 2 : 0;
+            return value.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: decimals });
+          };
+          const formatMoney = (value) => {
+            const safe = Number.isFinite(value) ? value : 0;
+            return safe.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          };
+          const escapeHtml = (value) => {
+            if(value === null || value === undefined) return '';
+            return String(value)
+              .replace(/&/g, '&amp;')
+              .replace(/"/g, '&quot;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;');
+          };
           
-          // Classificáveis
-          if(classBody){
-            const rows = classBody.querySelectorAll('tr');
-            rows.forEach(tr => {
-              const cells = tr.querySelectorAll('td');
-              if(cells.length >= 5){
-                const produto = cells[0]?.textContent?.trim() || '';
-                const qtd = cells[1]?.textContent?.trim() || '';
-                const vlrUn = cells[2]?.textContent?.trim() || '';
-                const vlrTotal = cells[4]?.textContent?.trim() || '';
-                
-                if(produto && produto !== '—'){
-                  const qtdCompleta = qtd.trim();
-                  const matchQtd = qtdCompleta.match(/([0-9.,]+)\s*([A-Za-zÀ-ÿ]+)?/);
-                  const qtdNumero = matchQtd ? matchQtd[1] : qtdCompleta;
-                  const volUnitRaw = matchQtd && matchQtd[2] ? matchQtd[2] : '';
-                  const volUnit = volUnitRaw ? volUnitRaw.toUpperCase() : '';
-                  
-                  itemsHTML += `
-                    <tr>
-                      <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">${produto}</td>
-                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${qtdNumero}${volUnit ? ' <span style="font-size:6pt;">' + volUnit + '</span>' : ''}</td>
-                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${vlrUn.replace('R$', '').trim()}</td>
-                      <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${vlrTotal.replace('R$', '').trim()}</td>
-                    </tr>
-                  `;
-                  totalItens++;
-                  const peso = parseFloat(qtd.replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
-                  pesoTotal += peso;
-                  const valor = parseFloat(vlrTotal.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-                  valorTotalGeral += valor;
+          const modalData = window.__CURRENT_MODAL_FATURAMENTO;
+          
+          // 🔥 Buscar lote (CODAGREGACAO) do vale
+          const nunotaValeClass = window.__CURRENT_VALE_NUNOTA || modalData?.nunotaVale;
+          const valeRowsClass = (window.__COM_LIST_ROWS||[]).filter(r=> String(r.nunota||'') === String(nunotaValeClass||''));
+          const lote = valeRowsClass[0]?.codagregacao || valeRowsClass[0]?.lote || valeRowsClass[0]?.CODAGREGACAO || null;
+          
+          console.log('[PRINT MODELO 4] NUNOTA Vale:', nunotaValeClass, 'Lote:', lote);
+          
+          // 🔥 Buscar dados da classificação via API (TOP 26 não está em __COM_LIST_ROWS)
+          let classificacaoData = [];
+          if(lote){
+            try {
+              const respClass = await fetch(`/sankhya/classificacao/resumo/?lote=${encodeURIComponent(lote)}`);
+              if(respClass.ok){
+                const dataClass = await respClass.json();
+                if(dataClass && dataClass.ok && Array.isArray(dataClass.linhas)){
+                  classificacaoData = dataClass.linhas;
+                  console.log('[PRINT MODELO 4] ✅ Classificação carregada:', classificacaoData.length, 'produtos');
+                } else {
+                  console.error('[PRINT MODELO 4] ❌ Resposta inválida da classificação:', dataClass);
                 }
+              } else {
+                console.error('[PRINT MODELO 4] ❌ Erro ao buscar classificação:', respClass.status);
+              }
+            } catch(err) {
+              console.error('[PRINT MODELO 4] ❌ Erro na requisição classificação:', err);
+            }
+          } else {
+            console.error('[PRINT MODELO 4] ❌ Lote não encontrado, não é possível buscar classificação');
+          }
+          
+          console.log('[PRINT MODELO 4] Total produtos classificação:', classificacaoData.length);
+          
+          // Buscar itens do vale (TOP 13) para pegar VLRTOT
+          let valeData = [];
+          if(nunotaValeClass){
+            try {
+              const resp = await fetch(`/sankhya/comercial/api/itens_vale/?nunota=${nunotaValeClass}`);
+              if(resp.ok){
+                const data = await resp.json();
+                if(Array.isArray(data)){
+                  valeData = data;
+                } else if(data && Array.isArray(data.itens)){
+                  valeData = data.itens;
+                } else if(data && Array.isArray(data.items)){
+                  valeData = data.items;
+                } else if(data && Array.isArray(data.rows)){
+                  valeData = data.rows;
+                } else if(data && typeof data === 'object'){
+                  valeData = Object.values(data).filter(item => item && typeof item === 'object');
+                }
+                console.log('[PRINT MODELO 4] ✅ Dados do vale carregados:', valeData.length, 'itens');
+              }
+            } catch(err) {
+              console.error('[PRINT MODELO 4] ❌ Erro ao buscar vale:', err);
+            }
+          }
+          
+          // Agrupar produtos por nome completo (soma múltiplos lançamentos)
+          // classificacaoData vem do endpoint /classificacao/resumo/ com: { produto, cx, kg, fator_cx }
+          const produtosMap = {};
+          
+          classificacaoData.forEach(item => {
+            const prod = (item.produto || '').trim();
+            if(!prod) return;
+            
+            if(!produtosMap[prod]){
+              produtosMap[prod] = {
+                produto: prod,
+                qtdnegKg: 0,
+                qtdconferida: Number(item.fator_cx || 20), // kg por caixa
+                items: []
+              };
+            }
+            
+            produtosMap[prod].qtdnegKg += Number(item.kg || 0);
+            produtosMap[prod].items.push(item);
+          });
+          
+          const produtos = Object.values(produtosMap);
+          
+          console.log('[PRINT MODELO 4] Produtos agrupados:', produtos.length);
+          
+          // Função para identificar se produto é EXTRA
+          const isExtra = (nome) => {
+            const upper = String(nome).toUpperCase();
+            return upper.includes('EXTRA') || 
+                   upper === 'REPOLHO BRANCO' || 
+                   upper === 'REPOLHO ROXO';
+          };
+          
+          // Função para buscar VLRTOT do vale
+          const getVlrTotFromVale = (nomeProduto) => {
+            // Tentar match exato primeiro
+            let valeItem = valeData.find(v => {
+              const vNome = (v.produto || v.descrprod || '').toUpperCase();
+              return vNome === nomeProduto.toUpperCase();
+            });
+            
+            // Se não encontrar exato, tentar por nome base + tipo
+            if(!valeItem){
+              const prodUpper = nomeProduto.toUpperCase();
+              const extraProd = isExtra(nomeProduto);
+              
+              valeItem = valeData.find(v => {
+                const vNome = (v.produto || v.descrprod || '').toUpperCase();
+                const vExtra = vNome.includes('EXTRA');
+                const vMedio = vNome.includes('MEDIO') || vNome.includes('MÉDIO') || 
+                               vNome.includes('MEDIA') || vNome.includes('MÉDIA');
+                
+                // Match por tipo (extra com extra, médio com médio)
+                if(extraProd && vExtra) return true;
+                if(!extraProd && vMedio) return true;
+                
+                return false;
+              });
+            }
+            
+            return valeItem ? Number(valeItem.vlrtot || 0) : 0;
+          };
+          
+          // Agrupar por nome base para criar seções
+          const getNomeBase = (nome) => {
+            return nome
+              .replace(/\s+(EXTRA|MÉDIA|MEDIO|MEDIA|QUEBRADA|QUEBRADO|G|M|P|GG)\s*$/gi, '')
+              .trim()
+              .toUpperCase();
+          };
+          
+          const gruposMap = {};
+          produtos.forEach(p => {
+            const base = getNomeBase(p.produto);
+            if(!gruposMap[base]){
+              gruposMap[base] = {
+                nomeBase: base,
+                produtos: []
+              };
+            }
+            gruposMap[base].produtos.push(p);
+          });
+          
+          const grupos = Object.values(gruposMap);
+          
+          if(!produtos.length){
+            itemsHTML += `
+              <tr>
+                <td colspan="5" style="border:1px solid #000; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2; color:#475569;">Sem dados de classificação disponíveis.</td>
+              </tr>
+            `;
+          } else {
+            // Iterar por grupos (produto base)
+            grupos.forEach((grupo, gIdx) => {
+              let totalGrupoQtd = 0;
+              let totalGrupoVlr = 0;
+              let totalGrupoKg = 0;
+              
+              // Produtos do grupo
+              grupo.produtos.forEach((info, pIdx) => {
+                totalItens++;
+                
+                const qtdKg = info.qtdnegKg;
+                const qtdCx = qtdKg / info.qtdconferida;
+                const vlrTotal = getVlrTotFromVale(info.produto);
+                const vlrCx = (qtdCx > 0 && vlrTotal > 0) ? vlrTotal / qtdCx : 0;
+                const pct = 0; // Calculado depois
+                
+                totalGrupoQtd += qtdCx;
+                totalGrupoVlr += vlrTotal;
+                totalGrupoKg += qtdKg;
+                
+                valorTotalGeral += vlrTotal;
+                qtdTotalGeral += qtdCx;
+                
+                itemsHTML += `
+                  <tr>
+                    <td style="border-left:1px solid #000; border-right:0; border-top:${pIdx === 0 ? '1px' : '0'} solid #000; border-bottom:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">${escapeHtml(info.produto)}</td>
+                    <td style="border-left:0; border-right:0; border-top:${pIdx === 0 ? '1px' : '0'} solid #000; border-bottom:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;"><span id="pct-${gIdx}-${pIdx}">—</span></td>
+                    <td style="border-left:0; border-right:0; border-top:${pIdx === 0 ? '1px' : '0'} solid #000; border-bottom:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${formatQty(qtdCx)} <span style="font-size:6pt;">CX</span></td>
+                    <td style="border-left:0; border-right:0; border-top:${pIdx === 0 ? '1px' : '0'} solid #000; border-bottom:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${formatMoney(vlrCx)}</td>
+                    <td style="border-left:0; border-right:1px solid #000; border-top:${pIdx === 0 ? '1px' : '0'} solid #000; border-bottom:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${formatMoney(vlrTotal)}</td>
+                  </tr>
+                `;
+              });
+              
+              // Calcular porcentagens do grupo e atualizar
+              grupo.produtos.forEach((info, pIdx) => {
+                const qtdCx = info.qtdnegKg / info.qtdconferida;
+                const pct = totalGrupoQtd > 0 ? (qtdCx / totalGrupoQtd * 100) : 0;
+                // Marcar para atualizar depois (via JavaScript após render)
+                setTimeout(() => {
+                  const el = document.getElementById(`pct-${gIdx}-${pIdx}`);
+                  if(el) el.textContent = formatQty(pct) + '%';
+                }, 0);
+              });
+              
+              // Linha TOTAL do grupo
+              const vlrCxGrupo = totalGrupoQtd > 0 ? totalGrupoVlr / totalGrupoQtd : 0;
+              itemsHTML += `
+                <tr style="background:#f1f5f9; font-weight:bold;">
+                  <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">TOTAL ${escapeHtml(grupo.nomeBase)}</td>
+                  <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">100%</td>
+                  <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${formatQty(totalGrupoQtd)} <span style="font-size:6pt;">CX</span></td>
+                  <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${formatMoney(vlrCxGrupo)}</td>
+                  <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${formatMoney(totalGrupoVlr)}</td>
+                </tr>
+              `;
+              
+              // Espaço entre grupos
+              if(gIdx < grupos.length - 1){
+                itemsHTML += `
+                  <tr style="height:3mm;">
+                    <td colspan="5" style="border:0; padding:0;"></td>
+                  </tr>
+                `;
               }
             });
           }
-          
-          // Não classificáveis
-          if(outrosBody){
-            const rows = outrosBody.querySelectorAll('tr');
-            rows.forEach(tr => {
-              const cells = tr.querySelectorAll('td');
-              if(cells.length >= 4){
-                const produto = cells[0]?.textContent?.trim() || '';
-                const qtd = cells[1]?.textContent?.trim() || '';
-                const vlr = cells[2]?.textContent?.trim() || '';
-                const vlrTotal = cells[3]?.textContent?.trim() || '';
-                
-                if(produto && produto !== '—'){
-                  const qtdCompleta = qtd.trim();
-                  const matchQtd = qtdCompleta.match(/([0-9.,]+)\s*([A-Za-zÀ-ÿ]+)?/);
-                  const qtdNumero = matchQtd ? matchQtd[1] : qtdCompleta;
-                  const volUnitRaw = matchQtd && matchQtd[2] ? matchQtd[2] : '';
-                  const volUnit = volUnitRaw ? volUnitRaw.toUpperCase() : '';
-                  
-                  itemsHTML += `
-                    <tr>
-                      <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">${produto}</td>
-                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${qtdNumero}${volUnit ? ' <span style="font-size:6pt;">' + volUnit + '</span>' : ''}</td>
-                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${vlr.replace('R$', '').trim()}</td>
-                      <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${vlrTotal.replace('R$', '').trim()}</td>
-                    </tr>
-                  `;
-                  totalItens++;
-                  const peso = parseFloat(qtd.replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
-                  pesoTotal += peso;
-                  const valor = parseFloat(vlrTotal.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-                  valorTotalGeral += valor;
-                }
-              }
-            });
-          }
-          
-          // Adicionar resumo Distribuição (Extra/Médio) e porcentagens
-          const extraShareTxt = document.querySelector('#distMiniExtra .class-share')?.textContent || '0%';
-          const medioShareTxt = document.querySelector('#distMiniMedio .class-share')?.textContent || '0%';
-          
-          itemsHTML += `
-            <tr style="background:#e8f4f8;">
-              <td colspan="4" style="border:1px solid #000; padding:1.5mm 0.5mm; text-align:center; font-size:8pt; font-weight:bold; line-height:1.2;">DISTRIBUIÇÃO</td>
-            </tr>
-            <tr style="background:#f0f0f0;">
-              <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">EXTRA</td>
-              <td colspan="2" style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${extraShareTxt}</td>
-              <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;">—</td>
-            </tr>
-            <tr style="background:#f0f0f0;">
-              <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">MÉDIO</td>
-              <td colspan="2" style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${medioShareTxt}</td>
-              <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;">—</td>
-            </tr>
-          `;
         }
         
         const now = new Date();
@@ -4959,17 +5111,15 @@
       }
       const model2SubtotalOnlyEl = document.getElementById('printModel2SubtotalOnly');
       const model2OnlyExtraMedioEl = document.getElementById('printModel2OnlyExtraMedio');
+      const model2ShowQuebraEl = document.getElementById('printModel2ShowQuebra');
 
       model2SubtotalOnlyEl?.addEventListener('change', ()=>{
-        if(model2SubtotalOnlyEl.checked && model2OnlyExtraMedioEl){
-          model2OnlyExtraMedioEl.checked = false;
-        }
         printVale();
       });
       model2OnlyExtraMedioEl?.addEventListener('change', ()=>{
-        if(model2OnlyExtraMedioEl.checked && model2SubtotalOnlyEl){
-          model2SubtotalOnlyEl.checked = false;
-        }
+        printVale();
+      });
+      model2ShowQuebraEl?.addEventListener('change', ()=>{
         printVale();
       });
       updatePrintModel2Options();
