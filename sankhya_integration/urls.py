@@ -57,6 +57,7 @@ urlpatterns = [
     path("comercial/sim/list/", views.comercial_sim_list, name="comercial_sim_list"),
     path("comercial/dist/save/", views.comercial_dist_save, name="comercial_dist_save"),
     path("comercial/dist/reset/", views.comercial_dist_reset, name="comercial_dist_reset"),
+    path("comercial/peso/save/", views.comercial_peso_save, name="comercial_peso_save"),
     path("comercial/vale/gerar/", views.comercial_vale_gerar, name="comercial_vale_gerar"),
     path("comercial/vale/verificar_ou_criar_cabecalho/", views.comercial_vale_verificar_ou_criar_cabecalho, name="comercial_vale_verificar_ou_criar_cabecalho"),
     path("comercial/vale/save/", views.comercial_vale_save, name="comercial_vale_save"),

@@ -3655,6 +3655,65 @@ def comercial_dist_save(request: HttpRequest) -> JsonResponse:
     return JsonResponse(plan, status=status_code)
 
 
+@require_http_methods(['POST'])
+@csrf_exempt
+def comercial_peso_save(request: HttpRequest) -> JsonResponse:
+    """Salvar QTDCONFERIDA do item na TOP 11 (pedido)."""
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except Exception as e:
+        logger.exception('Erro ao parsear JSON')
+        return JsonResponse({'ok': False, 'error': f'JSON inválido: {str(e)}'}, status=400)
+    
+    nunota = _to_int_or(payload.get('nunota'))
+    sequencia = _to_int_or(payload.get('sequencia'))
+    qtdconferida = payload.get('qtdconferida')
+    
+    if not nunota or not sequencia:
+        return JsonResponse({'ok': False, 'error': 'Informe nunota e sequencia'}, status=400)
+    
+    if qtdconferida is None:
+        return JsonResponse({'ok': False, 'error': 'Informe qtdconferida'}, status=400)
+    
+    try:
+        qtdconferida = float(qtdconferida)
+    except (ValueError, TypeError):
+        return JsonResponse({'ok': False, 'error': 'qtdconferida deve ser numérico'}, status=400)
+    
+    if qtdconferida < 0:
+        return JsonResponse({'ok': False, 'error': 'qtdconferida não pode ser negativo'}, status=400)
+    
+    # Atualizar QTDCONFERIDA na TGFITE
+    sql = """
+        UPDATE TGFITE 
+        SET QTDCONFERIDA = :qtdconferida 
+        WHERE NUNOTA = :nunota AND SEQUENCIA = :sequencia
+    """
+    
+    try:
+        from .services.oracle_conn import get_connection
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql, {
+                'qtdconferida': qtdconferida,
+                'nunota': nunota,
+                'sequencia': sequencia
+            })
+            conn.commit()
+            
+            logger.info(f'[PESO CLASSIFICADO] QTDCONFERIDA atualizado: nunota={nunota}, seq={sequencia}, peso={qtdconferida}')
+            
+            return JsonResponse({
+                'ok': True,
+                'nunota': nunota,
+                'sequencia': sequencia,
+                'qtdconferida': qtdconferida
+            })
+    except Exception as e:
+        logger.exception('Erro ao salvar QTDCONFERIDA')
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+
 def comercial_item_lote(request: HttpRequest) -> JsonResponse:
     """Retorna o LOTE (LOTE) de um item do PEDIDO."""
     nunota = _to_int_or(request.GET.get('nunota'))
@@ -4943,6 +5002,7 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
             codtipoper_val = (r[20] if len(r) > 20 else None)
             numpedido_val = (r[21] if len(r) > 21 else None)
             fabricante_val = (r[22] if len(r) > 22 else None)
+            qtdconferida_val = (r[23] if len(r) > 23 else None)
             try:
                 # compact date for UI: send DD/MM
                 if hasattr(dt, 'strftime'):
@@ -5027,6 +5087,7 @@ def comercial_lista(request: HttpRequest) -> JsonResponse:
                 'codtipoper': (int(codtipoper_val) if codtipoper_val is not None else None),
                 'numpedido': (int(numpedido_val) if numpedido_val is not None else None),
                 'fabricante': (str(fabricante_val) if fabricante_val not in (None, '') else None),
+                'qtdconferida': (float(qtdconferida_val) if qtdconferida_val not in (None, '') else None),
             })
         return JsonResponse({ 'ok': True, 'rows': out, 'limit': limit, 'offset': offset })
     except Exception as e:

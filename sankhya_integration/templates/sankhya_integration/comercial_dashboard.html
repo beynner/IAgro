@@ -143,17 +143,17 @@
   /* specific regions - tuned to match screenshot */
   /* Filtros: altura automática para comportar o formulário */
   #filtersCard{height:auto}
-  #filtersCard .filtros-form{display:grid;grid-template-columns:1fr;gap:8px}
+  #filtersCard .filtros-form{display:grid;grid-template-columns:1fr;gap:6px}
   #filtersCard fieldset{border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;background:var(--card);margin:0}
   #filtersCard legend{font-size:.8rem;font-weight:700;color:#334155;padding:0 4px}
-  #filtersCard .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  #filtersCard .row{display:grid;grid-template-columns:1fr 1fr;gap:6px}
   #filtersCard label{display:flex;align-items:center;gap:6px;font-size:.8rem;color:#334155}
-  #filtersCard .stack{display:flex;flex-direction:column;gap:4px}
-  #filtersCard input[type="text"],#filtersCard input[type="date"],#filtersCard select{width:100%;padding:5px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:.8rem}
+  #filtersCard .stack{display:flex;flex-direction:column;gap:3px}
+  #filtersCard input[type="text"],#filtersCard input[type="date"],#filtersCard select{width:100%;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:.75rem}
   #filtersCard .class-toggle{display:flex;width:100%;border:1px solid #cbd5e1;border-radius:999px;overflow:hidden;background:#fff;align-self:flex-start}
-  #filtersCard .class-toggle label{position:relative;display:flex;flex:1;min-height:32px;align-items:stretch}
+  #filtersCard .class-toggle label{position:relative;display:flex;flex:1;min-height:28px;align-items:stretch}
   #filtersCard .class-toggle input{position:absolute;opacity:0;pointer-events:none}
-  #filtersCard .class-toggle span{flex:1;display:flex;align-items:center;justify-content:center;height:100%;padding:6px 14px;font-size:.75rem;font-weight:600;color:#475569;cursor:pointer;user-select:none;letter-spacing:.03em;transition:all .15s ease}
+  #filtersCard .class-toggle span{flex:1;display:flex;align-items:center;justify-content:center;height:100%;padding:5px 10px;font-size:.7rem;font-weight:600;color:#475569;cursor:pointer;user-select:none;letter-spacing:.03em;transition:all .15s ease}
   #filtersCard .class-toggle label + label span{border-left:1px solid #cbd5e1}
   #filtersCard .class-toggle input:checked + span{background:#0ea5e9;color:#fff}
   #filtersCard .class-toggle label.is-active span{background:#0ea5e9;color:#fff}
@@ -162,9 +162,15 @@
   #listaTable tr.vale-header.vale--faturado{background:#ecfdf5}
   #listaTable tr.vale-header.vale--aberto{background:#fefce8}
   #filtersCard .actions{display:flex;justify-content:flex-end}
-  #filtersCard .btn{appearance:none;-webkit-appearance:none;border-radius:6px;padding:5px 10px;font-size:.8rem;font-weight:600;cursor:pointer;line-height:1;border:1px solid transparent;background:#fff}
+  #filtersCard .btn{appearance:none;-webkit-appearance:none;border-radius:6px;padding:4px 8px;font-size:.75rem;font-weight:600;cursor:pointer;line-height:1;border:1px solid transparent;background:#fff}
   #filtersCard .btn-clear{border-color:#f59e0b;color:#b45309;background:#fff}
   #filtersCard .btn-clear:hover{background:#fff7ed}
+  .print-model-toggle{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid #4b5563;border-radius:999px;overflow:hidden;background:#111827;min-width:0}
+  .print-model-toggle .toggle-btn{appearance:none;-webkit-appearance:none;border:none;background:transparent;color:#9ca3af;font-size:.65rem;font-weight:500;line-height:1.2;padding:8px 12px;cursor:pointer;display:flex;align-items:center;justify-content:center;border-right:1px solid #4b5563;transition:background-color .2s ease,color .2s ease}
+  .print-model-toggle .toggle-btn:last-child{border-right:none}
+  .print-model-toggle .toggle-btn.is-active{background:#0ea5e9;color:#0f172a}
+  .print-model-toggle .toggle-btn:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
+  @media(max-width:520px){.print-model-toggle{grid-template-columns:repeat(2,minmax(0,1fr))}}
   /* Autocomplete dropdown highlight for active row */
   .ac-dropdown .ac-item.active{
     background: #FEF3C7 !important;
@@ -316,23 +322,24 @@
 
   /* ----- SIMULAÇÃO (T1 - tabelas compactas) ----- */
   #distSim .sim-wrap{display:flex;flex-direction:column;gap:6px}
-  #distSim .sim-sec{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px;box-shadow:0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)}
-  #distSim .sim-title{font-size:.72rem;font-weight:700;color:#334155;margin:0 0 4px 0}
-  #distSim .sim-table{display:flex;flex-direction:column;gap:4px}
-  #distSim .sim-row{display:flex;align-items:center;justify-content:space-between;gap:6px}
-  #distSim .sim-label{flex:0 0 42%;font-size:.75rem;color:#475569;line-height:1.2}
-  #distSim .sim-control{flex:1;display:flex;align-items:center;gap:6px}
-  #distSim .sim-control input{width:100%;padding:3px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:.8rem;line-height:1.2;text-align:right}
+  #distSim .sim-sec{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:6px;box-shadow:0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)}
+  #distSim .sim-title{font-size:.7rem;font-weight:700;color:#334155;margin:0 0 3px 0}
+  #distSim .sim-table{display:flex;flex-direction:column;gap:3px}
+  #distSim .sim-row{display:flex;align-items:center;justify-content:space-between;gap:4px}
+  #distSim .sim-label{flex:0 0 40%;font-size:.7rem;color:#475569;line-height:1.1}
+  #distSim .sim-control{flex:1;display:flex;align-items:center;gap:4px}
+  #distSim .sim-control input{width:100%;padding:2px 4px;border:1px solid #cbd5e1;border-radius:6px;font-size:.74rem;line-height:1.1;text-align:right}
   #distSim .sim-control input::placeholder{color:#94a3b8}
   #distSim .sim-footer{margin-top:2px}
   #distSim .sim-summary{display:flex;flex-direction:column;background:#f8fafb;border:1px solid #e5e7eb;border-radius:8px;padding:6px 8px}
-  #distSim .sim-total-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-weight:700;color:#0a3392;border-top:1px solid #e5e7eb;font-size:.85rem}
+  #distSim .sim-total-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-weight:700;color:#0a3392;border-top:1px solid #e5e7eb;font-size:.8rem}
   #distSim .sim-total-row:first-child{border-top:none;padding-top:0}
   #distSim .sim-total-row span:first-child{font-weight:400;color:#334155}
   #distSim .sim-total-row--input .sim-control{flex:0 0 auto;justify-content:flex-end}
   #distSim .sim-total-row--input .sim-control input{max-width:90px;text-align:right}
-  #distSim .sim-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px;margin-bottom:8px}
-  #distSim .btn{appearance:none;-webkit-appearance:none;border-radius:6px;padding:5px 10px;font-size:.8rem;font-weight:600;cursor:pointer;line-height:1;border:1px solid transparent;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);transition:box-shadow .2s ease,background-color .2s ease}
+  #distSim .sim-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:6px;margin:6px 0 2px;padding-bottom:2px;width:100%}
+  #distSim .btn{appearance:none;-webkit-appearance:none;border-radius:6px;padding:5px 8px;font-size:.68rem;font-weight:600;cursor:pointer;line-height:1;border:1px solid transparent;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);transition:box-shadow .2s ease,background-color .2s ease}
+  #distSim .sim-actions .btn{flex:0 1 60px;min-width:56px;max-width:72px;text-align:center}
   /* Limpar: borda laranja, fundo branco */
   #distSim .btn-secondary{border-color:#f59e0b;color:#b45309;background:#fff}
   #distSim .btn-secondary:hover{background:#fff7ed;box-shadow:0 4px 8px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.08)}
@@ -497,10 +504,13 @@
 
   /* Preço inline edit within unified card without layout shift */
   #quantidadeInnCard .kpi-row .value{position:relative;display:flex;align-items:baseline;gap:4px}
-  #quantidadeInnCard .editable{cursor:text;display:inline-block}
-  #quantidadeInnCard .preco-input{display:none;position:absolute;left:0;top:50%;transform:translateY(-50%);font-weight:800;color:#334155;text-align:right;background:transparent;border:1px solid #cbd5e1;border-radius:6px;padding:4px 8px;width:auto;min-width:80px;max-width:100%;z-index:1}
+  #quantidadeInnCard .peso-row{overflow:hidden}
+  #quantidadeInnCard .peso-row .value{position:relative;display:flex;align-items:baseline;gap:2px;max-width:100%;overflow:hidden}
+  #quantidadeInnCard .editable{cursor:text;display:inline-block;max-width:70px;overflow:hidden;text-overflow:ellipsis}
+  #quantidadeInnCard .preco-input{display:none;position:absolute;left:0;top:50%;transform:translateY(-50%);font-weight:800;color:#334155;text-align:right;background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:4px 8px;width:auto;min-width:50px;max-width:70px;z-index:10;box-shadow:0 1px 3px rgba(0,0,0,0.1)}
   /* ao editar preço, esconda somente o display dentro das linhas de preço */
   #quantidadeInnCard.editing-cx .kpi-row .editable{visibility:hidden}
+  #quantidadeInnCard.editing-cx .peso-row .editable{visibility:hidden}
   #quantidadeInnCard.editing-cx .preco-input{display:inline-block}
   #quantidadeInnCard.locked{position:relative}
   #quantidadeInnCard.locked .editable{pointer-events:none;color:#94a3b8;cursor:not-allowed}
@@ -825,35 +835,34 @@
             </div>
             <div class="row" style="grid-template-columns:1fr 1fr;">
               <div class="stack">
-                <span id="fltClassToggleLabel" style="font-size:.8rem; font-weight:700; color:#334155;">Classificação</span>
+                <span id="fltClassToggleLabel" style="font-size:.8rem; font-weight:700; color:#334155;">Tem classificação?</span>
                 <div class="class-toggle" role="radiogroup" aria-labelledby="fltClassToggleLabel" id="fltClassToggle">
                   <label>
                     <input type="radio" name="fltClassificavel" value="S" />
-                    <span>Classifica</span>
+                    <span>Sim</span>
                   </label>
                   <label>
                     <input type="radio" name="fltClassificavel" value="N" />
-                    <span>Não Classifica</span>
+                    <span>Não</span>
                   </label>
                 </div>
               </div>
               <div class="stack">
-                <span id="fltFatToggleLabel" style="font-size:.8rem; font-weight:700; color:#334155;">Faturamento</span>
+                <span id="fltFatToggleLabel" style="font-size:.8rem; font-weight:700; color:#334155;">Foi faturado?</span>
                 <div class="class-toggle" role="radiogroup" aria-labelledby="fltFatToggleLabel" id="fltFatToggle">
                   <label>
                     <input type="radio" name="fltFaturado" value="S" />
-                    <span>Faturado</span>
+                    <span>Sim</span>
                   </label>
                   <label>
                     <input type="radio" name="fltFaturado" value="N" />
-                    <span>Não Faturado</span>
+                    <span>Não</span>
                   </label>
                 </div>
               </div>
             </div>
             <div class="actions" style="display:flex; gap:8px;">
-              <button type="button" id="btnLimparFiltros" class="btn btn-clear" style="font-size: 0.75rem; padding: 4px 12px; background: #e5e7eb; border: 1px solid #9ca3af; color: #6b7280; opacity: 0.8;" tabindex="5">Limpar filtros</button>
-              <button type="button" id="btnReaplicarFiltros" class="btn btn-refresh" title="Reaplicar filtros" aria-label="Reaplicar filtros" style="font-size: 0.75rem; padding: 4px 12px; background: #fff; border: 1px solid #cbd5e1; color: #334155; display:inline-flex; align-items:center; gap:6px;">
+              <button type="button" id="btnReaplicarFiltros" class="btn btn-clear" title="Reaplicar filtros" aria-label="Reaplicar filtros" style="font-size: 0.75rem; padding: 4px 12px; background: #e5e7eb; border: 1px solid #9ca3af; color: #6b7280; opacity: 0.8; display:inline-flex; align-items:center; gap:6px;" tabindex="5">
                 <span style="display:inline-flex; align-items:center; justify-content:center;">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <polyline points="23 4 23 10 17 10"></polyline>
@@ -864,6 +873,7 @@
                 </span>
                 <span>Atualizar</span>
               </button>
+              <button type="button" id="btnLimparFiltros" class="btn btn-clear" style="font-size: 0.75rem; padding: 4px 12px; background: #e5e7eb; border: 1px solid #9ca3af; color: #6b7280; opacity: 0.8;">Limpar filtros</button>
             </div>
           </form>
         </div>
@@ -1114,14 +1124,16 @@
               </svg>
             </button>
           </div>
-          <div style="padding:10px 16px; border-bottom:1px solid #3f3f3f; background:#262626; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-            <label for="printModelSelect" style="color:#d1d5db; font-size:0.85rem; font-weight:600;">Modelo</label>
-            <select id="printModelSelect" style="flex:0 0 180px; max-width:100%; padding:6px 10px; border-radius:6px; border:1px solid #4b5563; background:#111827; color:#e5e7eb; font-size:0.85rem;">
-              <option value="modelo1">Modelo 1 — In Natura</option>
-              <option value="modelo2">Modelo 2 — Simulação</option>
-              <option value="modelo3">Modelo 3 — Distribuição</option>
-              <option value="modelo4">Modelo 4 — Classificação</option>
-            </select>
+          <div style="padding:10px 16px; border-bottom:1px solid #3f3f3f; background:#262626; display:flex; flex-direction:column; gap:10px;">
+            <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+              <span style="color:#d1d5db; font-size:0.85rem; font-weight:600;">Modelo</span>
+              <div id="printModelToggle" class="print-model-toggle" role="radiogroup" aria-label="Selecionar modelo">
+                <button type="button" class="toggle-btn is-active" data-model="modelo1">In Natura</button>
+                <button type="button" class="toggle-btn" data-model="modelo2">Simulação</button>
+                <button type="button" class="toggle-btn" data-model="modelo3">Distribuição</button>
+                <button type="button" class="toggle-btn" data-model="modelo4">Classificação</button>
+              </div>
+            </div>
             <span style="color:#9ca3af; font-size:0.8rem;">A visualização atualiza conforme a seleção.</span>
             <div id="printModel2Options" style="display:none; align-items:center; gap:12px; color:#d1d5db; font-size:0.8rem; font-weight:600;">
               <label style="display:inline-flex; align-items:center; gap:6px;">
@@ -1391,7 +1403,6 @@
                   <div id="distActionBar" class="dist-actions" aria-label="Ações da negociação">
                     <span id="lockIconContainer" style="display: none; margin-right: 8px; color: #dc2626; font-size: 1rem;" title="Vale faturado - Edição bloqueada">🔒</span>
                     <button type="button" id="dist-btn-reset" class="btn-warn" style="font-size: 0.75rem; padding: 4px 12px; background: #e5e7eb; border: 1px solid #9ca3af; color: #6b7280; opacity: 0.8;">Zerar negociação</button>
-                    <button type="button" id="dist-btn-print" class="btn-print" style="font-size: 0.75rem; padding: 4px 12px; background: #e5e7eb; border: 1px solid #9ca3af; color: #6b7280; opacity: 0.8;">Imprimir</button>
                     <button type="button" id="dist-btn-save" class="btn-primary" style="font-size: 0.75rem; padding: 4px 12px; background: #9ca3af; border: 1px solid #6b7280; color: #fff; opacity: 0.85;">Salvar</button>
                   </div>
                 </div>
@@ -1459,8 +1470,8 @@
                     </div>
                   </div>
                   <div class="sim-actions">
-                    <button id="sim-btn-clear" class="btn btn-secondary" type="button" style="font-size: 0.75rem; padding: 4px 12px; background: #e5e7eb; border: 1px solid #d1d5db; color: #6b7280; opacity: 0.8;">Limpar</button>
-                    <button id="sim-btn-apply" class="btn btn-primary" type="button" style="font-size: 0.75rem; padding: 4px 12px; background: #9ca3af; border: 1px solid #6b7280; color: #fff; opacity: 0.85;">Aplicar</button>
+                    <button id="sim-btn-clear" class="btn btn-secondary" type="button" style="background:#e5e7eb;border:1px solid #d1d5db;color:#4b5563;opacity:0.8;">Limpar</button>
+                    <button id="sim-btn-apply" class="btn btn-primary" type="button" style="background:#9ca3af;border:1px solid #6b7280;color:#fff;opacity:0.85;">Aplicar</button>
                   </div>
                 </div>
               </div>
@@ -1509,32 +1520,27 @@
               </div>
               <div class="extra">
                 <div class="extra-title">Resumo</div>
-                <div class="extra-body">
-                  <div class="kpi-row" style="display:flex; justify-content:space-between; align-items:baseline;">
-                    <div class="label" style="color:#475569; font-size:.85rem;">In Natura</div>
-                    <div class="value" style="font-weight:800; color:#0a3392;"><span id="resInnKg"></span> <span class="unit" style="color:#94a3b8; font-weight:600; font-size:.75rem">kg</span></div>
+                <div class="extra-body" style="font-family:monospace; font-size:.85rem;">
+                  <div class="kpi-row" style="display:flex; align-items:baseline; gap:0.5rem; margin-bottom:12px;">
+                    <div class="label" style="color:#475569; min-width:110px;">In Natura</div>
+                    <div class="value" style="font-weight:800; color:#0a3392; text-align:right; min-width:80px;"><span id="resInnKg"></span><span class="unit" style="color:#94a3b8; font-weight:600; font-size:.75rem">kg</span></div>
+                    <div class="value" style="font-weight:700; color:#334155; text-align:right; min-width:60px;"><span id="resInnCx"></span><span class="unit" style="color:#94a3b8; font-weight:600; font-size:.75rem">cx</span></div>
                   </div>
-                  <div class="kpi-row" style="display:flex; justify-content:space-between; align-items:baseline;">
-                    <div class="label" style="color:#64748b; font-size:.8rem;">In Natura (cx)</div>
-                    <div class="value" style="font-weight:700; color:#334155;"><span id="resInnCx"></span> <span class="unit" style="color:#94a3b8; font-weight:600; font-size:.75rem">cx</span></div>
+                  <div class="kpi-row" style="display:flex; align-items:baseline; gap:0.5rem; margin-bottom:12px;">
+                    <div class="label" style="color:#475569; min-width:110px;">Classificado</div>
+                    <div class="value" style="font-weight:800; color:#0a3392; text-align:right; min-width:80px;"><span id="resClassKg"></span><span class="unit" style="color:#94a3b8; font-weight:600; font-size:.75rem">kg</span></div>
+                    <div class="value" style="font-weight:700; color:#334155; text-align:right; min-width:60px;"><span id="resClassCx"></span><span class="unit" style="color:#94a3b8; font-weight:600; font-size:.75rem">cx</span></div>
                   </div>
-                  <div class="kpi-row" style="display:flex; justify-content:space-between; align-items:baseline;">
-                    <div class="label" style="color:#475569; font-size:.85rem;">Classificados</div>
-                    <div class="value" style="font-weight:800; color:#0a3392;"><span id="resClassKg"></span> <span class="unit" style="color:#94a3b8; font-weight:600; font-size:.75rem">kg</span></div>
+                  <div class="divider" style="border-top:1px solid #e5e7eb; margin:6px 0;"></div>
+                  <div class="kpi-row" style="display:flex; align-items:baseline; gap:0.5rem; margin-bottom:12px;">
+                    <div class="label" style="color:#475569; min-width:110px;">Descarte</div>
+                    <div class="value" style="font-weight:800; color:#0a3392; text-align:right; min-width:80px;"><span id="resInservKg"></span><span class="unit" style="color:#94a3b8; font-weight:600; font-size:.75rem">kg</span></div>
+                    <div class="value" style="font-weight:700; color:#334155; text-align:right; min-width:60px;"><span id="resInservCx"></span><span class="unit" style="color:#94a3b8; font-weight:600; font-size:.75rem">cx</span></div>
                   </div>
-                  <div class="kpi-row" style="display:flex; justify-content:space-between; align-items:baseline;">
-                    <div class="label" style="color:#64748b; font-size:.8rem;">Classificados (cx)</div>
-                    <div class="value" style="font-weight:700; color:#334155;"><span id="resClassCx"></span> <span class="unit" style="color:#94a3b8; font-weight:600; font-size:.75rem">cx</span></div>
-                  </div>
-                  <div class="divider" style="border-top:1px solid #e5e7eb; margin:8px 0;"></div>
-                  <div class="kpi-row" style="display:flex; justify-content:space-between; align-items:baseline;">
-                    <div class="label" style="color:#475569; font-size:.85rem;">Descarte</div>
-                    <div class="value" style="font-weight:800; color:#0a3392;"><span id="resInservKg"></span> <span class="unit" style="color:#94a3b8; font-weight:600; font-size:.75rem">kg</span></div>
-                  </div>
-                  <div class="divider" style="border-top:1px solid #e5e7eb; margin:8px 0;"></div>
-                  <div class="kpi-row" style="display:flex; justify-content:space-between; align-items:baseline;">
-                    <div class="label" style="color:#475569; font-size:.85rem;">Rendimento</div>
-                    <div class="value" style="font-weight:800; color:#0a3392;"><span id="kpiRendimento"></span></div>
+                  <div class="divider" style="border-top:1px solid #e5e7eb; margin:6px 0;"></div>
+                  <div class="kpi-row" style="display:flex; align-items:baseline; gap:0.5rem;">
+                    <div class="label" style="color:#475569; min-width:110px;">Rendimento</div>
+                    <div class="value" style="font-weight:800; color:#0a3392; text-align:right; min-width:140px;"><span id="kpiRendimento"></span></div>
                   </div>
                 </div>
               </div>
@@ -1584,6 +1590,14 @@
                     <div class="value"><span class="currency">R$</span><span id="entTotalIn"></span></div>
                   </div>
                   <div class="divider" role="separator" aria-hidden="true"></div>
+                  <div class="peso-row">
+                    <div class="metric-label">Peso Classificado</div>
+                    <div class="value">
+                      <span id="pesoClassificadoDisplay" class="editable" role="button" tabindex="0" aria-label="Editar peso classificado">—</span>
+                      <input id="pesoClassificadoInput" class="preco-input" type="text" inputmode="decimal" aria-label="Peso Classificado" />
+                      <span class="unit">kg</span>
+                    </div>
+                  </div>
                   <div class="peso-row">
                     <div class="metric-label">Peso In Natura</div>
                     <div class="value">
@@ -1804,7 +1818,7 @@
           '#costKgDisplay','#totalValueDisplay','#kpiAproveitamento',
           '#kpiRendimento','#kpiEstoque','#kpiEstoqueApprox','#gPct',
           '#gaugeLabel','#resInnKg','#resInnCx','#resClassKg','#resClassCx',
-          '#resInservKg','#quantidadeInn','#pesoInnDisplay','#totalInn',
+          '#resInservKg','#resInservCx','#quantidadeInn','#pesoInnDisplay','#totalInn',
           '#entPrecoCxDisplay','#entPrecoKg','#entTotalIn','#sim-sum-cx',
           '#sim-sum-unit','#sim-total-geral','#extraCustoCxDisplay','#histMarginMeta'
         ];
@@ -3216,13 +3230,33 @@
           const simExtraTotal = (item.ad_simvlr1 != null ? Number(item.ad_simvlr1) : null);
           const simMedioCx = (item.ad_simqtd2 != null ? Number(item.ad_simqtd2) : null);
           const simMedioTotal = (item.ad_simvlr2 != null ? Number(item.ad_simvlr2) : null);
+          const qtdconferida = (item.qtdconferida != null ? Number(item.qtdconferida) : null);
           
           console.log('[LOAD DEBUG] Valores carregados do banco:', {
             ad_simqtd1: simExtraCx,
             ad_simvlr1: simExtraTotal,
             ad_simqtd2: simMedioCx,
-            ad_simvlr2: simMedioTotal
+            ad_simvlr2: simMedioTotal,
+            qtdconferida: qtdconferida
           });
+          
+          // Atualizar campo Peso Classificado no card ENTRADA
+          try {
+            const pesoClassificadoDisplay = document.getElementById('pesoClassificadoDisplay');
+            if (pesoClassificadoDisplay) {
+              if (qtdconferida != null && Number.isFinite(qtdconferida) && qtdconferida > 0) {
+                pesoClassificadoDisplay.textContent = qtdconferida.toLocaleString('pt-BR', {
+                  minimumFractionDigits: 1,
+                  maximumFractionDigits: 1
+                });
+              } else {
+                pesoClassificadoDisplay.textContent = '—';
+              }
+            }
+          } catch (err) {
+            console.error('[PESO CLASSIFICADO] Erro ao atualizar display:', err);
+          }
+          
           // Guardar contexto atual (nunota/seq/codprod) para persistência do Preço Inicial
           try{
             const targetCodprod = codprod != null ? String(codprod) : null;
@@ -3581,8 +3615,9 @@
           card.setAttribute('data-current-lote', String(lote||''));
           const rows = Array.isArray(linhas) ? linhas : [];
           // Montar linhas: produto, cx, kg e barra % (baseada em KG total)
-          // Conversão visual para Classificação: 20 kg por caixa
-          const KG_PER_CX = 20;
+          // Usar pesoClassificado global para conversão kg -> cx
+          const pesoClassVal = window.pesoClassificado?.getValue();
+          const KG_PER_CX = (pesoClassVal && pesoClassVal > 0) ? pesoClassVal : 20; // fallback 20
           // Total KG base para porcentagem: usar KG quando presente; se ausente e só houver CX, interpretar CX como KG (dados inconsistentes)
           const totalKg = rows.reduce((s,r)=> {
             const cx0 = Number(r.cx||0)||0; const kg0 = Number(r.kg||0)||0;
@@ -3607,8 +3642,8 @@
               const cx0 = Number(r.cx||0)||0, kg0 = Number(r.kg||0)||0;
               // Se há KG, usamos ele; se não houver e só houver CX, assumimos que CX representa KG (dados vieram trocados)
               const kg = kg0>0 ? kg0 : (cx0>0 ? cx0 : 0);
-              // CX exibe caixas: quando não informado, derivar de KG
-              const cx = cx0>0 && kg0>0 ? cx0 : (kg>0 ? (kg / KG_PER_CX) : 0);
+              // CX sempre calculado: kg / pesoClassificado
+              const cx = kg > 0 ? (kg / KG_PER_CX) : 0;
               const p = Math.max(0, Math.min(100, pct(kg)));
               const prodFull = (r.produto||'');
               const prodTitle = String(prodFull).replace(/"/g,'&quot;');
@@ -3632,8 +3667,9 @@
             // Adicionar linha de descarte se houver
             if(descarteKg > 0){
               const descartePct = totalKg > 0 ? (descarteKg / totalKg * 100) : 0;
+              const descarteCx = descarteKg / KG_PER_CX;
               const descarteHtml = `
-                <div class="class-row descarte-row" role="row" data-kg="${descarteKg}" data-prod="DESCARTE" style="opacity: 0.8; border-top: 1px solid #ddd; margin-top: 8px; padding-top: 8px;">
+                <div class="class-row descarte-row" role="row" data-kg="${descarteKg}" data-cx="${descarteCx}" data-prod="DESCARTE" style="opacity: 0.8; border-top: 1px solid #ddd; margin-top: 8px; padding-top: 8px;">
                   <div class="line1" title="DESCARTE">DESCARTE</div>
                   <div class="line2">
                     <div class="pct" style="padding-left:10px">
@@ -3641,6 +3677,8 @@
                       <div class="percent-bar" aria-hidden="true"><span style="width:${descartePct.toFixed(1)}%; background-color: #dc3545;"></span></div>
                     </div>
                     <div class="qty">
+                      <span class="meta-val"><strong>${fmtDecimal(descarteCx)}</strong> <span class="u">cx</span></span>
+                      <span class="sep">/</span>
                       <span class="meta-val"><strong>${fmtDecimal(descarteKg)}</strong> <span class="u">kg</span></span>
                     </div>
                   </div>
@@ -3881,8 +3919,9 @@
                 const kgEl = qtyCard.querySelector('.qty-top .dist-value');
                 const cxEl = qtyCard.querySelector('.qty-bottom .dist-value');
                 const fmtInt = (n) => Number(n || 0).toLocaleString('pt-BR', {maximumFractionDigits: 0});
-                // Usar soma de CX já normalizada pelo backend (QTDNEG / TGFVOA.QUANTIDADE)
-                const cxVal = classifiedCx;
+                // Calcular CX usando pesoClassificado
+                const pesoClassVal = window.pesoClassificado?.getValue();
+                const cxVal = (pesoClassVal && pesoClassVal > 0) ? (classifiedKg / pesoClassVal) : classifiedCx;
                 
                 if (kgEl) {
                   kgEl.textContent = fmtInt(classifiedKg);
@@ -4019,9 +4058,15 @@
               }catch(_){ }
               // Fallback: usar linhas.cx quando detalhe não disponível
               if(!(classCx>0)) classCx = linhas.reduce((s,r)=> s + (Number(r.cx||0)||0), 0);
+              // Calcular CX usando pesoClassificado se disponível
+              const pesoClassVal = window.pesoClassificado?.getValue();
+              if(pesoClassVal && pesoClassVal > 0){
+                classCx = classifiedKg / pesoClassVal;
+              }
               setInt(document.getElementById('resClassCx'), Math.round(classCx));
-              // Descarte (kg): buscar QTDBATIDAS do cabeçalho TOP 26 (classificação)
+              // Descarte (kg e cx): buscar QTDBATIDAS do cabeçalho TOP 26 (classificação)
               let inservKg = 0;
+              let inservCx = 0;
               // Tentar buscar de data.extra.qtdbatidas (vem do backend)
               if(data && data.extra && data.extra.qtdbatidas != null){
                 inservKg = Number(data.extra.qtdbatidas)||0;
@@ -4032,12 +4077,46 @@
                 for(const r of (linhas||[])){
                   const nome = String(r.produto||'');
                   if(nameHas(nome,'DESCARTE') || nameHas(nome,'AVARIA') || nameHas(nome,'INSERV')){
-                    const kg0 = Number(r.kg||0)||0; const cx0 = Number(r.cx||0)||0; 
-                    inservKg += (kg0>0?kg0:(cx0>0?cx0:0));
+                    const kg0 = Number(r.kg||0)||0; 
+                    const cx0 = Number(r.cx||0)||0; 
+                    inservKg += kg0;
+                    inservCx += cx0;
+                  }
+                }
+              }
+              // Calcular CX de descarte usando pesoClassificado
+              if(inservKg > 0){
+                const pesoClassVal = window.pesoClassificado?.getValue();
+                if(pesoClassVal && pesoClassVal > 0){
+                  inservCx = inservKg / pesoClassVal;
+                } else {
+                  // Fallback: usar fator de conversão do produto (se disponível no card de entrada)
+                  const entCard = document.getElementById('entradaCard');
+                  if(entCard){
+                    const fatorStr = entCard.getAttribute('data-fator-conv') || '';
+                    const fator = parseFloat(fatorStr);
+                    if(fator && fator > 0){
+                      inservCx = inservKg / fator;
+                    }
                   }
                 }
               }
               setInt(document.getElementById('resInservKg'), inservKg);
+              const setFloat1 = (el, n)=>{ if(el) el.textContent = (Number(n)||0).toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1}); };
+              setFloat1(document.getElementById('resInservCx'), inservCx);
+              // Rendimento: diferença em caixas (Classificado - In Natura)
+              const rendimentoCx = classCx - innCx;
+              const kpiRend = document.getElementById('kpiRendimento');
+              if(kpiRend){
+                const valorFormatado = Math.round(rendimentoCx).toLocaleString('pt-BR') + 'cx';
+                kpiRend.textContent = valorFormatado;
+                // Fonte vermelha se negativo
+                if(rendimentoCx < 0){
+                  kpiRend.style.color = '#dc2626';
+                } else {
+                  kpiRend.style.color = '#0a3392';
+                }
+              }
             }catch{}
           }catch{ /* silencioso */ }
         }catch(e){
@@ -4045,15 +4124,27 @@
         }
       }
 
+      // 🔄 Função global para recarregar card de classificação (usado após editar pesoClassificado)
+      window.__reloadClassificacaoCard = async function(lote){
+        if(!lote) return;
+        console.log('[RELOAD] Limpando cache e recarregando classificação para lote:', lote);
+        __classResumoCache.delete(lote); // Limpar cache para forçar recarga
+        await loadAndRenderClassificacao(lote);
+        // Recalcular métricas após recarregar
+        if(typeof window.recalcClassificacaoMetrics === 'function'){
+          setTimeout(()=> window.recalcClassificacaoMetrics(), 100);
+        }
+      };
+
       // (removido) Função antiga openOutrosModal
 
       // Função de impressão térmica 80mm
-      function printVale(){
+      async function printVale(){
         // Obter modelo selecionado
-        const modelSelect = document.getElementById('printModelSelect');
+        const modelToggle = document.getElementById('printModelToggle');
         const model2SubtotalToggle = document.getElementById('printModel2SubtotalOnly');
         const model2OnlyExtraMedioToggle = document.getElementById('printModel2OnlyExtraMedio');
-        const selectedModel = modelSelect ? modelSelect.value : 'modelo1';
+        const selectedModel = modelToggle?.querySelector('.toggle-btn.is-active')?.dataset?.model || 'modelo1';
         const model2SubtotalOnly = !!(model2SubtotalToggle && model2SubtotalToggle.checked);
         const model2OnlyExtraMedio = !!(model2OnlyExtraMedioToggle && model2OnlyExtraMedioToggle.checked);
         console.log('[PRINT DEBUG] Gerando relatório para modelo:', selectedModel);
@@ -4132,8 +4223,11 @@
         let valorTotalGeral = 0;
         
         if(selectedModel === 'modelo1'){
-          // MODELO 1 - IN NATURA
-          // Lista TODOS os produtos do vale com suas quantidades e valores individuais
+          // MODELO 1 - IN NATURA (CONSOLIDADO POR FABRICANTE)
+          // 🔥 Buscar dados IN NATURA diretamente da TOP 11 (pedidoRows)
+          const modalData = window.__CURRENT_MODAL_FATURAMENTO;
+          const pedidoRowsRaw = (window.__COM_LIST_ROWS||[]).filter(r=> String(r.nunota||'') === String(modalData?.nunota||''));
+          
           const classBody = document.getElementById('valeClassBody');
           const outrosBody = document.getElementById('valeOutrosBody');
           
@@ -4156,129 +4250,144 @@
             return Number.isFinite(num) ? num : NaN;
           };
 
-          // Processar produtos classificáveis
-          if(classBody){
-            const rows = classBody.querySelectorAll('tr');
-            rows.forEach(tr => {
-              const data = tr.dataset || {};
-              const produtoAttr = (data.produto || '').trim();
-              const qtdCxAttr = parseDatasetNumber(data.qtdCx);
-              const qtdKgAttr = parseDatasetNumber(data.qtdKg);
-              const vlrTotalAttr = parseDatasetNumber(data.vlrTotal);
-              const precoCxAttr = parseDatasetNumber(data.precoCx);
-              const precoKgAttr = parseDatasetNumber(data.precoKg);
-              const preferredUnit = (data.primaryUnit || '').toUpperCase();
+          // 🔥 Agrupar pedidoRows por FABRICANTE (IN NATURA)
+          const fabricantesInNaturaMap = {};
+          pedidoRowsRaw.forEach(item => {
+            if(!window.__isClassificavelItem(item)) return;
+            
+            let fabricante = item.fabricante;
+            if (!fabricante || fabricante.trim() === '') {
+              const produtoNome = (item.produto || '').toUpperCase();
+              fabricante = produtoNome
+                .replace(/\s+(EXTRA|MEDIO|MÉDIO|MEDIA|MÉDIA)\s*$/i, '')
+                .replace(/\s+(EXTRA|MEDIO|MÉDIO|MEDIA|MÉDIA)\s+/i, ' ')
+                .trim();
+              if (!fabricante) fabricante = item.produto || 'Produto';
+            }
+            
+            if(!fabricantesInNaturaMap[fabricante]){
+              fabricantesInNaturaMap[fabricante] = {
+                fabricante: fabricante,
+                qtdneg: 0,
+                peso: 0,
+                vlrtot: 0,
+                count: 0,
+                items: []
+              };
+            }
+            
+            // 🔥 USAR qtdneg_base (KG in natura) em vez de qtdneg
+            const qtdneg = Number(item.qtdneg_base || item.qtdneg || 0);
+            const peso = Number(item.peso || 0);
+            const vlrtot = Number(item.vlrtot || 0);
+            
+            console.log('[IN NATURA ITEM]', fabricante, {qtdneg, qtdneg_base: item.qtdneg_base, peso, vlrtot, produto: item.produto});
+            
+            fabricantesInNaturaMap[fabricante].qtdneg += qtdneg;
+            if(peso > 0 && fabricantesInNaturaMap[fabricante].peso === 0){
+              // Usar peso do primeiro item (peso unitário, não somar)
+              fabricantesInNaturaMap[fabricante].peso = peso;
+            }
+            fabricantesInNaturaMap[fabricante].vlrtot += vlrtot;
+            fabricantesInNaturaMap[fabricante].count += 1;
+            fabricantesInNaturaMap[fabricante].items.push(item);
+          });
 
-              if(produtoAttr){
-                let quantidade = 0;
-                let unidade = preferredUnit || '';
-                const valorTotal = Number.isFinite(vlrTotalAttr) ? vlrTotalAttr : 0;
-                let valorUnitario = NaN;
-
-                if(Number.isFinite(qtdCxAttr) && qtdCxAttr > 0){
-                  quantidade = qtdCxAttr;
-                  unidade = 'CX';
-                  if(Number.isFinite(precoCxAttr) && precoCxAttr > 0){
-                    valorUnitario = precoCxAttr;
-                  }
-                } else if(Number.isFinite(qtdKgAttr) && qtdKgAttr > 0){
-                  quantidade = qtdKgAttr;
-                  unidade = 'KG';
-                  if(Number.isFinite(precoKgAttr) && precoKgAttr > 0){
-                    valorUnitario = precoKgAttr;
-                  }
-                }
-
-                if((!Number.isFinite(valorUnitario) || valorUnitario <= 0) && valorTotal > 0 && quantidade > 0){
-                  valorUnitario = valorTotal / quantidade;
-                }
-
-                if(Number.isFinite(quantidade) && quantidade > 0 && produtoAttr){
-                  const qtdNumero = formatQtyModelo1(quantidade);
-                  const unitLabel = (unidade || 'CX').toUpperCase();
-                  const unitarioCalc = Number.isFinite(valorUnitario) && valorUnitario > 0 ? valorUnitario : 0;
-                  const totalCalc = Number.isFinite(valorTotal) ? valorTotal : 0;
-
-                  itemsHTML += `
-                    <tr>
-                      <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">${produtoAttr}</td>
-                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${qtdNumero} <span style="font-size:6pt;">${unitLabel}</span></td>
-                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${unitarioCalc.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                      <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${totalCalc.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                    </tr>
-                  `;
-                  totalItensCount++;
-                  qtdTotalModelo1 += quantidade;
-                  valorTotalModelo1 += totalCalc;
-                  return;
-                }
-              }
-
-              // Fallback legado para evitar perda de dados em cenários inesperados
-              const cells = tr.querySelectorAll('td');
-              if(cells.length >= 4){
-                const produto = cells[0]?.textContent?.trim() || '';
-                if(!produto || produto === '—') return;
-
-                const qtdAttr = tr.getAttribute('data-q');
-                const unitAttr = tr.getAttribute('data-unit') || preferredUnit || 'CX';
-                const qtdTxt = cells[1]?.textContent?.trim() || '0';
-                const vlrUnitTxt = cells[2]?.textContent?.trim() || '0';
-                const vlrTotalTxt = cells[3]?.textContent?.trim() || '0';
-
-                const qtd = parseFloat(qtdAttr) || parseFloat(qtdTxt.replace(/[^0-9,.-]/g, '').replace(',', '.')) || 0;
-                const vlrTotal = parseFloat(vlrTotalTxt.replace(/[^0-9,.-]/g, '').replace(',', '.')) || 0;
-                const vlrUnit = qtd > 0 ? (vlrTotal / qtd) : parseFloat(vlrUnitTxt.replace(/[^0-9,.-]/g, '').replace(',', '.')) || 0;
-
-                if(qtd > 0){
-                  itemsHTML += `
-                    <tr>
-                      <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">${produto}</td>
-                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${formatQtyModelo1(qtd)} <span style="font-size:6pt;">${unitAttr.toUpperCase()}</span></td>
-                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${(vlrUnit > 0 ? vlrUnit : 0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                      <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${vlrTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                    </tr>
-                  `;
-                  totalItensCount++;
-                  qtdTotalModelo1 += qtd;
-                  valorTotalModelo1 += vlrTotal;
-                }
-              }
+          // Processar produtos classificáveis - IN NATURA da TOP 11
+          Object.values(fabricantesInNaturaMap).forEach(fab => {
+            const produtoAttr = fab.fabricante;
+            const qtdneg = fab.qtdneg; // KG total
+            const peso = fab.peso;     // KG por caixa
+            const valorTotal = fab.vlrtot;
+            
+            // 🔥 CÁLCULO IN NATURA: QTDNEG / PESO = KG total / KG por caixa = quantidade de caixas
+            // Exemplo: 21112 kg / 29 kg/cx = 728,34 cx
+            const qtdCx = (peso > 0) ? (qtdneg / peso) : 0;
+            const qtdKg = qtdneg;
+            
+            console.log('[PRINT IN NATURA]', produtoAttr, {
+              qtdneg,
+              peso,
+              qtdCx,
+              qtdKg,
+              valorTotal
             });
-          }
+
+            if(!produtoAttr || qtdCx <= 0) return;
+
+            // Definir unidade e quantidade para exibição
+            let unidade = 'CX';
+            let quantidade = qtdCx;
+
+            // Calcular preço unitário a partir do total consolidado
+            const valorUnitario = (valorTotal > 0 && quantidade > 0) ? (valorTotal / quantidade) : 0;
+
+            if(quantidade > 0 && valorTotal > 0){
+              const qtdNumero = formatQtyModelo1(quantidade);
+              const unitLabel = unidade.toUpperCase();
+
+              itemsHTML += `
+                <tr>
+                  <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">${produtoAttr}</td>
+                  <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${qtdNumero} <span style="font-size:6pt;">${unitLabel}</span></td>
+                  <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${valorUnitario.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                  <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${valorTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                </tr>
+              `;
+              
+              totalItensCount++;
+              qtdTotalModelo1 += quantidade;
+              valorTotalModelo1 += valorTotal;
+              
+              if(Number.isFinite(qtdKg) && qtdKg > 0){
+                pesoTotal += qtdKg;
+              }
+            }
+          });
 
           // Processar produtos não classificáveis
           if(outrosBody){
             const rows = outrosBody.querySelectorAll('tr');
-            rows.forEach(tr => {
-              const cells = tr.querySelectorAll('td');
-              if(cells.length >= 4){
-                const produto = cells[0]?.textContent?.trim() || '';
-                if(!produto || produto === '—') return;
+            console.log('[PRINT] outrosBody rows:', rows.length);
+            rows.forEach((tr, idx) => {
+              console.log('[PRINT] Outros Row', idx, 'dataset:', tr.dataset);
+              const data = tr.dataset || {};
+              const produtoAttr = (data.produto || '').trim();
+              
+              // Usar dados do modal (não precisa de TOP pois não-classificáveis não são agregados)
+              const qtdAttr = parseDatasetNumber(data.q);
+              const vlrTotalAttr = parseDatasetNumber(data.totalBase); // 🔥 Atributo correto: data-total-base
+              const unitAttr = (data.unit || 'CX').toUpperCase();
 
-                const qtdAttr = tr.getAttribute('data-q');
-                const unitAttr = tr.getAttribute('data-unit') || 'CX';
-                const qtdTxt = cells[1]?.textContent?.trim() || '0';
-                const vlrUnitTxt = cells[2]?.textContent?.trim() || '0';
-                const vlrTotalTxt = cells[3]?.textContent?.trim() || '0';
+              console.log('[PRINT NC]', produtoAttr, {
+                'data.q': data.q,
+                'qtdAttr': qtdAttr,
+                'data.totalBase': data.totalBase,
+                'vlrTotalAttr': vlrTotalAttr,
+                'data.unit': data.unit
+              });
 
-                const qtd = parseFloat(qtdAttr) || parseFloat(qtdTxt.replace(/[^0-9,.-]/g, '').replace(',', '.')) || 0;
-                const vlrTotal = parseFloat(vlrTotalTxt.replace(/[^0-9,.-]/g, '').replace(',', '.')) || 0;
-                const vlrUnit = qtd > 0 ? (vlrTotal / qtd) : parseFloat(vlrUnitTxt.replace(/[^0-9,.-]/g, '').replace(',', '.')) || 0;
+              if(!produtoAttr || !Number.isFinite(qtdAttr) || qtdAttr <= 0) return;
 
-                if(qtd > 0){
-                  itemsHTML += `
-                    <tr>
-                      <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">${produto}</td>
-                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${formatQtyModelo1(qtd)} <span style="font-size:6pt;">${unitAttr.toUpperCase()}</span></td>
-                      <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${(vlrUnit > 0 ? vlrUnit : 0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                      <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${vlrTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                    </tr>
-                  `;
-                  totalItensCount++;
-                  qtdTotalModelo1 += qtd;
-                  valorTotalModelo1 += vlrTotal;
-                }
+              const quantidade = qtdAttr;
+              const valorTotal = Number.isFinite(vlrTotalAttr) && vlrTotalAttr > 0 ? vlrTotalAttr : 0;
+              const valorUnitario = (valorTotal > 0 && quantidade > 0) ? (valorTotal / quantidade) : 0;
+
+              if(valorTotal > 0){
+                const qtdNumero = formatQtyModelo1(quantidade);
+
+                itemsHTML += `
+                  <tr>
+                    <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">${produtoAttr}</td>
+                    <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${qtdNumero} <span style="font-size:6pt;">${unitAttr}</span></td>
+                    <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${valorUnitario.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                    <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${valorTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                  </tr>
+                `;
+                
+                totalItensCount++;
+                qtdTotalModelo1 += (unitAttr === 'CX' ? quantidade : 0);
+                valorTotalModelo1 += valorTotal;
               }
             });
           }
@@ -4288,7 +4397,7 @@
           valorTotalGeral = valorTotalModelo1;
           
         } else if(selectedModel === 'modelo2'){
-          // MODELO 2 - SIMULAÇÃO
+          // MODELO 2 - SIMULAÇÃO (listar TODOS os produtos com dados de simulação)
             const formatQty = (value) => {
               if(!Number.isFinite(value) || Math.abs(value) < 1e-9) return '0';
               const decimals = Math.abs(value - Math.trunc(value)) > 1e-6 ? 2 : 0;
@@ -4306,51 +4415,44 @@
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;');
             };
-            const parseNumberAttr = (node, attrName) => {
-              if(!node) return 0;
-              const raw = node.getAttribute(attrName);
-              if(raw === undefined || raw === null || raw === '') return 0;
-              const num = Number(raw);
-              return Number.isFinite(num) ? num : 0;
-            };
-            const container = document.getElementById('valeSimData');
-            const simNodes = Array.from(container?.querySelectorAll('.vale-sim-entry') || []);
-            const productMap = new Map();
-
-            simNodes.forEach((node, idx) => {
-              const produto = (node.getAttribute('data-produto') || '').trim() || `Produto ${idx + 1}`;
-              const keyParts = [
-                node.getAttribute('data-nunota') || '',
-                node.getAttribute('data-sequencia') || '',
-                node.getAttribute('data-codprod') || '',
-                node.getAttribute('data-codagregacao') || produto
-              ];
-              const key = keyParts.join('|');
-              if(!productMap.has(key)){
-                productMap.set(key, {
-                  produto,
-                  extraQtd: 0,
-                  extraTotal: 0,
-                  medioQtd: 0,
-                  medioTotal: 0,
-                  quebraRaw: null
+            
+            // 🔥 CORREÇÃO: Buscar produtos do modal ao invés de valeSimData
+            const modalData = window.__CURRENT_MODAL_FATURAMENTO;
+            const allRows = modalData?.rows || [];
+            
+            console.log('[PRINT MODELO 2] Total de produtos no modal:', allRows.length);
+            
+            const products = [];
+            
+            allRows.forEach((item, idx) => {
+              const simFields = item.__simFields || {};
+              const extraQtd = Number(simFields.ad_simqtd1 || item.ad_simqtd1 || 0);
+              const extraTotal = Number(simFields.ad_simvlr1 || item.ad_simvlr1 || 0);
+              const medioQtd = Number(simFields.ad_simqtd2 || item.ad_simqtd2 || 0);
+              const medioTotal = Number(simFields.ad_simvlr2 || item.ad_simvlr2 || 0);
+              const quebra = simFields.ad_simqtddesc || item.ad_simqtddesc || null;
+              
+              const hasData = (extraQtd > 0 || extraTotal > 0 || medioQtd > 0 || medioTotal > 0);
+              
+              console.log('[PRINT MODELO 2]', item.produto, {
+                extraQtd,
+                extraTotal,
+                medioQtd,
+                medioTotal,
+                quebra,
+                hasData
+              });
+              
+              if(hasData){
+                products.push({
+                  produto: item.produto || `Produto ${idx + 1}`,
+                  extraQtd,
+                  extraTotal,
+                  medioQtd,
+                  medioTotal,
+                  quebraRaw: quebra
                 });
               }
-              const aggregate = productMap.get(key);
-              aggregate.extraQtd += parseNumberAttr(node, 'data-sim-qtd1');
-              aggregate.extraTotal += parseNumberAttr(node, 'data-sim-vlr1');
-              aggregate.medioQtd += parseNumberAttr(node, 'data-sim-qtd2');
-              aggregate.medioTotal += parseNumberAttr(node, 'data-sim-vlr2');
-              if(aggregate.quebraRaw === null){
-                const quebraAttr = node.getAttribute('data-sim-quebra');
-                if(quebraAttr !== null && quebraAttr !== ''){
-                  aggregate.quebraRaw = quebraAttr;
-                }
-              }
-            });
-
-            const products = Array.from(productMap.values()).filter(item => {
-              return (item.extraQtd > 0 || item.extraTotal > 0 || item.medioQtd > 0 || item.medioTotal > 0);
             });
 
             let overallExtraQtd = 0;
@@ -4413,7 +4515,7 @@
                   }
                 }
 
-                const quebraRawDisplay = typeof info.quebraRaw === 'string' ? info.quebraRaw.trim() : '';
+                const quebraRawDisplay = typeof info.quebraRaw === 'string' ? String(info.quebraRaw).trim() : (Number.isFinite(info.quebraRaw) ? String(info.quebraRaw) : '');
                 const quebraQtd = Number.parseFloat(quebraRawDisplay.replace(/[^0-9,.-]/g, '').replace(',', '.'));
                 const hasQuebraQtd = Number.isFinite(quebraQtd) && Math.abs(quebraQtd) > 1e-9;
                 const quebraQtyText = hasQuebraQtd ? formatQty(quebraQtd) : (quebraRawDisplay || '');
@@ -4453,54 +4555,150 @@
           
         } else if(selectedModel === 'modelo3'){
           // MODELO 3 - DISTRIBUIÇÃO
-          // Dados da distribuição: Extra e Médio com qtd CX, custo unit e custo total
-          const extraCxTxt = document.querySelector('#distMiniExtra [data-field="cx"]')?.textContent || '0';
-          const extraCx = parseFloat(extraCxTxt.replace(/\./g, '').replace(',', '.')) || 0;
-          const extraCustoCxTxt = document.getElementById('extraCustoCxDisplay')?.textContent || '0';
-          const extraCustoCx = parseFloat(extraCustoCxTxt.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-          const extraCustoTotal = extraCx * extraCustoCx;
+          // 🔥 Buscar dados DIRETAMENTE do banco TOP 13 (vale de compra) via API
+          const modalData = window.__CURRENT_MODAL_FATURAMENTO;
+          const nunotaVale = modalData?.nunotaVale;
+          const nunotaPedido = modalData?.nunota;
           
-          const medioCxTxt = document.querySelector('#distMiniMedio [data-field="cx"]')?.textContent || '0';
-          const medioCx = parseFloat(medioCxTxt.replace(/\./g, '').replace(',', '.')) || 0;
-          const medioCustoCxTxt = document.querySelector('#distMiniMedio [data-field="custoCx"]')?.textContent || '0';
-          const medioCustoCx = parseFloat(medioCustoCxTxt.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-          const medioCustoTotal = medioCx * medioCustoCx;
+          console.log('[PRINT DISTRIBUIÇÃO] NUNOTA Vale:', nunotaVale, 'NUNOTA Pedido:', nunotaPedido);
           
-          if(extraCx > 0){
-            itemsHTML += `
-              <tr>
-                <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">EXTRA</td>
-                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${extraCx.toLocaleString('pt-BR', {maximumFractionDigits:0})} <span style="font-size:6pt;">CX</span></td>
-                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${extraCustoCx.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${extraCustoTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-              </tr>
-            `;
-            totalItens++;
-            qtdTotalGeral += extraCx;
-            valorTotalGeral += extraCustoTotal;
+          // 🔥 Buscar dados do vale via API
+          let valeData = [];
+          if(nunotaVale){
+            try {
+              const resp = await fetch(`/sankhya/comercial/api/itens_vale/?nunota=${nunotaVale}`);
+              if(resp.ok){
+                const data = await resp.json();
+                console.log('[PRINT API] Resposta recebida:', data);
+                
+                // Tentar diferentes formatos de resposta
+                if(Array.isArray(data)){
+                  valeData = data;
+                } else if(data && Array.isArray(data.itens)){
+                  valeData = data.itens;
+                } else if(data && Array.isArray(data.items)){
+                  valeData = data.items;
+                } else if(data && Array.isArray(data.rows)){
+                  valeData = data.rows;
+                } else if(data && typeof data === 'object'){
+                  // Se for objeto, converter em array
+                  valeData = Object.values(data).filter(item => item && typeof item === 'object');
+                }
+                
+                console.log('[PRINT API] ✅ Dados do vale carregados:', valeData.length, 'itens', valeData);
+              } else {
+                console.error('[PRINT API] ❌ Erro ao buscar vale:', resp.status, resp.statusText);
+              }
+            } catch(err) {
+              console.error('[PRINT API] ❌ Erro na requisição:', err);
+            }
           }
           
-          if(medioCx > 0){
-            itemsHTML += `
-              <tr>
-                <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">MÉDIO</td>
-                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${medioCx.toLocaleString('pt-BR', {maximumFractionDigits:0})} <span style="font-size:6pt;">CX</span></td>
-                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${medioCustoCx.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${medioCustoTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-              </tr>
-            `;
-            totalItens++;
-            qtdTotalGeral += medioCx;
-            valorTotalGeral += medioCustoTotal;
-          }
+          console.log('[PRINT VALE ROWS] Total encontrado:', valeData.length, 'Produtos:', valeData.map(r => r.produto));
+          
+          // Usar pesoClassificado para calcular CX a partir de KG
+          const pesoClassVal = window.pesoClassificado?.getValue();
+          const kgPerCx = (pesoClassVal && pesoClassVal > 0) ? pesoClassVal : 20;
+          
+          // 🔥 Agrupar por PRODUTO BASE (remover EXTRA/MÉDIO do nome)
+          const produtosMap = {};
+          
+          valeData.forEach(item => {
+            const produtoNome = (item.produto || '').toUpperCase();
+            const qtdneg = Number(item.qtdneg || 0);
+            const vlrtot = Number(item.vlrtot || 0);
+            
+            // Extrair nome base do produto (sem EXTRA/MÉDIO)
+            let produtoBase = produtoNome
+              .replace(/\s+(EXTRA|MEDIO|MÉDIO|MEDIA|MÉDIA)\s*$/i, '')
+              .replace(/\s+(EXTRA|MEDIO|MÉDIO|MEDIA|MÉDIA)\s+/i, ' ')
+              .trim();
+            
+            if(!produtoBase) produtoBase = produtoNome;
+            
+            // Inicializar estrutura do produto se não existir
+            if(!produtosMap[produtoBase]){
+              produtosMap[produtoBase] = {
+                nome: produtoBase,
+                extraKg: 0,
+                extraVlrtot: 0,
+                medioKg: 0,
+                medioVlrtot: 0
+              };
+            }
+            
+            console.log('[PRINT VALE ITEM]', produtoNome, {qtdneg, vlrtot, produtoBase});
+            
+            // Classificar como EXTRA ou MÉDIO
+            if(produtoNome.includes('EXTRA')){
+              produtosMap[produtoBase].extraKg += qtdneg;
+              produtosMap[produtoBase].extraVlrtot += vlrtot;
+              console.log('[PRINT ✅ EXTRA]', produtoBase, {qtdneg, vlrtot});
+            } else if(produtoNome.includes('MEDIO') || produtoNome.includes('MÉDIO') || produtoNome.includes('MEDIA') || produtoNome.includes('MÉDIA')){
+              produtosMap[produtoBase].medioKg += qtdneg;
+              produtosMap[produtoBase].medioVlrtot += vlrtot;
+              console.log('[PRINT ✅ MÉDIO]', produtoBase, {qtdneg, vlrtot});
+            }
+          });
+          
+          console.log('[PRINT PRODUTOS MAP]', produtosMap);
+          
+          // Gerar linhas de impressão para cada produto
+          Object.values(produtosMap).forEach(produto => {
+            const extraCx = produto.extraKg > 0 ? (produto.extraKg / kgPerCx) : 0;
+            const extraCustoCx = extraCx > 0 ? (produto.extraVlrtot / extraCx) : 0;
+            const extraCustoTotal = produto.extraVlrtot;
+            
+            const medioCx = produto.medioKg > 0 ? (produto.medioKg / kgPerCx) : 0;
+            const medioCustoCx = medioCx > 0 ? (produto.medioVlrtot / medioCx) : 0;
+            const medioCustoTotal = produto.medioVlrtot;
+            
+            // Adicionar nome do produto como cabeçalho
+            if(extraCx > 0 || medioCx > 0){
+              itemsHTML += `
+                <tr style="background:#e8f4f8;">
+                  <td colspan="4" style="border:1px solid #000; padding:1.5mm 0.5mm; text-align:center; font-size:8pt; font-weight:bold; line-height:1.2;">${produto.nome}</td>
+                </tr>
+              `;
+            }
+            
+            if(extraCx > 0){
+              itemsHTML += `
+                <tr>
+                  <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">EXTRA</td>
+                  <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${extraCx.toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1})} <span style="font-size:6pt;">CX</span></td>
+                  <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${extraCustoCx.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                  <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${extraCustoTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                </tr>
+              `;
+              totalItens++;
+              qtdTotalGeral += extraCx;
+              valorTotalGeral += extraCustoTotal;
+            }
+            
+            if(medioCx > 0){
+              itemsHTML += `
+                <tr>
+                  <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">MÉDIO</td>
+                  <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${medioCx.toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1})} <span style="font-size:6pt;">CX</span></td>
+                  <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${medioCustoCx.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                  <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${medioCustoTotal.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                </tr>
+              `;
+              totalItens++;
+              qtdTotalGeral += medioCx;
+              valorTotalGeral += medioCustoTotal;
+            }
+          });
           
           // Linha de resumo geral
           if(totalItens > 0){
+            const valorUnitMedio = qtdTotalGeral > 0 ? (valorTotalGeral / qtdTotalGeral) : 0;
             itemsHTML += `
               <tr style="background:#f0f0f0; font-weight:bold;">
                 <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">TOTAL</td>
-                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${qtdTotalGeral.toLocaleString('pt-BR', {maximumFractionDigits:0})} <span style="font-size:6pt;">CX</span></td>
-                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;">—</td>
+                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${qtdTotalGeral.toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1})} <span style="font-size:6pt;">CX</span></td>
+                <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${valorUnitMedio.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                 <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${valorTotalGeral.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
               </tr>
             `;
@@ -4731,10 +4929,11 @@
       }
       
       const updatePrintModel2Options = () => {
-        const selectEl = document.getElementById('printModelSelect');
+        const toggleGroup = document.getElementById('printModelToggle');
         const optionsContainer = document.getElementById('printModel2Options');
         if(!optionsContainer) return;
-        const shouldShow = selectEl && selectEl.value === 'modelo2';
+        const activeModel = toggleGroup?.querySelector('.toggle-btn.is-active')?.dataset?.model;
+        const shouldShow = activeModel === 'modelo2';
         optionsContainer.style.display = shouldShow ? 'inline-flex' : 'none';
       };
 
@@ -4746,14 +4945,18 @@
         document.getElementById('printPreviewModal').style.display = 'none';
       });
       
-      // Listener para o dropdown de modelo - atualizar preview automaticamente
-      document.getElementById('printModelSelect')?.addEventListener('change', (e)=>{
-        const selectedModel = e.target.value;
-        console.log('[PRINT DEBUG] Modelo selecionado:', selectedModel);
-        updatePrintModel2Options();
-        // Regenerar o preview com o novo modelo
-        printVale();
-      });
+      const printModelToggle = document.getElementById('printModelToggle');
+      if(printModelToggle){
+        const toggleButtons = Array.from(printModelToggle.querySelectorAll('.toggle-btn'));
+        toggleButtons.forEach(btn => {
+          btn.addEventListener('click', ()=>{
+            toggleButtons.forEach(b => b.classList.toggle('is-active', b === btn));
+            console.log('[PRINT DEBUG] Modelo selecionado:', btn.dataset?.model);
+            updatePrintModel2Options();
+            printVale();
+          });
+        });
+      }
       const model2SubtotalOnlyEl = document.getElementById('printModel2SubtotalOnly');
       const model2OnlyExtraMedioEl = document.getElementById('printModel2OnlyExtraMedio');
 
@@ -5291,32 +5494,133 @@
                   console.log('[DEBUG] ✅ Itens do vale carregados:', valeData.items.length);
                   
                   // 🔥 MESCLAR: usar dados do vale quando existir, mas manter todos os produtos do pedido
-                  const valeMap = new Map();
-                  valeData.items.forEach(valeItem => {
-                    const key = `${valeItem.codprod}_${valeItem.sequencia || valeItem.codagregacao || ''}`;
-                    valeMap.set(key, valeItem);
+                  const buildMergeKeys = (item) => {
+                    const keys = [];
+                    const seen = new Set();
+                    if(!item || typeof item !== 'object') return keys;
+
+                    const normalizeCodprod = (value) => {
+                      if(value === null || value === undefined) return '';
+                      const num = Number(value);
+                      if(Number.isFinite(num) && num > 0){
+                        return String(num);
+                      }
+                      const str = String(value).trim();
+                      return str ? str.toUpperCase() : '';
+                    };
+                    const normalizeText = (value) => {
+                      if(value === null || value === undefined) return '';
+                      const str = String(value).trim();
+                      return str ? str.toUpperCase() : '';
+                    };
+                    const normalizeSeq = (value) => {
+                      if(value === null || value === undefined) return '';
+                      const num = Number(value);
+                      if(Number.isFinite(num) && num > 0){
+                        return String(num);
+                      }
+                      const str = String(value).trim();
+                      return str ? str.toUpperCase() : '';
+                    };
+                    const pushKey = (prefix, part) => {
+                      const normalized = prefix === 'SQ' || prefix === 'SP' ? normalizeSeq(part) : normalizeText(part);
+                      if(!normalized) return;
+                      const key = `${prefix}:${codprod}:${normalized}`;
+                      if(!seen.has(key)){
+                        seen.add(key);
+                        keys.push(key);
+                      }
+                    };
+
+                    const codprod = normalizeCodprod(
+                      item.codprod ?? item.CODPROD ?? item.codProd ?? item.CODPRODUTO
+                    );
+                    if(!codprod) return keys;
+
+                    pushKey('AG', item.codagregacao ?? item.CODAGREGACAO ?? item.lote ?? item.LOTE);
+                    pushKey('CT', item.codcontrole ?? item.CODCONTROLE ?? item.controle);
+                    pushKey('SP', item.sequencia_pedido ?? item.SEQUENCIA_PEDIDO);
+                    pushKey('SQ', item.sequencia ?? item.SEQUENCIA);
+                    pushKey('LO', item.lote ?? item.LOTE);
+
+                    const prodKey = `PR:${codprod}`;
+                    if(!seen.has(prodKey)){
+                      seen.add(prodKey);
+                      keys.push(prodKey);
+                    }
+
+                    return keys;
+                  };
+
+                  const valeBuckets = new Map();
+                  const usedValeItems = (typeof WeakSet === 'function') ? new WeakSet() : null;
+
+                  valeData.items.forEach((valeItem, idx) => {
+                    const keys = buildMergeKeys(valeItem);
+                    if(!keys.length){
+                      console.warn('[DEBUG] ⚠️ Item do vale sem chave de mesclagem identificável:', valeItem);
+                      return;
+                    }
+                    keys.forEach((key) => {
+                      if(!valeBuckets.has(key)){
+                        valeBuckets.set(key, []);
+                      }
+                      valeBuckets.get(key).push(valeItem);
+                    });
                   });
+
+                  const findBestValeMatch = (pedidoItem) => {
+                    const candidateKeys = buildMergeKeys(pedidoItem);
+                    for(const key of candidateKeys){
+                      const bucket = valeBuckets.get(key);
+                      if(bucket && bucket.length){
+                        let rawCandidate = null;
+                        for(const candidate of bucket){
+                          const alreadyUsed = usedValeItems ? usedValeItems.has(candidate) : candidate?.__matchedMerge === true;
+                          if(!alreadyUsed){
+                            rawCandidate = candidate;
+                            break;
+                          }
+                        }
+                        if(rawCandidate){
+                          if(usedValeItems){
+                            usedValeItems.add(rawCandidate);
+                          } else {
+                            try { rawCandidate.__matchedMerge = true; } catch(_err) { /* ignore */ }
+                          }
+                          return {
+                            item: stripSimulationFields(rawCandidate),
+                            raw: rawCandidate,
+                            keyUsed: key,
+                            keysTried: candidateKeys
+                          };
+                        }
+                      }
+                    }
+                    return { item: null, keyUsed: null, keysTried: candidateKeys };
+                  };
 
                   // Substituir dados do pedido pelos do vale quando disponível
                   rows = pedidoRows.map(pedidoItem => {
-                    const key = `${pedidoItem.codprod}_${pedidoItem.sequencia || pedidoItem.codagregacao || ''}`;
-                    const valeItem = valeMap.get(key) ? stripSimulationFields(valeMap.get(key)) : null;
+                    const matchInfo = findBestValeMatch(pedidoItem);
+                    const valeItem = matchInfo.item;
                     if(valeItem){
-                      console.log('[DEBUG] 🔄 Mesclando produto do vale:', pedidoItem.produto, '| VLRTOT vale:', valeItem.vlrtot, '| VLRTOT pedido:', pedidoItem.vlrtot);
-                      // 🔥 IMPORTANTE: Manter sequencia_pedido para poder salvar no pedido
+                      console.log('[DEBUG] 🔄 Mesclando produto do vale:', pedidoItem.produto, '| chave usada:', matchInfo.keyUsed, '| VLRTOT vale RAW:', matchInfo.raw?.vlrtot, '| VLRTOT vale item:', valeItem?.vlrtot, '| VLRTOT pedido:', pedidoItem.vlrtot);
                       const mergedSim = {
                         ...(pedidoItem.__simFields || {}),
                         ...((valeItem && valeItem.__simFields) || {})
                       };
-                      return stripSimulationFields({
+                      const merged = {
                         ...pedidoItem,
                         ...valeItem,
                         __simFields: mergedSim,
                         sequencia_pedido: pedidoItem.sequencia,
                         nunota_pedido: pedidoItem.nunota
-                      });
+                      };
+                      console.log('[DEBUG] 🔄 Merged vlrtot:', merged.vlrtot);
+                      return merged;
                     } else {
-                      console.log('[DEBUG] 📦 Produto só existe no pedido:', pedidoItem.produto, '| VLRTOT:', pedidoItem.vlrtot);
+                      console.log('[DEBUG] 📦 Produto só existe no pedido:', pedidoItem.produto, '| VLRTOT:', pedidoItem.vlrtot, '| chaves tentadas:', matchInfo.keysTried);
                       return {
                         ...pedidoItem,
                         sequencia_pedido: pedidoItem.sequencia,
@@ -5828,6 +6132,25 @@
           })(); // Default 22kg/cx se nada informado
           console.log('[MODAL] Fator conversão do pedido:', fatorConversaoPedido, 'pedidoRows[0]:', pedidoRows[0]);
           
+          // 🔥 BUSCAR QTDCONFERIDA (pesoClassificado) da TOP 11
+          const qtdConferidaPedido = (() => {
+            const itemComQtdConferida = (pedidoRows || []).find(r => {
+              const qtdConf = Number(r?.qtdconferida || 0);
+              return Number.isFinite(qtdConf) && qtdConf > 0;
+            });
+            const valor = Number(itemComQtdConferida?.qtdconferida || 0);
+            console.log('[MODAL] QTDCONFERIDA encontrado:', valor, 'item:', itemComQtdConferida);
+            return Number.isFinite(valor) && valor > 0 ? valor : null;
+          })();
+          
+          // Se encontrou QTDCONFERIDA no pedido, atualizar o global pesoClassificado
+          if(qtdConferidaPedido != null && qtdConferidaPedido > 0){
+            if(window.pesoClassificado && typeof window.pesoClassificado.setValue === 'function'){
+              window.pesoClassificado.setValue(qtdConferidaPedido);
+              console.log('[MODAL] ✅ pesoClassificado atualizado de QTDCONFERIDA:', qtdConferidaPedido);
+            }
+          }
+          
           // Somar QTDNEG de todos os classificáveis
           classifs.forEach((r, idx) => {
             const qtd = Number(r.qtdneg || 0);
@@ -5897,6 +6220,9 @@
                   qtdKg: 0,
                   qtdCx: 0,
                   vlrtot: 0,
+                  qtdKgTop: 0,
+                  qtdCxTop: 0,
+                  vlrtotTop: 0,
                   items: []
                 };
               }
@@ -5913,7 +6239,10 @@
                 qtdKg = qtdEntrada * fatorConv;
               }else if(unit === 'KG'){
                 qtdKg = qtdEntrada;
-                qtdCx = fatorConv > 0 ? qtdEntrada / fatorConv : 0;
+                // Usar pesoClassificado para calcular CX
+                const pesoClassVal = window.pesoClassificado?.getValue();
+                const kgPerCx = (pesoClassVal && pesoClassVal > 0) ? pesoClassVal : fatorConv;
+                qtdCx = kgPerCx > 0 ? qtdEntrada / kgPerCx : 0;
               }
               
               const displayCx = Number.isFinite(r.__qtd_display_cx) ? r.__qtd_display_cx : qtdCx;
@@ -5924,11 +6253,140 @@
               fabricantesMap[fabricante].qtdCx += displayCx;
               fabricantesMap[fabricante].vlrtot += resolvedVlrtot;
               fabricantesMap[fabricante].items.push(r);
+
+              if((Number(resolvedVlrtot) < 10 || Number(r?.vlrtot) < 10) && Number(resolvedVlrtot) !== Number(r?.vlrtot || 0)){
+                console.debug('[VLRTOT DEBUG] Valor reduzido detectado:', {
+                  produto: r?.produto,
+                  vlrtot_raw: r?.vlrtot,
+                  resolved: resolvedVlrtot,
+                  vlrtot_total: r?.vlrtot_total,
+                  vlrtot_banco: r?.vlrtot_banco,
+                  valor_total: r?.valor_total,
+                  total: r?.total,
+                  unidades: {
+                    qtdneg: r?.qtdneg,
+                    qtdneg_base: r?.qtdneg_base,
+                    codvol: r?.codvol,
+                    fator: r?.fator_conversao
+                  }
+                });
+              }
+
+              const qtnegTop = pickFirstPositive(
+                r.__qtd_display_kg,  // Prioriza o KG da classificação (já calculado)
+                r.qtdneg_base,
+                r.__raw_qtdneg_base,
+                r.__raw_qtdneg,
+                r.qtdneg
+              );
+              
+              // 🔥 CORRIGIDO: Buscar peso preferencial considerando QTDCONFERIDA
+              const pesoPreferencialBase = pickFirstPositive(
+                r.peso,
+                r.__peso_unitario_resolvido,
+                r.peso_unitario,
+                r.peso_cx,
+                r.peso_in,
+                r.kg_por_cx,
+                r.fator_conversao,
+                fatorConversaoPedido
+              );
+              
+              // Se tem QTDCONFERIDA do pedido, usar ele; senão usar o peso preferencial
+              const pesoPreferencial = (qtdConferidaPedido != null && qtdConferidaPedido > 0) 
+                ? qtdConferidaPedido 
+                : pesoPreferencialBase;
+              
+              console.log('[MODAL] Peso preferencial:', {
+                produto: r.produto,
+                qtdConferidaPedido,
+                pesoPreferencialBase,
+                pesoPreferencialFinal: pesoPreferencial
+              });
+
+              let kgTop = Number.isFinite(qtnegTop) && qtnegTop > 0 ? qtnegTop : NaN;
+              let caixasTop = NaN;
+              if(Number.isFinite(kgTop) && kgTop > 0){
+                // 🔥 RELATÓRIO IN NATURA: Usar peso preferencial ORIGINAL (sem pesoClassificado)
+                // Isso mantém o cálculo IN NATURA usando o peso in natura do banco
+                if(Number.isFinite(pesoPreferencial) && pesoPreferencial > 0){
+                  caixasTop = kgTop / pesoPreferencial;
+                }
+              }
+
+              if(!(Number.isFinite(caixasTop) && caixasTop > 0) && Number.isFinite(displayCx) && displayCx > 0){
+                caixasTop = displayCx;
+              }
+              if(!(Number.isFinite(kgTop) && kgTop > 0)){
+                if(Number.isFinite(qtnegTop) && qtnegTop > 0){
+                  kgTop = qtnegTop;
+                } else if(Number.isFinite(displayKg) && displayKg > 0){
+                  kgTop = displayKg;
+                }
+              }
+
+              const vlrTop = pickFirstPositive(
+                r.vlrtot_banco,
+                r.vlrtot_total,
+                r.valor_total,
+                r.total,
+                r.vlrtot_nf,
+                r.vlrtot_fiscal,
+                r.vlrtot_real,
+                r.vlrtot,
+                resolvedVlrtot
+              );
+              const vlrTopResolved = Number.isFinite(vlrTop) && vlrTop > 0 ? vlrTop : 0;
+              r.__vlrtot_banco_resolvido = vlrTopResolved;
+              
+              console.log('[VLRTOT TRACE]', {
+                produto: r.produto,
+                vlrtot_raw: r.vlrtot,
+                vlrtot_banco: r.vlrtot_banco,
+                vlrtot_total: r.vlrtot_total,
+                valor_total: r.valor_total,
+                total: r.total,
+                vlrTopResolved: vlrTopResolved,
+                resolvedVlrtot: resolvedVlrtot
+              });
+
+              if(Number.isFinite(caixasTop) && caixasTop > 0){
+                fabricantesMap[fabricante].qtdCxTop += caixasTop;
+              } else if(Number.isFinite(displayCx) && displayCx > 0){
+                fabricantesMap[fabricante].qtdCxTop += displayCx;
+              }
+              if(Number.isFinite(kgTop) && kgTop > 0){
+                fabricantesMap[fabricante].qtdKgTop += kgTop;
+              }
+              if(vlrTopResolved > 0){
+                fabricantesMap[fabricante].vlrtotTop += vlrTopResolved;
+              } else if(Number.isFinite(resolvedVlrtot) && resolvedVlrtot > 0){
+                fabricantesMap[fabricante].vlrtotTop += resolvedVlrtot;
+              }
             });
             
             // 💰 CALCULAR TOTAL DOS CLASSIFICÁVEIS ANTES de gerar HTML
             Object.values(fabricantesMap).forEach(fab => {
-              totalVlrClassif += fab.vlrtot;
+              const sumBancoVlr = (fab.items || []).reduce((acc, item)=>{
+                const val = pickFirstPositive(
+                  item?.vlrtot_banco,
+                  item?.vlrtot_total,
+                  item?.valor_total,
+                  item?.total,
+                  item?.vlrtot_nf,
+                  item?.vlrtot_fiscal,
+                  item?.vlrtot_real,
+                  item?.vlrtot
+                );
+                console.log('[SOMA FAB]', fab.fabricante, 'item:', item.produto, 'val:', val, 'acc:', acc);
+                return Number.isFinite(val) && val > 0 ? (acc + val) : acc;
+              }, 0);
+              if(Number.isFinite(sumBancoVlr) && sumBancoVlr > 0){
+                fab.vlrtotTop = sumBancoVlr;
+              }
+              const baseVlr = Number(fab.vlrtotTop) > 0 ? fab.vlrtotTop : fab.vlrtot;
+              console.log('[FAB TOTAL]', fab.fabricante, 'vlrtotTop:', fab.vlrtotTop, 'vlrtot:', fab.vlrtot, 'baseVlr:', baseVlr);
+              totalVlrClassif += baseVlr;
             });
             
             console.log('[MODAL] 💰 Total Classificáveis calculado:', totalVlrClassif);
@@ -5936,12 +6394,23 @@
             // Gerar HTML do resumo consolidado
             const classRowsHtml = Object.values(fabricantesMap).map((fab) => {
               const prod = fab.fabricante;
-              const qtdKg = fab.qtdKg;
-              const qtdCx = fab.qtdCx;
-              const vlrtot = fab.vlrtot;
-              
-              const hasCx = Number(qtdCx) > 0.0001;
-              const hasKg = Number(qtdKg) > 0.0001;
+              const topKg = Number(fab.qtdKgTop || 0);
+              const topCx = Number(fab.qtdCxTop || 0);
+              const topVlr = Number(fab.vlrtotTop || 0);
+              let qtdKg = Number(fab.qtdKg || 0);
+              let qtdCx = Number(fab.qtdCx || 0);
+              let vlrtot = Number(fab.vlrtot || 0);
+
+              const hasTopKg = topKg > 0.0001;
+              const hasTopCx = topCx > 0.0001;
+              const hasTopVlr = topVlr > 0.0001;
+
+              if(hasTopKg) qtdKg = topKg;
+              if(hasTopCx) qtdCx = topCx;
+              if(hasTopVlr) vlrtot = topVlr;
+
+              const hasCx = qtdCx > 0.0001;
+              const hasKg = qtdKg > 0.0001;
               let qtdeDisplay = '';
               if(hasCx || hasKg){
                 const kgLine = hasKg
@@ -5954,14 +6423,17 @@
               } else {
                 qtdeDisplay = '<span style="color:#94a3b8;">—</span>';
               }
-              
-              // Calcular preço médio
-              const precoKg = (vlrtot > 0 && qtdKg > 0) ? (vlrtot / qtdKg) : 0;
-              const precoCx = (vlrtot > 0 && qtdCx > 0) ? (vlrtot / qtdCx) : 0;
+
+              const effectiveTopVlr = hasTopVlr ? topVlr : 0;
+              const precoKgTop = (effectiveTopVlr > 0 && hasTopKg) ? (effectiveTopVlr / topKg) : 0;
+              const precoCxTop = (effectiveTopVlr > 0 && hasTopCx) ? (effectiveTopVlr / topCx) : 0;
+              const pesoCxTop = (hasTopCx && hasTopKg) ? (topKg / topCx) : 0;
+              const precoKg = precoKgTop > 0 ? precoKgTop : (vlrtot > 0 && qtdKg > 0 ? (vlrtot / qtdKg) : 0);
+              const precoCx = precoCxTop > 0 ? precoCxTop : (vlrtot > 0 && qtdCx > 0 ? (vlrtot / qtdCx) : 0);
               const primaryUnit = hasCx ? 'CX' : (hasKg ? 'KG' : '');
               const escapeAttr = (value) => String(value ?? '').replace(/"/g, '&quot;');
               const toAttrNumber = (value) => Number.isFinite(value) ? String(value) : '0';
-              
+
               let vlrUnitDisplay = '—';
               if(precoKg > 0 || precoCx > 0){
                 vlrUnitDisplay = `<div style="line-height:1.3;">
@@ -5969,7 +6441,7 @@
                   <div style="font-size:12.8px; color:#64748b;">${precoCx > 0 ? fmtMoney(precoCx) : '—'}<span style="color:#94a3b8; font-size:.7rem;">/cx</span></div>
                 </div>`;
               }
-              
+
               const statusOk = vlrtot > 0;
               const status = statusOk
                 ? `<span title="OK" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#16a34a;"></span>`
@@ -5996,7 +6468,13 @@
                 `data-qtd-cx="${toAttrNumber(qtdCx)}"`,
                 `data-vlr-total="${toAttrNumber(vlrtot)}"`,
                 `data-preco-kg="${toAttrNumber(precoKg)}"`,
-                `data-preco-cx="${toAttrNumber(precoCx)}"`
+                `data-preco-cx="${toAttrNumber(precoCx)}"`,
+                `data-top-kg="${toAttrNumber(topKg)}"`,
+                `data-top-cx="${toAttrNumber(topCx)}"`,
+                `data-top-vlr-total="${toAttrNumber(topVlr)}"`,
+                `data-top-preco-kg="${toAttrNumber(precoKgTop)}"`,
+                `data-top-preco-cx="${toAttrNumber(precoCxTop)}"`,
+                `data-top-peso-cx="${toAttrNumber(pesoCxTop)}"`
               ].join(' ');
               
               return `
@@ -9504,17 +9982,20 @@
                 const rowNunota = Number(row.nunota ?? row.NUNOTA ?? row.nunota_pedido ?? 0);
                 const rowSeq = Number(row.sequencia ?? row.SEQUENCIA ?? row.sequencia_pedido ?? 0);
                 if(rowNunota !== nunota) return;
+                const rowLote = String(row.codagregacao ?? row.lote ?? row.CODAGREGACAO ?? '').trim();
+                const hasSeqFilter = seqSet.size > 0;
+                const hasLotFilter = Boolean(codagKey);
+                const matchesSeq = hasSeqFilter ? seqSet.has(rowSeq) : false;
+                const matchesLot = hasLotFilter ? (rowLote === codagKey) : false;
+                if((hasSeqFilter || hasLotFilter) && !matchesSeq && !matchesLot){
+                  return;
+                }
                 if(!row.__simFields || typeof row.__simFields !== 'object'){
                   row.__simFields = {};
                 }
                 if(Object.prototype.hasOwnProperty.call(simUpdate, 'ad_simqtddesc')){
                   row.ad_simqtddesc = simUpdate.ad_simqtddesc;
                   row.__simFields.ad_simqtddesc = simUpdate.ad_simqtddesc;
-                }
-                const rowLote = String(row.codagregacao ?? row.lote ?? row.CODAGREGACAO ?? '').trim();
-                const matchesLot = codagKey ? (rowLote === codagKey) : false;
-                if(seqSet.size && !seqSet.has(rowSeq) && !matchesLot){
-                  return;
                 }
                 ['ad_simqtd1','ad_simvlr1','ad_simqtd2','ad_simvlr2'].forEach(field => {
                   if(Object.prototype.hasOwnProperty.call(simUpdate, field)){
@@ -9928,8 +10409,15 @@
         })();
         const totals = st?.totais || {};
   const shouldUseOverride = !!(override && (override.locked === true || override.source === 'record')); // privilege explicit overrides
-  const qtyCx = Number((shouldUseOverride ? override?.cx : undefined) ?? totals.cxEq ?? 0);
+  // Recalcular CX usando pesoClassificado
   const qtyKg = Number((shouldUseOverride ? override?.kg : undefined) ?? totals.kg ?? 0);
+  const pesoClassVal = window.pesoClassificado?.getValue();
+  let qtyCx;
+  if(pesoClassVal && pesoClassVal > 0){
+    qtyCx = qtyKg > 0 ? (qtyKg / pesoClassVal) : 0;
+  } else {
+    qtyCx = Number((shouldUseOverride ? override?.cx : undefined) ?? totals.cxEq ?? 0);
+  }
         const fmtInt = (n)=>{
           const num = Number(n);
           if(!Number.isFinite(num) || num <= 0) return '0';
@@ -9974,7 +10462,10 @@
           const cat = String(row.dataset.cat || '').toLowerCase();
           const bucket = ensureBucket(cat);
           const kgVal = bucket.kg || 0;
-          const cxVal = bucket.cxEq || 0;
+          // Calcular CX usando pesoClassificado
+          const pesoClassVal = window.pesoClassificado?.getValue();
+          const kgPerCx = (pesoClassVal && pesoClassVal > 0) ? pesoClassVal : KG_PER_CX_EQ;
+          const cxVal = kgVal > 0 ? (kgVal / kgPerCx) : (bucket.cxEq || 0);
           const shareEl = row.querySelector('.class-share');
           const fillEl = row.querySelector('.bar-fill');
           const kgEl = row.querySelector('[data-field="kg"]');
@@ -10233,7 +10724,6 @@
       if(!bar) return;
       const btnSave = document.getElementById('dist-btn-save');
       const btnReset = document.getElementById('dist-btn-reset');
-      const btnPrint = document.getElementById('dist-btn-print');
 
       const getState = () => {
         try { return window.__DIST_STATE || {}; } catch(_){ return {}; }
@@ -11226,9 +11716,11 @@
 
           const totalKg = Number(active.totalKg) || 0;
           const extraKg = Number(active?.extra?.kg) || 0;
-          const extraCx = Number(active?.extra?.cx) || 0;
           const medioKg = Number(active?.medio?.kg) || 0;
-          const medioCx = Number(active?.medio?.cx) || 0;
+          // Calcular CX usando pesoClassificado
+          const pesoClassVal = window.pesoClassificado?.getValue();
+          const extraCx = (pesoClassVal && pesoClassVal > 0) ? (extraKg / pesoClassVal) : (Number(active?.extra?.cx) || 0);
+          const medioCx = (pesoClassVal && pesoClassVal > 0) ? (medioKg / pesoClassVal) : (Number(active?.medio?.cx) || 0);
           const baseKg = totalKg > 0 ? totalKg : Math.max(0, extraKg + medioKg);
 
           const updateCard = (card, bucket) => {
@@ -11871,9 +12363,6 @@
 
       if(btnSave) btnSave.addEventListener('click', handleSave);
       if(btnReset) btnReset.addEventListener('click', handleReset);
-      if(btnPrint) btnPrint.addEventListener('click', ()=>{
-        window.dispatchEvent(new CustomEvent('dist:print'));
-      });
     })();
 
     // Tooltip: Resumo Financeiro ao passar mouse sobre a Margem
@@ -11965,10 +12454,7 @@
         });
 
   const esperadoKg = totalCx * 22; // mantém para cálculo de Aproveitamento
-  // Rendimento: total de CX classificados / total de CX In Natura
-  const cxInNatura = parsePT(document.getElementById('quantidadeInn')?.textContent || '0');
-  const rendimentoPct = cxInNatura > 0 ? (totalCx / cxInNatura) * 100 : 0;
-  if(kpiRend) kpiRend.textContent = fmtPct(rendimentoPct);
+  // Rendimento agora é calculado no loadValeContent() após atualizar resClassCx
 
   // Estoque InNatura (em KG) = Total In Natura (target kg) − total classificado (kg)
   let targetKg = parsePT(card.getAttribute('data-target') || '0');
@@ -12409,6 +12895,199 @@
         
         console.log('[PREÇO INICIAL] ✅ Event listeners anexados com sucesso!');
         console.log('[PREÇO INICIAL] Clique no valor', precoCxDisplay.textContent, 'para editar');
+      })();
+
+    // Peso Classificado: tornar editável
+      (function(){
+        console.log('[PESO CLASSIFICADO] Inicializando sistema de edição...');
+        
+        // 🌍 Variável global para acesso externo
+        window.pesoClassificado = {
+          getValue: () => {
+            const display = document.getElementById('pesoClassificadoDisplay');
+            if (!display) return null;
+            const text = display.textContent || '—';
+            if (text === '—') return null;
+            const n = parseFloat(text.replace(/\./g, '').replace(',', '.'));
+            return isFinite(n) ? n : null;
+          },
+          setValue: (value) => {
+            const display = document.getElementById('pesoClassificadoDisplay');
+            if (!display) return false;
+            const n = Number(value);
+            if (!isFinite(n) || n < 0) {
+              display.textContent = '—';
+              return false;
+            }
+            display.textContent = n.toLocaleString('pt-BR', {
+              minimumFractionDigits: 1,
+              maximumFractionDigits: 1
+            });
+            return true;
+          }
+        };
+        
+        const card = document.getElementById('quantidadeInnCard');
+        const pesoClassificadoDisplay = document.getElementById('pesoClassificadoDisplay');
+        const pesoClassificadoInput = document.getElementById('pesoClassificadoInput');
+        
+        console.log('[PESO CLASSIFICADO] Elementos encontrados:', {
+          card: !!card,
+          pesoClassificadoDisplay: !!pesoClassificadoDisplay,
+          pesoClassificadoInput: !!pesoClassificadoInput
+        });
+        
+        if(!card || !pesoClassificadoDisplay || !pesoClassificadoInput) {
+          console.error('[PESO CLASSIFICADO] ❌ Algum elemento não foi encontrado! Sistema de edição NÃO inicializado.');
+          return;
+        }
+        
+        console.log('[PESO CLASSIFICADO] ✅ Todos os elementos encontrados. Inicializando eventos...');
+
+        const parsePT = (text) => {
+          if(!text) return NaN;
+          const cleaned = text.toString().trim()
+            .replace(/[^0-9,\.]/g, '')
+            .replace(/\.(?=\d{3}(\D|$))/g, '')
+            .replace(',', '.');
+          const n = Number(cleaned);
+          return isFinite(n) ? n : NaN;
+        };
+        const fmtNumber = (n) => isNaN(n) ? '0,0' : new Intl.NumberFormat('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1}).format(n);
+        
+        const autosize = () => {
+          try{
+            const rect = pesoClassificadoDisplay.getBoundingClientRect();
+            const maxWidth = 70;
+            pesoClassificadoInput.style.width = Math.min(maxWidth, Math.ceil(rect.width + 10)) + 'px';
+          }catch{}
+        };
+        
+        const notifyLocked = () => {
+          if(typeof window.showToast !== 'function') return;
+          const last = Number(card.dataset.lockToastTs || '0');
+          const now = Date.now();
+          if(now - last < 1500) return;
+          card.dataset.lockToastTs = String(now);
+          window.showToast('Vale faturado - edição bloqueada', 'warning');
+        };
+
+        let prev = pesoClassificadoDisplay.textContent || '—';
+        const enter = () => {
+          if(card.classList.contains('locked')){
+            notifyLocked();
+            return;
+          }
+          console.log('[PESO CLASSIFICADO] Enter chamado - começando edição');
+          prev = pesoClassificadoDisplay.textContent || prev;
+          const n = parsePT(prev);
+          card.classList.add('editing-cx');
+          pesoClassificadoInput.value = isNaN(n) ? '' : n.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1}).replace('.', ',');
+          autosize();
+          setTimeout(()=>{ pesoClassificadoInput.focus(); pesoClassificadoInput.select(); },0);
+        };
+        
+        const exit = async (commit) => {
+          console.log('[PESO CLASSIFICADO] Exit chamado - commit:', commit);
+          if(commit){
+            const n = parsePT(pesoClassificadoInput.value);
+            if(!isNaN(n) && Number.isFinite(n) && n >= 0){
+              pesoClassificadoDisplay.textContent = fmtNumber(n);
+              prev = fmtNumber(n);
+              
+              console.log('[PESO CLASSIFICADO] Valor editado:', n);
+              
+              // Salvar QTDCONFERIDA no banco
+              const nunota = Number(card?.getAttribute('data-nunota') || 0);
+              const sequencia = Number(card?.getAttribute('data-seq') || 0);
+              
+              if (nunota && sequencia) {
+                try {
+                  const payload = { nunota, sequencia, qtdconferida: n };
+                  const res = await window.__postJSON('/sankhya/comercial/peso/save/', payload);
+                  
+                  if (res.ok) {
+                    console.log('[PESO CLASSIFICADO] ✅ Salvo com sucesso!');
+                    
+                    // 🔥 Atualizar cache local para manter sincronizado
+                    if (Array.isArray(window.__COM_LIST_ROWS)) {
+                      window.__COM_LIST_ROWS.forEach(row => {
+                        if (row && 
+                            Number(row.nunota || row.NUNOTA || 0) === nunota && 
+                            Number(row.sequencia || row.SEQUENCIA || 0) === sequencia) {
+                          row.qtdconferida = n;
+                          console.log('[PESO CLASSIFICADO] 🔄 Cache atualizado para nunota:', nunota, 'seq:', sequencia);
+                        }
+                      });
+                    }
+                    
+                    if (typeof window.showToast === 'function') {
+                      window.showToast('Peso salvo', 'success', 2000);
+                    }
+                    
+                    // 🔄 Recarregar card de classificação para atualizar cálculos de CX
+                    const classCard = document.getElementById('classCard');
+                    const loteAtual = classCard?.getAttribute('data-current-lote');
+                    if(loteAtual && typeof window.__reloadClassificacaoCard === 'function'){
+                      console.log('[PESO CLASSIFICADO] 🔄 Recarregando card de classificação...');
+                      window.__reloadClassificacaoCard(loteAtual);
+                    }
+                  } else {
+                    console.error('[PESO CLASSIFICADO] ❌ Erro:', res.body?.error);
+                    if (typeof window.showToast === 'function') {
+                      window.showToast('Erro ao salvar', 'error', 3000);
+                    }
+                  }
+                } catch (err) {
+                  console.error('[PESO CLASSIFICADO] ❌ Exceção:', err);
+                }
+              }
+            } else {
+              pesoClassificadoDisplay.textContent = prev;
+            }
+          } else {
+            pesoClassificadoDisplay.textContent = prev;
+          }
+          card.classList.remove('editing-cx');
+        };
+
+        pesoClassificadoDisplay.addEventListener('click', enter);
+        pesoClassificadoDisplay.addEventListener('keydown', (e)=>{ 
+          if(e.key==='Enter'||e.key===' '){ 
+            e.preventDefault(); 
+            enter(); 
+          }
+        });
+        pesoClassificadoInput.addEventListener('keydown', (e)=>{
+          if(e.key==='Enter'){ 
+            e.preventDefault(); 
+            pesoClassificadoInput.blur(); 
+          }
+          else if(e.key==='Escape'){ 
+            e.preventDefault(); 
+            pesoClassificadoInput.value = prev; 
+            exit(false); 
+          }
+        });
+        pesoClassificadoInput.addEventListener('blur', ()=> exit(true));
+        pesoClassificadoInput.addEventListener('input', ()=>{
+          try{
+            const mirror = document.createElement('span');
+            const style = getComputedStyle(pesoClassificadoDisplay);
+            mirror.style.visibility = 'hidden';
+            mirror.style.position = 'fixed';
+            mirror.style.whiteSpace = 'pre';
+            mirror.style.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+            mirror.textContent = pesoClassificadoInput.value || '0';
+            document.body.appendChild(mirror);
+            const w = mirror.getBoundingClientRect().width;
+            document.body.removeChild(mirror);
+            pesoClassificadoInput.style.width = Math.ceil(Math.min(70, Math.max(50, w + 10))) + 'px';
+          }catch{}
+        });
+        
+        console.log('[PESO CLASSIFICADO] ✅ Event listeners anexados com sucesso!');
+        console.log('[PESO CLASSIFICADO] Clique no valor para editar');
       })();
 
     // Comercial: carregar dados reais do lote (se ?lote= estiver presente) e salvar simulação ao aplicar
