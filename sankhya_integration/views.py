@@ -1334,6 +1334,16 @@ def produtos_search(request: HttpRequest) -> JsonResponse:
             # Exclude 'IN NATURA' from listing when in modal classification context
             if exclude_in_natura:
                 sql += " AND UPPER(DESCRPROD) NOT LIKE '%IN NATURA%'"
+            # Exclude products containing specific unwanted terms in description
+            sql += " AND UPPER(DESCRPROD) NOT LIKE '%EXTRA%'"
+            sql += " AND UPPER(DESCRPROD) NOT LIKE '%MÉDIO%'"
+            sql += " AND UPPER(DESCRPROD) NOT LIKE '%MEDIO%'"
+            sql += " AND UPPER(DESCRPROD) NOT LIKE '%MÉDIA%'"
+            sql += " AND UPPER(DESCRPROD) NOT LIKE '%MEDIA%'"
+            sql += " AND UPPER(DESCRPROD) NOT LIKE '%BOLINHA%'"
+            sql += " AND UPPER(DESCRPROD) NOT LIKE '%QUEBRADA%'"
+            sql += " AND UPPER(DESCRPROD) NOT LIKE '%FURADO%'"
+            sql += " AND UPPER(DESCRPROD) NOT LIKE '%MOLHO%'"
             if add_order:
                 sql += " ORDER BY DESCRPROD"
             return sql, binds
@@ -2690,12 +2700,13 @@ def classificacao_resumo(request: HttpRequest) -> JsonResponse:
     try:
         rows = resumo_classificacao_por_lote(lote)
         linhas = []
-        for descr, sum_cx, sum_kg, fator_cx in rows:
+        for descr, sum_cx, sum_kg, fator_cx, fabricante in rows:
             linhas.append({
                 'produto': (descr or '').strip(),
                 'cx': float(sum_cx or 0),
                 'kg': float(sum_kg or 0),
                 'fator_cx': float(fator_cx or 0),  # kg por caixa (TGFVOA)
+                'fabricante': (fabricante or '').strip(),
             })
         
         # Buscar QTDBATIDAS do cabeçalho TOP 26 (classificação)

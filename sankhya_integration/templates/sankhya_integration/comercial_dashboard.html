@@ -4230,9 +4230,33 @@
         
         if(selectedModel === 'modelo1'){
           // MODELO 1 - IN NATURA (CONSOLIDADO POR FABRICANTE)
-          // 🔥 Buscar dados IN NATURA diretamente da TOP 11 (pedidoRows)
+          // 🔥 Buscar dados IN NATURA da TOP 11 + VLRTOTs do vale (TOP 13)
           const modalData = window.__CURRENT_MODAL_FATURAMENTO;
           const pedidoRowsRaw = (window.__COM_LIST_ROWS||[]).filter(r=> String(r.nunota||'') === String(modalData?.nunota||''));
+          
+          // 🔥 Buscar VLRTOTs do vale para somar por LOTE
+          const vlrtotPorLoteInNatura = new Map();
+          const nunota13 = modalData?.nunota_13 || modalData?.nunota_vale;
+          if(nunota13){
+            try {
+              const respVale = await fetch(`/sankhya/comercial/api/itens_vale/?nunota=${nunota13}`);
+              if(respVale.ok){
+                const valeData = await respVale.json();
+                if(valeData.items && valeData.items.length > 0){
+                  valeData.items.forEach(valeItem => {
+                    const lote = (valeItem.codagregacao || valeItem.lote || '').trim().toUpperCase();
+                    const vlrtot = Number(valeItem.vlrtot || 0);
+                    if(lote && vlrtot > 0){
+                      vlrtotPorLoteInNatura.set(lote, (vlrtotPorLoteInNatura.get(lote) || 0) + vlrtot);
+                    }
+                  });
+                  console.log('[IN NATURA] 💰 VLRTOTs do vale por lote:', Array.from(vlrtotPorLoteInNatura.entries()));
+                }
+              }
+            } catch(e){
+              console.error('[IN NATURA] Erro ao buscar VLRTOTs do vale:', e);
+            }
+          }
           
           const classBody = document.getElementById('valeClassBody');
           const outrosBody = document.getElementById('valeOutrosBody');
@@ -4285,9 +4309,13 @@
             // 🔥 USAR qtdneg_base (KG in natura) em vez de qtdneg
             const qtdneg = Number(item.qtdneg_base || item.qtdneg || 0);
             const peso = Number(item.peso || 0);
-            const vlrtot = Number(item.vlrtot || 0);
             
-            console.log('[IN NATURA ITEM]', fabricante, {qtdneg, qtdneg_base: item.qtdneg_base, peso, vlrtot, produto: item.produto});
+            // 🔥 Buscar VLRTOT do vale usando o LOTE
+            const lote = (item.codagregacao || item.lote || '').trim().toUpperCase();
+            const vlrtotVale = lote ? (vlrtotPorLoteInNatura.get(lote) || 0) : 0;
+            const vlrtot = vlrtotVale > 0 ? vlrtotVale : Number(item.vlrtot || 0);
+            
+            console.log('[IN NATURA ITEM]', fabricante, {qtdneg, qtdneg_base: item.qtdneg_base, peso, vlrtot, vlrtotVale, lote, produto: item.produto});
             
             fabricantesInNaturaMap[fabricante].qtdneg += qtdneg;
             if(peso > 0 && fabricantesInNaturaMap[fabricante].peso === 0){
@@ -4717,10 +4745,13 @@
         } else if(selectedModel === 'modelo4'){
           // MODELO 4 - CLASSIFICAÇÃO
           // Buscar produtos da TOP 26 (classificação) diretamente do banco
-          const formatQty = (value) => {
+          const formatQty = (value, decimals = null) => {
             if(!Number.isFinite(value) || Math.abs(value) < 1e-9) return '0';
-            const decimals = Math.abs(value - Math.trunc(value)) > 1e-6 ? 2 : 0;
-            return value.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: decimals });
+            if(decimals !== null){
+              return value.toLocaleString('pt-BR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+            }
+            const autoDecimals = Math.abs(value - Math.trunc(value)) > 1e-6 ? 2 : 0;
+            return value.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: autoDecimals });
           };
           const formatMoney = (value) => {
             const safe = Number.isFinite(value) ? value : 0;
@@ -4740,42 +4771,57 @@
           // 🔥 Buscar lote (CODAGREGACAO) do vale
           const nunotaValeClass = window.__CURRENT_VALE_NUNOTA || modalData?.nunotaVale;
           const valeRowsClass = (window.__COM_LIST_ROWS||[]).filter(r=> String(r.nunota||'') === String(nunotaValeClass||''));
-          const lote = valeRowsClass[0]?.codagregacao || valeRowsClass[0]?.lote || valeRowsClass[0]?.CODAGREGACAO || null;
           
-          console.log('[PRINT MODELO 4] NUNOTA Vale:', nunotaValeClass, 'Lote:', lote);
+          // 🔥 Buscar TODOS os lotes do vale (pode ter múltiplos produtos/lotes)
+          const lotes = valeRowsClass && valeRowsClass.length > 0 
+            ? [...new Set(valeRowsClass.map(r => r.codagregacao || r.lote || r.CODAGREGACAO).filter(Boolean))]
+            : [];
           
-          // 🔥 Buscar dados da classificação via API (TOP 26 não está em __COM_LIST_ROWS)
+          console.log('[PRINT MODELO 4] NUNOTA Vale:', nunotaValeClass, 'Lotes encontrados:', lotes, 'Vale rows:', valeRowsClass.length);
+          
+          if (lotes.length === 0) {
+            console.error('[PRINT MODELO 4] ❌ Nenhum lote encontrado');
+            loadingModal.hide();
+            showCustomToast('Erro: nenhum lote encontrado no vale', 'error');
+            return;
+          }
+          
+          // 🔥 Buscar dados da classificação via API (TOP 26) de TODOS os lotes
           let classificacaoData = [];
-          if(lote){
+          for (const lote of lotes) {
+            console.log('[PRINT MODELO 4] 🔄 Buscando classificação do lote:', lote);
             try {
               const respClass = await fetch(`/sankhya/classificacao/resumo/?lote=${encodeURIComponent(lote)}`);
               if(respClass.ok){
                 const dataClass = await respClass.json();
                 if(dataClass && dataClass.ok && Array.isArray(dataClass.linhas)){
-                  classificacaoData = dataClass.linhas;
-                  console.log('[PRINT MODELO 4] ✅ Classificação carregada:', classificacaoData.length, 'produtos');
+                  console.log('[PRINT MODELO 4] ✅ Lote', lote, '- Classificação carregada:', dataClass.linhas.length, 'produtos');
+                  classificacaoData = classificacaoData.concat(dataClass.linhas);
                 } else {
-                  console.error('[PRINT MODELO 4] ❌ Resposta inválida da classificação:', dataClass);
+                  console.error('[PRINT MODELO 4] ❌ Resposta inválida da classificação do lote', lote, ':', dataClass);
                 }
               } else {
-                console.error('[PRINT MODELO 4] ❌ Erro ao buscar classificação:', respClass.status);
+                console.error('[PRINT MODELO 4] ❌ Erro ao buscar classificação do lote', lote, ':', respClass.status);
               }
             } catch(err) {
-              console.error('[PRINT MODELO 4] ❌ Erro na requisição classificação:', err);
+              console.error('[PRINT MODELO 4] ❌ Erro na requisição classificação do lote', lote, ':', err);
             }
-          } else {
-            console.error('[PRINT MODELO 4] ❌ Lote não encontrado, não é possível buscar classificação');
           }
           
-          console.log('[PRINT MODELO 4] Total produtos classificação:', classificacaoData.length);
+          console.log('[PRINT MODELO 4] ✅ Total classificação carregada:', classificacaoData.length, 'produtos');
+          console.log('[PRINT MODELO 4] Produtos da classificação:', classificacaoData.map(p => p.produto));
           
           // Buscar itens do vale (TOP 13) para pegar VLRTOT
           let valeData = [];
           if(nunotaValeClass){
             try {
               const resp = await fetch(`/sankhya/comercial/api/itens_vale/?nunota=${nunotaValeClass}`);
+              console.log('[PRINT MODELO 4] API Vale - Status:', resp.status, resp.statusText);
               if(resp.ok){
                 const data = await resp.json();
+                console.log('[PRINT MODELO 4] API Vale - Resposta completa:', data);
+                console.log('[PRINT MODELO 4] API Vale - Tipo:', typeof data, 'Array?', Array.isArray(data));
+                
                 if(Array.isArray(data)){
                   valeData = data;
                 } else if(data && Array.isArray(data.itens)){
@@ -4788,6 +4834,8 @@
                   valeData = Object.values(data).filter(item => item && typeof item === 'object');
                 }
                 console.log('[PRINT MODELO 4] ✅ Dados do vale carregados:', valeData.length, 'itens');
+              } else {
+                console.error('[PRINT MODELO 4] ❌ Erro HTTP ao buscar vale:', resp.status);
               }
             } catch(err) {
               console.error('[PRINT MODELO 4] ❌ Erro ao buscar vale:', err);
@@ -4818,6 +4866,8 @@
           const produtos = Object.values(produtosMap);
           
           console.log('[PRINT MODELO 4] Produtos agrupados:', produtos.length);
+          console.log('[PRINT MODELO 4] Produtos:', produtos.map(p => p.produto));
+          console.log('[PRINT MODELO 4] Dados vale:', valeData.map(v => ({produto: v.produto, vlrtot: v.vlrtot})));
           
           // Função para identificar se produto é EXTRA
           const isExtra = (nome) => {
@@ -4829,6 +4879,8 @@
           
           // Função para buscar VLRTOT do vale
           const getVlrTotFromVale = (nomeProduto) => {
+            console.log('[PRINT MODELO 4] Buscando VLRTOT para:', nomeProduto);
+            
             // Tentar match exato primeiro
             let valeItem = valeData.find(v => {
               const vNome = (v.produto || v.descrprod || '').toUpperCase();
@@ -4854,30 +4906,27 @@
               });
             }
             
-            return valeItem ? Number(valeItem.vlrtot || 0) : 0;
+            const vlrtot = valeItem ? Number(valeItem.vlrtot || 0) : 0;
+            console.log('[PRINT MODELO 4] VLRTOT encontrado:', vlrtot, 'Item:', valeItem?.produto);
+            return vlrtot;
           };
           
-          // Agrupar por nome base para criar seções
-          const getNomeBase = (nome) => {
-            return nome
-              .replace(/\s+(EXTRA|MÉDIA|MEDIO|MEDIA|QUEBRADA|QUEBRADO|G|M|P|GG)\s*$/gi, '')
-              .trim()
-              .toUpperCase();
-          };
-          
+          // Agrupar por FABRICANTE (mais robusto que sufixos de nome)
           const gruposMap = {};
           produtos.forEach(p => {
-            const base = getNomeBase(p.produto);
-            if(!gruposMap[base]){
-              gruposMap[base] = {
-                nomeBase: base,
+            const fabricante = (p.fabricante || '').trim().toUpperCase() || '(SEM FABRICANTE)';
+            if(!gruposMap[fabricante]){
+              gruposMap[fabricante] = {
+                nomeFabricante: fabricante,
                 produtos: []
               };
             }
-            gruposMap[base].produtos.push(p);
+            gruposMap[fabricante].produtos.push(p);
           });
           
           const grupos = Object.values(gruposMap);
+          console.log('[PRINT MODELO 4] Grupos por fabricante:', grupos.length);
+          grupos.forEach(g => console.log('  -', g.nomeFabricante, ':', g.produtos.length, 'produtos'));
           
           if(!produtos.length){
             itemsHTML += `
@@ -4886,7 +4935,7 @@
               </tr>
             `;
           } else {
-            // Iterar por grupos (produto base)
+            // Iterar por grupos (fabricante)
             grupos.forEach((grupo, gIdx) => {
               let totalGrupoQtd = 0;
               let totalGrupoVlr = 0;
@@ -4900,7 +4949,6 @@
                 const qtdCx = qtdKg / info.qtdconferida;
                 const vlrTotal = getVlrTotFromVale(info.produto);
                 const vlrCx = (qtdCx > 0 && vlrTotal > 0) ? vlrTotal / qtdCx : 0;
-                const pct = 0; // Calculado depois
                 
                 totalGrupoQtd += qtdCx;
                 totalGrupoVlr += vlrTotal;
@@ -4908,11 +4956,20 @@
                 
                 valorTotalGeral += vlrTotal;
                 qtdTotalGeral += qtdCx;
+              });
+              
+              // Agora gerar HTML com porcentagens corretas
+              grupo.produtos.forEach((info, pIdx) => {
+                const qtdKg = info.qtdnegKg;
+                const qtdCx = qtdKg / info.qtdconferida;
+                const vlrTotal = getVlrTotFromVale(info.produto);
+                const vlrCx = (qtdCx > 0 && vlrTotal > 0) ? vlrTotal / qtdCx : 0;
+                const pct = totalGrupoQtd > 0 ? (qtdCx / totalGrupoQtd * 100) : 0;
                 
                 itemsHTML += `
                   <tr>
                     <td style="border-left:1px solid #000; border-right:0; border-top:${pIdx === 0 ? '1px' : '0'} solid #000; border-bottom:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">${escapeHtml(info.produto)}</td>
-                    <td style="border-left:0; border-right:0; border-top:${pIdx === 0 ? '1px' : '0'} solid #000; border-bottom:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;"><span id="pct-${gIdx}-${pIdx}">—</span></td>
+                    <td style="border-left:0; border-right:0; border-top:${pIdx === 0 ? '1px' : '0'} solid #000; border-bottom:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${formatQty(pct, 1)}%</td>
                     <td style="border-left:0; border-right:0; border-top:${pIdx === 0 ? '1px' : '0'} solid #000; border-bottom:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${formatQty(qtdCx)} <span style="font-size:6pt;">CX</span></td>
                     <td style="border-left:0; border-right:0; border-top:${pIdx === 0 ? '1px' : '0'} solid #000; border-bottom:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${formatMoney(vlrCx)}</td>
                     <td style="border-left:0; border-right:1px solid #000; border-top:${pIdx === 0 ? '1px' : '0'} solid #000; border-bottom:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${formatMoney(vlrTotal)}</td>
@@ -4920,37 +4977,17 @@
                 `;
               });
               
-              // Calcular porcentagens do grupo e atualizar
-              grupo.produtos.forEach((info, pIdx) => {
-                const qtdCx = info.qtdnegKg / info.qtdconferida;
-                const pct = totalGrupoQtd > 0 ? (qtdCx / totalGrupoQtd * 100) : 0;
-                // Marcar para atualizar depois (via JavaScript após render)
-                setTimeout(() => {
-                  const el = document.getElementById(`pct-${gIdx}-${pIdx}`);
-                  if(el) el.textContent = formatQty(pct) + '%';
-                }, 0);
-              });
-              
-              // Linha TOTAL do grupo
+              // Linha TOTAL do grupo (fabricante)
               const vlrCxGrupo = totalGrupoQtd > 0 ? totalGrupoVlr / totalGrupoQtd : 0;
               itemsHTML += `
                 <tr style="background:#f1f5f9; font-weight:bold;">
-                  <td style="border:1px solid #000; border-right:0; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">TOTAL ${escapeHtml(grupo.nomeBase)}</td>
-                  <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">100%</td>
-                  <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${formatQty(totalGrupoQtd)} <span style="font-size:6pt;">CX</span></td>
-                  <td style="border-top:1px solid #000; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${formatMoney(vlrCxGrupo)}</td>
-                  <td style="border:1px solid #000; border-left:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${formatMoney(totalGrupoVlr)}</td>
+                  <td style="border-left:1px solid #000; border-right:0; border-top:0; border-bottom:1px solid #000; padding:1mm 0.5mm; text-align:left; font-size:8pt; line-height:1.2;">TOTAL ${escapeHtml(grupo.nomeFabricante)}</td>
+                  <td style="border-top:0; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${formatQty(100, 0)}%</td>
+                  <td style="border-top:0; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:center; font-size:8pt; line-height:1.2;">${formatQty(totalGrupoQtd)} <span style="font-size:6pt;">CX</span></td>
+                  <td style="border-top:0; border-bottom:1px solid #000; border-left:0; border-right:0; padding:1mm 0.5mm; text-align:right; font-size:8pt; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${formatMoney(vlrCxGrupo)}</td>
+                  <td style="border-left:0; border-right:1px solid #000; border-top:0; border-bottom:1px solid #000; padding:1mm 0.5mm; text-align:right; font-size:8pt; font-weight:bold; line-height:1.2;"><span style="font-size:6pt;">R$</span> ${formatMoney(totalGrupoVlr)}</td>
                 </tr>
               `;
-              
-              // Espaço entre grupos
-              if(gIdx < grupos.length - 1){
-                itemsHTML += `
-                  <tr style="height:3mm;">
-                    <td colspan="5" style="border:0; padding:0;"></td>
-                  </tr>
-                `;
-              }
             });
           }
         }
@@ -5436,8 +5473,32 @@
       };
 
       // Modal: Resumo do Vale (Classificáveis + Não Classificáveis)
-      async function openValeResumo(nunota){
-        console.log('[DEBUG] 🚀 openValeResumo chamada com nunota:', nunota);
+      let __MODAL_OPENING = false;
+      window.__FORCE_NEXT_RELOAD = false; // Global para ser acessível de qualquer lugar
+      async function openValeResumo(nunota, forceReload = false){
+        // Prevenir múltiplas aberturas simultâneas
+        if(__MODAL_OPENING){
+          console.log('[DEBUG] ⚠️ Modal já está sendo aberto, ignorando chamada duplicada');
+          return;
+        }
+        
+        // Se há flag global de force reload, usar ela
+        if(window.__FORCE_NEXT_RELOAD){
+          forceReload = true;
+          window.__FORCE_NEXT_RELOAD = false;
+          console.log('[DEBUG] 🔥 Force reload ativado por flag global');
+        }
+        
+        __MODAL_OPENING = true;
+        try {
+          await _openValeResumoImpl(nunota, forceReload);
+        } finally {
+          __MODAL_OPENING = false;
+        }
+      }
+      
+      async function _openValeResumoImpl(nunota, forceReload){
+        console.log('[DEBUG] 🚀 openValeResumo chamada com nunota:', nunota, 'forceReload:', forceReload);
         const t0Performance = performance.now();
         
         const stripSimulationFields = (item) => {
@@ -5635,13 +5696,18 @@
           // 🔥 Se tem vale, BUSCAR ITENS DO VALE DO BACKEND e MESCLAR com pedido
           let rows = pedidoRows;
           if(nunota13){
-            console.log('[DEBUG] 🔍 Buscando itens do vale', nunota13, 'do backend...');
+            console.log('[DEBUG] 🔍 Buscando itens do vale', nunota13, 'do backend... (forceReload:', forceReload, ')');
             try {
-              const resp = await fetch(`/sankhya/comercial/api/itens_vale/?nunota=${nunota13}`);
+              // 🔥 Adicionar timestamp para forçar bypass de cache quando forceReload=true
+              const cacheBuster = forceReload ? `&_t=${Date.now()}` : '';
+              const resp = await fetch(`/sankhya/comercial/api/itens_vale/?nunota=${nunota13}${cacheBuster}`, {
+                cache: forceReload ? 'no-cache' : 'default',
+                headers: forceReload ? { 'Cache-Control': 'no-cache' } : {}
+              });
               if(resp.ok){
                 const valeData = await resp.json();
                 if(valeData.items && valeData.items.length > 0){
-                  console.log('[DEBUG] ✅ Itens do vale carregados:', valeData.items.length);
+                  console.log('[DEBUG] ✅ Itens do vale carregados:', valeData.items.length, valeData.items);
                   
                   // 🔥 MESCLAR: usar dados do vale quando existir, mas manter todos os produtos do pedido
                   const buildMergeKeys = (item) => {
@@ -5751,11 +5817,27 @@
                   };
 
                   // Substituir dados do pedido pelos do vale quando disponível
+                  // 🔥 NOVO: Acumular VLRTOTs de produtos classificados (mesmo LOTE, CODPRODs diferentes)
+                  const vlrtotPorLote = new Map();
+                  valeData.items.forEach(valeItem => {
+                    const lote = (valeItem.codagregacao || valeItem.lote || '').trim().toUpperCase();
+                    const vlrtot = Number(valeItem.vlrtot || 0);
+                    if(lote && vlrtot > 0){
+                      vlrtotPorLote.set(lote, (vlrtotPorLote.get(lote) || 0) + vlrtot);
+                    }
+                  });
+                  console.log('[DEBUG] 💰 VLRTOTs acumulados por lote:', Array.from(vlrtotPorLote.entries()));
+                  
                   rows = pedidoRows.map(pedidoItem => {
                     const matchInfo = findBestValeMatch(pedidoItem);
                     const valeItem = matchInfo.item;
+                    
+                    // Buscar VLRTOT total do lote (soma de EXTRA + MÉDIO)
+                    const lotePedido = (pedidoItem.codagregacao || pedidoItem.lote || '').trim().toUpperCase();
+                    const vlrtotLote = lotePedido ? (vlrtotPorLote.get(lotePedido) || 0) : 0;
+                    
                     if(valeItem){
-                      console.log('[DEBUG] 🔄 Mesclando produto do vale:', pedidoItem.produto, '| chave usada:', matchInfo.keyUsed, '| VLRTOT vale RAW:', matchInfo.raw?.vlrtot, '| VLRTOT vale item:', valeItem?.vlrtot, '| VLRTOT pedido:', pedidoItem.vlrtot);
+                      console.log('[DEBUG] 🔄 Mesclando produto do vale:', pedidoItem.produto, '| chave usada:', matchInfo.keyUsed, '| VLRTOT item:', valeItem?.vlrtot, '| VLRTOT lote total:', vlrtotLote);
                       const mergedSim = {
                         ...(pedidoItem.__simFields || {}),
                         ...((valeItem && valeItem.__simFields) || {})
@@ -5765,16 +5847,19 @@
                         ...valeItem,
                         __simFields: mergedSim,
                         sequencia_pedido: pedidoItem.sequencia,
-                        nunota_pedido: pedidoItem.nunota
+                        nunota_pedido: pedidoItem.nunota,
+                        vlrtot: vlrtotLote > 0 ? vlrtotLote : valeItem.vlrtot  // Usar total do lote se disponível
                       };
-                      console.log('[DEBUG] 🔄 Merged vlrtot:', merged.vlrtot);
+                      console.log('[DEBUG] 🔄 Merged vlrtot final:', merged.vlrtot);
                       return merged;
                     } else {
-                      console.log('[DEBUG] 📦 Produto só existe no pedido:', pedidoItem.produto, '| VLRTOT:', pedidoItem.vlrtot, '| chaves tentadas:', matchInfo.keysTried);
+                      // 🔥 Produto só no pedido, mas pode ter classificação no vale (EXTRA/MÉDIO)
+                      console.log('[DEBUG] 📦 Produto só existe no pedido:', pedidoItem.produto, '| VLRTOT pedido:', pedidoItem.vlrtot, '| VLRTOT lote total:', vlrtotLote, '| chaves tentadas:', matchInfo.keysTried);
                       return {
                         ...pedidoItem,
                         sequencia_pedido: pedidoItem.sequencia,
-                        nunota_pedido: pedidoItem.nunota
+                        nunota_pedido: pedidoItem.nunota,
+                        vlrtot: vlrtotLote > 0 ? vlrtotLote : pedidoItem.vlrtot  // 🔥 Usar VLRTOT do lote!
                       };
                     }
                   });
@@ -12172,6 +12257,9 @@
         }
         
         // Montar payload para sincronização do VALE
+        // 🔥 Ativar flag global para forçar reload no próximo openValeResumo
+        window.__FORCE_NEXT_RELOAD = true;
+        
         const payload = {
           nunota_pedido: nunota,
           sequencia_pedido: sequencia,
@@ -12246,9 +12334,12 @@
             }catch(_){}
 
             // Recarregar dados em background para refletir novos totais
+            console.log('[VALE SAVE] 🔄 Recarregando dados...');
+            let reloadSuccess = false;
             try {
               if (typeof reloadDataSilent === 'function') {
-                await reloadDataSilent();
+                reloadSuccess = await reloadDataSilent();
+                console.log('[VALE SAVE] ✅ Dados recarregados:', reloadSuccess);
               }
             } catch (silentErr) {
               console.warn('[VALE SAVE] Reload silencioso falhou:', silentErr);
@@ -12259,7 +12350,11 @@
               const modal = document.getElementById('modalFaturamento');
               const isOpen = modal && modal.style.display && modal.style.display !== 'none';
               if (isOpen && typeof openValeResumo === 'function') {
-                await openValeResumo(nunota);
+                console.log('[VALE SAVE] 🔄 Reabrindo modal com dados atualizados...');
+                // 🔥 FORÇAR reload do vale mesmo que cache tenha sido atualizado
+                // porque reloadDataSilent só recarrega TOP 11, não TOP 13
+                await openValeResumo(nunota, true); // force=true
+                console.log('[VALE SAVE] ✅ Modal atualizado');
               }
             } catch (modalErr) {
               console.error('[VALE SAVE] Falha ao atualizar modal após salvar:', modalErr);

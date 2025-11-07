@@ -2698,13 +2698,14 @@ def calcular_agregados_lote(lote: str) -> dict:
 
 def resumo_classificacao_por_lote(lote: str) -> list[tuple]:
     """Agrega itens classificados (TOP 26) por produto para um lote (CODAGREGACAO).
-    Retorna lista de tuplas: (DESCRPROD, SUM_CX, SUM_KG, FATOR_CX)
+    Retorna lista de tuplas: (DESCRPROD, SUM_CX, SUM_KG, FATOR_CX, FABRICANTE)
     Regras:
       - Considera somente cabeçalhos com CODTIPOPER = TOP_CLASS
       - QTDNEG sempre armazenado na unidade BASE (KG) - normalizar usando TGFVOA
       - SUM_CX = QTDNEG / fator de conversão CX (de TGFVOA)
       - SUM_KG = QTDNEG direto (já está em KG)
       - FATOR_CX = quantidade de KG por CX (para uso no frontend)
+      - FABRICANTE = fabricante do produto (TGFPRO.FABRICANTE)
     """
     p = get_params()
     top_class = p['TOP_CLASS']
@@ -2719,14 +2720,15 @@ def resumo_classificacao_por_lote(lote: str) -> list[tuple]:
                    END
                ) AS SUM_CX,
                SUM(NVL(i.QTDNEG,0)) AS SUM_KG,
-               MAX(vcx.QUANTIDADE) AS FATOR_CX
+               MAX(vcx.QUANTIDADE) AS FATOR_CX,
+               UPPER(NVL(p.FABRICANTE,'')) AS FABRICANTE
           FROM TGFITE i
           JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
           LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
           LEFT JOIN TGFVOA vcx ON vcx.CODPROD = i.CODPROD AND UPPER(vcx.CODVOL)='CX'
          WHERE i.CODAGREGACAO = :lote AND c.CODTIPOPER = :top
-         GROUP BY p.DESCRPROD
-         ORDER BY p.DESCRPROD
+         GROUP BY p.DESCRPROD, UPPER(NVL(p.FABRICANTE,''))
+         ORDER BY UPPER(NVL(p.FABRICANTE,'')), p.DESCRPROD
         """
     )
     with get_connection() as conn:
