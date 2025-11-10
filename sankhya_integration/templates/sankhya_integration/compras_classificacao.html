@@ -2584,6 +2584,8 @@
               const r0 = await fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(ctrl), { credentials: 'same-origin' });
               let j0 = {}; try{ j0 = await r0.json(); }catch(_){ j0 = {}; }
               if(j0 && j0.ok){
+                // Setar produto IN NATURA para filtrar autocomplete de produtos
+                try{ window.PH_INNATURA_CODPROD = j0.prod_in_natura || null; console.log('[MODAL ITENS] PH_INNATURA_CODPROD setado para:', window.PH_INNATURA_CODPROD); }catch(_){ }
                 // Preencher lista com classificacoes existentes
                 try{ const rows = j0.classificacoes || []; itemsListBody.innerHTML = ''; if(rows.length){ for(const row of rows){ addItemRowToList({ nunota: row.nunota, sequencia: row.sequencia, cod: row.cod, descr: row.descr, codvol: row.codvol, qtd: row.qtd, peso: row.peso, total: row.totalkg || row.vlt || null, lote: ctrl, geraproducao: null }); } } else { clearItemsList(); } }catch(_){ }
                 // Atualizar toggle com base em pendente_class

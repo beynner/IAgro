@@ -1301,9 +1301,11 @@ def produtos_search(request: HttpRequest) -> JsonResponse:
                 cod_inn = int(cod_inn_raw)
                 cur.execute("SELECT UPPER(NVL(FABRICANTE,'')) AS FABRICANTE, UPPER(NVL(DESCRPROD,'')) AS DESCR FROM TGFPRO WHERE CODPROD=:p", p=cod_inn)
                 r = cur.fetchone()
+                print(f"[PRODUTOS_SEARCH] cod_innatura={cod_inn}, resultado da busca: {r}")
                 if r:
                     fabricante_flt = (r[0] or '').strip() or None
                     descr_inn = (r[1] or '').strip()
+                    print(f"[PRODUTOS_SEARCH] fabricante_flt={fabricante_flt}, descr_inn={descr_inn}")
                     exclude_in_natura = True  # we're in modal context; exclude 'IN NATURA' items from results
                     if fabricante_flt == 'TOMATE':
                         # Identify subtype by keywords in In Natura description
@@ -1312,12 +1314,14 @@ def produtos_search(request: HttpRequest) -> JsonResponse:
                         elif 'ITALIANO' in descr_inn:
                             token_flt = 'ITALIANO'
                         # Extendable: elif 'CEREJA' in descr_inn: token_flt = 'CEREJA'
-        except Exception:
+        except Exception as e:
+            print(f"[PRODUTOS_SEARCH] Erro ao buscar fabricante: {e}")
             fabricante_flt = None; token_flt = None
 
         # New rule: when cod_innatura is provided but the In Natura product has no FABRICANTE, return empty list
         try:
             if cod_inn_raw and (not fabricante_flt):
+                print(f"[PRODUTOS_SEARCH] BLOQUEADO: cod_innatura fornecido ({cod_inn_raw}) mas produto sem FABRICANTE")
                 return JsonResponse({"results": []})
         except Exception:
             pass
@@ -1334,16 +1338,20 @@ def produtos_search(request: HttpRequest) -> JsonResponse:
             # Exclude 'IN NATURA' from listing when in modal classification context
             if exclude_in_natura:
                 sql += " AND UPPER(DESCRPROD) NOT LIKE '%IN NATURA%'"
-            # Exclude products containing specific unwanted terms in description
-            sql += " AND UPPER(DESCRPROD) NOT LIKE '%EXTRA%'"
-            sql += " AND UPPER(DESCRPROD) NOT LIKE '%MÉDIO%'"
-            sql += " AND UPPER(DESCRPROD) NOT LIKE '%MEDIO%'"
-            sql += " AND UPPER(DESCRPROD) NOT LIKE '%MÉDIA%'"
-            sql += " AND UPPER(DESCRPROD) NOT LIKE '%MEDIA%'"
-            sql += " AND UPPER(DESCRPROD) NOT LIKE '%BOLINHA%'"
-            sql += " AND UPPER(DESCRPROD) NOT LIKE '%QUEBRADA%'"
-            sql += " AND UPPER(DESCRPROD) NOT LIKE '%FURADO%'"
-            sql += " AND UPPER(DESCRPROD) NOT LIKE '%MOLHO%'"
+            # IMPORTANTE: Quando cod_innatura é fornecido (contexto classificação), 
+            # NÃO aplicar filtros de exclusão (EXTRA, MEDIA, etc.) pois queremos justamente esses produtos!
+            # Aplicar filtros de exclusão apenas quando NÃO há cod_innatura (contexto portal/entrada)
+            if not cod_inn_raw:
+                # Exclude products containing specific unwanted terms in description
+                sql += " AND UPPER(DESCRPROD) NOT LIKE '%EXTRA%'"
+                sql += " AND UPPER(DESCRPROD) NOT LIKE '%MÉDIO%'"
+                sql += " AND UPPER(DESCRPROD) NOT LIKE '%MEDIO%'"
+                sql += " AND UPPER(DESCRPROD) NOT LIKE '%MÉDIA%'"
+                sql += " AND UPPER(DESCRPROD) NOT LIKE '%MEDIA%'"
+                sql += " AND UPPER(DESCRPROD) NOT LIKE '%BOLINHA%'"
+                sql += " AND UPPER(DESCRPROD) NOT LIKE '%QUEBRADA%'"
+                sql += " AND UPPER(DESCRPROD) NOT LIKE '%FURADO%'"
+                sql += " AND UPPER(DESCRPROD) NOT LIKE '%MOLHO%'"
             if add_order:
                 sql += " ORDER BY DESCRPROD"
             return sql, binds
@@ -1361,15 +1369,21 @@ def produtos_search(request: HttpRequest) -> JsonResponse:
             )
             binds = {'k': k, 'p': f"{q}%", 'lim': lim}
             binds.update(b1); binds.update(b2)
+            print(f"[PRODUTOS_SEARCH] SQL: {sql}")
+            print(f"[PRODUTOS_SEARCH] BINDS: {binds}")
             cur.execute(sql, binds)
             rows = cur.fetchall()
+            print(f"[PRODUTOS_SEARCH] Resultados encontrados: {len(rows)} - {rows}")
         else:
             base, b = _append_filters("SELECT CODPROD, DESCRPROD FROM TGFPRO WHERE UPPER(DESCRPROD) LIKE :p AND TO_CHAR(CODGRUPOPROD) LIKE '1%'", True)
             sql = "SELECT CODPROD, DESCRPROD FROM (" + base + ") WHERE ROWNUM <= :lim"
             binds = {'p': f"%{q.upper()}%", 'lim': lim}
             binds.update(b)
+            print(f"[PRODUTOS_SEARCH] SQL: {sql}")
+            print(f"[PRODUTOS_SEARCH] BINDS: {binds}")
             cur.execute(sql, binds)
             rows = cur.fetchall()
+            print(f"[PRODUTOS_SEARCH] Resultados encontrados: {len(rows)} - {rows}")
     return JsonResponse({"results": [{"cod": int(c), "descr": (d or '')} for c, d in rows]})
 
 
