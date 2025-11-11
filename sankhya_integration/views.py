@@ -5148,45 +5148,52 @@ def comercial_itens_vale(request: HttpRequest) -> JsonResponse:
             params = get_params()
             top_13 = int(params.get('TOP_VALE_COMPRA', 13))
             
-            # Query similar à listar_itens_portal_basico mas filtrada por NUNOTA específico
+            # Query híbrida: pega dados do vale (TOP 13) mas QTDNEG e PESO do pedido original (TOP 11)
             sql = """
                 SELECT 
-                    c.CODPARC,
+                    c_vale.CODPARC,
                     parc.NOMEPARC,
                     prod.DESCRPROD,
-                    i.CODPROD,
-                    i.QTDNEG,
-                    i.SEQUENCIA,
-                    c.NUNOTA,
-                    i.CODVOL,
-                    NVL(i.GERAPRODUCAO, 'S') AS GP,
-                    i.PESO,
-                    i.VLRUNIT,
+                    i_vale.CODPROD,
+                    NVL(i_pedido.QTDNEG, i_vale.QTDNEG) AS QTDNEG,  -- Priorizar QTDNEG do pedido
+                    i_vale.SEQUENCIA,
+                    c_vale.NUNOTA,
+                    i_vale.CODVOL,
+                    NVL(i_vale.GERAPRODUCAO, 'S') AS GP,
+                    NVL(i_pedido.PESO, i_vale.PESO) AS PESO,  -- Priorizar PESO do pedido
+                    i_vale.VLRUNIT,
                     voa.QUANTIDADE as FATOR_CONVERSAO,
-                    i.VLRTOT,
-                    c.VLRNOTA,
-                    i.AD_SIMQTD1,
-                    i.AD_SIMQTD2,
-                    i.AD_SIMVLR1,
-                    i.AD_SIMVLR2,
-                    i.CODAGREGACAO,
-                    c.CODTIPOPER,
-                    c.NUMPEDIDO,
+                    i_vale.VLRTOT,
+                    c_vale.VLRNOTA,
+                    i_vale.AD_SIMQTD1,
+                    i_vale.AD_SIMQTD2,
+                    i_vale.AD_SIMVLR1,
+                    i_vale.AD_SIMVLR2,
+                    i_vale.CODAGREGACAO,
+                    c_vale.CODTIPOPER,
+                    c_vale.NUMPEDIDO,
                     prod.FABRICANTE
-                FROM TGFCAB c
-                JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
-                JOIN TGFPRO prod ON prod.CODPROD = i.CODPROD
-                LEFT JOIN TGFPAR parc ON parc.CODPARC = c.CODPARC
-                LEFT JOIN TGFVOA voa ON voa.CODPROD = i.CODPROD 
-                    AND voa.CODVOL = i.CODVOL 
+                FROM TGFCAB c_vale
+                JOIN TGFITE i_vale ON i_vale.NUNOTA = c_vale.NUNOTA
+                JOIN TGFPRO prod ON prod.CODPROD = i_vale.CODPROD
+                LEFT JOIN TGFPAR parc ON parc.CODPARC = c_vale.CODPARC
+                LEFT JOIN TGFVOA voa ON voa.CODPROD = i_vale.CODPROD 
+                    AND voa.CODVOL = i_vale.CODVOL 
                     AND voa.ATIVO = 'S'
-                WHERE c.NUNOTA = :nunota
-                    AND c.CODTIPOPER = :top_13
-                ORDER BY i.SEQUENCIA
+                -- JOIN com pedido original para buscar QTDNEG e PESO reais
+                LEFT JOIN TGFCAB c_pedido ON c_pedido.NUNOTA = c_vale.NUMPEDIDO
+                LEFT JOIN TGFITE i_pedido ON i_pedido.NUNOTA = c_pedido.NUNOTA 
+                    AND i_pedido.CODPROD = i_vale.CODPROD
+                    AND i_pedido.CODAGREGACAO = i_vale.CODAGREGACAO
+                WHERE c_vale.NUNOTA = :nunota
+                    AND c_vale.CODTIPOPER = :top_13
+                ORDER BY i_vale.SEQUENCIA
             """
             
             cur.execute(sql, {'nunota': nunota_vale, 'top_13': top_13})
             rows = cur.fetchall()
+            
+
             
             nufin_val = None
             nureneg_val = None
@@ -5275,6 +5282,104 @@ def comercial_itens_vale(request: HttpRequest) -> JsonResponse:
             
     except Exception as e:
         logger.exception('comercial_itens_vale failed')
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
+
+
+def validar_produtos_pedido(request: HttpRequest) -> JsonResponse:
+    """
+    🔍 Valida TODOS os produtos de um PEDIDO (TOP 11) diretamente no banco.
+    
+    GET /sankhya/comercial/api/validar_produtos_pedido/?nunota=93800
+    
+    Verifica se todos os produtos têm VLRTOT > 0 para habilitar o botão FATURAR.
+    Ignora filtros do frontend e valida estado completo do pedido.
+    """
+    if request.method != 'GET':
+        return JsonResponse({'ok': False, 'error': 'Use GET'}, status=405)
+    
+    try:
+        nunota_pedido = request.GET.get('nunota')
+        if not nunota_pedido:
+            return JsonResponse({'ok': False, 'error': 'Parâmetro nunota obrigatório'}, status=400)
+        
+        try:
+            nunota_pedido = int(nunota_pedido)
+        except ValueError:
+            return JsonResponse({'ok': False, 'error': 'nunota deve ser numérico'}, status=400)
+        
+        from sankhya_integration.services.oracle_conn import get_connection, get_params
+        
+        with get_connection() as conn:
+            cur = conn.cursor()
+            params = get_params()
+            top_11 = int(params.get('TOP_PEDIDO_COMPRA', 11))
+            
+            # Query para validar TODOS os produtos do pedido
+            sql = """
+                SELECT 
+                    i.CODPROD,
+                    prod.DESCRPROD,
+                    i.QTDNEG,
+                    i.PESO,
+                    i.VLRTOT,
+                    i.SEQUENCIA
+                FROM TGFCAB c
+                JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+                JOIN TGFPRO prod ON prod.CODPROD = i.CODPROD
+                WHERE c.NUNOTA = :nunota
+                    AND c.CODTIPOPER = :top_11
+                ORDER BY i.SEQUENCIA
+            """
+            
+            cur.execute(sql, {'nunota': nunota_pedido, 'top_11': top_11})
+            rows = cur.fetchall()
+            
+            if not rows:
+                return JsonResponse({
+                    'ok': False, 
+                    'error': f'Pedido {nunota_pedido} não encontrado ou não é TOP {top_11}'
+                }, status=404)
+            
+            produtos_sem_valor = []
+            produtos_validos = []
+            total_produtos = 0
+            
+            for row in rows:
+                codprod, descrprod, qtdneg, peso, vlrtot, sequencia = row
+                total_produtos += 1
+                
+                vlrtot_val = float(vlrtot) if vlrtot not in (None, '') else 0.0
+                qtdneg_val = float(qtdneg) if qtdneg not in (None, '') else 0.0
+                peso_val = float(peso) if peso not in (None, '') else None
+                
+                produto_info = {
+                    'codprod': int(codprod) if codprod is not None else None,
+                    'descrprod': str(descrprod) if descrprod else '',
+                    'sequencia': int(sequencia) if sequencia is not None else None,
+                    'qtdneg': qtdneg_val,
+                    'peso': peso_val,
+                    'vlrtot': vlrtot_val
+                }
+                
+                if vlrtot_val <= 0:
+                    produtos_sem_valor.append(produto_info)
+                else:
+                    produtos_validos.append(produto_info)
+            
+            pode_faturar = len(produtos_sem_valor) == 0
+            
+            return JsonResponse({
+                'ok': True,
+                'pode_faturar': pode_faturar,
+                'total_produtos': total_produtos,
+                'produtos_validos': len(produtos_validos),
+                'produtos_sem_valor': len(produtos_sem_valor),
+                'detalhes_sem_valor': produtos_sem_valor,
+                'nunota': nunota_pedido
+            })
+            
+    except Exception as e:
+        logger.exception(f'validar_produtos_pedido failed for nunota {nunota_pedido}')
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
 

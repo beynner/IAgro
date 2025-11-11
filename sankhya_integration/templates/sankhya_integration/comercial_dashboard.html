@@ -2967,7 +2967,7 @@
         const btn = ev.target.closest('.lista-vale-ico');
         if(!btn) return;
         const nun = btn.getAttribute('data-nunota');
-        openValeResumo(nun);
+        openValeResumo(nun, true); // 🔥 SEMPRE forçar reload para dados atualizados
         // não atualiza mais o card Entrada pelo agrupamento; atualização é por item selecionado
         ev.stopPropagation();
       });
@@ -2978,7 +2978,7 @@
         if(ev.key === 'Enter' || ev.key === ' '){
           ev.preventDefault();
           const nun = ico.getAttribute('data-nunota');
-          openValeResumo(nun);
+          openValeResumo(nun, true); // 🔥 SEMPRE forçar reload para dados atualizados
         }
       });
       // Handler: abrir Resumo do Parceiro
@@ -6728,7 +6728,7 @@
             els.classBody.innerHTML = '<tr><td colspan="6" style="padding:8px; color:#64748b;">—</td></tr>';
           }
           const calcNaoClassifMetrics = (item)=>{
-            const qRaw = toNumber(item?.qtdneg);
+            const qRaw = toNumber(item?.qtdneg_base) || toNumber(item?.qtdneg);
             const qCalc = toNumber(item?.__qtd_calculada);
             const q = Number.isFinite(qRaw) && qRaw > 0 ? qRaw : (Number.isFinite(qCalc) && qCalc > 0 ? qCalc : 0);
             const precoCandidates = [
@@ -6766,7 +6766,7 @@
           // Não Classificáveis: SEMPRE exibir todos os produtos, mesmo sem preço
           console.log('[MODAL] 📦 Total de produtos não classificáveis:', nclass.length);
           nclass.forEach((item, idx) => {
-            console.log(`[MODAL] 📦 Item ${idx}:`, item.produto, '| VLRTOT:', item.vlrtot, '| QTDNEG:', item.qtdneg, '| PESO:', item.peso);
+            console.log(`[MODAL] 📦 Item ${idx}:`, item.produto, '| VLRTOT:', item.vlrtot, '| QTDNEG_BASE:', item.qtdneg_base, '| QTDNEG:', item.qtdneg, '| PESO:', item.peso);
           });
           
           if(nclass.length){
@@ -6803,143 +6803,24 @@
               const numeradorPreferencial = (Number.isFinite(qtdnegBase) && qtdnegBase > 0) ? qtdnegBase : qtdnegOriginal;
               let pesoUnitario = NaN;
               let pesoFonte = '';
-              const tryPeso = (value, label)=>{
-                const num = toNumber(value);
-                if(Number.isFinite(num) && num > 0){
-                  pesoUnitario = num;
-                  pesoFonte = label;
-                  return true;
-                }
-                return false;
-              };
-              const pesoCandidates = [
-                ['item.__peso_unitario_resolvido', item.__peso_unitario_resolvido],
-                ['item.peso', item.peso],
-                ['item.peso_in', item.peso_in],
-                ['item.peso_unitario', item.peso_unitario],
-                ['item.peso_cx', item.peso_cx],
-                ['item.fator_peso', item.fator_peso],
-                ['item.peso_medio', item.peso_medio],
-                ['item.kg_por_cx', item.kg_por_cx],
-                ['item.kgcx', item.kgcx],
-                ['item.kg_unitario', item.kg_unitario],
-                ['item.peso_por_caixa', item.peso_por_caixa],
-                ['item.peso_unit', item.peso_unit],
-                ['item.peso_unit_cx', item.peso_unit_cx],
-                ['item.peso_liquido', item.peso_liquido],
-                ['item.peso_liquido_unitario', item.peso_liquido_unitario],
-                ['item.peso_liq_unit', item.peso_liq_unit],
-                ['item.__raw_fator_conversao', item.__raw_fator_conversao],
-                ['item.fator_conversao', item.fator_conversao]
-              ];
-              for(const [label, value] of pesoCandidates){
-                if(tryPeso(value, label)) break;
-              }
+              // 🔥 SEMPRE usar apenas TGFITE.PESO - sem candidatos
+              pesoUnitario = toNumber(item.peso);
+              pesoFonte = 'item.peso (TGFITE.PESO)';
 
-              let match = null;
-              if(window.__COM_LIST_ROWS){
-                const targetNunota = item.nunota_pedido ?? item.nunota_origem ?? window.__CURRENT_PEDIDO_NUNOTA ?? item.nunota;
-                match = window.__COM_LIST_ROWS.find(r => {
-                  const sameNun = targetNunota ? String(r.nunota || '') === String(targetNunota) : true;
-                  const sameProd = String(r.codprod || '') === String(item.codprod || '');
-                  const sameAgreg = item.codagregacao
-                    ? String(r.codagregacao || r.lote || '') === String(item.codagregacao || item.lote || '')
-                    : true;
-                  return sameNun && sameProd && sameAgreg;
-                });
-              }
-              if(match && !(pesoUnitario > 0)){
-                const matchCandidates = [
-                  ['match.peso', match.peso],
-                  ['match.peso_in', match.peso_in],
-                  ['match.peso_unitario', match.peso_unitario],
-                  ['match.peso_cx', match.peso_cx],
-                  ['match.fator_conversao', match.fator_conversao],
-                  ['match.peso_medio', match.peso_medio],
-                  ['match.kg_por_cx', match.kg_por_cx],
-                  ['match.kgcx', match.kgcx],
-                  ['match.kg_unitario', match.kg_unitario],
-                  ['match.peso_por_caixa', match.peso_por_caixa],
-                  ['match.peso_unit', match.peso_unit],
-                  ['match.peso_liquido_unit', match.peso_liquido_unit],
-                  ['match.peso_liquido', match.peso_liquido]
-                ];
-                for(const [label, value] of matchCandidates){
-                  if(tryPeso(value, label)) break;
-                }
-              }
-              let matchRatio = NaN;
-              if(match){
-                const matchQtdBase = toNumber(match.qtdneg_base);
-                const matchQtd = toNumber(match.qtdneg);
-                if(Number.isFinite(matchQtdBase) && matchQtdBase > 0 && Number.isFinite(matchQtd) && matchQtd > 0){
-                  const ratio = matchQtdBase / matchQtd;
-                  if(Number.isFinite(ratio) && ratio > 0){
-                    matchRatio = ratio;
-                  }
-                }
-                const matchPesoCandidates = [
-                  ['match.__peso_unitario_resolvido', match.__peso_unitario_resolvido],
-                  ['match.peso', match.peso],
-                  ['match.peso_in', match.peso_in],
-                  ['match.peso_unitario', match.peso_unitario],
-                  ['match.peso_cx', match.peso_cx],
-                  ['match.fator_conversao', match.fator_conversao],
-                  ['match.peso_medio', match.peso_medio],
-                  ['match.kg_por_cx', match.kg_por_cx],
-                  ['match.kgcx', match.kgcx],
-                  ['match.kg_unitario', match.kg_unitario],
-                  ['match.peso_por_caixa', match.peso_por_caixa],
-                  ['match.peso_unit', match.peso_unit],
-                  ['match.peso_liquido_unit', match.peso_liquido_unit],
-                  ['match.peso_liquido', match.peso_liquido]
-                ];
-                if(!(pesoUnitario > 0)){
-                  for(const [label, value] of matchPesoCandidates){
-                    if(tryPeso(value, label)) break;
-                  }
-                }
-              }
-              if(!(pesoUnitario > 0)){
-                const fatorFallback = pickFirstPositive(item.fator_conversao, item.__raw_fator_conversao);
-                if(Number.isFinite(fatorFallback) && fatorFallback > 0){
-                  pesoUnitario = fatorFallback;
-                  pesoFonte = pesoFonte || 'fator_conversao';
-                }
-              }
-              const hasWeightUnit = weightUnits.has(unit);
-              if(Number.isFinite(matchRatio) && matchRatio > 0){
-                const numeradorPositivo = Number.isFinite(numeradorPreferencial) && numeradorPreferencial > 0;
-                const pesoSuspeito = !(pesoUnitario > 0) || (hasWeightUnit && numeradorPositivo && (
-                  pesoUnitario >= numeradorPreferencial ||
-                  Math.abs(pesoUnitario - numeradorPreferencial) < 1e-6 ||
-                  pesoUnitario === 1
-                ));
-                if(pesoSuspeito){
-                  pesoUnitario = matchRatio;
-                  pesoFonte = pesoFonte ? `${pesoFonte}->match.qtdneg_base/qtdneg` : 'match.qtdneg_base/qtdneg';
-                }
-              }
-              if(!(pesoUnitario > 0) || (hasWeightUnit && Number.isFinite(numeradorPreferencial) && numeradorPreferencial > 0 && (pesoUnitario >= numeradorPreferencial || Math.abs(pesoUnitario - numeradorPreferencial) < 1e-6))){
-                const baseQtd = toNumber(item.qtdneg_base);
-                const displayedQtd = toNumber(item.__raw_qtdneg);
-                if(Number.isFinite(baseQtd) && baseQtd > 0 && Number.isFinite(displayedQtd) && displayedQtd > 0 && baseQtd >= displayedQtd){
-                  const ratio = baseQtd / displayedQtd;
-                  if(Number.isFinite(ratio) && ratio > 0 && ratio !== 1 && ratio < numeradorPreferencial){
-                    pesoUnitario = ratio;
-                    pesoFonte = pesoFonte ? `${pesoFonte}->item.qtdneg_base/__raw_qtdneg` : 'item.qtdneg_base/__raw_qtdneg';
-                  }
-                }
-              }
+              // 🔥 REMOVIDO: toda lógica de match e candidatos alternativos
+              // 🔥 REMOVIDO: toda lógica de ajuste de peso baseada em ratios e unidades
 
               const numeradorQtd = numeradorPreferencial;
+              const hasWeightUnit = weightUnits.has(unit);
               const isWeightUnit = hasWeightUnit;
-              const podeConverter = Number.isFinite(numeradorQtd) && numeradorQtd > 0 && Number.isFinite(pesoUnitario) && pesoUnitario > 0;
+              // Usar qtdnegBase já declarado anteriormente ou qtdnegOriginal como fallback
+              const qtdnegFinal = Number.isFinite(numeradorQtd) && numeradorQtd > 0 ? numeradorQtd : qtdnegOriginal;
+              const podeConverter = Number.isFinite(qtdnegFinal) && qtdnegFinal > 0 && Number.isFinite(pesoUnitario) && pesoUnitario > 0;
 
-              let q = Number.isFinite(qtdnegOriginal) ? qtdnegOriginal : 0;
+              let q = Number.isFinite(qtdnegFinal) ? qtdnegFinal : 0;
               let unidadeExibida = unit || '';
               if(podeConverter){
-                const qtdConvertida = Number((numeradorQtd / pesoUnitario).toFixed(6));
+                const qtdConvertida = Number((qtdnegFinal / pesoUnitario).toFixed(6));
                 if(qtdConvertida > 0){
                   q = qtdConvertida;
                   if(!unidadeExibida || isWeightUnit){
@@ -6947,32 +6828,31 @@
                   }
                 }
               } else if(!Number.isFinite(q) || q <= 0){
-                q = Number.isFinite(numeradorQtd) ? numeradorQtd : 0;
+                q = Number.isFinite(qtdnegFinal) ? qtdnegFinal : 0;
               }
 
-              let qBase = Number.isFinite(numeradorQtd) ? numeradorQtd : NaN;
+              let qBase = Number.isFinite(qtdnegFinal) ? qtdnegFinal : NaN;
               if(!Number.isFinite(qBase)){
                 const pesoCalc = Number.isFinite(pesoUnitario) && pesoUnitario > 0 ? pesoUnitario : pickFirstPositive(item.fator_conversao, item.__raw_fator_conversao);
                 if(Number.isFinite(pesoCalc) && pesoCalc > 0 && Number.isFinite(q) && q > 0){
                   qBase = q * pesoCalc;
                 } else {
-                  qBase = Number.isFinite(qtdnegOriginal) ? qtdnegOriginal : 0;
+                  qBase = Number.isFinite(qtdnegFinal) ? qtdnegFinal : 0;
                 }
               }
               qBase = Number.isFinite(qBase) ? Number(qBase) : 0;
 
-              const qtdnegOriginalAttr = Number.isFinite(qtdnegOriginal) ? Number(qtdnegOriginal) : 0;
+              const qtdnegOriginalAttr = Number.isFinite(qtdnegFinal) ? Number(qtdnegFinal) : 0;
 
               console.debug('[MODAL] Quantidade recalculada', {
                 produto: prod,
                 unidadeOrigem: unit,
                 unidadeExibida,
-                qtdnegOriginal: qtdnegOriginalAttr,
+                qtdnegFinal: qtdnegOriginalAttr,
                 qtdBaseKg: Number.isFinite(numeradorQtd) ? numeradorQtd : null,
                 pesoUnitario,
                 pesoFonte,
                 podeConverter,
-                matchRatio,
                 qtdFinal: q
               });
               const id = `vop_${idx}_${Date.now()}`;
@@ -6984,23 +6864,20 @@
               item.__peso_unitario_resolvido = Number.isFinite(pesoUnitario) && pesoUnitario > 0 ? pesoUnitario : null;
               item.__peso_unitario_fonte = pesoFonte;
               item.__unit_display = unidadeExibida;
-              if(match && Number.isFinite(pesoUnitario) && pesoUnitario > 0){
-                match.__peso_unitario_resolvido = pesoUnitario;
-              }
+              // 🔥 REMOVIDO: lógica de match removida
               
               // 🔥 Total vem SEMPRE do banco (VLRTOT)
               const totalBanco = metrics.total;
               
-              // 🔥 Valor é calculado: VLRTOT / (QTDNEG / PESO)
+              // 🔥 Valor é calculado: VLRTOT / (QTDNEG_BASE / TGFITE.PESO)
               let valorCalculado = 0;
-              if(totalBanco > 0 && qBase > 0 && pesoUnitario > 0){
-                const qtdCaixas = qBase / pesoUnitario;
+              const qtdnegBaseReal = Number.isFinite(numeradorQtd) && numeradorQtd > 0 ? numeradorQtd : qtdnegOriginal;
+              const pesoReal = Number.isFinite(pesoUnitario) && pesoUnitario > 0 ? pesoUnitario : 1; // Default 1 se TGFITE.PESO for null
+              
+              if(totalBanco > 0 && qtdnegBaseReal > 0){
+                const qtdCaixas = qtdnegBaseReal / pesoReal;
                 valorCalculado = qtdCaixas > 0 ? totalBanco / qtdCaixas : 0;
-                console.log('[MODAL] 💰 Valor calculado:', totalBanco, '/', qtdCaixas, 'cx =', valorCalculado, '/cx');
-              } else if(totalBanco > 0 && qBase > 0){
-                // Fallback se não tem peso
-                valorCalculado = totalBanco / qBase;
-                console.log('[MODAL] ⚠️ Valor calculado sem peso:', totalBanco, '/', qBase, '=', valorCalculado);
+                console.log('[MODAL] 💰 Valor calculado:', totalBanco, '/', qtdCaixas, 'cx =', valorCalculado, '/cx (QTDNEG_BASE:', qtdnegBaseReal, '/ PESO:', pesoReal, ')');
               } else {
                 // Use preco do metrics como último recurso
                 valorCalculado = metrics.preco;
@@ -7015,9 +6892,11 @@
               const seqPedido = Number(item.sequencia_pedido || item.sequencia || 0);
               const nunPedido = Number(item.nunota_pedido || item.nunota || 0);
               const simAttr = collectSimAttrFragments(item, idx, { includeIndex: true, includeMeta: true });
-              return `<tr data-idx="${idx}" data-q="${q}" data-q-original="${qtdnegOriginalAttr}" data-q-base="${qBase}" data-unit="${unidadeExibida}" data-unit-orig="${unit}" data-peso-unitario="${pesoAttr}" data-peso-fonte="${pesoFonte}" data-nun="${Number(item.nunota||0)}" data-seq="${Number(item.sequencia||0)}" data-seq-pedido="${seqPedido}" data-nun-pedido="${nunPedido}" data-codprod="${codprod}" data-lote="${lote}" data-preco-base="${precoBaseAttr}" data-total-base="${totalBaseAttr}"${simAttr}>
+              // 🔥 SEMPRE mostrar qtdneg_base / peso na tabela
+              const qtdExibir = qtdnegBaseReal / pesoReal;
+              return `<tr data-idx="${idx}" data-q="${qtdExibir}" data-q-original="${qtdnegOriginalAttr}" data-q-base="${qtdnegBaseReal}" data-unit="${unidadeExibida}" data-unit-orig="${unit}" data-peso-unitario="${pesoReal}" data-peso-fonte="${pesoFonte}" data-nun="${Number(item.nunota||0)}" data-seq="${Number(item.sequencia||0)}" data-seq-pedido="${seqPedido}" data-nun-pedido="${nunPedido}" data-codprod="${codprod}" data-lote="${lote}" data-preco-base="${precoBaseAttr}" data-total-base="${totalBaseAttr}"${simAttr}>
                 <td title="${prod.replace(/\"/g,'&quot;')}" style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">${prod}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${fmtQtyGeneric(q)}${unidadeExibida?`<span style='color:#64748b; font-size:.72rem; margin-left:2px;'>${unidadeExibida.toLowerCase()}</span>`:''}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">${fmtQtyGeneric(qtdExibir)}${unidadeExibida?`<span style='color:#64748b; font-size:.72rem; margin-left:2px;'>${unidadeExibida.toLowerCase()}</span>`:''}</td>
                 <td style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">
                   <div contenteditable="true" class="vop-price" data-idx="${idx}" id="${id}" style="outline:none; min-width:90px; display:inline-block; text-align:right; font-size:.85rem; color:#374151;">${precoDisplay}</div>
                 </td>
@@ -7037,7 +6916,7 @@
             const valorTotal = Number(metrics.total || 0);
             totalVlrNaoClassif += valorTotal;
             console.log('[MODAL] 💰 Item Não Classificável:', item.produto, 
-              '| QTDNEG:', item.qtdneg, '| PESO:', item.peso, 
+              '| QTDNEG_BASE:', item.qtdneg_base, '| QTDNEG:', item.qtdneg, '| PESO:', item.peso, 
               '| VLRTOT banco:', item.vlrtot, '| Total calculado:', metrics.total,
               '| Status:', valorTotal > 0 ? '✅ COM VALOR' : '⚠️ SEM VALOR');
           });
@@ -7519,72 +7398,402 @@
               window.__aplicarDescontoINSS();
             }
             
+            // 🔒 VALIDAÇÃO: Verificar se todos os produtos têm valor total para ativar/desativar botão FATURAR (com debounce)
+            debouncedValidarBotaoFaturar();
+            
             // NÃO atualizar o card Distribuição quando estamos no modal de faturamento
             // O modal deve apenas calcular seu próprio total, não interferir nos cards externos
           }
-          if(els.outrosBody && !els.outrosBody.__listenersBound){
-            els.outrosBody.addEventListener('input', (ev)=>{ 
-              if(ev.target && (ev.target.classList.contains('vop-price') || ev.target.classList.contains('vop-preco-inicial') || ev.target.classList.contains('vop-total'))) {
-                // 🔒 BLOQUEAR se vale faturado
+          
+          // 🔒 DEBOUNCE: Evitar múltiplas validações simultâneas do botão faturar
+          let validacaoFaturarTimeout = null;
+          const debouncedValidarBotaoFaturar = () => {
+            clearTimeout(validacaoFaturarTimeout);
+            validacaoFaturarTimeout = setTimeout(() => validarBotaoFaturar(), 100);
+          };
+          
+          // 🔒 FUNÇÃO DE VALIDAÇÃO: Verificar produtos sem valor para controlar botão FATURAR
+          async function validarBotaoFaturar(){
+            const btnFaturar = document.getElementById('valeResumoFaturar');
+            if(!btnFaturar) {
+              console.log('[VALIDAÇÃO FATURAR] ❌ Botão #valeResumoFaturar não encontrado');
+              return;
+            }
+            
+            const nunotaPedido = Number(window.__CURRENT_PEDIDO_NUNOTA || nunota || 0);
+            if(!nunotaPedido){
+              console.log('[VALIDAÇÃO FATURAR] ❌ NUNOTA do pedido não encontrada');
+              return;
+            }
+            
+            try {
+              // 🔍 CONSULTAR DIRETO NO BANCO: todos os produtos do pedido (TOP 11)
+              console.log('[VALIDAÇÃO FATURAR] 🔍 Consultando produtos do pedido no banco...', nunotaPedido);
+              const response = await fetch(`/sankhya/comercial/api/validar_produtos_pedido/?nunota=${nunotaPedido}`, {
+                cache: 'no-cache',
+                headers: { 'Cache-Control': 'no-cache' }
+              });
+              
+              if(!response.ok){
+                throw new Error(`HTTP ${response.status}`);
+              }
+              
+              const data = await response.json();
+              if(!data.ok){
+                throw new Error(data.error || 'Erro na validação');
+              }
+              
+              const { total_produtos, produtos_sem_valor, detalhes_sem_valor, pode_faturar } = data;
+              
+              console.log('[VALIDAÇÃO FATURAR] 🔍 DADOS RECEBIDOS:', {
+                total_produtos, produtos_sem_valor, detalhes_sem_valor, pode_faturar,
+                'detalhes_sem_valor.length': detalhes_sem_valor?.length,
+                'condição': !pode_faturar || (detalhes_sem_valor && detalhes_sem_valor.length > 0)
+              });
+              
+              // 🎛️ Controlar estado do botão baseado na consulta do banco
+              if(!pode_faturar || (detalhes_sem_valor && detalhes_sem_valor.length > 0)){
+                // ❌ DESATIVAR botão - há produtos sem valor no banco
+                btnFaturar.disabled = true;
+                btnFaturar.style.opacity = '0.5';
+                btnFaturar.style.cursor = 'not-allowed';
+                btnFaturar.style.backgroundColor = '#f3f4f6';
+                btnFaturar.style.color = '#9ca3af';
+                btnFaturar.style.borderColor = '#d1d5db';
+                btnFaturar.title = `⚠️ ${detalhes_sem_valor.length} produto(s) sem valor total no pedido:\n${detalhes_sem_valor.map(p => `• ${p.descrprod} (CODPROD: ${p.codprod})`).join('\n')}`;
+                console.log('[VALIDAÇÃO FATURAR] ❌ Botão DESATIVADO -', detalhes_sem_valor.length, 'produtos sem valor no banco:', detalhes_sem_valor);
+              } else {
+                // ✅ ATIVAR botão - todos os produtos têm valor no banco
+                btnFaturar.disabled = false;
+                btnFaturar.style.opacity = '1';
+                btnFaturar.style.cursor = 'pointer';
+                btnFaturar.style.backgroundColor = '#fff';
+                btnFaturar.style.color = '#16a34a';
+                btnFaturar.style.borderColor = '#16a34a';
+                btnFaturar.title = `✅ Todos os ${total_produtos} produtos do pedido têm valor total definido no banco`;
+                console.log('[VALIDAÇÃO FATURAR] ✅ Botão ATIVADO -', total_produtos, 'produtos com valor no banco');
+              }
+              
+            } catch (error) {
+              console.error('[VALIDAÇÃO FATURAR] ❌ Erro ao validar produtos:', error);
+              // Em caso de erro, desativar botão por segurança
+              btnFaturar.disabled = true;
+              btnFaturar.style.opacity = '0.5';
+              btnFaturar.style.cursor = 'not-allowed';
+              btnFaturar.style.backgroundColor = '#f3f4f6';
+              btnFaturar.style.color = '#9ca3af';
+              btnFaturar.style.borderColor = '#d1d5db';
+              btnFaturar.title = `❌ Erro ao validar produtos: ${error.message}`;
+            }
+          }
+          
+          window.__OUTROS_LISTENER_FUNCS = window.__OUTROS_LISTENER_FUNCS || {};
+          const outrosHandlers = window.__OUTROS_LISTENER_FUNCS;
+
+          if(els.outrosBody){
+            if(outrosHandlers.input){
+              els.outrosBody.removeEventListener('input', outrosHandlers.input);
+            }
+            outrosHandlers.input = function(ev){
+              if(ev.target && (ev.target.classList.contains('vop-price') || ev.target.classList.contains('vop-preco-inicial') || ev.target.classList.contains('vop-total'))){
                 if(ev.target.getAttribute('contenteditable') === 'false'){
                   ev.preventDefault();
                   ev.stopPropagation();
                   return false;
                 }
-                recompute(); 
+                recompute();
               }
-            });
-            els.outrosBody.addEventListener('beforeinput', (ev)=>{
+            };
+            els.outrosBody.addEventListener('input', outrosHandlers.input);
+
+            if(outrosHandlers.beforeinput){
+              els.outrosBody.removeEventListener('beforeinput', outrosHandlers.beforeinput, true);
+            }
+            outrosHandlers.beforeinput = function(ev){
               if(ev.target && (ev.target.classList.contains('vop-price') || ev.target.classList.contains('vop-preco-inicial') || ev.target.classList.contains('vop-total'))){
-                // 🔒 BLOQUEAR edição se vale faturado
                 if(ev.target.getAttribute('contenteditable') === 'false'){
                   console.log('[MODAL] ⛔ Edição bloqueada - vale faturado');
                   ev.preventDefault();
                   return false;
                 }
               }
-            }, true);
-            els.outrosBody.addEventListener('paste', (ev)=>{
+            };
+            els.outrosBody.addEventListener('beforeinput', outrosHandlers.beforeinput, true);
+
+            if(outrosHandlers.paste){
+              els.outrosBody.removeEventListener('paste', outrosHandlers.paste, true);
+            }
+            outrosHandlers.paste = function(ev){
               if(ev.target && (ev.target.classList.contains('vop-price') || ev.target.classList.contains('vop-preco-inicial') || ev.target.classList.contains('vop-total'))){
-                // 🔒 BLOQUEAR paste se vale faturado
                 if(ev.target.getAttribute('contenteditable') === 'false'){
                   console.log('[MODAL] ⛔ Paste bloqueado - vale faturado');
                   ev.preventDefault();
                   return false;
                 }
               }
-            }, true);
-            els.outrosBody.addEventListener('click', (ev)=>{
-              // 🔒 Alertar usuário se tentar clicar em campo bloqueado
+            };
+            els.outrosBody.addEventListener('paste', outrosHandlers.paste, true);
+
+            if(outrosHandlers.click){
+              els.outrosBody.removeEventListener('click', outrosHandlers.click);
+            }
+            outrosHandlers.click = function(ev){
               const target = ev.target;
               if(target && (target.classList.contains('vop-price') || target.classList.contains('vop-preco-inicial') || target.classList.contains('vop-total'))){
                 if(target.getAttribute('contenteditable') === 'false'){
                   console.log('[MODAL] ⛔ Clique bloqueado - vale faturado');
-                  // Mostrar feedback visual sutil (sem alert irritante)
                   target.style.animation = 'shake 0.3s';
                   setTimeout(() => { target.style.animation = ''; }, 300);
                 }
               }
-            });
-            els.outrosBody.addEventListener('blur', (ev)=>{
+            };
+            els.outrosBody.addEventListener('click', outrosHandlers.click);
+
+            if(outrosHandlers.blur){
+              els.outrosBody.removeEventListener('blur', outrosHandlers.blur, true);
+            }
+            const autoSaveDebouncing = new Set();
+            outrosHandlers.blur = async function(ev){
               if(ev.target && (ev.target.classList.contains('vop-price') || ev.target.classList.contains('vop-total'))){
-                // 🔒 BLOQUEAR se vale faturado
+                console.log('[MODAL BLUR-2] 💾 Listener de auto-save executado');
                 if(ev.target.getAttribute('contenteditable') === 'false'){
+                  console.log('[MODAL AUTO-SAVE] ⛔ Bloqueado - vale faturado');
                   return false;
                 }
-                // Reformatar ao perder foco
+
                 const editableDiv = ev.target;
-                const val = parsePT(editableDiv.textContent||'');
-                if(val>0){
+                const tr = editableDiv.closest('tr');
+                if(!tr) return;
+
+                const nunota_val = Number(tr.getAttribute('data-nun') || 0);
+                const seq_val = Number(tr.getAttribute('data-seq') || 0);
+
+                const debounceKey = `${nunota_val}-${seq_val}-${ev.target.className}`;
+                if(autoSaveDebouncing.has(debounceKey)){
+                  console.log('[MODAL AUTO-SAVE] ⏳ Já processando este item, ignorando...');
+                  return;
+                }
+                autoSaveDebouncing.add(debounceKey);
+                setTimeout(() => autoSaveDebouncing.delete(debounceKey), 2000);
+
+                const qtdneg_item = Number(tr.getAttribute('data-q-base') || tr.getAttribute('data-q') || 0);
+                const peso = Number(tr.getAttribute('data-peso-unitario') || 0);
+                const val = parsePT(editableDiv.textContent || '');
+
+                const isTotal = ev.target.classList.contains('vop-total');
+                let vlrtot_calculado = 0;
+
+                if(isTotal){
+                  vlrtot_calculado = val;
+                  console.log('[MODAL AUTO-SAVE] Total editado:', val);
+                } else {
+                  if(qtdneg_item > 0 && peso > 0){
+                    const qtdCaixas = qtdneg_item / peso;
+                    vlrtot_calculado = qtdCaixas * val;
+                    console.log('[MODAL AUTO-SAVE] Valor editado:', val, '→ VLRTOT:', vlrtot_calculado, '(', qtdneg_item, 'kg /', peso, 'kg/cx =', qtdCaixas, 'cx)');
+                  } else {
+                    vlrtot_calculado = val * qtdneg_item;
+                    console.log('[MODAL AUTO-SAVE] Valor editado (sem peso):', val, '→ VLRTOT:', vlrtot_calculado);
+                  }
+                }
+
+                let vlrunit_override = val;
+                if(isTotal){
+                  if(qtdneg_item > 0 && peso > 0){
+                    const qtdCaixas = qtdneg_item / peso;
+                    vlrunit_override = qtdCaixas > 0 ? vlrtot_calculado / qtdCaixas : 0;
+                  } else if(qtdneg_item > 0){
+                    vlrunit_override = vlrtot_calculado / qtdneg_item;
+                  } else {
+                    vlrunit_override = 0;
+                  }
+                }
+
+                if(val > 0){
                   editableDiv.innerHTML = fmtMoney(val);
+
+                  if(nunota_val && seq_val){
+                    const codprod = Number(tr.getAttribute('data-codprod') || 0);
+                    const codagregacao = String(tr.getAttribute('data-lote') || '');
+                    const nunota_pedido_real = Number(tr.getAttribute('data-nun-pedido') || window.__CURRENT_PEDIDO_NUNOTA || nunota_val);
+                    const seq_pedido = Number(tr.getAttribute('data-seq-pedido') || seq_val);
+
+                    console.log('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] Dados da TR:', {
+                      nunota_pedido: nunota_pedido_real,
+                      sequencia_pedido: seq_pedido,
+                      codprod: codprod,
+                      lote: codagregacao,
+                      qtdneg: qtdneg_item,
+                      valor_digitado: val,
+                      vlrtot_calculado: vlrtot_calculado,
+                      editou_total: isTotal
+                    });
+
+                    if(!codprod){
+                      console.error('[MODAL AUTO-SAVE] CODPROD não disponível');
+                      alert('Erro: Código do produto não identificado');
+                      return;
+                    }
+
+                    if(qtdneg_item === 0){
+                      console.error('[MODAL AUTO-SAVE] QTDNEG = 0, impossível calcular');
+                      alert('Erro: Quantidade não pode ser zero');
+                      return;
+                    }
+
+                    try{
+                      const payload = {
+                        nunota_pedido: nunota_pedido_real,
+                        sequencia: seq_pedido,
+                        codprod: codprod,
+                        codagregacao: codagregacao,
+                        vlrtot: vlrtot_calculado,
+                        is_classificavel: false
+                      };
+
+                      const snapshot = collectValePricesSnapshot({
+                        nunota_pedido: nunota_pedido_real,
+                        override: {
+                          nunota_pedido: nunota_pedido_real,
+                          nunota_vale: Number(tr.getAttribute('data-nun') || nunota_val),
+                          sequencia: seq_pedido,
+                          codprod,
+                          codagregacao,
+                          vlrunit: vlrunit_override,
+                          vlrtot: vlrtot_calculado
+                        }
+                      });
+
+                      if(Array.isArray(snapshot) && snapshot.length){
+                        payload.items_snapshot = snapshot;
+                        console.log('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] Snapshot preparado com', snapshot.length, 'itens');
+                      }
+
+                      console.log('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] Salvando:', {
+                        ...payload,
+                        items_snapshot: Array.isArray(payload.items_snapshot) ? `(${payload.items_snapshot.length} itens)` : undefined
+                      });
+
+                      const result = await AutoSaveQueue.add(payload);
+                      const apiPayload = (result && typeof result.body === 'object' && result.body !== null) ? result.body : result;
+
+                      if(result.ok){
+                        console.log('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] ✅ Sucesso - NUNOTA_VALE:', apiPayload?.nunota_vale, 'VLRNOTA_PEDIDO:', apiPayload?.vlrnota_pedido, 'VLRNOTA_VALE:', apiPayload?.vlrnota_vale, 'VLRUNIT:', apiPayload?.vlrunit, 'VLRTOT:', vlrtot_calculado);
+                        window.__FORCE_NEXT_RELOAD = true;
+
+                        if(isTotal){
+                          const priceCell = tr.querySelector('.vop-price');
+                          const vlrUnitResp = Number(apiPayload?.vlrunit);
+                          if(priceCell && Number.isFinite(vlrUnitResp)){
+                            priceCell.innerHTML = fmtMoney(vlrUnitResp);
+                          }
+                        } else {
+                          const totalCell = tr.querySelector('.vop-total');
+                          if(totalCell){
+                            totalCell.innerHTML = fmtMoney(vlrtot_calculado);
+                          }
+                        }
+
+                        if(Array.isArray(payload.items_snapshot) && window.__COM_LIST_ROWS){
+                          try {
+                            const snapshotMap = new Map();
+                            payload.items_snapshot.forEach(snap => {
+                              if(!snap) return;
+                              const nunotaPedidoSnap = Number(snap.nunota_pedido || 0);
+                              const nunotaValeSnap = Number(snap.nunota_vale || 0);
+                              const seqSnap = Number(snap.sequencia || 0);
+                              if(!seqSnap) return;
+                              const data = {
+                                vlrunit: Number(snap.vlrunit),
+                                vlrtot: Number(snap.vlrtot)
+                              };
+                              if(nunotaPedidoSnap){
+                                snapshotMap.set(`${nunotaPedidoSnap}#${seqSnap}`, data);
+                              }
+                              if(nunotaValeSnap){
+                                snapshotMap.set(`${nunotaValeSnap}#${seqSnap}`, data);
+                              }
+                            });
+
+                            window.__COM_LIST_ROWS.forEach(row => {
+                              if(!row) return;
+                              const nunotaRow = Number(row.nunota || 0);
+                              const seqRow = Number(row.sequencia || 0);
+                              if(!seqRow) return;
+                              const keyVale = `${nunotaRow}#${seqRow}`;
+                              const keyPedido = `${Number(nunota_pedido_real || nunotaRow)}#${seqRow}`;
+                              const snapData = snapshotMap.get(keyVale) || snapshotMap.get(keyPedido);
+                              if(!snapData) return;
+
+                              if(Number.isFinite(snapData.vlrunit)){
+                                row.vlrunit = snapData.vlrunit;
+                                row.precobase = snapData.vlrunit;
+                                row.preco_inicial = snapData.vlrunit;
+                              }
+                              if(Number.isFinite(snapData.vlrtot)){
+                                row.vlrtot = snapData.vlrtot;
+                              }
+                            });
+                          } catch(syncErr){
+                            console.warn('[MODAL AUTO-SAVE] Falha ao aplicar snapshot no cache local:', syncErr);
+                          }
+                        }
+
+                        const nunotaValeResp = apiPayload?.nunota_vale ?? apiPayload?.nunota_13;
+                        if(nunotaValeResp){
+                          const nunotaValeStr = String(nunotaValeResp).trim();
+                          if(nunotaValeStr){
+                            window.__CURRENT_VALE_NUNOTA_TOP13 = nunotaValeStr;
+                            try{
+                              if(typeof refreshValeUI === 'function'){
+                                refreshValeUI(nunotaValeStr);
+                              }
+                            }catch(err){
+                              console.warn('[MODAL AUTO-SAVE] Falha ao atualizar UI do vale:', err);
+                            }
+
+                            try{
+                              if(Array.isArray(window.__COM_LIST_ROWS)){
+                                window.__COM_LIST_ROWS.forEach(row => {
+                                  if(String(row?.nunota||'') === String(nunota_pedido_real || nunota_val)){
+                                    row.nunota_13 = nunotaValeStr;
+                                  }
+                                });
+                              }
+                            }catch(err){
+                              console.warn('[MODAL AUTO-SAVE] Falha ao propagar nunota_13 no cache:', err);
+                            }
+                          }
+                        }
+
+                      } else {
+                        const errMsg = result?.error || result?.body?.error || 'Erro desconhecido';
+                        console.error('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] ❌ Erro:', errMsg);
+                        alert('Erro ao salvar: ' + errMsg);
+                      }
+                    } catch(err){
+                      console.error('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] ⚠️ Exceção:', err);
+                      alert('Erro ao salvar: ' + err.message);
+                    }
+                  }
+                } else {
+                  editableDiv.innerHTML = '<span style="color:#94a3b8;">R$ 0,00</span>';
+                }
+
+                const finalVal = parsePT(editableDiv.textContent||'');
+                if(finalVal > 0){
+                  editableDiv.innerHTML = fmtMoney(finalVal);
                 }
               }
-            }, true);
-            els.outrosBody.__listenersBound = true;
+            };
+            els.outrosBody.addEventListener('blur', outrosHandlers.blur, true);
           }
           
           const t5 = performance.now();
           console.log(`[MODAL] ⚡ Event listeners registrados em ${(t5-t4).toFixed(0)}ms`);
+          
+          // 🔒 VALIDAÇÃO INICIAL: Verificar estado do botão FATURAR na abertura do modal
+          setTimeout(() => debouncedValidarBotaoFaturar(), 100);
           
           // ========================================
           // CLASSIFICÁVEIS: Event listeners REMOVIDOS
@@ -7687,6 +7896,8 @@
                     
                     if(result.ok){
                       console.log('[MODAL AUTO-SAVE CLASSIFICÁVEL] ✅ Sucesso - NUNOTA_VALE:', result.nunota_vale, 'VLRNOTA_PEDIDO:', result.vlrnota_pedido, 'VLRUNIT:', result.vlrunit, 'VLRTOT:', vlrtot);
+                      // 🔥 Ativar flag para forçar reload no próximo openValeResumo
+                      window.__FORCE_NEXT_RELOAD = true;
                       
                       if(itemData){
                         itemData.preco_inicial = result.vlrunit;
@@ -7939,9 +8150,11 @@
             }
           }, true);
           
+          // 🔥 DEBOUNCE: Só atualizar visualmente, SEM recompute() no input (evita loops)
+          let inputDebounceTimeout = null;
           els.outrosBody.addEventListener('input', (ev)=>{ 
             if(ev.target && ev.target.classList.contains('vop-price')) {
-              // Atualizar Total dinamicamente ao editar Valor
+              // Atualizar Total dinamicamente ao editar Valor (visual apenas)
               const tr = ev.target.closest('tr');
               if(tr){
                 const qtdneg = Number(tr.getAttribute('data-q-base') || tr.getAttribute('data-q') || 0);
@@ -7956,10 +8169,12 @@
                   console.log('[MODAL] Valor editado:', val, '→ Total:', total, '(', qtdneg, 'kg /', peso, 'kg/cx =', qtdCaixas, 'cx )');
                 }
               }
-              recompute(); 
+              // 🔥 DEBOUNCE: recompute só após parar de digitar
+              clearTimeout(inputDebounceTimeout);
+              inputDebounceTimeout = setTimeout(() => recompute(), 300);
             }
             if(ev.target && ev.target.classList.contains('vop-total')) {
-              // Atualizar Valor dinamicamente ao editar Total
+              // Atualizar Valor dinamicamente ao editar Total (visual apenas)
               const tr = ev.target.closest('tr');
               if(tr){
                 const qtdneg = Number(tr.getAttribute('data-q-base') || tr.getAttribute('data-q') || 0);
@@ -7974,240 +8189,11 @@
                   console.log('[MODAL] Total editado:', totalVal, '→ Valor:', valor, '(', totalVal, '/', qtdCaixas, 'cx )');
                 }
               }
-              recompute(); 
+              // 🔥 DEBOUNCE: recompute só após parar de digitar
+              clearTimeout(inputDebounceTimeout);
+              inputDebounceTimeout = setTimeout(() => recompute(), 300);
             }
           });
-          
-          els.outrosBody.addEventListener('blur', async (ev)=>{
-            if(ev.target && (ev.target.classList.contains('vop-price') || ev.target.classList.contains('vop-total'))){
-              // 🔒 BLOQUEAR se vale faturado
-              if(ev.target.getAttribute('contenteditable') === 'false'){
-                console.log('[MODAL AUTO-SAVE] ⛔ Bloqueado - vale faturado');
-                return false;
-              }
-              
-              const editableDiv = ev.target;
-              const tr = editableDiv.closest('tr');
-              if(!tr) return;
-              
-              const nunota_val = Number(tr.getAttribute('data-nun') || 0);
-              const seq_val = Number(tr.getAttribute('data-seq') || 0);
-              const qtdneg_item = Number(tr.getAttribute('data-q-base') || tr.getAttribute('data-q') || 0);
-              const peso = Number(tr.getAttribute('data-peso-unitario') || 0);
-              const val = parsePT(editableDiv.textContent || '');
-              
-              // Determinar se editou Valor ou Total
-              const isTotal = ev.target.classList.contains('vop-total');
-              let vlrtot_calculado = 0;
-
-              if(isTotal){
-                // Editou Total → calcular VLRTOT = Total digitado
-                vlrtot_calculado = val;
-                console.log('[MODAL AUTO-SAVE] Total editado:', val);
-              } else {
-                // Editou Valor → calcular VLRTOT = (QTDNEG / PESO) * Valor
-                if(qtdneg_item > 0 && peso > 0){
-                  const qtdCaixas = qtdneg_item / peso;
-                  vlrtot_calculado = qtdCaixas * val;
-                  console.log('[MODAL AUTO-SAVE] Valor editado:', val, '→ VLRTOT:', vlrtot_calculado, '(', qtdneg_item, 'kg /', peso, 'kg/cx =', qtdCaixas, 'cx)');
-                } else {
-                  vlrtot_calculado = val * qtdneg_item;
-                  console.log('[MODAL AUTO-SAVE] Valor editado (sem peso):', val, '→ VLRTOT:', vlrtot_calculado);
-                }
-              }
-
-              let vlrunit_override = val;
-              if(isTotal){
-                if(qtdneg_item > 0 && peso > 0){
-                  const qtdCaixas = qtdneg_item / peso;
-                  vlrunit_override = qtdCaixas > 0 ? vlrtot_calculado / qtdCaixas : 0;
-                } else if(qtdneg_item > 0){
-                  vlrunit_override = vlrtot_calculado / qtdneg_item;
-                } else {
-                  vlrunit_override = 0;
-                }
-              }
-              
-              // Reformatar ao perder foco
-              if(val > 0){
-                editableDiv.innerHTML = fmtMoney(val);
-                
-                // Auto-salvar usando novo endpoint (NÃO CLASSIFICÁVEL)
-                if(nunota_val && seq_val){
-                  // 🔥 CRÍTICO: Usar data-attributes da TR que tem NUNOTA e SEQ do PEDIDO
-                  const codprod = Number(tr.getAttribute('data-codprod') || 0);
-                  const codagregacao = String(tr.getAttribute('data-lote') || '');
-                  const nunota_pedido_real = Number(tr.getAttribute('data-nun-pedido') || window.__CURRENT_PEDIDO_NUNOTA || nunota_val);
-                  const seq_pedido = Number(tr.getAttribute('data-seq-pedido') || seq_val);
-                  
-                  // Log de diagnóstico
-                  console.log('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] Dados da TR:', {
-                    nunota_pedido: nunota_pedido_real,
-                    sequencia_pedido: seq_pedido,
-                    codprod: codprod,
-                    lote: codagregacao,
-                    qtdneg: qtdneg_item,
-                    valor_digitado: val,
-                    vlrtot_calculado: vlrtot_calculado,
-                    editou_total: isTotal
-                  });
-                  
-                  if(!codprod){
-                    console.error('[MODAL AUTO-SAVE] CODPROD não disponível');
-                    alert('Erro: Código do produto não identificado');
-                    return;
-                  }
-                  
-                  if(qtdneg_item === 0){
-                    console.error('[MODAL AUTO-SAVE] QTDNEG = 0, impossível calcular');
-                    alert('Erro: Quantidade não pode ser zero');
-                    return;
-                  }
-                  
-                  try{
-                    const payload = { 
-                      nunota_pedido: nunota_pedido_real, 
-                      sequencia: seq_pedido, 
-                      codprod: codprod,
-                      codagregacao: codagregacao,
-                      vlrtot: vlrtot_calculado,
-                      is_classificavel: false
-                    };
-
-                    const snapshot = collectValePricesSnapshot({
-                      nunota_pedido: nunota_pedido_real,
-                      override: {
-                        nunota_pedido: nunota_pedido_real,
-                        nunota_vale: Number(tr.getAttribute('data-nun') || nunota_val),
-                        sequencia: seq_pedido,
-                        codprod,
-                        codagregacao,
-                        vlrunit: vlrunit_override,
-                        vlrtot: vlrtot_calculado
-                      }
-                    });
-
-                    if(Array.isArray(snapshot) && snapshot.length){
-                      payload.items_snapshot = snapshot;
-                      console.log('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] Snapshot preparado com', snapshot.length, 'itens');
-                    }
-
-                    console.log('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] Salvando:', {
-                      ...payload,
-                      items_snapshot: Array.isArray(payload.items_snapshot) ? `(${payload.items_snapshot.length} itens)` : undefined
-                    });
-                    
-                    const result = await AutoSaveQueue.add(payload);
-                    const apiPayload = (result && typeof result.body === 'object' && result.body !== null) ? result.body : result;
-                    
-                    if(result.ok){
-                      console.log('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] ✅ Sucesso - NUNOTA_VALE:', apiPayload?.nunota_vale, 'VLRNOTA_PEDIDO:', apiPayload?.vlrnota_pedido, 'VLRNOTA_VALE:', apiPayload?.vlrnota_vale, 'VLRUNIT:', apiPayload?.vlrunit, 'VLRTOT:', vlrtot_calculado);
-                      
-                      // Atualizar campos na UI com valores calculados
-                      if(isTotal){
-                        // Editou Total → atualizar Valor também
-                        const priceCell = tr.querySelector('.vop-price');
-                        const vlrUnitResp = Number(apiPayload?.vlrunit);
-                        if(priceCell && Number.isFinite(vlrUnitResp)){
-                          priceCell.innerHTML = fmtMoney(vlrUnitResp);
-                        }
-                      } else {
-                        // Editou Valor → atualizar Total também
-                        const totalCell = tr.querySelector('.vop-total');
-                        if(totalCell){
-                          totalCell.innerHTML = fmtMoney(vlrtot_calculado);
-                        }
-                      }
-
-                      if(Array.isArray(payload.items_snapshot) && window.__COM_LIST_ROWS){
-                        try {
-                          const snapshotMap = new Map();
-                          payload.items_snapshot.forEach(snap => {
-                            if(!snap) return;
-                            const nunotaPedidoSnap = Number(snap.nunota_pedido || 0);
-                            const nunotaValeSnap = Number(snap.nunota_vale || 0);
-                            const seqSnap = Number(snap.sequencia || 0);
-                            if(!seqSnap) return;
-                            const data = {
-                              vlrunit: Number(snap.vlrunit),
-                              vlrtot: Number(snap.vlrtot)
-                            };
-                            if(nunotaPedidoSnap){
-                              snapshotMap.set(`${nunotaPedidoSnap}#${seqSnap}`, data);
-                            }
-                            if(nunotaValeSnap){
-                              snapshotMap.set(`${nunotaValeSnap}#${seqSnap}`, data);
-                            }
-                          });
-
-                          window.__COM_LIST_ROWS.forEach(row => {
-                            if(!row) return;
-                            const nunotaRow = Number(row.nunota || 0);
-                            const seqRow = Number(row.sequencia || 0);
-                            if(!seqRow) return;
-                            const keyVale = `${nunotaRow}#${seqRow}`;
-                            const keyPedido = `${Number(nunota_pedido_real || nunotaRow)}#${seqRow}`;
-                            const snapData = snapshotMap.get(keyVale) || snapshotMap.get(keyPedido);
-                            if(!snapData) return;
-
-                            if(Number.isFinite(snapData.vlrunit)){
-                              row.vlrunit = snapData.vlrunit;
-                              row.precobase = snapData.vlrunit;
-                              row.preco_inicial = snapData.vlrunit;
-                            }
-                            if(Number.isFinite(snapData.vlrtot)){
-                              row.vlrtot = snapData.vlrtot;
-                            }
-                          });
-                        } catch(syncErr){
-                          console.warn('[MODAL AUTO-SAVE] Falha ao aplicar snapshot no cache local:', syncErr);
-                        }
-                      }
-
-                      // 🔄 Atualizar UI do Vale imediatamente se o backend retornou o número do vale
-                      const nunotaValeResp = apiPayload?.nunota_vale ?? apiPayload?.nunota_13;
-                      if(nunotaValeResp){
-                        const nunotaValeStr = String(nunotaValeResp).trim();
-                        if(nunotaValeStr){
-                          window.__CURRENT_VALE_NUNOTA_TOP13 = nunotaValeStr;
-                          try{
-                            if(typeof refreshValeUI === 'function'){
-                              refreshValeUI(nunotaValeStr);
-                            }
-                          }catch(err){
-                            console.warn('[MODAL AUTO-SAVE] Falha ao atualizar UI do vale:', err);
-                          }
-
-                          // 🔁 Atualizar cache local (__COM_LIST_ROWS) para refletir o novo vaucher
-                          try{
-                            if(Array.isArray(window.__COM_LIST_ROWS)){
-                              window.__COM_LIST_ROWS.forEach(row => {
-                                if(String(row?.nunota||'') === String(nunota_pedido_real || nunota_val)){
-                                  row.nunota_13 = nunotaValeStr;
-                                }
-                              });
-                            }
-                          }catch(err){
-                            console.warn('[MODAL AUTO-SAVE] Falha ao propagar nunota_13 no cache:', err);
-                          }
-                        }
-                      }
-                      
-                    } else {
-                        const errMsg = result?.error || result?.body?.error || 'Erro desconhecido';
-                        console.error('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] ❌ Erro:', errMsg);
-                        alert('Erro ao salvar: ' + errMsg);
-                    }
-                  } catch(err){
-                    console.error('[MODAL AUTO-SAVE NÃO CLASSIFICÁVEL] ⚠️ Exceção:', err);
-                    alert('Erro ao salvar: ' + err.message);
-                  }
-                }
-              } else {
-                editableDiv.innerHTML = '<span style="color:#94a3b8;">R$ 0,00</span>';
-              }
-            }
-          }, true);
           
           recompute();
           // Close handlers
@@ -8835,6 +8821,14 @@
           btnFaturarEl.parentNode.replaceChild(btnFaturarClone, btnFaturarEl);
           
           btnFaturarClone.addEventListener('click', async ()=>{
+            // 🔒 VALIDAÇÃO: Verificar se botão está desabilitado (produtos sem valor)
+            if(btnFaturarClone.disabled){
+              const titulo = btnFaturarClone.title || '';
+              alert(`❌ Faturamento Bloqueado!\n\n${titulo.replace('⚠️ ', '').replace(/\n/g, '\n')}\n\nDefina valores para todos os produtos antes de faturar.`);
+              console.warn('[FATURAR] ⚠️ Bloqueado - Produtos sem valor');
+              return;
+            }
+            
             // 🔥 CRÍTICO: Verificar se há saves pendentes antes de faturar
             const pendingSaves = window.AutoSaveQueue?.getPendingCount() || 0;
             if(pendingSaves > 0){
@@ -10282,7 +10276,7 @@
 
                 if(typeof openValeResumo === 'function' && modalState && modalState.nunota){
                   try {
-                    await openValeResumo(modalState.nunota);
+                    await openValeResumo(modalState.nunota, true); // 🔥 SEMPRE forçar reload para dados atualizados
                   } catch(reopenErr){
                     console.warn('[SIMULAÇÃO] ⚠️ Falha ao reabrir modal para refletir simulação', reopenErr);
                   }

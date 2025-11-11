@@ -27,6 +27,7 @@ urlpatterns = [
     path("comercial/", views.comercial_dashboard, name="comercial_dashboard"),
     path("comercial/lista/", views.comercial_lista, name="comercial_lista"),
     path("comercial/api/itens_vale/", views.comercial_itens_vale, name="comercial_itens_vale"),
+    path("comercial/api/validar_produtos_pedido/", views.validar_produtos_pedido, name="validar_produtos_pedido"),
     path("packing/portal/", views.packing_portal, name="packing_portal"),
     path("packing/central/", views.packing_central, name="packing_central"),
     path("packing/central/validar/", views.packing_central_validar, name="packing_central_validar"),

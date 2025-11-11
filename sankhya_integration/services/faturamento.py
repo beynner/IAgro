@@ -158,8 +158,8 @@ def gerar_vale_compra_top13(nunota_11: int, itens_precos: List[Dict[str, Any]]) 
         if not lote_col:
             out['error'] = 'Nenhuma coluna de lote (CODAGREGACAO/CONTROLE/LOTE) encontrada em TGFITE'
             return out
-        # Montar SELECT dinamicamente (incluir GERAPRODUCAO para preservar flag ao duplicar itens)
-        cur.execute(f"SELECT SEQUENCIA, CODPROD, QTDNEG, CODVOL, {lote_col}, GERAPRODUCAO FROM TGFITE WHERE NUNOTA=:n", n=nunota_11)
+        # Montar SELECT dinamicamente (incluir GERAPRODUCAO e PESO para preservar ao duplicar itens)
+        cur.execute(f"SELECT SEQUENCIA, CODPROD, QTDNEG, CODVOL, {lote_col}, GERAPRODUCAO, PESO FROM TGFITE WHERE NUNOTA=:n", n=nunota_11)
         origem = cur.fetchall()
         if not origem:
             out['error'] = 'Nota 11 sem itens para duplicar'
@@ -176,7 +176,7 @@ def gerar_vale_compra_top13(nunota_11: int, itens_precos: List[Dict[str, Any]]) 
         import logging
         logger = logging.getLogger(__name__)
 
-        for seq11, codprod, qtdneg, codvol, codag, geraprod in origem:
+        for seq11, codprod, qtdneg, codvol, codag, geraprod, peso_origem in origem:
             pricing = next((iv for iv in itens_raw if iv['sequencia'] == seq11), None)
             if not pricing:
                 conn.rollback()
@@ -203,13 +203,13 @@ def gerar_vale_compra_top13(nunota_11: int, itens_precos: List[Dict[str, Any]]) 
             total += preco_total
             seq_new += 1
             try:
-                # Preservar GERAPRODUCAO do item origem (pode ser 'N', 'S' ou NULL)
+                # Preservar GERAPRODUCAO e PESO do item origem
                 cur.execute(
-                    f"INSERT INTO TGFITE (NUNOTA, SEQUENCIA, CODEMP, CODPROD, QTDNEG, VLRUNIT, VLRTOT, CODVOL, {lote_col}, GERAPRODUCAO, OBSERVACAO) "
-                    f"VALUES (:n,:s,:e,:p,:q,:u,:t,:v,:c,:g,:o)",
-                    n=nunota_13, s=seq_new, e=CODEMP, p=codprod, q=qtdneg, u=preco_unit, t=preco_total, v=codvol, c=codag, g=geraprod, o='Gerado via app'
+                    f"INSERT INTO TGFITE (NUNOTA, SEQUENCIA, CODEMP, CODPROD, QTDNEG, VLRUNIT, VLRTOT, CODVOL, {lote_col}, GERAPRODUCAO, PESO, OBSERVACAO) "
+                    f"VALUES (:n,:s,:e,:p,:q,:u,:t,:v,:c,:g,:peso,:o)",
+                    n=nunota_13, s=seq_new, e=CODEMP, p=codprod, q=qtdneg, u=preco_unit, t=preco_total, v=codvol, c=codag, g=geraprod, peso=peso_origem, o='Gerado via app'
                 )
-                logger.debug(f"Duplicando item seq11={seq11} codprod={codprod} geraproducao_origem={geraprod} para nunota_13={nunota_13} seq_new={seq_new}")
+                logger.debug(f"Duplicando item seq11={seq11} codprod={codprod} geraproducao_origem={geraprod} peso_origem={peso_origem} para nunota_13={nunota_13} seq_new={seq_new}")
             except Exception as ie:
                 conn.rollback()
                 out['error'] = 'Falha inserir item seq %s: %s' % (seq11, ie)
