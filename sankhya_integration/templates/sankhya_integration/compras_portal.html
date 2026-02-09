@@ -109,7 +109,7 @@
       </div>
       <div class="panel panel--results">
         <header>Notas / Pedidos</header>
-        <div class="list" id="notasList">
+        <div class="list" id="notasList" data-current-page="{{ page|default:1 }}" data-has-next="{% if has_next %}1{% else %}0{% endif %}" data-page-size="50">
             <table id="notasTable" class="ph-selectable-table">
             <colgroup>
               <col class="col-w-90">  <!-- Pedido -->
@@ -630,6 +630,63 @@
 
       // Habilitar lixeira conforme seleção atual
       updateDeleteBtn();
+
+      // Infinite scroll para 'Notas / Pedidos' — carrega 50 por página e anexa mais ao chegar no fim
+      (function(){
+        const list = document.getElementById('notasList');
+        if(!list) return;
+        let currentPage = Number(list.getAttribute('data-current-page')||1);
+        let hasNext = list.getAttribute('data-has-next') === '1';
+        const pageSize = Number(list.getAttribute('data-page-size')||50);
+        let loading = false;
+        const tbody = document.querySelector('#notasTable tbody');
+        if(!tbody) return;
+        const sentinel = document.createElement('tr');
+        sentinel.id = 'notas-scroll-sentinel';
+        sentinel.innerHTML = `<td colspan="3" class="ph-placeholder" style="text-align:center">Deslize para carregar mais...</td>`;
+        tbody.appendChild(sentinel);
+        async function fetchPage(page){
+          try{
+            loading = true;
+            sentinel.querySelector('td').textContent = 'Carregando...';
+            const fm = document.getElementById('filtersForm');
+            const params = new URLSearchParams(new FormData(fm || document.createElement('form')));
+            params.set('page', String(page));
+            const res = await fetch(window.location.pathname + '?' + params.toString(), { credentials: 'same-origin' });
+            if(!res.ok) { hasNext = false; return []; }
+            const txt = await res.text();
+            const doc = new DOMParser().parseFromString(txt, 'text/html');
+            const newRows = doc.querySelectorAll('#notasTable tbody tr.row--click');
+            const rows = Array.from(newRows);
+            if(rows.length < pageSize) { hasNext = false; }
+            return rows;
+          } catch(e){
+            console.error('Erro ao carregar próxima página de notas', e);
+            hasNext = false;
+            return [];
+          } finally {
+            loading = false;
+            sentinel.querySelector('td').textContent = hasNext ? 'Deslize para carregar mais...' : 'Fim da lista';
+          }
+        }
+        const io = new IntersectionObserver(async (entries) => {
+          for(const ent of entries){
+            if(ent.isIntersecting && !loading && hasNext){
+              const nextPage = currentPage + 1;
+              const rows = await fetchPage(nextPage);
+              if(rows && rows.length){
+                rows.forEach(r => tbody.insertBefore(r, sentinel));
+                currentPage = nextPage;
+              } else {
+                hasNext = false;
+                sentinel.querySelector('td').textContent = 'Fim da lista';
+                io.disconnect();
+              }
+            }
+          }
+        }, { root: list, threshold: 0.1 });
+        io.observe(sentinel);
+      })();
 
       // Ação da lixeira: excluir a nota (TGFCAB) e itens (TGFITE)
       const btnDeleteNota = document.getElementById('btnDeleteNota');
