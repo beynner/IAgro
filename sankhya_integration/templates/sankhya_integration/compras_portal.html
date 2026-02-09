@@ -36,10 +36,6 @@
       </div>
       <form id="filtersForm" class="filters-grid compras-filters-grid">
           <div>
-            <label>Últimos dias (fallback)</label>
-            <input type="number" name="days" value="{{ params.days }}" />
-          </div>
-          <div>
             <label>Data da negociação</label>
             <div class="filters-range">
               <input type="date" name="start" value="{{ params.date_start|default:'' }}" />
