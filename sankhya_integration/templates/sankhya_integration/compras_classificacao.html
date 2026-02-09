@@ -6,6 +6,7 @@
   <title>Classificação - Packing House</title>
   {% load static %}
   <link rel="stylesheet" href="{% static 'sankhya_integration/style.css' %}">
+  <script src="{% static 'sankhya_integration/packing_house_helpers.js' %}" defer></script>
   <style>
   :root { --border:#e5e7eb; --panel:#fff; --muted:#6b7280; --bg:#f7f9fb; --ph-selected-bg:#FEF9C3; --ph-selected-border:#F59E0B; }
 
@@ -157,7 +158,30 @@
     /* Right column structured into two fixed-height panels */
   .rightcol { display:grid; grid-template-rows: auto 48vh 30vh; gap:12px; }
     .panel--results { height: 48vh; display:grid; grid-template-rows: auto 1fr; }
-    .panel--items { height: 30vh; display:grid; grid-template-rows: auto 1fr; }
+    .panel--items { height: 30vh; display:grid; grid-template-rows: auto 1fr; position: relative; }
+    .panel--items.is-finalizado .items { filter: grayscale(0.2) saturate(0.8); }
+    .ph-watermark {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(-18deg);
+      transform-origin: center;
+      width: 140%;
+      text-align: center;
+      white-space: nowrap;
+      font-size: clamp(32px, 5vw, 68px);
+      font-weight: 900;
+      letter-spacing: 0.9rem;
+      text-transform: uppercase;
+      color: rgba(15, 118, 110, 0.18);
+      text-shadow: 0 0 12px rgba(15, 118, 110, 0.28);
+      pointer-events: none;
+      user-select: none;
+      opacity: 0;
+      transition: opacity .3s ease;
+      z-index: 6;
+    }
+    .ph-watermark.is-visible { opacity: 1; }
     .bottom-row { display:grid; grid-template-columns: 1fr 320px; gap:12px; }
     .panel--summary { height: 30vh; display:grid; grid-template-rows: auto 1fr; }
 
@@ -244,6 +268,7 @@
   </style>
 </head>
 <body>
+  <div class="env-badge {{ ENV_BADGE_CLASS|default:'env-badge--producao' }}" role="status" aria-live="polite">{{ ENV_BADGE_LABEL|default:'PRODUÇÃO' }}!</div>
   <!-- Fullscreen loading overlay (visible until window load completes) -->
   <div id="pageOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;z-index:9999;">
     <div class="ph-spinner" aria-label="Carregando" role="status" style="width:56px;height:56px;border-radius:50%;border:4px solid #e5e7eb;border-top-color:#2563eb;"></div>
@@ -328,19 +353,23 @@
           </div>
           <div>
             <label>Produto</label>
-            <input type="number" name="codprod" value="{{ params.codprod|default:'' }}" />
-          </div>
-          <div>
-            <label>Lote</label>
-            <input type="text" name="lote" value="{{ params.lote|default:'' }}" />
+            <div style="position:relative;">
+              <input type="hidden" name="fabricante" id="fabricanteHidden" value="{{ params.fabricante|default:'' }}" />
+              <input type="text" id="fabricanteSearch" placeholder="Nome do produto ou fabricante" autocomplete="off" style="width:100%;" value="{{ fabricante_display|default:'' }}" />
+              <div id="fabricanteDropdown" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:6px; max-height:200px; overflow:auto; display:none; z-index:10;"></div>
+            </div>
           </div>
           <div>
             <label>Parceiro</label>
             <div style="position:relative;">
               <input type="hidden" name="codparc" id="codparc" value="{{ params.codparc|default:'' }}" />
-              <input type="text" id="parcSearch" placeholder="Código ou nome do parceiro" autocomplete="off" style="width:100%;" value="{% if params.codparc %}{{ params.codparc }}{% endif %}" />
+              <input type="text" id="parcSearch" placeholder="Código ou nome do parceiro" autocomplete="off" style="width:100%;" value="{% if parc_display %}{{ parc_display }}{% elif params.codparc %}{{ params.codparc }}{% endif %}" />
               <div id="parcDropdown" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:6px; max-height:200px; overflow:auto; display:none; z-index:10;"></div>
             </div>
+          </div>
+          <div>
+            <label>Lote</label>
+            <input type="text" name="lote" value="{{ params.lote|default:'' }}" />
           </div>
           
         </form>
@@ -356,10 +385,11 @@
               const applyFilters = ()=>{
                 try{
                   console.debug('[CLASSIF] auto-apply triggered; start/end =', form.querySelector('input[name="start"]')?.value, endInput?.value);
-                  if(submitBtn){ submitBtn.click(); return; }
-                  if(typeof form.requestSubmit === 'function'){ form.requestSubmit(); return; }
+                  if(submitBtn){ submitBtn.click(); return true; }
+                  if(typeof form.requestSubmit === 'function'){ form.requestSubmit(); return true; }
                   form.submit();
                 }catch(e){ console.error('[CLASSIF] applyFilters error', e); }
+                return false;
               };
 
               // debounce helper
@@ -369,10 +399,27 @@
                 reloadBtn.addEventListener('click', (ev)=>{
                   ev.preventDefault();
                   try{
-                    applyFilters();
+                    if(applyFilters()) return;
                   }catch(err){ console.error('[CLASSIF] reload apply error', err); }
+                  form.submit();
                 });
               }
+
+              const focusSelect = (el)=>{
+                if(!el) return;
+                el.addEventListener('focus', (ev)=>{
+                  const target = ev.target;
+                  setTimeout(()=>{ try{ target.select(); }catch(_){ } }, 0);
+                });
+              };
+
+              focusSelect(form.querySelector('input[name="days"]'));
+              focusSelect(form.querySelector('input[name="start"]'));
+              focusSelect(form.querySelector('input[name="end"]'));
+              focusSelect(form.querySelector('input[name="nunota_ini"]'));
+              focusSelect(document.getElementById('fabricanteSearch'));
+              focusSelect(document.getElementById('parcSearch'));
+              focusSelect(form.querySelector('input[name="lote"]'));
 
               if(endInput){
                 // when user finishes typing a full ISO date (YYYY-MM-DD) apply
@@ -403,6 +450,182 @@
                     }
                   }catch(_){ }
                 }, 400);
+              }
+
+              // Fabricante autocomplete: query manufacturers using produtos/search
+              const fabInput = document.getElementById('fabricanteSearch');
+              const fabHidden = document.getElementById('fabricanteHidden');
+              const fabDropdown = document.getElementById('fabricanteDropdown');
+              if (fabInput && fabDropdown){
+                let fabTimer = null;
+                const hideFabDropdown = ()=>{ fabDropdown.style.display = 'none'; fabDropdown.innerHTML = ''; };
+                const showFabDropdown = (items)=>{
+                  if(!items || !Array.isArray(items) || !items.length){ hideFabDropdown(); return; }
+                  const rows = items.map(it=> (it.fabricante||'').trim()).filter(Boolean);
+                  if(!rows.length){ hideFabDropdown(); return; }
+                  fabDropdown.innerHTML = rows.map((fab, idx)=>`<div class="dd-item${idx===0?' active':''}" data-fabricante="${fab}">${fab}</div>`).join('');
+                  fabDropdown.style.display = 'block';
+                };
+                const fetchFabricantes = (q)=>{
+                  fetch(`/sankhya/produtos/search/?q=${encodeURIComponent(q)}&limit=10&fabricante=1`).then(r=>r.json()).then(data=>{
+                    showFabDropdown((data && data.results) || []);
+                  }).catch(()=> hideFabDropdown());
+                };
+                fabInput.addEventListener('input', (e)=>{
+                  const raw = (e.target.value||'').trim();
+                  if(fabHidden) fabHidden.value = '';
+                  if(fabTimer) clearTimeout(fabTimer);
+                  if(raw.length < 2){ hideFabDropdown(); return; }
+                  fabTimer = setTimeout(()=> fetchFabricantes(raw), 250);
+                });
+                fabInput.addEventListener('keydown', (e)=>{
+                  if(fabDropdown.style.display === 'none') return;
+                  const items = Array.from(fabDropdown.querySelectorAll('.dd-item'));
+                  if(!items.length) return;
+                  const activeIdx = items.findIndex(x=>x.classList.contains('active'));
+                  if(e.key === 'ArrowDown'){
+                    e.preventDefault();
+                    const idx = (activeIdx + 1 + items.length) % items.length;
+                    items.forEach(x=>x.classList.remove('active'));
+                    items[idx].classList.add('active');
+                    items[idx].scrollIntoView({block:'nearest'});
+                  } else if(e.key === 'ArrowUp'){
+                    e.preventDefault();
+                    const idx = (activeIdx - 1 + items.length) % items.length;
+                    items.forEach(x=>x.classList.remove('active'));
+                    items[idx].classList.add('active');
+                    items[idx].scrollIntoView({block:'nearest'});
+                  } else if(e.key === 'Enter' || e.key === 'Tab'){
+                    if(e.key === 'Enter') e.preventDefault();
+                    const el = fabDropdown.querySelector('.dd-item.active') || fabDropdown.querySelector('.dd-item');
+                    if(el){
+                      const fab = (el.dataset.fabricante||'').trim();
+                      if(fabHidden) fabHidden.value = fab ? fab.toUpperCase() : '';
+                      fabInput.value = fab;
+                      hideFabDropdown();
+                      try{ if(applyFilters()) return; }catch(_){ }
+                      if(typeof form.requestSubmit === 'function'){ form.requestSubmit(); return; }
+                      form.submit();
+                    }
+                  } else if(e.key === 'Escape'){
+                    hideFabDropdown();
+                  }
+                });
+                fabDropdown.addEventListener('click', (ev)=>{
+                  const el = ev.target.closest('div[data-fabricante]');
+                  if(!el) return;
+                  const fab = (el.dataset.fabricante||'').trim();
+                  if(fabHidden) fabHidden.value = fab ? fab.toUpperCase() : '';
+                  fabInput.value = fab;
+                  hideFabDropdown();
+                  try{ if(applyFilters()) return; }catch(_){ }
+                  if(typeof form.requestSubmit === 'function'){ form.requestSubmit(); return; }
+                  form.submit();
+                });
+                document.addEventListener('click', (ev)=>{
+                  if(!fabDropdown.contains(ev.target) && ev.target !== fabInput){ hideFabDropdown(); }
+                });
+              }
+
+              // Parceiro autocomplete (code or name)
+              const parcInput = document.getElementById('parcSearch');
+              const parcHidden = document.getElementById('codparc');
+              const parcDropdown = document.getElementById('parcDropdown');
+              if (parcInput && parcDropdown){
+                let parcTimer = null;
+                const hideParcDropdown = ()=>{ parcDropdown.style.display='none'; parcDropdown.innerHTML=''; };
+                const esc = (s)=> String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+                const showParcDropdown = (items)=>{
+                  if(!items || !items.length){ hideParcDropdown(); return; }
+                  parcDropdown.innerHTML = items.map((it, idx)=>{
+                    const cod = it.codparc || it.cod || '';
+                    const nome = it.nomeparc || it.descr || '';
+                    return `<div class="dd-item${idx===0?' active':''}" data-cod="${esc(cod)}" data-nome="${esc(nome)}">${esc(cod)} — ${esc(nome)}</div>`;
+                  }).join('');
+                  parcDropdown.style.display='block';
+                };
+                const fetchParceiros = (q)=>{
+                  fetch(`/sankhya/parceiros/search/?q=${encodeURIComponent(q)}&limit=10`).then(r=>r.json()).then(data=>{
+                    showParcDropdown((data && data.results) || []);
+                  }).catch(()=> hideParcDropdown());
+                };
+                parcInput.addEventListener('input', (e)=>{
+                  const raw = (e.target.value||'').trim();
+                  if(parcTimer) clearTimeout(parcTimer);
+                  if(!raw){ hideParcDropdown(); if(parcHidden) parcHidden.value=''; return; }
+                  parcTimer = setTimeout(()=>{
+                    const isNum = /^\d+$/.test(raw);
+                    const ok = isNum ? raw.length >= 1 : raw.length >= 2;
+                    if(ok) fetchParceiros(raw); else hideParcDropdown();
+                  }, 250);
+                });
+                parcInput.addEventListener('keydown', (e)=>{
+                  if(parcDropdown.style.display === 'none') return;
+                  const items = Array.from(parcDropdown.querySelectorAll('.dd-item'));
+                  if(!items.length) return;
+                  const activeIdx = items.findIndex(x=>x.classList.contains('active'));
+                  if(e.key === 'ArrowDown'){
+                    e.preventDefault();
+                    const idx = (activeIdx + 1 + items.length) % items.length;
+                    items.forEach(x=>x.classList.remove('active'));
+                    items[idx].classList.add('active');
+                    items[idx].scrollIntoView({block:'nearest'});
+                  } else if(e.key === 'ArrowUp'){
+                    e.preventDefault();
+                    const idx = (activeIdx - 1 + items.length) % items.length;
+                    items.forEach(x=>x.classList.remove('active'));
+                    items[idx].classList.add('active');
+                    items[idx].scrollIntoView({block:'nearest'});
+                  } else if(e.key === 'Enter' || e.key === 'Tab'){
+                    if(e.key === 'Enter') e.preventDefault();
+                    const el = parcDropdown.querySelector('.dd-item.active') || parcDropdown.querySelector('.dd-item');
+                    if(el){
+                      const cod = el.dataset.cod || '';
+                      const nome = el.dataset.nome || '';
+                      if(parcHidden) parcHidden.value = cod;
+                      const label = nome ? `${cod} — ${nome}` : `${cod}`;
+                      parcInput.value = label.trim();
+                      hideParcDropdown();
+                      try{ if(applyFilters()) return; }catch(_){ }
+                      if(typeof form.requestSubmit === 'function'){ form.requestSubmit(); return; }
+                      form.submit();
+                    }
+                  } else if(e.key === 'Escape'){
+                    hideParcDropdown();
+                  }
+                });
+                parcDropdown.addEventListener('click', (ev)=>{
+                  const el = ev.target.closest('div[data-cod]');
+                  if(!el) return;
+                  const cod = el.dataset.cod || '';
+                  const nome = el.dataset.nome || '';
+                  if(parcHidden) parcHidden.value = cod;
+                  const label = nome ? `${cod} — ${nome}` : `${cod}`;
+                  parcInput.value = label.trim();
+                  hideParcDropdown();
+                  try{ if(applyFilters()) return; }catch(_){ }
+                  if(typeof form.requestSubmit === 'function'){ form.requestSubmit(); return; }
+                  form.submit();
+                });
+                document.addEventListener('click', (ev)=>{
+                  if(!parcDropdown.contains(ev.target) && ev.target !== parcInput){ hideParcDropdown(); }
+                });
+                const ensureParcDisplay = ()=>{
+                  const hiddenVal = (parcHidden?.value||'').trim();
+                  const currentVal = (parcInput.value||'').trim();
+                  if(!hiddenVal) return;
+                  if(currentVal && (currentVal.includes('—') || currentVal.includes('-'))) return;
+                  fetch(`/sankhya/parceiros/search/?q=${encodeURIComponent(hiddenVal)}&limit=1`).then(r=>r.json()).then(data=>{
+                    const first = (data && data.results && data.results[0]) || null;
+                    if(first){
+                      const cod = first.codparc || first.cod || hiddenVal;
+                      const nome = first.nomeparc || first.descr || '';
+                      const label = nome ? `${cod} — ${nome}` : `${cod}`;
+                      parcInput.value = label.trim();
+                    }
+                  }).catch(()=>{});
+                };
+                ensureParcDisplay();
               }
 
               // Auto-apply when user types Pedido (nunota_ini) - minimum 5 digits
@@ -622,7 +845,7 @@
       </div>
 
       <div class="bottom-row">
-        <div class="panel panel--items">
+        <div class="panel panel--items" id="produtosClassificadosPanel">
       <header style="display:flex; justify-content:space-between; align-items:center;">
         <div>Produtos Classificados (TOP 26)
           {% if nunota_class_sel %}
@@ -633,6 +856,7 @@
         </div>
         <div style="display:flex; gap:8px; align-items:center;"></div>
       </header>
+        <div id="produtosClassificadosWatermark" class="ph-watermark" aria-hidden="true">FINALIZADO</div>
         <div class="items">
           <table class="ph-selectable-table">
             <thead>
@@ -1171,6 +1395,23 @@
       return toast;
     }
 
+      function setClassificacaoFinalizada(isFinalizado){
+        const panel = document.getElementById('produtosClassificadosPanel');
+        const watermark = document.getElementById('produtosClassificadosWatermark');
+        if(!panel || !watermark) return;
+        const active = !!isFinalizado;
+        panel.classList.toggle('is-finalizado', active);
+        watermark.classList.toggle('is-visible', active);
+        watermark.setAttribute('aria-hidden', active ? 'false' : 'true');
+      }
+      try { window.setClassificacaoFinalizada = setClassificacaoFinalizada; } catch(_) {}
+      (function(){
+        try{
+          const tgl = document.getElementById('toggleStatusNota');
+          setClassificacaoFinalizada(tgl ? tgl.checked : false);
+        }catch(_){ setClassificacaoFinalizada(false); }
+      })();
+
     // Reuse the basic interaction from portal: row selection, pagination and delete confirmation.
     (function(){
       const tbl = document.getElementById('notasTable');
@@ -1524,8 +1765,18 @@
   updateClassifyBtn();
   updateAddClassifyBtn();
   const btnDeleteNota = document.getElementById('btnDeleteNota');
-  function getCookie(name){ const m=document.cookie.match(new RegExp('(^| )'+name+'=([^;]+)')); return m? decodeURIComponent(m[2]) : null; }
-  async function postJSON(url, body){ const csrftoken = getCookie('csrftoken'); const headers = {'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'}; if (csrftoken) headers['X-CSRFToken'] = csrftoken; const r = await fetch(url, {method:'POST', headers, body: JSON.stringify(body), credentials:'same-origin'}); let j={}; try{ j=await r.json(); }catch(_){ j={}; } return {ok:r.ok, body:j, status:r.status}; }
+  // helpers `getCookie` and `postJSON` are provided by static/sankhya_integration/packing_house_helpers.js
+  // Compatibility wrappers: prefer central helpers (window.__getCookie/window.__postJSON) but keep local fallback
+  const getCookie = window.__getCookie || window.getCookie || function(name){
+    const m = document.cookie.match(new RegExp('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)'));
+    return m ? decodeURIComponent(m[2]) : null;
+  };
+  const postJSON = window.__postJSON || window.postJSON || async function(url, body){
+    const r = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    let data = null;
+    try{ data = await r.json(); }catch(_){ data = null; }
+    return { ok: r.ok, status: r.status, statusText: r.statusText, body: data };
+  };
   
   // Toast notification helper - bottom-right corner
   function showToast(message, type){ // type: info|success|error
@@ -1539,8 +1790,8 @@
     }catch(e){ console.error('showToast', e); }
   }
   
-  // Expose helpers globally so other modules/IIFEs in this page can reuse them
-  try { window.getCookie = getCookie; window.postJSON = postJSON; window.showToast = showToast; } catch(_) {}
+  // Expose page-only helper(s)
+  try { window.showToast = showToast; } catch(_) {}
       (function(){
         const b = document.getElementById('btnDeleteNota');
         if(!b) return;
@@ -1648,6 +1899,7 @@
             const st = (j.pendente_class||'').toString().toUpperCase();
             if(st){ tgl.checked = (st === 'N'); }
             else if(j.nunota_class){ try{ if (typeof window.initHeaderStatusToggle === 'function') window.initHeaderStatusToggle(j.nunota_class); }catch(_){ } }
+            try{ setClassificacaoFinalizada(tgl.checked); }catch(_){ }
           }
         }catch(_){ }
         // Update Descarte field with QTDBATIDAS from TOP 26
@@ -2342,8 +2594,8 @@
       })();
       // Impressora: handler removido para evitar ação de impressão nesta página
       // const btnPrint = document.getElementById('btnPrint'); if(btnPrint){ btnPrint.addEventListener('click', ()=>window.print()); }
-      const clearBtn = document.getElementById('btnClear'); const form = document.getElementById('filtersForm'); if(clearBtn && form){ clearBtn.addEventListener('click', (e)=>{ e.preventDefault(); const inputs = form.querySelectorAll('input'); inputs.forEach((inp)=>{ if(inp.type === 'hidden' || inp.type === 'text' || inp.type === 'number' || inp.type === 'date'){ inp.value = ''; } }); const parcHidden = document.getElementById('codparc'); if(parcHidden) parcHidden.value = ''; const parcVisible = document.getElementById('parcSearch'); if(parcVisible) parcVisible.value = ''; }); }
-      if(form){ form.addEventListener('submit', ()=>{ let pg = form.querySelector('input[name="page"]'); if(!pg){ pg = document.createElement('input'); pg.type='hidden'; pg.name='page'; form.appendChild(pg); } pg.value='1'; }); }
+      const clearBtn = document.getElementById('btnClear'); const form = document.getElementById('filtersForm'); if(clearBtn && form){ clearBtn.addEventListener('click', (e)=>{ e.preventDefault(); const inputs = form.querySelectorAll('input'); inputs.forEach((inp)=>{ if(inp.type === 'hidden' || inp.type === 'text' || inp.type === 'number' || inp.type === 'date'){ inp.value = ''; } }); const parcHidden = document.getElementById('codparc'); if(parcHidden) parcHidden.value = ''; const parcVisible = document.getElementById('parcSearch'); if(parcVisible) parcVisible.value = ''; const fabDropdown = document.getElementById('fabricanteDropdown'); if(fabDropdown){ fabDropdown.style.display='none'; fabDropdown.innerHTML=''; } const parcDropdown = document.getElementById('parcDropdown'); if(parcDropdown){ parcDropdown.style.display='none'; parcDropdown.innerHTML=''; } const submitBtn = document.querySelector('button[type="submit"][form="filtersForm"]'); if(submitBtn){ submitBtn.click(); return; } if(typeof form.requestSubmit === 'function'){ form.requestSubmit(); return; } form.submit(); }); }
+      if(form){ form.addEventListener('submit', ()=>{ let pg = form.querySelector('input[name="page"]'); if(!pg){ pg = document.createElement('input'); pg.type='hidden'; pg.name='page'; form.appendChild(pg); } pg.value='1'; try{ const fabVis = document.getElementById('fabricanteSearch'); const fabHidden = document.getElementById('fabricanteHidden'); if(fabVis && fabHidden){ const rawFab = (fabVis.value||'').trim(); fabHidden.value = rawFab ? rawFab.toUpperCase() : ''; } const parcVis = document.getElementById('parcSearch'); const parcHidden = document.getElementById('codparc'); if(parcVis && parcHidden && !parcHidden.value){ const rawParc = (parcVis.value||'').trim(); const match = rawParc.match(/^(\d+)/); if(match && match[1]) parcHidden.value = match[1]; } }catch(_){ } }); }
       // Replicar data inicial para data final ao digitar no primeiro campo
       try {
         const startDate = form.querySelector('input[name="start"]');
@@ -2589,7 +2841,7 @@
                 // Preencher lista com classificacoes existentes
                 try{ const rows = j0.classificacoes || []; itemsListBody.innerHTML = ''; if(rows.length){ for(const row of rows){ addItemRowToList({ nunota: row.nunota, sequencia: row.sequencia, cod: row.cod, descr: row.descr, codvol: row.codvol, qtd: row.qtd, peso: row.peso, total: row.totalkg || row.vlt || null, lote: ctrl, geraproducao: null }); } } else { clearItemsList(); } }catch(_){ }
                 // Atualizar toggle com base em pendente_class
-                try{ const tgl = document.getElementById('toggleStatusNota'); if(tgl && j0.pendente_class){ const st = (j0.pendente_class||'').toString().toUpperCase(); tgl.checked = (st === 'N'); } }catch(_){ }
+                try{ const tgl = document.getElementById('toggleStatusNota'); if(tgl && j0.pendente_class){ const st = (j0.pendente_class||'').toString().toUpperCase(); tgl.checked = (st === 'N'); try{ setClassificacaoFinalizada(tgl.checked); }catch(__){} } }catch(_){ }
                 // Atualizar campo Descarte com QTDBATIDAS
                 try{ if(typeof window.updateDescarteFromBackend === 'function'){ window.updateDescarteFromBackend(j0.qtdbatidas); } }catch(_){ }
                 // Se houver nunota_class, setar no hidden e habilitar adicionar
@@ -2981,13 +3233,31 @@
         `; itemsListBody.appendChild(tr);
         // attach dataset for edit mode and dblclick to load into form
         try{
+          const normalizeNumeric = (val)=>{
+            if(val == null || val === '') return '';
+            if(typeof val === 'number' && Number.isFinite(val)) return val.toString();
+            const raw = String(val).trim();
+            if(!raw) return '';
+            let num = NaN;
+            try{ if(typeof parseFlexibleNumber === 'function') num = parseFlexibleNumber(raw); }catch(_){ }
+            if(!Number.isFinite(num)){
+              const cleaned = raw.replace(/\s+/g,'');
+              const alt = cleaned.replace(/\./g,'').replace(',', '.');
+              num = parseFloat(alt);
+            }
+            return Number.isFinite(num) ? num.toString() : raw;
+          };
+          const normalizedTotal = normalizeNumeric(it.total ?? it.totalkg ?? it.qtdneg ?? it.qtd);
+          const normalizedPeso = normalizeNumeric(it.peso);
+          const normalizedQtd = normalizeNumeric(it.qtd);
+
           tr.dataset.seq = it.sequencia != null ? String(it.sequencia) : '';
           tr.dataset.cod = it.cod != null ? String(it.cod) : '';
           tr.dataset.descr = it.descr != null ? String(it.descr) : '';
           tr.dataset.codvol = it.codvol != null ? String(it.codvol) : ''; // Unidade alternativa (CX)
-          tr.dataset.qtd = it.qtd != null ? String(it.qtd) : ''; // Qtd em caixas (calculado)
-          tr.dataset.peso = (it.peso != null && it.peso !== '') ? String(it.peso) : '';
-          tr.dataset.totalkg = (it.totalkg != null && it.totalkg !== '') ? String(it.totalkg) : ''; // QTDNEG em KG
+          tr.dataset.qtd = normalizedQtd;
+          tr.dataset.peso = normalizedPeso;
+          tr.dataset.totalkg = normalizedTotal; // QTDNEG em KG
           tr.dataset.obs = it.obs != null ? String(it.obs) : '';
           tr.dataset.lote = it.lote != null ? String(it.lote) : '';
           tr.dataset.gp = it.geraproducao != null ? String(it.geraproducao) : (typeof it.classifica !== 'undefined' ? (it.classifica ? 'S' : 'N') : '');
@@ -3095,24 +3365,43 @@
       console.log('🔍 Total kg a preencher:', tr.dataset.totalkg);
       // Total kg: TGFITE.QTDNEG (valor real em KG do banco)
       const total = document.getElementById('item_total');
-      const totalKgVal = parseFloat(tr.dataset.totalkg) || 0;
-      if(total) total.value = totalKgVal > 0 ? totalKgVal.toFixed(3) : '';
+      const totalKgRaw = tr.dataset.totalkg || '';
+      const totalKgVal = totalKgRaw ? parseFloat(totalKgRaw) : NaN;
+      if(total){
+        if(Number.isFinite(totalKgVal) && totalKgVal > 0){
+          const roundedTotal = Math.round(totalKgVal);
+          total.value = String(roundedTotal);
+        } else {
+          total.value = '';
+        }
+      }
       
       console.log('🔍 Peso a preencher:', tr.dataset.peso);
       // Peso: TGFITE.PESO
       const peso = document.getElementById('item_peso');
-      const pesoVal = parseFloat(tr.dataset.peso) || 0;
-      if(peso) peso.value = tr.dataset.peso || '';
+      const pesoRaw = tr.dataset.peso || '';
+      const pesoVal = pesoRaw ? parseFloat(pesoRaw) : NaN;
+      if(peso){
+        if(Number.isFinite(pesoVal) && pesoVal > 0){
+          const roundedPeso = Math.round(pesoVal);
+          peso.value = String(roundedPeso);
+        } else {
+          peso.value = '';
+        }
+      }
       
       console.log('🔍 Qtd calculada:', totalKgVal, '/', pesoVal);
       // Qtd: Calculado = QTDNEG / PESO
       const qtd = document.getElementById('item_qtd');
-      if(qtd && totalKgVal > 0 && pesoVal > 0){
-        const qtdCalc = totalKgVal / pesoVal;
-        qtd.value = qtdCalc.toFixed(1);
-        console.log('🔍 Qtd preenchida:', qtdCalc.toFixed(1));
-      } else if(qtd) {
-        qtd.value = '';
+      if(qtd){
+        if(Number.isFinite(totalKgVal) && totalKgVal > 0 && Number.isFinite(pesoVal) && pesoVal > 0){
+          const qtdCalc = totalKgVal / pesoVal;
+          const roundedQtd = Math.round(qtdCalc);
+          qtd.value = String(roundedQtd);
+          console.log('🔍 Qtd preenchida:', roundedQtd);
+        } else {
+          qtd.value = '';
+        }
       }
       
       const obs = document.getElementById('item_obs');
@@ -3176,7 +3465,7 @@
           try{
             const st = (j.pendente_class||'').toString().toUpperCase();
             const tgl = document.getElementById('toggleStatusNota');
-            if(tgl){ tgl.checked = (st === 'N'); }
+            if(tgl){ tgl.checked = (st === 'N'); try{ setClassificacaoFinalizada(tgl.checked); }catch(_){ } }
           }catch(_){ }
           if(!rows.length){ clearItemsList(); return; }
           itemsListBody.innerHTML = '';
@@ -3249,11 +3538,15 @@
         try{ 
           const totalKg = parseFloat(String(document.getElementById('item_total').value||'').replace(',','.')) || 0; 
           const peso = parseFloat(String(document.getElementById('item_peso').value||'').replace(',','.')) || 0; 
-          
+          const qtdField = document.getElementById('item_qtd');
+          if(!qtdField) return;
           if(totalKg > 0 && peso > 0){ 
             const qtd = totalKg / peso;
-            document.getElementById('item_qtd').value = qtd.toFixed(1);
-            console.log('[RECALC] Qtd = Total kg / Peso →', totalKg, '/', peso, '=', qtd.toFixed(1));
+            const rounded = Math.round(qtd);
+            qtdField.value = Number.isFinite(rounded) ? String(rounded) : '';
+            console.log('[RECALC] Qtd = Total kg / Peso →', totalKg, '/', peso, '=', rounded);
+          } else {
+            qtdField.value = '';
           }
         }catch(_){ } 
       }
@@ -3263,11 +3556,15 @@
         try{ 
           const totalKg = parseFloat(String(document.getElementById('item_total').value||'').replace(',','.')) || 0; 
           const qtd = parseFloat(String(document.getElementById('item_qtd').value||'').replace(',','.')) || 0; 
-          
+          const pesoField = document.getElementById('item_peso');
+          if(!pesoField) return;
           if(totalKg > 0 && qtd > 0){ 
             const peso = totalKg / qtd;
-            document.getElementById('item_peso').value = peso.toFixed(1);
-            console.log('[RECALC] Peso = Total kg / Qtd →', totalKg, '/', qtd, '=', peso.toFixed(1));
+            const rounded = Math.round(peso);
+            pesoField.value = Number.isFinite(rounded) ? String(rounded) : '';
+            console.log('[RECALC] Peso = Total kg / Qtd →', totalKg, '/', qtd, '=', rounded);
+          } else {
+            pesoField.value = '';
           }
         }catch(_){ } 
       }
@@ -3281,6 +3578,15 @@
       
       // Quando Qtd mudar → recalcular Peso
       document.getElementById('item_qtd')?.addEventListener('input', recalcItemPeso);
+
+      // Selecionar todo o conteúdo ao focar nos principais campos numéricos
+      ['item_total', 'item_qtd', 'item_peso', 'item_prod_vis'].forEach((fieldId)=>{
+        const field = document.getElementById(fieldId);
+        if(!field) return;
+        field.addEventListener('focus', ()=>{
+          try{ setTimeout(()=>{ try{ field.select(); }catch(_){ } }, 0); }catch(_){ }
+        });
+      });
 
       // Buscar peso padrão do volume alternativo quando produto ou volume mudar
       async function loadPesoFromVolume(){
@@ -3327,8 +3633,14 @@
             console.log('[PESO] Valor ANTES:', pesoField?.value);
             
             if(pesoField){
-              pesoField.value = parseFloat(data.peso).toFixed(3);
-              console.log('[PESO] ✅ Peso DEFINIDO:', data.peso, '| Valor no campo:', pesoField.value);
+              const pesoNum = parseFloat(data.peso);
+              if(Number.isFinite(pesoNum)){
+                const rounded = Math.round(pesoNum);
+                pesoField.value = String(rounded);
+                console.log('[PESO] ✅ Peso DEFINIDO:', data.peso, '| Valor no campo:', pesoField.value);
+              } else {
+                pesoField.value = '';
+              }
               
               // Verificar 100ms depois se o valor ainda está lá
               setTimeout(() => {
@@ -3728,7 +4040,7 @@
         const tgl = document.getElementById('toggleStatusNota'); if(!tgl) return;
         fetch('/sankhya/header/status/get/?nunota=' + encodeURIComponent(n), { credentials: 'same-origin' })
           .then(r=>r.json())
-          .then(h=>{ if(h && h.ok){ const s=(h.pendente||'').toUpperCase(); tgl.checked = (s === 'N'); } })
+          .then(h=>{ if(h && h.ok){ const s=(h.pendente||'').toUpperCase(); tgl.checked = (s === 'N'); try{ setClassificacaoFinalizada(tgl.checked); }catch(_){ } } })
           .catch(()=>{});
       };
     } catch(_) {}
@@ -3741,6 +4053,7 @@
         try{
           const nunRaw = document.getElementById('items_nunota')?.value;
           const nun = nunRaw ? parseInt(String(nunRaw).match(/(\d+)/)?.[1]||'0',10) : null;
+          try{ setClassificacaoFinalizada(tgl.checked); }catch(_){ }
           if(!nun){ return; }
           const status = tgl.checked ? 'L' : 'A';
           const res = await postJSON('/sankhya/header/status/', { nunota: nun, status });
@@ -3749,6 +4062,7 @@
             alert(msg);
             // revert UI state
             tgl.checked = !tgl.checked;
+            try{ setClassificacaoFinalizada(tgl.checked); }catch(_){ }
           }
               // Reflect immediately on LOTES status dot for the active row
               try{
