@@ -25,8 +25,8 @@ Sistema web para gerenciamento das operações do IAgro (central de beneficiamen
 
 | Componente | Tecnologia |
 |---|---|
-| Framework web | Django 4.2.24 LTS |
-| Banco de dados ERP | Oracle (Sankhya ERP) via `oracledb` 2.5.1 |
+| Framework web | Django 6.0.4 |
+| Banco de dados ERP | Oracle (Sankhya ERP) via `oracledb` 3.4.2 |
 | Banco de dados Django | SQLite (apenas sessões e modelo `Simulation`) |
 | Driver Oracle | `oracledb` (python-oracledb moderno) — cx_Oracle é fallback, não instalado |
 | Frontend | HTML + CSS + JavaScript puro (sem framework JS) |

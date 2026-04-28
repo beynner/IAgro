@@ -2,12 +2,13 @@ asgiref==3.9.1
 cffi==2.0.0
 charset-normalizer==3.4.3
 cryptography==45.0.7
-Django==4.2.24
-oracledb==2.5.1
+Django>=6.0,<7.0
+oracledb>=3.4.2
 pillow==11.3.0
 pycparser==2.23
 python-dotenv==1.1.1
 reportlab==4.4.3
+requests>=2.31.0
 sqlparse==0.5.3
 tzdata==2025.2
 # Note: cx_Oracle is intentionally not installed on Windows/Python 3.13.
