@@ -7,7 +7,7 @@
         ITEM_DELETE: '/sankhya/item/delete/',
         ITEM_FINALIZE: '/sankhya/item/finalize/',
         HEADER_UPDATE: '/sankhya/header/update/',
-        HEADER_SAVE: '/sankhya/packing/central/salvar/',
+        HEADER_SAVE: '/sankhya/compras/central/salvar/',
         LOTE_SEARCH: '/sankhya/lote/search/',
         PROD_SEARCH: '/sankhya/produtos/search/',
         PARC_SEARCH: '/sankhya/parceiros/search/',
@@ -18,7 +18,7 @@
         NOTA_DELETE: '/sankhya/nota/delete/',
         NOTA_CHECK_CLASS: '/sankhya/nota/check-classificacao/',
         NOTA_DIAGNOSE: '/sankhya/nota/diagnose/',
-        CENTRAL_AJAX: '/sankhya/packing/central/'
+        CENTRAL_AJAX: '/sankhya/compras/central/'
     };
 
     // Utilitário para debounce (evita múltiplas chamadas enquanto digita)
@@ -32,20 +32,20 @@
     }
 
     // Overlay controller shared across navigation points
-    const PHOverlay = (()=>{
+    const IAOverlay = (()=>{
       const el = document.getElementById('pageOverlay');
       return {
         show(){ if(!el) return; el.classList.remove('hidden'); el.style.display = 'flex'; },
         hide(){ if(!el) return; el.classList.add('hidden'); setTimeout(()=>{ try{ el.style.display = 'none'; }catch(e){ console.warn('Overlay hide failed', e); } }, 280); }
       };
     })();
-    try { window.PHOverlay = PHOverlay; } catch(e){ console.warn('PHOverlay export failed', e); }
+    try { window.IAOverlay = IAOverlay; } catch(e){ console.warn('IAOverlay export failed', e); }
     // Show overlay during navigation/refresh, hide after DOM ready (earlier)
-    window.__PH_INITIAL_LOADING = true;
-    document.addEventListener('DOMContentLoaded', function(){ try{ PHOverlay.hide(); }catch(e){ console.warn('DOMContentLoaded overlay hide failed', e); } });
-    window.addEventListener('load', ()=>{ setTimeout(()=>{ try{ PHOverlay.hide(); window.__PH_INITIAL_LOADING = false; }catch(e){ console.warn('Load overlay hide failed', e); } }, 200); });
-    window.addEventListener('beforeunload', ()=>{ try{ PHOverlay.show(); }catch(e){ console.warn('Beforeunload overlay show failed', e); } });
-    window.addEventListener('pagehide', ()=>{ try{ PHOverlay.show(); }catch(e){ console.warn('Pagehide overlay show failed', e); } });
+    window.__IA_INITIAL_LOADING = true;
+    document.addEventListener('DOMContentLoaded', function(){ try{ IAOverlay.hide(); }catch(e){ console.warn('DOMContentLoaded overlay hide failed', e); } });
+    window.addEventListener('load', ()=>{ setTimeout(()=>{ try{ IAOverlay.hide(); window.__IA_INITIAL_LOADING = false; }catch(e){ console.warn('Load overlay hide failed', e); } }, 200); });
+    window.addEventListener('beforeunload', ()=>{ try{ IAOverlay.show(); }catch(e){ console.warn('Beforeunload overlay show failed', e); } });
+    window.addEventListener('pagehide', ()=>{ try{ IAOverlay.show(); }catch(e){ console.warn('Pagehide overlay show failed', e); } });
 
     const tbl = document.getElementById('notasTable');
     const listEl = document.getElementById('notasList');
@@ -53,7 +53,7 @@
     if (!tbl) return;
     // Helpers to render items into bottom panel
     
-    function panelRenderEmpty(){ if(panelItemsBody) panelItemsBody.innerHTML = '<tr><td colspan="10" class="ph-muted">Nenhum item para a seleção.</td></tr>'; }
+    function panelRenderEmpty(){ if(panelItemsBody) panelItemsBody.innerHTML = '<tr><td colspan="10" class="ia-muted">Nenhum item para a seleção.</td></tr>'; }
     
     function panelRenderRows(rows){
       if(!panelItemsBody) return;
@@ -199,7 +199,7 @@
         return;
       }catch(e){ console.error('Modal open failed', e); }
       // Fallback: navegar para a central
-      try { PHOverlay.show(); window.location.href = `${API_URLS.CENTRAL_AJAX}?nunota=${encodeURIComponent(nunota)}`; } catch (e) { console.warn('Navigation failed', e); try{ PHOverlay.show(); }catch(e2){ console.warn('Overlay show failed', e2); } window.location.href = tr.dataset.centralUrl; }
+      try { IAOverlay.show(); window.location.href = `${API_URLS.CENTRAL_AJAX}?nunota=${encodeURIComponent(nunota)}`; } catch (e) { console.warn('Navigation failed', e); try{ IAOverlay.show(); }catch(e2){ console.warn('Overlay show failed', e2); } window.location.href = tr.dataset.centralUrl; }
     });
 
     // Navegação por teclado (setas) na lista de notas
@@ -314,7 +314,7 @@
       if(!tbody) return;
       const sentinel = document.createElement('tr');
       sentinel.id = 'notas-scroll-sentinel';
-      sentinel.innerHTML = `<td colspan="3" class="ph-placeholder" style="text-align:center">Deslize para carregar mais...</td>`;
+      sentinel.innerHTML = `<td colspan="3" class="ia-placeholder" style="text-align:center">Deslize para carregar mais...</td>`;
       tbody.appendChild(sentinel);
       async function fetchPage(page){
         try{
@@ -452,7 +452,7 @@
         e.preventDefault(); // Evita o comportamento padrão caso o botão esteja dentro de um form
         
         // Chama a tela de carregamento do sistema (feedback visual)
-        try { PHOverlay.show(); } catch(err) {}
+        try { IAOverlay.show(); } catch(err) {}
         
         // Recarrega a página mantendo os parâmetros atuais da URL (filtros)
         window.location.reload();
@@ -538,7 +538,7 @@
           }
         } catch (e) { console.warn('Typeahead copy failed', e); }
 
-        try{ PHOverlay.show(); }catch(e){ console.warn('Overlay show failed', e); }
+        try{ IAOverlay.show(); }catch(e){ console.warn('Overlay show failed', e); }
       });
       // Replicar data inicial para data final ao digitar no primeiro campo
       try {
@@ -686,11 +686,11 @@
       try {
         const url = new URL(window.location.href);
         url.searchParams.set('page', String(targetPage));
-        try{ PHOverlay.show(); }catch(e){ console.warn('Overlay failed', e); }
+        try{ IAOverlay.show(); }catch(e){ console.warn('Overlay failed', e); }
         window.location.href = url.pathname + '?' + url.searchParams.toString();
       } catch (err) {
         const qs = window.location.search ? window.location.search + '&' : '?';
-        try{ PHOverlay.show(); }catch(e){ console.warn('Overlay failed', e); }
+        try{ IAOverlay.show(); }catch(e){ console.warn('Overlay failed', e); }
         window.location.href = window.location.pathname + qs + 'page=' + encodeURIComponent(targetPage);
       }
     }
@@ -832,11 +832,11 @@
           const suffix = tm ? ` (TIPMOV ${tm})` : '';
           return `<div class="dd-item dd-item-row" data-cod="${it.cod}">${it.cod} — ${it.descr||''}${suffix}</div>`;
         }).join('');
-        topList.innerHTML = items || '<div class="ph-padding ph-muted">Nenhuma TOP encontrada.</div>';
+        topList.innerHTML = items || '<div class="ia-padding ia-muted">Nenhuma TOP encontrada.</div>';
         // Ativar primeiro item por padrão
         const first = topList.querySelector('.dd-item');
         if (first) first.classList.add('active');
-      }).catch(()=>{ topList.innerHTML = '<div class="ph-padding ph-muted">Erro ao carregar TOPs.</div>'; });
+      }).catch(()=>{ topList.innerHTML = '<div class="ia-padding ia-muted">Erro ao carregar TOPs.</div>'; });
     }
     // The New button now links directly to Central with TOP 11; keep default navigation
     // (previously opened a TOP selection modal)
@@ -873,7 +873,7 @@
       const el = e.target.closest('[data-cod]');
       if(!el) return;
       const cod = el.getAttribute('data-cod');
-      try{ PHOverlay.show(); }catch(e){ console.warn('Overlay failed', e); }
+      try{ IAOverlay.show(); }catch(e){ console.warn('Overlay failed', e); }
       window.location.href = `${API_URLS.CENTRAL_AJAX}?codtipoper=${encodeURIComponent(cod)}`;
     });
     
@@ -1000,7 +1000,7 @@
     cabClose?.addEventListener('click', interceptarFechamentoCabecalho);
     cabCancel?.addEventListener('click', interceptarFechamentoCabecalho);
 
-    // helpers `getCookie` and `postJSON` are provided by static/sankhya_integration/packing_house_helpers.js
+    // helpers `getCookie` and `postJSON` are provided by static/sankhya_integration/iagro_helpers.js
 
     // Reuse attachTypeahead helper available above by re-declaring minimal wrapper
     function attachTA(inpId, hidId, ddId, url, options){ try{ const inp=document.getElementById(inpId); const hid=document.getElementById(hidId); const dd=document.getElementById(ddId); if(!inp||!hid||!dd) return; let t=null; function hide(){ dd.style.display='none'; dd.innerHTML=''; } function show(items){ if(!items||!items.length){ hide(); return; } dd.innerHTML = items.map((it,idx)=>`<div class="dd-item${idx===0?' active':''}" data-cod="${it.cod||it.codparc}" data-descr="${it.descr||it.nomeparc}" data-selecionado="${it.selecionado}">${(it.cod||it.codparc)} — ${(it.descr||it.nomeparc)}</div>`).join(''); dd.style.display='block'; }
@@ -1208,10 +1208,10 @@ console.debug('showItemsModal resolved nunota', resolved);
         let j=null; try{ j = window.__ITEMS_CACHE && window.__ITEMS_CACHE[String(resolved)]; }catch(e){ console.warn('Cache render failed', e); }
         if(j && j.ok){
           const rows = j.items || j.results || [];
-          itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="7" class="ph-padding ph-muted">Nenhum item.</td></tr>';
+          itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="7" class="ia-padding ia-muted">Nenhum item.</td></tr>';
           for(const it of rows){ addItemRowToList(it); }
         } else {
-          itemsListBody.innerHTML = '<tr><td colspan="7" class="ph-padding ph-muted">Carregando…</td></tr>';
+          itemsListBody.innerHTML = '<tr><td colspan="7" class="ia-padding ia-muted">Carregando…</td></tr>';
         }
       }catch(e){ console.warn('Cache render failed', e); }
       try{ console.debug('showItemsModal calling loadItems for', resolved); loadItems(resolved); }catch(e){ console.error('loadItems call failed', e); }
@@ -1596,7 +1596,7 @@ console.debug('showItemsModal resolved nunota', resolved);
     // normalize nunota to integer or null
     function normalizeNunota(n){ try{ if(n==null) return null; const s = String(n).trim(); if(!s) return null; const m = s.match(/(\d+)/); if(!m) return null; const v = parseInt(m[1],10); return Number.isFinite(v) ? v : null; }catch(e){ console.debug('normalizeNunota failed', e); return null; } }
 
-    function clearItemsList(){ if(!itemsListBody) return; itemsListBody.innerHTML = '<tr><td colspan="7" class="ph-padding ph-muted">Nenhum item carregado.</td></tr>'; }
+    function clearItemsList(){ if(!itemsListBody) return; itemsListBody.innerHTML = '<tr><td colspan="7" class="ia-padding ia-muted">Nenhum item carregado.</td></tr>'; }
     // Click-to-select for items modal rows (visual highlight and future actions)
     // Click-to-select for items modal rows (visual highlight and future actions)
     try{
@@ -1663,7 +1663,7 @@ console.debug('showItemsModal resolved nunota', resolved);
         const tr = e.target && e.target.closest ? e.target.closest('tr') : null;
         if(!tr) return;
         const rows = Array.from(itemsListBody.querySelectorAll('tr'));
-        rows.forEach(r => r.classList.remove('selected','is-selected','row--active','ph-row-selected'));
+        rows.forEach(r => r.classList.remove('selected','is-selected','row--active','ia-row-selected'));
         tr.classList.add('selected');
       });
     }catch(e){ console.error('itemsListBody listener failed', e); }
@@ -1838,11 +1838,11 @@ console.debug('showItemsModal resolved nunota', resolved);
         let j = null; try{ const cache = window.__ITEMS_CACHE || {}; if (cache && cache[String(resolved)]) j = cache[String(resolved)]; }catch(e){ console.warn('Cache read failed', e); }
         if(j){
           const rows = j.items || j.results || [];
-          itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="7" class="ph-padding ph-muted">Nenhum item.</td></tr>';
+          itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="7" class="ia-padding ia-muted">Nenhum item.</td></tr>';
           for(const it of rows){ addItemRowToList(it); }
         } else {
           // Status enquanto aguarda rede
-          itemsListBody.innerHTML = '<tr><td colspan="7" class="ph-padding ph-muted">Carregando…</td></tr>';
+          itemsListBody.innerHTML = '<tr><td colspan="7" class="ia-padding ia-muted">Carregando…</td></tr>';
           itemsListController = new AbortController();
           const opts = { credentials: 'same-origin', signal: itemsListController.signal };
           const url = API_URLS.ITEM_LIST + '?nunota=' + encodeURIComponent(resolved);
@@ -1862,7 +1862,7 @@ console.debug('showItemsModal resolved nunota', resolved);
           try{ if(j && j.ok){ window.__ITEMS_CACHE = window.__ITEMS_CACHE || {}; window.__ITEMS_CACHE[String(resolved)] = j; } }catch(e){ console.warn('Cache write failed', e); }
           if(!j || !j.ok){ itemsListBody.innerHTML = `<tr><td colspan="7">Erro: ${(j&&j.error)||'falha'}</td></tr>`; return; }
           const rows = j.items || j.results || [];
-          itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="7" class="ph-padding ph-muted">Nenhum item.</td></tr>';
+          itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="7" class="ia-padding ia-muted">Nenhum item.</td></tr>';
           for(const it of rows){ addItemRowToList(it); }
         }
       }catch(err){

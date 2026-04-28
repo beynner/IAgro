@@ -38,13 +38,11 @@ urlpatterns = [
     
     # TELAS (Renders)
     path("compras/portal/", views.view_portal_entradas, name="compras_portal"),
-    path("packing/portal/", views.view_portal_entradas, name="packing_portal"), # Alias
-    
+
     path("compras/central/", views.view_central_compras, name="compras_central"),
-    path("packing/central/", views.view_central_compras, name="packing_central"), # Alias
-    
+
     # CABEÇALHO (Operações na TGFCAB)
-    path("packing/central/salvar/", views.api_salvar_novo_cabecalho, name="packing_central_salvar"),
+    path("compras/central/salvar/", views.api_salvar_novo_cabecalho, name="compras_central_salvar"),
     path("header/update/", views.api_atualizar_cabecalho_existente, name="header_update"),
     path("nota/delete/", views.api_excluir_nota_compra, name="nota_delete"),
     path("item/finalize/", views.api_finalizar_nota_compra, name="item_finalize"),

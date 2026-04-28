@@ -34,7 +34,7 @@ Este documento explica as correções implementadas no layout de impressão tér
 ```javascript
 const printHTML = `
   <div class="print-header" style="text-align:center; border-bottom:2px dashed #000; padding:3mm 4mm; margin:0; background:white;">
-    <div class="print-title" style="font-weight:bold; font-size:14pt; margin:0 0 2mm 0;">PACKING HOUSE</div>
+    <div class="print-title" style="font-weight:bold; font-size:14pt; margin:0 0 2mm 0;">IAGRO</div>
     <div style="font-size:10pt;">Vale de Produtos</div>
   </div>
   ...
@@ -164,7 +164,7 @@ body > *:not(#printContent) {
 
 ```
 ┌─────────────────────────────────────┐
-│     PACKING HOUSE                   │ ← Header (12pt, bold, centralizado)
+│     IAGRO                   │ ← Header (12pt, bold, centralizado)
 │     Vale de Produtos                │ ← Subtítulo (9pt)
 ├─────────────────────────────────────┤ ← Linha tracejada
 │ VALE Nº: 92500                      │ ← Seção de dados (9pt)
@@ -190,7 +190,7 @@ body > *:not(#printContent) {
 ### **Tamanhos de Fonte**
 | Elemento | Tamanho | Peso |
 |----------|---------|------|
-| Título (PACKING HOUSE) | 12pt | Bold |
+| Título (IAGRO) | 12pt | Bold |
 | Subtítulo | 9pt | Normal |
 | Labels (VALE Nº, PARCEIRO) | 9pt | Bold |
 | Valores | 9pt | Normal |
@@ -398,7 +398,7 @@ document.getElementById('printPreviewConfirm')?.addEventListener('click', ()=>{
    ```html
    <div class="print-header">
      <img src="/logo.png" style="width:40mm;height:auto;">
-     <div class="print-title">PACKING HOUSE</div>
+     <div class="print-title">IAGRO</div>
    </div>
    ```
 

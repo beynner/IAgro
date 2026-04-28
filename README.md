@@ -1,6 +1,6 @@
-# PackingHouse
+# IAgro
 
-Projeto Django com integração Oracle (Sankhya) e páginas Portal/Central do Packing House (somente leitura).
+Projeto Django com integração Oracle (Sankhya) e páginas Portal/Central do IAgro (somente leitura).
 
 ## Requisitos
 - Python 3.11+ (ou compatível com sua venv)
@@ -18,19 +18,19 @@ python manage.py runserver
 
 ## Rotas principais
 - `/sankhya/` (index)
-- `/sankhya/packing/portal/`
-- `/sankhya/packing/central/`
+- `/sankhya/compras/portal/`
+- `/sankhya/compras/central/`
 
 ## Observações
 - Operações de Salvar/Excluir estão desabilitadas por política (read-only).
-- O nome do projeto foi normalizado para `PackingHouse`.
+- O nome do projeto foi normalizado para `IAgro`.
 - Para renomear a pasta raiz do workspace:
   1. Feche o VS Code e terminais que estejam em `D:\TI\NexusGTi\Harvest`.
   2. Execute:
      ```powershell
-     Rename-Item -Path "D:\TI\NexusGTi\Harvest" -NewName "PackingHouse"
+     Rename-Item -Path "D:\TI\NexusGTi\Harvest" -NewName "IAgro"
      ```
-  3. Reabra o VS Code em `D:\TI\NexusGTi\PackingHouse` e ative a venv:
+  3. Reabra o VS Code em `D:\TI\NexusGTi\IAgro` e ative a venv:
      ```powershell
      .\venv\Scripts\Activate.ps1
      python manage.py check

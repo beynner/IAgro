@@ -130,7 +130,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // ==========================================================================
     // 4. HELPERS
     // ==========================================================================
-    const PH = window.PackingHouse || {};
+    const PH = window.IAgro || {};
 
     function getCookie(name) {
         if (PH.getCookie) return PH.getCookie(name);

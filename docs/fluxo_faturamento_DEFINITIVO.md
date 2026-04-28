@@ -1,4 +1,4 @@
-# Fluxo de Faturamento DEFINITIVO - Packing House App
+# Fluxo de Faturamento DEFINITIVO - IAgro App
 
 ## 🎯 ESTRATÉGIA: DOIS BOTÕES COM FUNÇÕES SEPARADAS
 

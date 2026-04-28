@@ -36,7 +36,7 @@ MIDDLEWARE = [
     'sankhya_integration.middleware.ControleInatividadeMiddleware',
 ]
 
-ROOT_URLCONF = 'PackingHouse.urls'
+ROOT_URLCONF = 'IAgro.urls'
 
 TEMPLATES = [
     {
@@ -56,7 +56,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'PackingHouse.wsgi.application'
+WSGI_APPLICATION = 'IAgro.wsgi.application'
 
 DATABASES = {
     'default': {

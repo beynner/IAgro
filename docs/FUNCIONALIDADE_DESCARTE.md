@@ -228,5 +228,5 @@ update_cabecalho(nunota=92500, updates={'QTDBATIDAS': 12.5})
 ---
 
 **Data de implementação**: 21/10/2025  
-**Autor**: Sistema de Classificação - Packing House  
+**Autor**: Sistema de Classificação - IAgro  
 **Versão**: 1.0

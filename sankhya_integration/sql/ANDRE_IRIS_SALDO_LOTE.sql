@@ -1,6 +1,6 @@
 -- =============================================================================
 -- View: SANKHYA.ANDRE_IRIS_SALDO_LOTE
--- Pacote/Módulo: Packing House — Rastreabilidade (WMS)
+-- Pacote/Módulo: IAgro — Rastreabilidade (WMS)
 --
 -- Objetivo
 --   Calcular o saldo disponível de estoque por (CODEMP, CODPROD, CODAGREGACAO)

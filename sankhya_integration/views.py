@@ -463,7 +463,6 @@ def view_portal_entradas(request: HttpRequest) -> HttpResponse:
 
 # Alias de retrocompatibilidade para o frontend JS ou menus do Django
 def compras_portal(request: HttpRequest) -> HttpResponse: return view_portal_entradas(request)
-def packing_portal(request: HttpRequest) -> HttpResponse: return view_portal_entradas(request)
 
 @ensure_csrf_cookie
 def view_central_compras(request: HttpRequest) -> HttpResponse:
@@ -588,7 +587,7 @@ def api_salvar_novo_cabecalho(request: HttpRequest) -> HttpResponse:
 
         # Se for um POST clássico de formulário (Legado)
         if plano.get('executed') and plano.get('nunota'):
-            return redirect(f"/sankhya/packing/central/?nunota={plano['nunota']}")
+            return redirect(f"/sankhya/compras/central/?nunota={plano['nunota']}")
 
     except Exception as e:
         logger.exception("Erro ao salvar o cabeçalho novo")

@@ -11,7 +11,7 @@
    - Modal de preview aparece?
    - Papel simulado (80mm) está visível?
    - Conteúdo está formatado e legível?
-   - Título "PACKING HOUSE" aparece?
+   - Título "IAGRO" aparece?
    - Dados do Vale (nº, pedido, emissão) aparecem?
    - Parceiro aparece?
    - Itens aparecem com nome, quantidade e valores?

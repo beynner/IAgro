@@ -165,7 +165,7 @@ Parser JSON/XML pode FALHAR
 
 ---
 
-**3. Nosso Sistema (PackingHouse):**
+**3. Nosso Sistema (IAgro):**
 ```python
 # Nosso código atual:
 cur.execute("SELECT NUNOTA, SEQUENCIA, VLRUNIT FROM TGFITE")

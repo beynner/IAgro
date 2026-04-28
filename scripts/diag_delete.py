@@ -1,6 +1,6 @@
 import os, sys
 sys.path.insert(0, r'd:\TI\NexusGTi\Harvest')
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'PackingHouse.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'IAgro.settings')
 import django
 django.setup()
 from sankhya_integration.services.oracle_conn import diagnose_nota_delete, delete_nota

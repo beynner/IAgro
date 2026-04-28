@@ -25,8 +25,8 @@
 #cabCard.modal-card.small { width: 380px; }
 
 /* Sinalização de campo obrigatório não preenchido */
-#cabCard .ph-field-invalid,
-#cabCard .ph-field-invalid:focus {
+#cabCard .ia-field-invalid,
+#cabCard .ia-field-invalid:focus {
     border-color: var(--cor-erro) !important;
     box-shadow: 0 0 0 1px var(--cor-erro) !important;
 }
@@ -142,22 +142,22 @@
 }
 
 /* Ajustes de densidade e alinhamento do texto */
-.ph-selectable-table th, 
-.ph-selectable-table td {
+.ia-selectable-table th, 
+.ia-selectable-table td {
     padding: 6px 8px;
     font-size: 11px;
 }
 
-.ph-selectable-table th {
+.ia-selectable-table th {
     text-align: left;
 }
 
-.ph-selectable-table th.text-right {
+.ia-selectable-table th.text-right {
     text-align: right;
 }
 
 /* Travamento do Cabeçalho da Tabela (Sticky) */
-.ph-selectable-table thead th {
+.ia-selectable-table thead th {
     position: sticky;
     top: 0;
     background-color: var(--cor-fundo-cabecalho-tabela); 
@@ -176,7 +176,7 @@
    ========================================================================== */
 
 /* Truncamento de textos longos (ex: nomes de parceiros gigantes) */
-.ph-truncate {
+.ia-truncate {
     max-width: 150px;
     white-space: nowrap;
     overflow: hidden;

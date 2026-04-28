@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{% block title %}Packing House{% endblock %}</title>
+    <title>{% block title %}IAgro{% endblock %}</title>
     
     {% load static %}
     <link rel="stylesheet" href="{% static 'sankhya_integration/global.css' %}">
@@ -17,7 +17,7 @@
     </div>
 
     <div id="pageOverlay" class="visible">
-        <div class="ph-spinner"></div>
+        <div class="ia-spinner"></div>
     </div>
     
     <div class="wrap">
@@ -30,7 +30,7 @@
                             <polyline points="9 22 9 12 15 12 15 22"></polyline>
                         </svg>
                     </a>
-                    <h1>{% block header_title %}PACKING HOUSE{% endblock %}</h1>
+                    <h1>{% block header_title %}IAGRO{% endblock %}</h1>
                     {% block header_extras %}{% endblock %}
                 </div>
 
@@ -53,13 +53,13 @@
             {% block content %}{% endblock %}
         </main>
 
-        <footer class="ph-footer">
+        <footer class="ia-footer">
             <div>NexusGTi — SIG (Sistema Integrado de Gestão)</div>
-            <div class="ph-footer-versao">Versão {{ APP_VERSION|default:"beta" }}</div>
+            <div class="ia-footer-versao">Versão {{ APP_VERSION|default:"beta" }}</div>
         </footer>
     </div>
 
-    <script src="{% static 'sankhya_integration/packing_house_helpers.js' %}"></script>
+    <script src="{% static 'sankhya_integration/iagro_helpers.js' %}"></script>
     
     <script>
         (function() {
@@ -123,13 +123,13 @@
         // --- SINCRONIZAÇÃO SEGURA DE ABAS (LADO DE DENTRO DO SISTEMA) ---
         (function() {
             // 1. SÓ avisa as outras abas se o estado for diferente de "LOGGED_IN"
-            if (localStorage.getItem('ph_auth_sync') !== 'LOGGED_IN') {
-                localStorage.setItem('ph_auth_sync', 'LOGGED_IN');
+            if (localStorage.getItem('ia_auth_sync') !== 'LOGGED_IN') {
+                localStorage.setItem('ia_auth_sync', 'LOGGED_IN');
             }
 
             // 2. Fica ouvindo as outras abas
             window.addEventListener('storage', function(evento) {
-                if (evento.key === 'ph_auth_sync') {
+                if (evento.key === 'ia_auth_sync') {
                     // Se outra aba avisar que DESLOGOU, recarregamos para deslogar aqui também
                     if (evento.newValue === 'LOGGED_OUT') {
                         console.log("Logout detectado em outra aba. Saindo...");

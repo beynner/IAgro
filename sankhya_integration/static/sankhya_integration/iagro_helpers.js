@@ -98,7 +98,7 @@
    * 4. Controle de Overlay (Loading)
    * Objeto para controlar o overlay de carregamento da página.
    */
-  const PHOverlay = {
+  const IAOverlay = {
     show: function() {
       const overlay = document.getElementById('pageOverlay');
       if (overlay) {
@@ -138,7 +138,7 @@
   }
 
   // Expor os módulos para o escopo global (window)
-  window.PackingHouse = { ...(window.PackingHouse || {}), getCookie, postJSON, showToast, debounce };
-  window.PHOverlay = PHOverlay;
+  window.IAgro = { ...(window.IAgro || {}), getCookie, postJSON, showToast, debounce };
+  window.IAOverlay = IAOverlay;
 
 })();

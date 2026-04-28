@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Packing House System</title>
+  <title>IAgro System</title>
   {% load static %}
   <meta name="app-version" content="{{ APP_VERSION }}">
   <link rel="stylesheet" href="{% static 'sankhya_integration/home.css' %}">
@@ -53,15 +53,15 @@
   <div class="container">
     <img src="{% static 'logo.png' %}" alt="Logo" class="logo-watermark">
     <div class="header">
-      <h1>Packing House</h1>
+      <h1>IAgro</h1>
       <p>Sistema Integrado de Gestão</p>
     </div>
 
     <div class="cards-container">
-      <a href="/sankhya/packing/portal/" class="card card-portal" onclick="return handleCardClick(event)" rel="noopener noreferrer">
+      <a href="/sankhya/compras/portal/" class="card card-portal" onclick="return handleCardClick(event)" rel="noopener noreferrer">
         <div class="card-icon">🛒</div>
         <h2 class="card-title">Entrada</h2>
-        <p class="card-description">Acesse o portal de entrada principal de mercadorias do Packing House para gerenciar operações de compras.</p>
+        <p class="card-description">Acesse o portal de entrada principal de mercadorias do IAgro para gerenciar operações de compras.</p>
         <div class="card-arrow">→</div>
       </a>
 
@@ -90,7 +90,7 @@
       <a href="/sankhya/rastreio/" class="card card-rastreio" onclick="return handleCardClick(event)" rel="noopener noreferrer">
         <div class="card-icon">📦</div>
         <h2 class="card-title">Rastreio</h2>
-        <p class="card-description">Gestão de lotes do Packing House: atribuição inteligente de produtos colhidos aos pedidos de venda em aberto.</p>
+        <p class="card-description">Gestão de lotes do IAgro: atribuição inteligente de produtos colhidos aos pedidos de venda em aberto.</p>
         <div class="card-arrow">→</div>
       </a>
     </div>
@@ -98,7 +98,7 @@
   <div class="version-badge">v{{ APP_VERSION }}</div>
 
   <script>
-    window.PackHouse = {
+    window.IAgro = {
         // Envolvendo em aspas o VS Code entende como texto e para de reclamar.
         // O JS vai ler: "true" === "true" (que vira um booleano verdadeiro)
         isLogged: "{% if request.session.codusu %}true{% else %}false{% endif %}" === "true"
@@ -107,16 +107,16 @@
   <script>
     // --- SINCRONIZAÇÃO SEGURA DE ABAS (HOME HÍBRIDA) ---
     (function() {
-        const isLogged = window.PackHouse.isLogged;
+        const isLogged = window.IAgro.isLogged;
 
         if (isLogged) {
             // Lógica de DENTRO do sistema (Usuário já logado vendo os cartões)
-            if (localStorage.getItem('ph_auth_sync') !== 'LOGGED_IN') {
-                localStorage.setItem('ph_auth_sync', 'LOGGED_IN');
+            if (localStorage.getItem('ia_auth_sync') !== 'LOGGED_IN') {
+                localStorage.setItem('ia_auth_sync', 'LOGGED_IN');
             }
 
             window.addEventListener('storage', function(evento) {
-                if (evento.key === 'ph_auth_sync' && evento.newValue === 'LOGGED_OUT') {
+                if (evento.key === 'ia_auth_sync' && evento.newValue === 'LOGGED_OUT') {
                     console.log("Logout detectado em outra aba. Saindo da Home...");
                     window.location.reload();
                 }
@@ -124,12 +124,12 @@
 
         } else {
             // Lógica de FORA do sistema (Usuário vendo os campos de Usuário e Senha)
-            if (localStorage.getItem('ph_auth_sync') !== 'LOGGED_OUT') {
-                localStorage.setItem('ph_auth_sync', 'LOGGED_OUT');
+            if (localStorage.getItem('ia_auth_sync') !== 'LOGGED_OUT') {
+                localStorage.setItem('ia_auth_sync', 'LOGGED_OUT');
             }
 
             window.addEventListener('storage', function(evento) {
-                if (evento.key === 'ph_auth_sync' && evento.newValue === 'LOGGED_IN') {
+                if (evento.key === 'ia_auth_sync' && evento.newValue === 'LOGGED_IN') {
                     console.log("Login detectado em outra aba. Carregando a Home logada...");
                     window.location.reload();
                 }

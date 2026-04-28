@@ -224,8 +224,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!append) {
             offsetAtual = 0;
             temMaisRegistros = true;
-            tbodyVendas.innerHTML = '<tr><td colspan="7" class="text-center ph-muted">Buscando no banco de dados...</td></tr>';
-            document.getElementById('vendaItemsBody').innerHTML = '<tr><td colspan="4" class="ph-placeholder">Selecione uma venda</td></tr>';
+            tbodyVendas.innerHTML = '<tr><td colspan="7" class="text-center ia-muted">Buscando no banco de dados...</td></tr>';
+            document.getElementById('vendaItemsBody').innerHTML = '<tr><td colspan="4" class="ia-placeholder">Selecione uma venda</td></tr>';
             // Limpa seleção e desabilita ações dependentes dela
             pedidoSelecionado = null;
             const btnDel = document.getElementById('btnDeleteVenda');
@@ -235,7 +235,7 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             const trLoading = document.createElement('tr');
             trLoading.id = 'loading-row';
-            trLoading.innerHTML = '<td colspan="7" class="text-center ph-muted">Carregando mais pedidos...</td>';
+            trLoading.innerHTML = '<td colspan="7" class="text-center ia-muted">Carregando mais pedidos...</td>';
             tbodyVendas.appendChild(trLoading);
         }
 
@@ -258,7 +258,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             if (data.vendas.length === 0) {
-                if (!append) tbodyVendas.innerHTML = '<tr><td colspan="7" class="text-center ph-muted">Nenhum pedido encontrado.</td></tr>';
+                if (!append) tbodyVendas.innerHTML = '<tr><td colspan="7" class="text-center ia-muted">Nenhum pedido encontrado.</td></tr>';
                 temMaisRegistros = false;
                 carregando = false;
                 return;
@@ -281,7 +281,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td>${v.emp}</td>
                     <td>${v.top}</td>
                     <td>${v.data ? v.data.substring(0,5) : ''}</td>
-                    <td class="ph-truncate" title="${v.parceiro}">${v.parceiro}</td>
+                    <td class="ia-truncate" title="${v.parceiro}">${v.parceiro}</td>
                     <td class="text-right">${valorFormatado}</td>
                 `;
 
@@ -333,7 +333,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // ==========================================
     async function carregarItens(nunota) {
         const tbodyItens = document.getElementById('vendaItemsBody');
-        tbodyItens.innerHTML = '<tr><td colspan="4" class="text-center ph-muted">Carregando itens...</td></tr>';
+        tbodyItens.innerHTML = '<tr><td colspan="4" class="text-center ia-muted">Carregando itens...</td></tr>';
 
         try {
             const response = await fetch(`/sankhya/item/list/?nunota=${nunota}`);
@@ -342,7 +342,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             tbodyItens.innerHTML = '';
             if (data.items.length === 0) {
-                tbodyItens.innerHTML = '<tr><td colspan="4" class="text-center ph-muted">Nota sem itens.</td></tr>';
+                tbodyItens.innerHTML = '<tr><td colspan="4" class="text-center ia-muted">Nota sem itens.</td></tr>';
                 return;
             }
 
@@ -357,7 +357,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 tr.innerHTML = `
                     <td>${item.lote || '—'}</td>
-                    <td class="ph-truncate" title="${item.descr}">${item.descr}</td>
+                    <td class="ia-truncate" title="${item.descr}">${item.descr}</td>
                     <td class="text-right">${qtd}</td>
                     <td class="text-right">${total}</td>
                 `;
@@ -395,7 +395,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // ==========================================
 
     // --- Helpers reutilizáveis (postJSON, toast) ---
-    const PH = window.PackingHouse || {};
+    const PH = window.IAgro || {};
     const phPostJSON = PH.postJSON || window.__postJSON || window.postJSON || async function(url, body){
         const m = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/);
         const csrftoken = m ? decodeURIComponent(m[1]) : '';
@@ -545,7 +545,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('items_nunota').value = nunota;
         document.getElementById('items_nunota_display').textContent = nunota;
         document.getElementById('itemsListBody').innerHTML =
-            '<tr><td colspan="6" class="ph-placeholder">Carregando itens...</td></tr>';
+            '<tr><td colspan="6" class="ia-placeholder">Carregando itens...</td></tr>';
         abrirItensAoLado();
         setTimeout(() => document.getElementById('item_prod_vis')?.focus(), 160);
 
@@ -557,7 +557,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!di.ok) throw new Error(di.error || 'Erro ao carregar itens');
 
             if (!Array.isArray(di.items) || di.items.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="ph-placeholder">Nenhum item inserido.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="ia-placeholder">Nenhum item inserido.</td></tr>';
                 return;
             }
             tbody.innerHTML = '';
@@ -567,7 +567,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const total = parseFloat(item.vlt || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td class="ph-truncate" title="${item.descr || ''}">${item.descr || ''}</td>
+                    <td class="ia-truncate" title="${item.descr || ''}">${item.descr || ''}</td>
                     <td>${item.lote || '—'}</td>
                     <td class="text-right">${qtd}</td>
                     <td class="text-right">${preco}</td>
@@ -578,7 +578,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         } catch (e) {
             const tbody = document.getElementById('itemsListBody');
-            tbody.innerHTML = `<tr><td colspan="6" class="ph-placeholder" style="color:#ef4444">Erro: ${e.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="6" class="ia-placeholder" style="color:#ef4444">Erro: ${e.message}</td></tr>`;
         }
     }
 
@@ -714,16 +714,16 @@ document.addEventListener('DOMContentLoaded', function() {
         { hidden: null,              visible: 'cab_dtneg' },
     ];
     function marcarCampoInvalido(inputId) {
-        document.getElementById(inputId)?.classList.add('ph-field-invalid');
+        document.getElementById(inputId)?.classList.add('ia-field-invalid');
     }
     function limparMarcasInvalidas() {
-        cabCard?.querySelectorAll('.ph-field-invalid')
-               .forEach(el => el.classList.remove('ph-field-invalid'));
+        cabCard?.querySelectorAll('.ia-field-invalid')
+               .forEach(el => el.classList.remove('ia-field-invalid'));
     }
     // Limpa a marca assim que o usuário começa a corrigir o campo
     CABCARD_CAMPOS_OBRIGATORIOS.forEach(({ visible }) => {
         document.getElementById(visible)?.addEventListener('input', function () {
-            this.classList.remove('ph-field-invalid');
+            this.classList.remove('ia-field-invalid');
         });
     });
 
@@ -802,7 +802,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('items_nunota').value      = nunota;
                 document.getElementById('items_nunota_display').textContent = nunota;
                 document.getElementById('itemsListBody').innerHTML =
-                    '<tr><td colspan="6" class="ph-placeholder">Nenhum item inserido.</td></tr>';
+                    '<tr><td colspan="6" class="ia-placeholder">Nenhum item inserido.</td></tr>';
                 itensInseridosCount = 0;
                 limparCamposItem();
                 abrirItensAoLado();
@@ -871,12 +871,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Remove placeholder se presente, anexa linha nova
             const tbody = document.getElementById('itemsListBody');
-            if (tbody.querySelector('.ph-placeholder')) tbody.innerHTML = '';
+            if (tbody.querySelector('.ia-placeholder')) tbody.innerHTML = '';
             const prodDescr = document.getElementById('item_prod_vis').value;
             const tr = document.createElement('tr');
             const total = (qtdneg * vlrunit).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
             tr.innerHTML = `
-                <td class="ph-truncate" title="${prodDescr}">${prodDescr}</td>
+                <td class="ia-truncate" title="${prodDescr}">${prodDescr}</td>
                 <td>${lote || '—'}</td>
                 <td class="text-right">${qtdneg.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                 <td class="text-right">${vlrunit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>

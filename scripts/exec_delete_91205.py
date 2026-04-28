@@ -1,8 +1,8 @@
 import os, sys
 sys.path.insert(0, r'd:\TI\NexusGTi\Harvest')
 # Allow writes for this run
-os.environ['PACKINGHOUSE_WRITE_ENABLED'] = 'true'
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'PackingHouse.settings')
+os.environ['IAGRO_WRITE_ENABLED'] = 'true'
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'IAgro.settings')
 import django
 django.setup()
 from sankhya_integration.services.oracle_conn import is_write_enabled, delete_nota

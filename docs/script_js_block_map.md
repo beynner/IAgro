@@ -3,7 +3,7 @@
 Este documento descreve os principais blocos funcionais existentes em `sankhya_integration/static/sankhya_integration/script.js`. Cada seção informa o intervalo de linhas, as responsabilidades centrais e os helpers expostos, facilitando futuras otimizações de maneira segmentada.
 
 ## Bootstrap do portal, overlay e lista infinita ([script.js#L1-L400](sankhya_integration/static/sankhya_integration/script.js#L1-L400))
-- Inicializa `window.__PH_PAGE__`, o controlador de overlay compartilhado (`PHOverlay`), o `postJSON` com CSRF e os flags contextuais de dashboard/portal.
+- Inicializa `window.__IA_PAGE__`, o controlador de overlay compartilhado (`IAOverlay`), o `postJSON` com CSRF e os flags contextuais de dashboard/portal.
 - `initPortalPage()` conecta a tabela de notas: pré-carrega o painel (`panelLoadItems`), faz prefetch com cache, aplica proteções de exclusão, ativa scroll infinito (`loadNextPage` + `onScroll`) e navegação por teclado (`setActive`, `applySelection`).
 - Duplo clique abre os modais (`openCabModalForEdit`, `showItemsModal`) quando disponíveis; caso contrário, cai na página central.
 - Ajustes de UX: prefetch em hover, abertura automática de modal para notas recém-criadas e controle do botão de exclusão conforme seleção.

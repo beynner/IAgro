@@ -1,14 +1,14 @@
 {% extends 'sankhya_integration/base.html' %}
 {% load static %}
 
-{% block title %}Vendas Packing House{% endblock %}
+{% block title %}Vendas IAgro{% endblock %}
 
 {% block extra_css %}
   <meta name="app-version" content="{{ APP_VERSION }}">
   <link rel="stylesheet" href="{% static 'sankhya_integration/venda.css' %}">
 {% endblock %}
 
-{% block header_title %}VENDAS PACKING HOUSE{% endblock %}
+{% block header_title %}VENDAS IAGRO{% endblock %}
 
 {% block content %}
     <div class="venda-grid">
@@ -99,7 +99,7 @@
         <div class="panel panel--results" id="cardCabecalho">
             <header>Cabeçalho da Nota</header>
             <div class="list" id="vendasList">
-                <table id="vendasTable" class="ph-selectable-table">
+                <table id="vendasTable" class="ia-selectable-table">
                     <thead>
                         <tr>
                             <th class="col-w-70">Pedido</th>
@@ -121,7 +121,7 @@
         <div class="spacer-vendas"></div> <div class="panel panel--items" id="cardItens">
             <header>Itens do Pedido <span id="label_sel_nunota">--</span></header>
             <div class="items">
-                <table class="ph-selectable-table">
+                <table class="ia-selectable-table">
                     <thead>
                         <tr>
                             <th>Lote</th>

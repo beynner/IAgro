@@ -1,7 +1,7 @@
 {% extends 'sankhya_integration/base.html' %}
 {% load static %}
 
-{% block title %}Classificação - Packing House{% endblock %}
+{% block title %}Classificação - IAgro{% endblock %}
 
 {% block header_title %}
   CLASSIFICAÇÃO
@@ -22,7 +22,7 @@
 {% endblock %}
 
 {% block content %}
-  <div id="ph-metadata" style="display: none;"
+  <div id="ia-metadata" style="display: none;"
       data-version="{{ APP_VERSION }}"
       data-env="{{ ENV_BADGE_LABEL|default:'PRODUÇÃO' }}"
       data-initial-lote="{{ initial_lote_ctrl|default:'' }}"
@@ -127,7 +127,7 @@
         </header>
         
         <div class="content list" id="notasList" style="padding:0;">
-          <table id="notasTable" class="ph-selectable-table">
+          <table id="notasTable" class="ia-selectable-table">
             <thead>
               <tr>
                 <th style="width: 40px; text-align: center;">Status</th>
@@ -151,7 +151,7 @@
               <tr id="loadingIndicator" style="display: {% if has_next %}table-row{% else %}none{% endif %};">
                 <td colspan="9" style="text-align: center; padding: 0; border: none; height: 60px;">
                   <div class="loading-content" style="display: none; align-items: center; justify-content: center; gap: 8px; color: var(--muted);">
-                    <div class="ph-spinner" style="width: 24px; height: 24px; border-width: 3px;"></div>
+                    <div class="ia-spinner" style="width: 24px; height: 24px; border-width: 3px;"></div>
                     <span>Carregando mais lotes...</span>
                   </div>
                 </td>
@@ -167,10 +167,10 @@
             <div>Produtos Classificados <span id="nunotaClassBadge" style="display:none; margin-left:8px; font-weight:600; color:var(--text-main); background:#e2e8f0; padding:2px 8px; border-radius:12px; font-size:10px;"></span></div>
           </header>
           
-          <div id="produtosClassificadosWatermark" class="ph-watermark" aria-hidden="true">FINALIZADO</div>
+          <div id="produtosClassificadosWatermark" class="ia-watermark" aria-hidden="true">FINALIZADO</div>
           
           <div class="content items" style="padding:0;">
-            <table class="ph-selectable-table">
+            <table class="ia-selectable-table">
               <thead>
                 <tr>
                   <th>Lote</th>
@@ -455,7 +455,7 @@
 
         <div>
           <div style="max-height:42vh; overflow:auto;">
-            <table class="ph-selectable-table" style="width:100%;">
+            <table class="ia-selectable-table" style="width:100%;">
                 <thead>
                     <tr>
                         <th style="padding:8px">Lote</th>
@@ -526,16 +526,16 @@
       const ov = document.getElementById('pageOverlay');
       function hide(){ if(!ov) return; ov.classList.add('hidden'); setTimeout(()=>{ if(ov) ov.style.display='none'; }, 250); }
       function show(){ if(!ov) return; ov.style.display='flex'; ov.classList.remove('hidden'); }
-      try { window.__PH_INITIAL_LOADING = true; } catch(_) {}
+      try { window.__IA_INITIAL_LOADING = true; } catch(_) {}
       document.addEventListener('DOMContentLoaded', function(){
-        if (window.__PH_INITIAL_LOADING) {
+        if (window.__IA_INITIAL_LOADING) {
           hide();
         }
       });
       window.addEventListener('load', function(){
-        setTimeout(function(){ if (window.__PH_INITIAL_LOADING) { hide(); } }, 600);
+        setTimeout(function(){ if (window.__IA_INITIAL_LOADING) { hide(); } }, 600);
       });
-      try { window.PHOverlay = { show, hide }; } catch(_) {}
+      try { window.IAOverlay = { show, hide }; } catch(_) {}
       window.addEventListener('beforeunload', function(){ try{ show(); }catch(_){} });
       window.addEventListener('pagehide', function(){ try{ show(); }catch(_){} });
     })();

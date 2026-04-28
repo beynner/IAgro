@@ -30,7 +30,7 @@
     window.parseFlexibleNumber = window.parseFlexibleNumber || parseFlexibleNumber;
     window.formatBR1 = window.formatBR1 || formatBR1;
     window.normalizeNunota = window.normalizeNunota || normalizeNunota;
-    window.PackingHouseHelpers = window.PackingHouseHelpers || { getCookie, postJSON, parseFlexibleNumber, formatBR1, normalizeNunota };
+    window.IAgroHelpers = window.IAgroHelpers || { getCookie, postJSON, parseFlexibleNumber, formatBR1, normalizeNunota };
   }catch(_){ }
 
 })(window);

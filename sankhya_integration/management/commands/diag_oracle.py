@@ -11,7 +11,7 @@ class Command(BaseCommand):
         except Exception:
             _get_dsn_cfg = None  # type: ignore
 
-        self.stdout.write(self.style.NOTICE("Packing House — Oracle diagnostics"))
+        self.stdout.write(self.style.NOTICE("IAgro — Oracle diagnostics"))
         cfg = {}
         try:
             cfg = _get_dsn_cfg() if _get_dsn_cfg else {}

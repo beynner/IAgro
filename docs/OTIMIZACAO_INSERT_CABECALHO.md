@@ -215,7 +215,7 @@ result = insert_cabecalho_fast(payload, dry_run=False)
 
 ### ✅ Já Usando Versões Otimizadas:
 
-1. **`views.py` → `packing_central_salvar()`** (linha ~1065)
+1. **`views.py` → `compras_central_salvar()`** (linha ~1065)
    - **Função**: `insert_cabecalho_fast()`
    - **Contexto**: Criação de cabeçalho no portal
    - **Impacto**: ✅ Usuário sente resposta instantânea (<500ms)
@@ -320,7 +320,7 @@ Encontrados **3 locais adicionais** usando `insert_cabecalho()`:
 - **Cabeçalho Otimizado**: `oracle_conn.py` → `insert_cabecalho_fast()` (linha 958)
 - **Item Original**: `oracle_conn.py` → `insert_item()` (linha 1890)
 - **Item Otimizado**: `oracle_conn.py` → `insert_item_fast()` (linha 1927)
-- **Uso Portal Cabeçalho**: `views.py` → `packing_central_salvar()` (linha 1065)
+- **Uso Portal Cabeçalho**: `views.py` → `compras_central_salvar()` (linha 1065)
 - **Uso Portal Item**: `views.py` → `item_insert()` (linha 2076)
 
 ### Documentação:

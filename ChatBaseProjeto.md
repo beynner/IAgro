@@ -1,6 +1,6 @@
 # ChatBaseProjeto — histórico e decisões
 
-Este arquivo consolida o histórico das conversas e decisões técnicas aplicadas ao projeto (Packing House / Classificação e Portal). Última atualização: 2025-09-30.
+Este arquivo consolida o histórico das conversas e decisões técnicas aplicadas ao projeto (IAgro / Classificação e Portal). Última atualização: 2025-09-30.
 
 ## Objetivos principais trabalhados
 
@@ -48,7 +48,7 @@ Este arquivo consolida o histórico das conversas e decisões técnicas aplicada
 - GET /sankhya/lote/consultar/?lote=... — Detalhes do lote (agregados, classificações, classificáveis, entradas, nunota_class, prod_in_natura).
 - GET /sankhya/item/list/?nunota=... — Lista itens da nota (inclui classifica/geraproducao; calcula total = qtd×peso).
 - POST /sankhya/item/plan | /sankhya/item/save | /sankhya/item/delete — Planejamento, gravação e exclusão de item.
-- POST /sankhya/header/plan | /sankhya/packing/central/salvar | /sankhya/header/update — Cabeçalho TOP 26 (plan/insert/update).
+- POST /sankhya/header/plan | /sankhya/compras/central/salvar | /sankhya/header/update — Cabeçalho TOP 26 (plan/insert/update).
 - POST /sankhya/class/plan | /sankhya/class/execute — Plano de classificação e execução (cria/reutiliza cabeçalho 26, insere saídas).
 - GET /sankhya/produtos/search/?q=...&limit=...&cod_innatura=... — Busca de produtos com filtro por FABRICANTE do In Natura (e subtipo de TOMATE por token).
 

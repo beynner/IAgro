@@ -5401,7 +5401,7 @@
 	}
 
 	try{
-		window.PackingHouse = Object.assign(window.PackingHouse || {}, namespace);
+		window.IAgro = Object.assign(window.IAgro || {}, namespace);
 		window.showToast = Utils.toast;
 		window.normalizeNunota = Utils.normalizeNunota;
 	}catch(err){

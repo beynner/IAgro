@@ -198,7 +198,7 @@ SANKHYA_CONFIG = {
 
 **Para scripts standalone**:
 ```powershell
-$env:PACKINGHOUSE_WRITE_ENABLED='true'
+$env:IAGRO_WRITE_ENABLED='true'
 python seu_script.py
 ```
 

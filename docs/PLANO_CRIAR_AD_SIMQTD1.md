@@ -95,7 +95,7 @@ SELECT COUNT(*) FROM TGFITE_BACKUP_20250107;
 -- ============================================
 -- CRIAR COLUNA AD_SIMQTD1 NA TGFITE
 -- Data: 2025-01-07
--- Autor: Semear / PackingHouse
+-- Autor: Semear / IAgro
 -- ============================================
 
 -- 1. Adicionar coluna
@@ -105,7 +105,7 @@ ALTER TABLE SANKHYA.TGFITE ADD (
 
 -- 2. Adicionar comentário (documentação)
 COMMENT ON COLUMN SANKHYA.TGFITE.AD_SIMQTD1 IS 
-'Simulacao Comercial: Quantidade Extra (caixas ou kg). Criado em 2025-01-07 pelo sistema PackingHouse.';
+'Simulacao Comercial: Quantidade Extra (caixas ou kg). Criado em 2025-01-07 pelo sistema IAgro.';
 
 -- 3. Verificar criação
 SELECT 
@@ -326,7 +326,7 @@ Arquivo: `docs/CUSTOMIZACOES_BANCO.md`
 - **Tipo:** NUMBER(15,3)
 - **Descrição:** Quantidade simulação comercial (Extra - caixas ou kg)
 - **Data criação:** 2025-01-07
-- **Criado por:** Semear / PackingHouse
+- **Criado por:** Semear / IAgro
 - **Sistema:** Dashboard Comercial
 - **Uso:** Armazena quantidade de caixas Extra calculada na simulação
 - **Relacionamento:** Usado junto com VLRDESCBONIF (custo Extra) e VLRREPRED (qtd Médio)
@@ -343,7 +343,7 @@ Arquivo: `scripts/db/20250107_create_ad_simqtd1.sql`
 -- ============================================
 -- CRIAR COLUNA AD_SIMQTD1 NA TGFITE
 -- Data: 2025-01-07
--- Autor: Semear / PackingHouse
+-- Autor: Semear / IAgro
 -- Sistema: Dashboard Comercial
 -- ============================================
 

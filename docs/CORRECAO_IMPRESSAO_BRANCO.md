@@ -304,7 +304,7 @@ printWindow.print();
 Usar biblioteca como `jsPDF`:
 ```javascript
 const doc = new jsPDF({ format: [80, 297], unit: 'mm' });
-doc.text('PACKING HOUSE', 40, 10);
+doc.text('IAGRO', 40, 10);
 // ... adicionar conteúdo
 doc.autoPrint();
 doc.output('dataurlnewwindow');

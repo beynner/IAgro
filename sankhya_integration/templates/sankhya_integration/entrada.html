@@ -1,14 +1,14 @@
 {% extends 'sankhya_integration/base.html' %}
 {% load static %}
 
-{% block title %}Entrada Packing House{% endblock %}
+{% block title %}Entrada IAgro{% endblock %}
 
 {% block extra_css %}
   <meta name="app-version" content="{{ APP_VERSION }}">
   <link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}">
 {% endblock %}
 
-{% block header_title %}ENTRADA PACKING HOUSE{% endblock %}
+{% block header_title %}ENTRADA IAGRO{% endblock %}
 
 {% block content %}
   <div class="entrada-grid">
@@ -64,7 +64,7 @@
 
   <section class="rightcol">
     <div class="toolbar-top">
-      <a class="icon-btn" title="Novo lançamento" href="/sankhya/packing/central/?codtipoper=11" id="btnNew">
+      <a class="icon-btn" title="Novo lançamento" href="/sankhya/compras/central/?codtipoper=11" id="btnNew">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <line x1="12" y1="5" x2="12" y2="19"></line>
           <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -90,7 +90,7 @@
     <div class="panel panel--results">
       <header>Notas / Pedidos</header>
       <div class="list" id="notasList" data-current-page="{{ page|default:1 }}" data-has-next="{% if has_next %}1{% else %}0{% endif %}" data-page-size="50">
-          <table id="notasTable" class="ph-selectable-table">
+          <table id="notasTable" class="ia-selectable-table">
           <colgroup>
             <col class="col-w-90">  <col class="col-w-110"> <col class="col-w-auto">  </colgroup>
           <thead>
@@ -102,7 +102,7 @@
           </thead>
           <tbody>
             {% for nunota, nronota, dtneg, codparc, nomeparc, vtotal in notas %}
-            <tr class="row--click" data-nunota="{{ nunota }}" data-central-url="/sankhya/packing/central/?nunota={{ nunota }}">
+            <tr class="row--click" data-nunota="{{ nunota }}" data-central-url="/sankhya/compras/central/?nunota={{ nunota }}">
               <td>{{ nunota }}</td>
               <td>{{ dtneg|date:"d/m/Y" }}</td>
               <td>{{ nomeparc }}</td>
@@ -118,7 +118,7 @@
     <div class="panel panel--items">
       <header>Itens da Nota {{ sel }}</header>
       <div class="items">
-        <table class="ph-selectable-table">
+        <table class="ia-selectable-table">
           <thead>
             <tr>
               <th>Lote</th>
@@ -134,7 +134,7 @@
             </tr>
           </thead>
           <tbody id="panelItemsBody">
-            <tr><td colspan="10" class="ph-placeholder">Selecione uma nota para ver os itens</td></tr>
+            <tr><td colspan="10" class="ia-placeholder">Selecione uma nota para ver os itens</td></tr>
           </tbody>
         </table>
       </div>
@@ -278,7 +278,7 @@
         <div>
           <label>Produtos inseridos</label>
           <div class="scroll-panel">
-            <table class="ph-selectable-table">
+            <table class="ia-selectable-table">
               <thead>
                 <tr>
                   <th>Produto</th>
@@ -290,7 +290,7 @@
                   <th></th>
                 </tr>
               </thead>
-              <tbody id="itemsListBody"><tr><td colspan="7" class="ph-muted">Nenhum item carregado.</td></tr></tbody>
+              <tbody id="itemsListBody"><tr><td colspan="7" class="ia-muted">Nenhum item carregado.</td></tr></tbody>
             </table>
           </div>
         </div>

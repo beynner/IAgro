@@ -4,7 +4,7 @@
     let lotesExibidos = new Set();
     
     // Importa as ferramentas do Helpers
-    const { getCookie, postJSON, showToast, debounce: debounceHelper } = window.PackingHouse || {};
+    const { getCookie, postJSON, showToast, debounce: debounceHelper } = window.IAgro || {};
     const URL_API_LOTES = "/sankhya/compras/classificacao/api/lotes/";
 
     // =================================================================
@@ -127,7 +127,7 @@
             }
 
             modal.style.display = 'none';
-            if (window.PHOverlay) window.PHOverlay.show();
+            if (window.IAOverlay) window.IAOverlay.show();
 
             try {
                 const response = await postJSON('/sankhya/item/update_descarte_lote/', { lote, valor, operacao });
@@ -159,7 +159,7 @@
             } catch (e) {
                 window.mostrarToast(e.message, "error");
             } finally {
-                if (window.PHOverlay) window.PHOverlay.hide();
+                if (window.IAOverlay) window.IAOverlay.hide();
             }
         };
     };
@@ -168,11 +168,11 @@
     // COMPONENTE VISUAL: TOAST NOTIFICATION 
     // =================================================================
     window.mostrarToast = function(mensagem, tipo = 'success') {
-        const oldToast = document.getElementById('ph-toast-global');
+        const oldToast = document.getElementById('ia-toast-global');
         if (oldToast) oldToast.remove();
 
         const toast = document.createElement('div');
-        toast.id = 'ph-toast-global';
+        toast.id = 'ia-toast-global';
         toast.textContent = mensagem;
 
         const bgColor = tipo === 'success' ? '#28a745' : '#dc3545';
@@ -411,11 +411,11 @@
             if (hiddenInput && hiddenInput.value) nunotaClass = hiddenInput.value;
         }
 
-        if (window.PHOverlay) window.PHOverlay.show();
+        if (window.IAOverlay) window.IAOverlay.show();
 
         try {
             if (!nunotaClass || nunotaClass === "undefined" || nunotaClass === "") {
-                const cabResponse = await postJSON('/sankhya/packing/central/salvar/', {
+                const cabResponse = await postJSON('/sankhya/compras/central/salvar/', {
                     codemp: '10', 
                     codparc: codparc || '0', 
                     codtipoper: '26', 
@@ -513,7 +513,7 @@
             console.error("🚨 ERRO:", error);
             window.mostrarToast("ERRO: " + error.message, "error");
         } finally {
-            if (window.PHOverlay) window.PHOverlay.hide();
+            if (window.IAOverlay) window.IAOverlay.hide();
         }
     };
 
@@ -899,7 +899,7 @@
                     const loteAtual = row.dataset.lote;
 
                     if (confirm('Atenção: Tem certeza que deseja excluir este item?')) {
-                        if (window.PHOverlay) window.PHOverlay.show();
+                        if (window.IAOverlay) window.IAOverlay.show();
                         try {
                             const deleteResponse = await (window.postJSON || postJSON)('/sankhya/item/delete/', {
                                 nunota: nunota, sequencias: [sequencia], sequencia: sequencia,
@@ -934,7 +934,7 @@
                         } catch (error) {
                             console.error("🚨 ERRO AO EXCLUIR:", error); alert("ERRO: " + error.message);
                         } finally {
-                            if (window.PHOverlay) window.PHOverlay.hide();
+                            if (window.IAOverlay) window.IAOverlay.hide();
                         }
                     }
                 });
@@ -1206,7 +1206,7 @@
                     e.target.checked = false; return;
                 }
 
-                if (window.PHOverlay) window.PHOverlay.show();
+                if (window.IAOverlay) window.IAOverlay.show();
 
                 try {
                     const response = await postJSON('/sankhya/item/toggle_status/', {
@@ -1238,7 +1238,7 @@
                     window.mostrarToast(err.message, "error");
                     e.target.checked = !isChecked;
                 } finally {
-                    if (window.PHOverlay) window.PHOverlay.hide();
+                    if (window.IAOverlay) window.IAOverlay.hide();
                 }
             };
         }

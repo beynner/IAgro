@@ -1,4 +1,4 @@
-# Fluxo de Faturamento Simplificado - Packing House App
+# Fluxo de Faturamento Simplificado - IAgro App
 
 ## 📊 Comparação: Sankhya vs Nossa Aplicação
 

@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════
-   global.css — Packing House Design Tokens
+   global.css — IAgro Design Tokens
    Fonte de verdade para cores, tipografia, espaçamento,
    bordas e componentes compartilhados entre todos os módulos.
    ═══════════════════════════════════════════════════════ */
@@ -333,12 +333,12 @@ body {
   min-width:     220px;
   max-width:     360px;
   border-left:   4px solid var(--cor-destaque);
-  animation:     ph-toast-entrada var(--transicao-lenta) ease forwards;
+  animation:     ia-toast-entrada var(--transicao-lenta) ease forwards;
 }
 .toast.success { border-left-color: var(--cor-sucesso); }
 .toast.warning { border-left-color: var(--cor-aviso); }
 .toast.error   { border-left-color: var(--cor-erro); }
-.toast.hide    { animation: ph-toast-saida var(--transicao-lenta) ease forwards; }
+.toast.hide    { animation: ia-toast-saida var(--transicao-lenta) ease forwards; }
 
 /* Inputs e selects — base compartilhada */
 input[type="text"],
@@ -407,7 +407,7 @@ textarea:focus {
 
 /* Rodapé — barra fixa no fundo em todas as páginas.
    Fundo, borda e cor do texto controlados por --cor-rodape-*. */
-.ph-footer {
+.ia-footer {
   position:        fixed;
   bottom:          0;
   left:            0;
@@ -423,34 +423,34 @@ textarea:focus {
   color:           var(--cor-rodape-texto);
   z-index:         2000;
 }
-.ph-footer-versao {
+.ia-footer-versao {
   font-weight: var(--peso-negrito);
   color:       var(--cor-texto-secundario);
 }
 
 /* ── 5. Animações globais ───────────────────────────────── */
 
-@keyframes ph-girar {
+@keyframes ia-girar {
   to { transform: rotate(360deg); }
 }
-@keyframes ph-aparecer {
+@keyframes ia-aparecer {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
-@keyframes ph-subir {
+@keyframes ia-subir {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-@keyframes ph-sacudir {
+@keyframes ia-sacudir {
   0%, 100% { transform: translateX(0); }
   20%, 60% { transform: translateX(-6px); }
   40%, 80% { transform: translateX(6px); }
 }
-@keyframes ph-toast-entrada {
+@keyframes ia-toast-entrada {
   from { opacity: 0; transform: translateX(20px); }
   to   { opacity: 1; transform: translateX(0); }
 }
-@keyframes ph-toast-saida {
+@keyframes ia-toast-saida {
   from { opacity: 1; transform: translateX(0); }
   to   { opacity: 0; transform: translateX(20px); }
 }

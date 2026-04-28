@@ -88,7 +88,7 @@ def verificar_permissao_escrita() -> bool:
         cfg = obter_configuracoes_sistema()
         if isinstance(cfg, dict) and cfg.get('WRITE_ENABLED') is True: return True
     except Exception: pass
-    return os.getenv('PACKINGHOUSE_WRITE_ENABLED', 'false').lower() in ('1', 'true', 'yes', 'on')
+    return os.getenv('IAGRO_WRITE_ENABLED', 'false').lower() in ('1', 'true', 'yes', 'on')
 
 def _montar_string_conexao(host: str, port: int, service_name: str | None, sid: str | None, full_dsn: str | None) -> str:
     """Monta a string DSN exigida pelo driver do Oracle."""
@@ -1106,7 +1106,7 @@ def listar_itens_por_nota(nunota: int):
         return cur.fetchall()
     
 # ==============================================================================
-# 🧪 3. MÓDULO EXCLUSIVO: CLASSIFICAÇÃO (PACKING HOUSE / TOP 26)
+# 🧪 3. MÓDULO EXCLUSIVO: CLASSIFICAÇÃO (IAGRO / TOP 26)
 # Interface entre Lotes In Natura (TOP 11) e Produtos Acabados (TOP 26)
 # ==============================================================================
 
