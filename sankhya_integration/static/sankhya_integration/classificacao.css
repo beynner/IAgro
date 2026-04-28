@@ -1,0 +1,333 @@
+/* ==========================================================================
+   1. VARIÁVEIS & RESET
+   ========================================================================== */
+:root {
+  /* Aliases dos tokens globais */
+  --border:    var(--cor-borda);
+  --panel:     var(--cor-fundo-painel);
+  --muted:     var(--cor-neutro);
+  --bg:        var(--cor-fundo-pagina);
+  --text-main: var(--cor-texto-principal);
+  --accent:    var(--cor-destaque);
+  --success:   var(--cor-sucesso);
+  --warning:   var(--cor-aviso);
+  --danger:    var(--cor-erro);
+
+  /* Específicos do módulo Classificação */
+  --ph-selected-bg:     #EAF0E8;
+  --ph-selected-border: #6F8B60;
+}
+
+/* ==========================================================================
+   2. APPBAR E LAYOUT INTERNO DO MÓDULO
+   ========================================================================== */
+.appbar {
+  justify-content: space-between;
+  margin-bottom: var(--espaco-entre-paineis);
+}
+
+/* Container do conteúdo do módulo Classificação dentro do .main-layout.
+   Organiza filtros (aside) + área direita (tabelas/resumo) em duas colunas. */
+.classificacao-grid {
+  flex:       1;
+  display:    flex;
+  gap:        12px;
+  min-width:  0;
+  min-height: 0;
+}
+
+.classificacao-grid > aside.panel {
+  flex:   0 0 320px;
+  height: 100%;
+}
+
+.rightcol {
+  flex: 1;
+  display: grid;
+  grid-template-rows: minmax(0, 1.8fr) minmax(0, 1fr);
+  gap: var(--espaco-entre-paineis);
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.bottom-row {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: var(--espaco-entre-paineis);
+  min-height: 0;
+  height: 100%;
+}
+
+/* ==========================================================================
+   3. PAINÉIS & CARDS
+   ========================================================================== */
+.panel {
+  background: var(--panel);
+  border-radius: var(--borda-raio-xl);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--sombra-card);
+  min-height: 0;
+}
+
+.panel > header {
+  padding: var(--espaco-entre-paineis) var(--espaco-4);
+  font-weight: 800;
+  font-size: 1.1rem;
+  text-transform: uppercase;
+  background: #ffffff;
+  border-bottom: 1px solid var(--cor-fundo-secao);
+  margin: 0;
+}
+
+.panel > .content { padding: var(--espaco-entre-paineis); flex: 1; overflow: auto; }
+
+/* ==========================================================================
+   4. FILTROS & BOTÃO LIMPAR
+   ========================================================================== */
+.filters-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-3);
+}
+
+label { font-size: 10px; font-weight: 700; color: #475569; margin-bottom: 4px; display: block; text-transform: uppercase; }
+
+.filters-range { 
+    display: grid; 
+    grid-template-columns: 1fr auto 1fr; 
+    gap: 8px;
+    align-items: center;
+}
+
+.filters-grid input[type="date"],
+.filters-grid input[type="text"],
+.filters-grid input[type="number"],
+.filters-grid select {
+    width: 100%;
+    box-sizing: border-box; 
+    padding: 6px 8px; 
+    height: 28px;
+    border: 1px solid var(--border); 
+    border-radius: 6px; 
+    background: #FFFFFF; 
+    color: var(--text-main);
+    font-size: 12px;
+    transition: all var(--transicao-base);
+}
+
+input:focus, select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15); }
+
+.btn-mini-nav { 
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 0; 
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all var(--transicao-base);
+    background-color: #f1f5f9;
+    border: 1px solid var(--border);
+    color: #475569;
+    border-radius: 6px;
+    width: 100%;
+    height: 16px;
+}
+.btn-mini-nav:hover { background-color: #e2e8f0; color: var(--accent); border-color: var(--accent); }
+
+.filters-range span { font-size: 11px; color: var(--muted); font-weight: 700; }
+
+#btnUpdate {
+    align-self: flex-end; 
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    background-color: #f1f5f9;
+    border: 1px solid var(--border);
+    color: #475569;
+    text-transform: uppercase;
+    margin-top: 4px;
+}
+#btnUpdate:hover { background-color: #e2e8f0; color: var(--accent); border-color: var(--accent); }
+
+#btnClear {
+    align-self: flex-end; 
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    background-color: #f1f5f9;
+    border: 1px solid var(--border);
+    color: #475569;
+    text-transform: uppercase;
+    margin-top: 4px;
+}
+#btnClear:hover { background-color: #e2e8f0; color: var(--danger); border-color: var(--danger); }
+
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 1px solid var(--border); background: #FFFFFF; border-radius: var(--borda-raio-sm); color: var(--text-main); cursor: pointer; transition: all var(--transicao-base); }
+.icon-btn:hover:not(:disabled) { background: #F9FAFB; color: var(--text-main); border-color: #D1D5DB; }
+.icon-btn[disabled] { opacity: 0.5; cursor: not-allowed; background: #f3f4f6; pointer-events: none; }
+.icon-btn.danger:hover:not(:disabled) { background: #fef2f2; color: #ef4444; border-color: #fecaca; }
+
+/* ==========================================================================
+   5. TABELAS (Seleção Borda Esquerda Grossa)
+   ========================================================================== */
+table { 
+    width: 100%; 
+    border-collapse: separate; 
+    border-spacing: 0;         
+}
+
+th, td { 
+    border-bottom: 1px solid #f1f5f9; 
+    padding: 4px 10px; 
+    text-align: left; 
+    font-size: 11px; 
+}
+
+.ph-selectable-table th {
+    background-color: #F9FAFB; 
+    color: var(--text-main); 
+    font-weight: 700;
+    text-transform: uppercase;
+    position: sticky; top: 0; z-index: 1;
+}
+
+.ph-selectable-table tbody tr { transition: background-color var(--transicao-rapida); cursor: pointer; }
+.ph-selectable-table tbody tr:hover { background-color: #f8fafc; }
+
+.ph-selectable-table tbody tr.row--active td,
+.ph-selectable-table tbody tr.selected td {
+    background-color: var(--ph-selected-bg) !important; 
+    font-weight: 700 !important;
+    border-top: 2px solid var(--ph-selected-border) !important;
+    border-bottom: 2px solid var(--ph-selected-border) !important;
+}
+
+.ph-selectable-table tbody tr.row--active td:last-child,
+.ph-selectable-table tbody tr.selected td:last-child {
+    border-right: 2px solid var(--ph-selected-border) !important;
+}
+
+.ph-selectable-table tbody tr.row--active td:first-child,
+.ph-selectable-table tbody tr.selected td:first-child {
+    border-left: 5px solid var(--ph-selected-border) !important;
+}
+
+.ph-selectable-table tbody tr.row--active,
+.ph-selectable-table tbody tr.selected {
+    position: relative;
+    z-index: 10;
+}
+
+/* ==========================================================================
+   6. COMPONENTES VISUAIS & MODAIS
+   ========================================================================== */
+.status-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.15); }
+.status-vermelho { background: var(--danger); }
+.status-amarelo { background: var(--warning); }
+.status-verde { background: var(--success); }
+
+#nunotaClassBadge { background: #334155 !important; color: #ffffff !important; font-size: 11px; padding: 3px 10px; border-radius: 12px; font-weight: 700; }
+
+.switch { position: relative; display: inline-block; width: 46px; height: 24px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .slider { position: absolute; cursor: pointer; inset: 0; background-color: #e5e7eb; transition: var(--transicao-base); border-radius: var(--borda-raio-pilula); }
+.switch .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; top: 3px; background-color: #fff; transition: var(--transicao-base); border-radius: 50%; }
+.switch input:checked + .slider { background-color: var(--success); }
+.switch input:checked + .slider:before { transform: translateX(22px); }
+
+#pageOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+.ph-spinner { width: 56px; height: 56px; border-radius: 50%; border: 4px solid #e5e7eb; border-top-color: var(--accent); animation: phspin 1s linear infinite; }
+@keyframes phspin { to { transform: rotate(360deg); } }
+
+/* ==========================================================================
+   7. ESTILIZAÇÃO DO RESUMO - GRID 2x2
+   ========================================================================== */
+
+/* Cria a grade 2x2 perfeita e FORÇA o desgrude das bordas */
+.resumo-container {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important; 
+    grid-template-rows: 1fr 1fr !important;    
+    gap: 10px !important;
+    
+    /* AQUI ESTÁ A CORREÇÃO: Força o respiro interno do card */
+    padding: 10px 16px 16px 16px !important; 
+    
+    height: 100% !important; 
+    box-sizing: border-box !important;
+    overflow: hidden !important; /* Continua travando a barra de rolagem */
+}
+
+.resumo-item {
+    background: #f8fafc;
+    border-radius: var(--borda-raio-md);
+    padding: 10px 12px; /* Respiro equilibrado */
+    border-left: 4px solid var(--ph-selected-border);
+    border-bottom: 2px solid var(--ph-selected-border);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    box-sizing: border-box;
+    min-height: 0; /* Fundamental: impede que o bloco cresça e estoure a grade */
+}
+
+.resumo-main { display: flex; justify-content: space-between; align-items: flex-start; }
+.resumo-footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 4px; }
+
+/* Tipografia */
+.resumo-label { font-size: 10px; font-weight: 700; color: var(--muted); line-height: 1.1; }
+.resumo-valor-medio { font-size: 16px; font-weight: 800; color: #1e293b; }
+
+.resumo-pct { font-size: 10px; font-weight: 700; color: #94a3b8; }
+.resumo-pct.success { color: #10b981; }
+.resumo-pct.warning { color: #f59e0b; }
+.resumo-pct.danger { color: #ef4444; }
+.resumo-cx { font-size: 10px; font-weight: 600; color: var(--muted); }
+
+/* ==========================================================================
+   8. CARIMBO "FINALIZADO" (Marca d'água)
+   ========================================================================== */
+#produtosClassificadosPanel { position: relative; }
+
+#produtosClassificadosWatermark {
+    display: none;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-15deg);
+    font-size: 4rem;
+    font-weight: 900;
+    color: rgba(16, 185, 129, 0.35); 
+    border: 8px solid rgba(16, 185, 129, 0.15);
+    padding: 10px 40px;
+    border-radius: var(--borda-raio-xl);
+    text-transform: uppercase;
+    letter-spacing: 6px;
+    pointer-events: none; 
+    z-index: 5;
+}
+
+#produtosClassificadosWatermark.is-visible {
+    display: block;
+    animation: carimbar 0.3s ease-out forwards;
+}
+
+@keyframes carimbar {
+    0% { transform: translate(-50%, -50%) rotate(-15deg) scale(1.5); opacity: 0; }
+    100% { transform: translate(-50%, -50%) rotate(-15deg) scale(1); opacity: 1; }
+}

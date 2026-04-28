@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Packing House System</title>
+  {% load static %}
+  <meta name="app-version" content="{{ APP_VERSION }}">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/home.css' %}">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@300;400;600&display=swap" rel="stylesheet">
+</head>
+<body class="index-body">
+
+  <div class="top-auth-bar">
+    {% if request.session.codusu %}
+    
+    <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 600; color: #334155;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: #64748b;">
+                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            <span style="text-transform: uppercase; letter-spacing: 0.5px;">
+                {{ request.session.nomeusu }}
+            </span>
+        </div>
+        <a href="{% url 'logout' %}" style="color: #ef4444; text-decoration: none; margin-left: 2px; padding-left: 10px; border-left: 1px solid #cbd5e1; font-size: 0.85rem; font-weight: 600; transition: opacity 0.2s;" title="Encerrar Sessão" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'">Sair</a>
+    </div>
+
+    {% else %}
+    
+    <form id="inline-login-form" action="{% url 'login' %}" method="POST" class="inline-login-form">
+      {% csrf_token %}
+      <input type="text" name="usuario" id="auth-user" class="auth-input" placeholder="Usuário" required autocomplete="username">
+      <input type="password" name="senha" id="auth-pass" class="auth-input" placeholder="Senha" required autocomplete="current-password">
+      <button type="submit" class="btn-login-header">Entrar</button>
+    </form>
+    
+    {% endif %}
+  </div> 
+
+  {% if messages %}
+    <div style="position: fixed; top: 5rem; right: 2rem; z-index: 9999; display: flex; flex-direction: column; gap: 0.5rem;">
+      {% for message in messages %}
+        <div style="background: #e74c3c; color: white; padding: 10px 20px; border-radius: 8px; font-weight: 600; font-size: 0.9rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); animation: shake-auth 0.4s ease-in-out;">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="container">
+    <img src="{% static 'logo.png' %}" alt="Logo" class="logo-watermark">
+    <div class="header">
+      <h1>Packing House</h1>
+      <p>Sistema Integrado de Gestão</p>
+    </div>
+
+    <div class="cards-container">
+      <a href="/sankhya/packing/portal/" class="card card-portal" onclick="return handleCardClick(event)" rel="noopener noreferrer">
+        <div class="card-icon">🛒</div>
+        <h2 class="card-title">Entrada</h2>
+        <p class="card-description">Acesse o portal de entrada principal de mercadorias do Packing House para gerenciar operações de compras.</p>
+        <div class="card-arrow">→</div>
+      </a>
+
+      <a href="/sankhya/compras/classificacao/" class="card card-classificacao" onclick="return handleCardClick(event)" rel="noopener noreferrer">
+        <div class="card-icon">
+          <span class="material-symbols-outlined" aria-hidden="true">alt_route</span>
+        </div>
+        <h2 class="card-title">Classificação</h2>
+        <p class="card-description">Gerencie e classifique lotes de produtos com lote completo de qualidade e rastreabilidade.</p>
+        <div class="card-arrow">→</div>
+      </a>
+
+      <a href="/sankhya/comercial/" class="card card-comercial" onclick="return handleCardClick(event)" rel="noopener noreferrer">
+        <div class="card-icon">📊</div>
+        <h2 class="card-title">Comercial</h2>
+        <p class="card-description">Painel comercial com simulações, análises e relatórios detalhados para tomada de decisões estratégicas.</p>
+        <div class="card-arrow">→</div>
+      </a>
+
+      <a href="/sankhya/venda/portal/" class="card card-venda" onclick="return handleCardClick(event)" rel="noopener noreferrer">
+        <div class="card-icon">🛒📦</div>
+        <h2 class="card-title">Venda</h2>
+        <p class="card-description">Emissão de pedidos de venda, faturamento de NFe (TOP 35/37) e controle de rastreabilidade de lotes expedidos.</p>
+        <div class="card-arrow">→</div>
+      </a>
+      <a href="/sankhya/rastreio/" class="card card-rastreio" onclick="return handleCardClick(event)" rel="noopener noreferrer">
+        <div class="card-icon">📦</div>
+        <h2 class="card-title">Rastreio</h2>
+        <p class="card-description">Gestão de lotes do Packing House: atribuição inteligente de produtos colhidos aos pedidos de venda em aberto.</p>
+        <div class="card-arrow">→</div>
+      </a>
+    </div>
+  </div>
+  <div class="version-badge">v{{ APP_VERSION }}</div>
+
+  <script>
+    window.PackHouse = {
+        // Envolvendo em aspas o VS Code entende como texto e para de reclamar.
+        // O JS vai ler: "true" === "true" (que vira um booleano verdadeiro)
+        isLogged: "{% if request.session.codusu %}true{% else %}false{% endif %}" === "true"
+    };
+  </script>
+  <script>
+    // --- SINCRONIZAÇÃO SEGURA DE ABAS (HOME HÍBRIDA) ---
+    (function() {
+        const isLogged = window.PackHouse.isLogged;
+
+        if (isLogged) {
+            // Lógica de DENTRO do sistema (Usuário já logado vendo os cartões)
+            if (localStorage.getItem('ph_auth_sync') !== 'LOGGED_IN') {
+                localStorage.setItem('ph_auth_sync', 'LOGGED_IN');
+            }
+
+            window.addEventListener('storage', function(evento) {
+                if (evento.key === 'ph_auth_sync' && evento.newValue === 'LOGGED_OUT') {
+                    console.log("Logout detectado em outra aba. Saindo da Home...");
+                    window.location.reload();
+                }
+            });
+
+        } else {
+            // Lógica de FORA do sistema (Usuário vendo os campos de Usuário e Senha)
+            if (localStorage.getItem('ph_auth_sync') !== 'LOGGED_OUT') {
+                localStorage.setItem('ph_auth_sync', 'LOGGED_OUT');
+            }
+
+            window.addEventListener('storage', function(evento) {
+                if (evento.key === 'ph_auth_sync' && evento.newValue === 'LOGGED_IN') {
+                    console.log("Login detectado em outra aba. Carregando a Home logada...");
+                    window.location.reload();
+                }
+            });
+        }
+    })();
+  </script>
+  <script src="{% static 'sankhya_integration/home.js' %}"></script>
+
+</body>
+</html>

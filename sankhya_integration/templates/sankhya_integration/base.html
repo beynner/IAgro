@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}Packing House{% endblock %}</title>
+    
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'sankhya_integration/global.css' %}">
+    <link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}">
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <div class="env-badge {{ ENV_BADGE_CLASS|default:'env-badge--producao' }}">
+        {{ ENV_BADGE_LABEL|default:'PRODUÇÃO' }}
+    </div>
+
+    <div id="pageOverlay" class="visible">
+        <div class="ph-spinner"></div>
+    </div>
+    
+    <div class="wrap">
+        <header class="appbar">
+            <div class="header-row">
+                <div class="header-left">
+                    <a href="/sankhya/" class="home-btn" title="Voltar para Home">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;">
+                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                        </svg>
+                    </a>
+                    <h1>{% block header_title %}PACKING HOUSE{% endblock %}</h1>
+                    {% block header_extras %}{% endblock %}
+                </div>
+
+                <div class="user-profile-badge">
+                    <div class="user-profile-info">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: #64748b;">
+                            <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                        <span class="user-profile-name">
+                            {{ request.session.nomeusu|default:"Usuário" }}
+                        </span>
+                    </div>
+                    <a href="{% url 'logout' %}" class="logout-link" title="Encerrar Sessão">Sair</a>
+                </div>
+            </div>
+        </header>
+
+        <main class="main-layout">
+            {% block content %}{% endblock %}
+        </main>
+
+        <footer class="ph-footer">
+            <div>NexusGTi — SIG (Sistema Integrado de Gestão)</div>
+            <div class="ph-footer-versao">Versão {{ APP_VERSION|default:"beta" }}</div>
+        </footer>
+    </div>
+
+    <script src="{% static 'sankhya_integration/packing_house_helpers.js' %}"></script>
+    
+    <script>
+        (function() {
+            const tempoInatividade = 60 * 60 * 1000; // 60 minutos para deslogar
+            const intervaloPing = 10 * 60 * 1000;    // 10 minutos para avisar o servidor
+            
+            let timeoutInatividade;
+            let usuarioAtivo = false;
+            let throttleTimer;
+
+            function deslogar() {
+                alert("Sessão expirada por inatividade.");
+                window.location.href = "{% url 'logout' %}";
+            }
+
+            // Avisa o servidor silenciosamente para renovar o SESSION_COOKIE_AGE do Django
+            function pingServidor() {
+                if (usuarioAtivo) {
+                    // Faz uma requisição invisível para a própria página só para o Django "ver" você
+                    fetch(window.location.href, { method: 'HEAD' })
+                        .then(() => { 
+                            usuarioAtivo = false; // Reseta até você se mexer de novo
+                        })
+                        .catch(() => console.log('Ping de sessão falhou, tentando no próximo ciclo.'));
+                }
+            }
+
+            function resetarInatividade() {
+                usuarioAtivo = true; // Marca que você está trabalhando
+                clearTimeout(timeoutInatividade);
+                timeoutInatividade = setTimeout(deslogar, tempoInatividade);
+            }
+
+            // Função para não travar o navegador disparando milhares de vezes quando move o mouse
+            function aoInteragir() {
+                if (throttleTimer) return;
+                throttleTimer = setTimeout(() => {
+                    resetarInatividade();
+                    throttleTimer = null;
+                }, 1000); // Registra atividade no máximo 1 vez por segundo
+            }
+
+            // Fica de olho nos seus movimentos (usando passive: true para melhor performance)
+            const eventos = ['mousedown', 'keydown', 'scroll', 'touchstart', 'mousemove'];
+            eventos.forEach(evt => document.addEventListener(evt, aoInteragir, { passive: true }));
+
+            // Inicia os motores
+            resetarInatividade(); 
+            setInterval(pingServidor, intervaloPing);
+        })();
+
+        // Controle do Overlay
+        window.addEventListener('load', () => {
+            const ov = document.getElementById('pageOverlay');
+            if(ov) {
+                ov.classList.add('hidden');
+                setTimeout(() => ov.style.display = 'none', 500);
+            }
+        });
+
+        // --- SINCRONIZAÇÃO SEGURA DE ABAS (LADO DE DENTRO DO SISTEMA) ---
+        (function() {
+            // 1. SÓ avisa as outras abas se o estado for diferente de "LOGGED_IN"
+            if (localStorage.getItem('ph_auth_sync') !== 'LOGGED_IN') {
+                localStorage.setItem('ph_auth_sync', 'LOGGED_IN');
+            }
+
+            // 2. Fica ouvindo as outras abas
+            window.addEventListener('storage', function(evento) {
+                if (evento.key === 'ph_auth_sync') {
+                    // Se outra aba avisar que DESLOGOU, recarregamos para deslogar aqui também
+                    if (evento.newValue === 'LOGGED_OUT') {
+                        console.log("Logout detectado em outra aba. Saindo...");
+                        window.location.reload();
+                    }
+                }
+            });
+        })();
+        </script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

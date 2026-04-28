@@ -1,0 +1,436 @@
+/* ==========================================================================
+   1. VARIÁVEIS GLOBAIS (Agromil Comercial)
+   ========================================================================== */
+:root {
+  /* Aliases dos tokens globais — mantêm compatibilidade com código existente */
+  --border:      var(--cor-borda);
+  --border-soft: var(--cor-borda);
+  --ph-border:   var(--cor-borda);
+  --bg-main:     var(--cor-fundo-pagina);
+  --bg-panel:    var(--cor-fundo-painel);
+  --text-dark:   var(--cor-texto-principal);
+  --text-muted:  var(--cor-neutro);
+  --danger:      var(--cor-erro);
+  --success:     var(--cor-sucesso);
+  --accent:      var(--cor-destaque);
+
+  /* Específicos do módulo Entrada */
+  --text-body:          #4B5563;
+  --btn-bg:             #8B98A5;
+  --btn-hover:          #718093;
+  --accent-blue:        #3B82F6;
+  --accent-green:       #6F8B60;
+  --ph-selected-bg:     #EAF0E8;
+  --ph-selected-border: #6F8B60;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ==========================================================================
+   2. APPBAR (ESPECÍFICO DO MÓDULO)
+   ========================================================================== */
+.appbar {
+  justify-content: flex-start;
+  margin-bottom: var(--espaco-entre-paineis);
+}
+
+/* ==========================================================================
+   3. LAYOUT INTERNO DO MÓDULO
+   ========================================================================== */
+/* Container do conteúdo do módulo Entrada dentro do .main-layout da base.
+   Ocupa 100% do "quadradão" e organiza filtros + tabelas em duas colunas. */
+.entrada-grid {
+  flex:       1;
+  display:    flex;
+  gap:        var(--espaco-entre-paineis);
+  min-width:  0;
+  min-height: 0;
+}
+
+.entrada-grid > aside.panel {
+  flex:    0 0 320px;
+  height:  100%;
+}
+
+.rightcol {
+  flex:               1;
+  display:            grid;
+  grid-template-rows: auto 2fr 1fr;
+  gap:                14px;
+  height:             100%;
+  min-height:         0;
+}
+
+/* ==========================================================================
+   4. PAINÉIS, CARDS & FILTROS
+   ========================================================================== */
+.panel, .modal-card {
+  background: var(--bg-panel);
+  border-radius: var(--borda-raio-xl);
+  box-shadow: var(--sombra-card);
+  display: flex; 
+  flex-direction: column;
+  position: relative;
+  overflow: hidden; 
+  min-height: 0; 
+  margin: 0;
+  border: none; /* Removida borda sólida em favor da sombra */
+}
+
+aside.panel header, .panel--results header, .panel--items header, .modal-header {
+  padding: 14px 16px; 
+  font-weight: 800; 
+  font-size: 1.1rem;
+  text-transform: uppercase;
+  background: #ffffff;
+  border-bottom: 1px solid #f1f5f9;
+  color: var(--text-dark);
+  margin: 0;
+}
+
+#filtersForm {
+  display: flex; flex-direction: column; gap: var(--espaco-3);
+  padding: var(--espaco-4); flex: 0 0 auto; overflow-y: auto;
+}
+
+.filters-range { display: flex; flex-direction: row; gap: 8px; align-items: flex-start; }
+.filters-range > div:first-child { flex: 1; }
+.filters-range > input[type="date"] { flex: 1; height: 28px; }
+.filters-range .sep { margin-top: 6px; padding: 0; color: var(--muted); }
+
+.filters-footer {
+  padding: var(--espaco-2) var(--espaco-4); display: flex; justify-content: flex-end;
+  background: transparent; border-top: none; margin-top: 0;
+}
+
+/* ==========================================================================
+   5. FORMULÁRIOS & BOTÕES
+   ========================================================================== */
+label { 
+  font-size: 10px; 
+  font-weight: 700; 
+  color: #475569; 
+  margin-bottom: 4px; 
+  display: block; 
+  text-transform: uppercase; 
+}
+
+input[type="text"], input[type="number"], input[type="date"], select, textarea {
+  width: 100%; 
+  padding: 6px 8px; /* Padding atualizado */
+  height: 28px;
+  border: 1px solid var(--border-soft); 
+  border-radius: 6px; /* Border-radius atualizado */
+  background: #FFFFFF; 
+  color: var(--text-body);
+  font-size: 12px; 
+  box-sizing: border-box; 
+  transition: all var(--transicao-base);
+}
+
+textarea { height: auto; min-height: 60px; }
+input:focus, textarea:focus { outline: none; border-color: var(--accent-blue); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15); }
+input:disabled, textarea:disabled, select:disabled, input[readonly] { background: #f3f4f6; color: #9ca3af; cursor: not-allowed; }
+
+/* 🔥 ALERTA VERMELHO PARA CAMPOS OBRIGATÓRIOS VAZIOS (Igual ao Classifica) 🔥 */
+input.invalid, 
+textarea.invalid, 
+select.invalid { 
+    border-color: var(--danger) !important; 
+    background-color: #FEF2F2 !important; 
+    color: var(--danger) !important;
+    box-shadow: 0 0 0 1px var(--danger) !important; /* Cria o contorno extra vermelho */
+}
+
+/* Deixa o texto de fundo (placeholder) vermelhinho também para dar mais destaque */
+input.invalid::placeholder, 
+textarea.invalid::placeholder {
+    color: #F87171 !important; 
+    font-weight: 600;
+}
+
+.btn { background-color: var(--btn-bg); color: #FFFFFF; border-radius: 4px; padding: 6px 14px; font-weight: 600; font-size: 0.8rem; border: none; cursor: pointer; transition: background-color 0.2s; }
+.btn:hover { background-color: var(--btn-hover); }
+#btnUpdate {
+    align-self: flex-end; 
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    background-color: #f1f5f9;
+    border: 1px solid var(--border);
+    color: #475569;
+    text-transform: uppercase;
+    margin-top: 4px;
+    margin-right: 8px;
+}
+#btnUpdate:hover { background-color: #e2e8f0; color: var(--accent); border-color: var(--accent); }
+
+#btnClear {
+    align-self: flex-end; 
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    background-color: #f1f5f9;
+    border: 1px solid var(--border);
+    color: #475569;
+    text-transform: uppercase;
+    margin-top: 4px;
+}
+#btnClear:hover { background-color: #e2e8f0; color: var(--danger); border-color: var(--danger); }
+
+.btn-mini-nav { flex: 1; padding: 2px 4px; font-size: 10px; cursor: pointer; border: 1px solid var(--border-soft); background: #FFFFFF; border-radius: 4px; color: var(--text-muted); height: 20px;}
+.btn-mini-nav:hover { background: #F3F4F6; color: var(--text-dark); }
+
+.toolbar-top { display: flex; gap: 8px; align-items: center; margin: 0; }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 1px solid var(--border-soft); background: #FFFFFF; border-radius: var(--borda-raio-sm); color: var(--text-body); cursor: pointer; transition: all var(--transicao-base); }
+.icon-btn:hover:not(:disabled) { background: #F9FAFB; color: var(--text-dark); border-color: #D1D5DB; }
+.icon-btn[disabled] { opacity: 0.5; cursor: not-allowed; background: #f3f4f6; pointer-events: none; }
+.icon { width: 16px; height: 16px; }
+
+/* ==========================================================================
+   6. TABELAS (Compactas, Fixas e com Borda Interna)
+   ========================================================================== */
+.list, .items, .scroll-panel { overflow: auto; flex: 1; min-height: 0; }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+
+.ph-selectable-table thead th {
+    padding: 6px 8px !important;
+    font-size: 11px !important;
+    text-transform: uppercase;
+    background-color: #f1f5f9;
+}
+
+.ph-selectable-table td {
+  padding: 2px 8px; /* Mais compacto */
+  height: 24px;     /* Força a linha a ficar baixinha */
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-body); vertical-align: middle; 
+  font-size: 11.5px; line-height: 1.1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.ph-selectable-table tbody tr { transition: background-color var(--transicao-rapida); }
+.ph-selectable-table tbody tr:hover { background-color: #F9FAFB; cursor: pointer; }
+
+/* Linha Selecionada: Bordas desenhadas para DENTRO da célula (inset) para não sumirem */
+.ph-selectable-table tbody tr.row--active td, .ph-selectable-table tbody tr.selected td {
+  background-color: var(--ph-selected-bg);
+  border-top: 2px solid var(--ph-selected-border);
+  border-bottom: 2px solid var(--ph-selected-border);
+  color: var(--text-dark); font-weight: 700;
+}
+.ph-selectable-table tbody tr.row--active td:first-child, .ph-selectable-table tbody tr.selected td:first-child { 
+  box-shadow: inset 4px 0 0 var(--ph-selected-border);
+  border-left: none;
+}
+.ph-selectable-table tbody tr.row--active td:last-child, .ph-selectable-table tbody tr.selected td:last-child { 
+  box-shadow: inset -2px 0 0 var(--ph-selected-border);
+  border-right: none;
+}
+/* ==========================================================================
+   AJUSTE DE COMPACTAÇÃO: Tabela de Notas / Pedidos
+   ========================================================================== */
+#notasTable th {
+    padding: 3px 8px !important;
+    font-size: 10.5px !important;
+}
+
+#notasTable td {
+    padding: 2px 8px !important; /* Reduz drasticamente o respiro interno */
+    height: 20px !important;     /* Trava a altura da linha para ficar baixinha */
+    font-size: 11px !important;  /* Fonte sutilmente menor */
+    line-height: 1 !important;
+}
+/* LARGURAS: Tabela de Notas no Portal */
+#notasTable colgroup .col-w-90  { width: 80px; }   
+#notasTable colgroup .col-w-110 { width: 100px; }  
+#notasTable colgroup .col-w-auto { width: auto; }   
+
+/* LARGURAS: Tabela de Itens dentro do MODAL (#cabItemsCard) */
+#cabItemsCard table th:nth-child(1), #cabItemsCard table td:nth-child(1) { width: auto; white-space: normal; overflow: visible; } 
+#cabItemsCard table th:nth-child(2), #cabItemsCard table td:nth-child(2) { width: 135px; } 
+#cabItemsCard table th:nth-child(3), #cabItemsCard table td:nth-child(3) { width: 70px; text-align: center; } 
+#cabItemsCard table th:nth-child(4), #cabItemsCard table td:nth-child(4) { width: 60px; text-align: right; } 
+#cabItemsCard table th:nth-child(5), #cabItemsCard table td:nth-child(5) { width: 60px; text-align: right; } 
+#cabItemsCard table th:nth-child(6), #cabItemsCard table td:nth-child(6) { width: 75px; text-align: right; } 
+#cabItemsCard table th:nth-child(7), #cabItemsCard table td:nth-child(7) { width: 40px; text-align: center; } 
+
+/* ==========================================================================
+   7. MODAIS & COMPONENTES UI
+   ========================================================================== */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 70; align-items: center; justify-content: center; }
+.modal-overlay.visible { display: flex; }
+
+/* Restauração dos tamanhos */
+.modal-card.small { width: 460px; max-width: 95vw; max-height: 90vh; }
+.modal-card.mid { width: 520px; max-width: 95vw; max-height: 80vh; }
+.modal-card.large { width: 880px; max-width: 95vw; max-height: 90vh; }
+
+.modal-body { padding: var(--espaco-3) var(--espaco-4); gap: var(--espaco-2); }
+
+/* Oculta o botão Editar Cabeçalho */
+#cabItemsEditHeader { display: none !important; }
+
+/* 🔥 ALINHAMENTO DO BOTÃO FECHAR À DIREITA NO MODAL DE ITENS 🔥 */
+#cabItemsCard .modal-body > div:last-child {
+    display: flex !important;
+    justify-content: flex-end !important; /* Empurra todo o conteúdo dessa div para a direita */
+    width: 100%;
+}
+
+#itemsSave { 
+    height: 30px; 
+    padding: 0 14px; 
+    font-size: 12px; 
+    display: inline-flex; 
+    align-items: center; 
+    gap: 6px; 
+    width: auto; 
+}
+
+/* 🔥 ALINHAMENTO DOS BOTÕES (X e Salvar) NO MODAL DE CABEÇALHO À DIREITA 🔥 */
+#cabCard .modal-body > div:last-child {
+    display: flex !important;
+    justify-content: flex-end !important; /* Empurra para a direita */
+    width: 100%;
+    gap: 8px;
+}
+
+.item-del svg { width: 14px; height: 14px; }
+
+.dropdown-abs { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid var(--ph-border); border-radius: 4px; max-height: 200px; overflow: auto; display: none; z-index: 100; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+.dd-item, .vsugg-item { padding: 6px 10px; cursor: pointer; border-bottom: 1px solid #f3f4f6; font-size: 0.8rem;}
+.dd-item:hover, .vsugg-item:hover { background: #F9FAFB; }
+.ac-dropdown .ac-item.active, .ac-item.active, .dd-item.active, .vsugg-item.active { background: var(--ph-selected-bg); border-left: 3px solid var(--ph-selected-border); font-weight: 600; color: var(--text-dark); }
+
+.version-badge { position: fixed; bottom: 8px; right: 12px; font-size: 11px; color: #FFFFFF; opacity: 0.7; z-index: 9999; pointer-events: none; }
+
+.tri-toggle { display: inline-flex; gap: 4px; align-items: center; }
+.tri-toggle__btn { height: 26px; padding: 0 10px; font-size: 11px; border: 1px solid #cbd5e1; background: #fff; border-radius: 4px; font-weight: 600; cursor: pointer; transition: all .18s ease;}
+.tri-toggle__btn:hover { background: #f1f5f9; }
+.tri-toggle__btn.is-active { background: var(--accent-blue); color: #fff; border-color: #0369a1; }
+
+/* 🔥 ALERTA VERMELHO QUANDO ESQUECER DE MARCAR O CLASSIFICA 🔥 */
+.tri-toggle.is-invalid .tri-toggle__btn {
+    border-color: var(--danger) !important;
+    background-color: #FEF2F2 !important;
+    color: var(--danger) !important;
+    box-shadow: 0 0 0 1px var(--danger) !important; /* Cria um contorno extra vermelho */
+}
+
+/* Estilo da mensagem de texto abaixo do botão */
+.tri-toggle__hint {
+    font-size: 11px;
+    color: var(--danger);
+    margin-top: 4px;
+    font-weight: 600;
+}
+
+#toastContainer { gap: var(--espaco-3); } /* estrutura vem do global.css */
+.toast { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #fff; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); animation: toastSlideIn 0.3s ease-out; min-width: 300px; }
+.toast.removing { animation: toastSlideOut 0.3s ease-in forwards; }
+@keyframes toastSlideIn { from { transform: translateX(calc(100% + 20px)); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes toastSlideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(calc(100% + 20px)); opacity: 0; } }
+.toast-icon { width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; }
+.toast-content { flex: 1; font-size: 0.85rem; color: #1f2937; }
+.toast.error { border-left: 4px solid var(--danger); } .toast.error .toast-icon { color: var(--danger); }
+.toast.success { border-left: 4px solid var(--success); } .toast.success .toast-icon { color: var(--success); }
+
+/* Utilitários gerais */
+.flex { display: flex; } .flex-col { display: flex; flex-direction: column; } .gap-8 { gap: 8px; }
+.w-70 { width: 70px; } .w-88 { width: 88px; } .w-96 { width: 96px; } .w-120 { width: 120px; }
+.offscreen-left { position: fixed; left: -1200px; top: 64px; transition: left .28s ease, opacity .18s ease; }
+.offscreen-right { position: fixed; left: 100%; top: 64px; transition: left .28s ease, opacity .18s ease; }
+.z71 { z-index: 71; } .z76 { z-index: 76; }
+
+/* ==========================================================================
+   AJUSTES DO FORMULÁRIO DO MODAL (Esticando campos e ícone)
+   ========================================================================== */
+
+/* 1. Devolve a elasticidade para o campo Produto (empurrando Total KG pra margem) */
+.flex-3-2 { flex: 3.2 !important; }
+.min-w-320 { min-width: 320px !important; }
+
+/* 2. Devolve a elasticidade para o campo Observação */
+.flex-1 { flex: 1 !important; }
+
+/* 3. Botão de Adicionar Item (+) perfeito com a altura do input */
+#itemAddBtn {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 32px !important; 
+    height: 32px !important;
+    margin: auto !important; 
+    align-self: center !important; 
+    padding: 0 !important;
+}
+#itemAddBtn .icon {
+    width: 22px !important;
+    height: 22px !important;
+    color: var(--success) !important;
+}
+
+/* ==========================================================================
+   CORREÇÃO DO DROPDOWN (Pesquisa de Filtros e Produtos)
+   ========================================================================== */
+
+/* Devolve a "âncora" para o dropdown não voar para fora da tela */
+.pos-rel { position: relative !important; }
+
+/* Garante que o input ocupe todo o espaço do card */
+.full-width { width: 100% !important; }
+
+/* Garante que o formulário de filtros não "corte" o menu suspenso */
+#filtersForm { overflow: visible !important; }
+
+
+/* ==========================================================================
+   8. ESTILOS DOS FILTROS (Verde Claro e Typeahead)
+   ========================================================================== */
+.filtro-input {
+    background-color: #e8f5e9 !important; 
+    border: 1px solid #a5d6a7;
+    color: #1b5e20;
+    transition: all var(--transicao-lenta);
+}
+
+.filtro-input:focus {
+    background-color: #c8e6c9 !important;
+    border-color: #4caf50;
+    outline: none;
+    box-shadow: 0 0 0 0.2rem rgba(76, 175, 80, 0.25);
+}
+
+.typeahead-container { position: relative; width: 100%; }
+
+.typeahead-list {
+    position: absolute; top: 100%; left: 0; z-index: 1050;
+    background: #ffffff; border: 1px solid var(--ph-border);
+    border-radius: 0 0 4px 4px; width: 100%; max-height: 250px;
+    overflow-y: auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    list-style: none; padding: 0; margin: 0; display: none;
+}
+
+.typeahead-item {
+    padding: 6px 10px; cursor: pointer;
+    border-bottom: 1px solid #f3f4f6; color: var(--text-body);
+    font-size: 0.8rem;
+}
+
+.typeahead-item:hover, .typeahead-item.active {
+    background-color: var(--ph-selected-bg);
+    border-left: 3px solid var(--ph-selected-border);
+    font-weight: 600; color: var(--text-dark);
+}

@@ -16,10 +16,3 @@ tzdata==2025.2
 # supported driver. If you must use the legacy cx_Oracle, install
 # Microsoft C++ Build Tools and a version compatible with your Python,
 # or pin Python to a version with prebuilt wheels.
-
-ORACLE_CLIENT_LIB_DIR=C:\oracle\instantclient_19_23
-SANKHYA_DB_HOST=hfsemear.ddns.net
-SANKHYA_DB_PORT=1521
-SANKHYA_DB_SERVICE=XE
-SANKHYA_DB_USER=Sankhya
-SANKHYA_DB_PASSWORD=tecsis

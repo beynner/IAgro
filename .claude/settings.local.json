@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python manage.py test sankhya_integration.tests.test_views_venda -v 2)",
+      "Bash(python manage.py test sankhya_integration.tests)",
+      "Bash(python manage.py check)",
+      "PowerShell(\"---\")",
+      "PowerShell($git = \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\"; & $git status --short; \"---\"; & $git log -1 --oneline; \"---\"; & $git branch --show-current)"
+    ]
+  }
+}

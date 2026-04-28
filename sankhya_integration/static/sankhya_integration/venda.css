@@ -1,0 +1,282 @@
+/* ==========================================================================
+   VARIÁVEIS GLOBAIS DE CORES (PALETA DO SISTEMA)
+   ========================================================================== */
+:root {
+    /* Aliases dos tokens globais */
+    --cor-fundo-principal-branco: var(--cor-fundo-painel);
+    --cor-fundo-secundario-claro: var(--cor-fundo-secao);
+    --cor-fundo-terciario-cinza:  var(--cor-fundo-linha);
+    --cor-borda-padrao-clara:     var(--cor-borda);
+    --cor-borda-linha-tabela:     var(--cor-fundo-linha);
+    --cor-borda-destaque-hover:   var(--cor-texto-desativado);
+    --cor-texto-alerta-vermelho:  var(--cor-erro);
+
+    /* Específicos do módulo Venda */
+    --cor-fundo-cabecalho-tabela: #f8fafc;
+    --cor-texto-primario-escuro:  #0f172a;
+    --cor-texto-secundario-cinza: #475569;
+    --cor-borda-dropdown-ativa:   #16a34a;
+}
+
+/* ==========================================================================
+   MÓDULO 0: MODAIS DA VENDA (Dock à esquerda + itens à direita)
+   Sobrescreve largura do cabCard apenas dentro do módulo Venda.
+   ========================================================================== */
+#cabCard.modal-card.small { width: 380px; }
+
+/* Sinalização de campo obrigatório não preenchido */
+#cabCard .ph-field-invalid,
+#cabCard .ph-field-invalid:focus {
+    border-color: var(--cor-erro) !important;
+    box-shadow: 0 0 0 1px var(--cor-erro) !important;
+}
+
+/* ==========================================================================
+   MÓDULO 1: LAYOUT INTERNO DO MÓDULO
+   ========================================================================== */
+
+/* Container do conteúdo do módulo Venda dentro do .main-layout da base.
+   Três colunas: filtros + central + itens. */
+.venda-grid {
+    flex:       1;
+    display:    flex;
+    gap:        12px;
+    min-width:  0;
+    min-height: 0;
+}
+
+/* Tamanhos das Colunas (Wrappers) */
+#cardFiltros { flex: 0 0 200px; }
+.col-wrapper-central { flex: 2.2; display: flex; flex-direction: column; gap: 10px; }
+.col-wrapper-itens   { flex: 1.2; display: flex; flex-direction: column; gap: 10px; }
+
+/* Comportamento de Expansão dos Cards de Dados */
+#cardCabecalho, #cardItens {
+    flex: 1; /* Esticam para ocupar a altura total da coluna pai */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    height: auto !important;
+}
+
+/* ==========================================================================
+   MÓDULO 2: GRUPO DE FILTROS (Lateral Esquerda)
+   ========================================================================== */
+
+.filters-range-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+/* Botões de navegação de Datas (<< e >>) */
+.date-nav-buttons {
+    display: flex;
+    gap: 5px;
+    justify-content: space-between;
+}
+
+.date-nav-buttons button {
+    flex: 1;
+    background: var(--cor-fundo-secundario-claro);
+    border: 1px solid var(--cor-borda-padrao-clara);
+    color: var(--cor-texto-secundario-cinza);
+    border-radius: var(--borda-raio-sm);
+    padding: 2px 0;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all var(--transicao-base);
+}
+
+.date-nav-buttons button:hover {
+    background: var(--cor-fundo-terciario-cinza);
+    color: var(--cor-texto-primario-escuro);
+}
+
+/* ==========================================================================
+   MÓDULO 3: GRUPO TOOLBAR E AÇÕES (Acima do Cabeçalho)
+   ========================================================================== */
+
+/* Nivelamento Superior (Toolbar e Spacer de alinhamento) */
+.toolbar-vendas, .spacer-vendas {
+    height: 32px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+/* Botões com ícones (Novo, Excluir, Imprimir) */
+.icon-btn-venda {
+    background: var(--cor-fundo-principal-branco);
+    border: 1px solid var(--cor-borda-padrao-clara);
+    color: var(--cor-texto-secundario-cinza);
+    border-radius: var(--borda-raio-sm);
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transicao-base);
+}
+
+.icon-btn-venda:hover:not(:disabled) {
+    background: var(--cor-fundo-secundario-claro);
+    color: var(--cor-texto-primario-escuro);
+    border-color: var(--cor-borda-destaque-hover);
+}
+
+.icon-btn-venda:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* ==========================================================================
+   MÓDULO 4: GRUPO DE TABELAS (Cabeçalho da Nota e Itens)
+   ========================================================================== */
+
+/* Scroll interno e independente para as áreas de listagem */
+#cardCabecalho .list, #cardItens .items {
+    flex: 1;
+    overflow-y: auto;
+}
+
+/* Ajustes de densidade e alinhamento do texto */
+.ph-selectable-table th, 
+.ph-selectable-table td {
+    padding: 6px 8px;
+    font-size: 11px;
+}
+
+.ph-selectable-table th {
+    text-align: left;
+}
+
+.ph-selectable-table th.text-right {
+    text-align: right;
+}
+
+/* Travamento do Cabeçalho da Tabela (Sticky) */
+.ph-selectable-table thead th {
+    position: sticky;
+    top: 0;
+    background-color: var(--cor-fundo-cabecalho-tabela); 
+    box-shadow: inset 0 -1px 0 var(--cor-borda-linha-tabela); 
+    z-index: 10;
+}
+
+/* Destaque Visual (Alerta) para Itens Sem Lote */
+.item-sem-lote td {
+    color: var(--cor-texto-alerta-vermelho) !important;
+    font-weight: 600; 
+}
+
+/* ==========================================================================
+   MÓDULO 5: CLASSES UTILITÁRIAS
+   ========================================================================== */
+
+/* Truncamento de textos longos (ex: nomes de parceiros gigantes) */
+.ph-truncate {
+    max-width: 150px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Utilitários de largura para colunas específicas */
+.col-w-70 { width: 70px; }
+.col-w-40 { width: 40px; }
+
+
+/* ==========================================================================
+   MÓDULO 6: AUTOCOMPLETE DROPDOWN (Filtros de Pesquisa)
+   ========================================================================== */
+.pos-rel {
+    position: relative;
+}
+
+.dropdown-abs {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--cor-fundo-principal-branco);
+    border: 1px solid var(--cor-borda-padrao-clara);
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+    display: none; /* Escondido por padrão */
+}
+
+/* O input principal quando focado fica igual ao seu print */
+input:focus {
+    outline: none;
+    border-color: #3b82f6; /* Azul do foco (como no print) */
+    box-shadow: 0 0 0 1px #3b82f6;
+}
+
+.dropdown-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    border-bottom: 1px solid var(--cor-borda-linha-tabela);
+    color: var(--cor-texto-primario-escuro);
+    border-left: 3px solid transparent;
+    transition: all var(--transicao-rapida);
+}
+
+.dropdown-item:last-child {
+    border-bottom: none;
+}
+
+/* Efeito ao passar o mouse OU navegar pelo teclado (.active) */
+.dropdown-item:hover,
+.dropdown-item.active {
+    background-color: var(--cor-fundo-secundario-claro);
+    border-left-color: var(--cor-borda-dropdown-ativa); /* Barrinha verde */
+    color: #000;
+}
+
+/* ==========================================================================
+   MÓDULO DE AUTOCOMPLETE (Importado da Entrada)
+   ========================================================================== */
+.pos-rel { position: relative !important; }
+.full-width { width: 100% !important; }
+
+.dropdown-abs { 
+    position: absolute; 
+    top: 100%; 
+    left: 0; 
+    right: 0; 
+    background: #fff; 
+    border: 1px solid var(--cor-borda-padrao-clara); 
+    border-radius: 4px; 
+    max-height: 200px; 
+    overflow: auto; 
+    display: none; 
+    z-index: 100; 
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); 
+}
+
+.dd-item { 
+    padding: 6px 10px; 
+    cursor: pointer; 
+    border-bottom: 1px solid #f3f4f6; 
+    font-size: 0.8rem; 
+    color: var(--cor-texto-body);
+}
+
+.dd-item:hover { 
+    background: #F9FAFB; 
+}
+
+/* Item focado via teclado ou mouse */
+.dd-item.active { 
+    background: #EAF0E8; /* Verde sutil do Sankhya */
+    border-left: 3px solid #6F8B60; 
+    font-weight: 600; 
+    color: #334155; 
+}

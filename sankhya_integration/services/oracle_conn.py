@@ -1,15 +1,21 @@
-﻿import os
+﻿import requests
+import os
+import time
+import logging
 import importlib
+import hashlib
+from contextlib import contextmanager
+from datetime import datetime, date as _date, timedelta
+from typing import Optional, Any
+
+# ==============================================================================
+# INICIALIZAÇÃO DO DRIVER ORACLE
+# ==============================================================================
 try:
-    # Dynamically import legacy driver if available
     cx_Oracle = importlib.import_module('cx_Oracle')  # type: ignore
 except Exception:
-    # Fallback to python-oracledb (thin/thick modes). Keep the same name for compatibility.
     import oracledb as cx_Oracle
-    # If running with python-oracledb in THIN mode and the target DB is old (DPY-3010), allow auto switch to THICK
-    # by initializing the Oracle Instant Client when its directory is provided via env vars.
     try:
-        # is_thin_mode is available only in python-oracledb
         is_thin = getattr(cx_Oracle, 'is_thin_mode', None)
         if callable(is_thin) and is_thin():
             lib_dir = (
@@ -18,5323 +24,1049 @@ except Exception:
                 or os.getenv('ORACLE_HOME')
             )
             if lib_dir and os.path.isdir(lib_dir):
-                # Initialize thick mode using Instant Client (explicit path)
                 cx_Oracle.init_oracle_client(lib_dir=lib_dir)
             else:
-                # Fallback: attempt to initialize using system PATH/registry (works if client is on PATH)
-                try:
-                    cx_Oracle.init_oracle_client()
-                except Exception:
-                    pass
-    except Exception:
-        # If initialization fails, keep thin mode; connection will raise a clear error (e.g., DPY-3010)
-        pass
+                try: cx_Oracle.init_oracle_client()
+                except Exception: pass
+    except Exception: pass
 
-from contextlib import contextmanager
+logger = logging.getLogger(__name__)
 
-# Optional global connection pool to reduce connect overhead
-_POOL = None
+# ==============================================================================
+# 🌍 1. INFRAESTRUTURA E UTILITÁRIOS GLOBAIS
+# Conexão, permissões e consultas genéricas usadas em todo o sistema
+# ==============================================================================
 
-def _get_app_config():
+_POOL_CONEXOES = None
+_CACHE_COLUNAS: dict[str, set] = {}
+
+PARAMETROS_PADRAO = {
+    'TOP_ENTRADA': 11,
+    'PROD_IN_NATURA': 863,
+}
+
+def obter_configuracoes_sistema():
+    """Busca configurações gerais do sistema no settings.py do Django."""
     try:
         from django.conf import settings
         cfg = getattr(settings, 'SANKHYA_CONFIG', {})
-        if isinstance(cfg, dict):
-            return cfg
-    except Exception:
-        pass
+        if isinstance(cfg, dict): return cfg
+    except Exception: pass
     return {}
 
-
-def _get_dsn_cfg():
-    cfg = _get_app_config().get('DB', {})
+def obter_configuracoes_banco():
+    """Monta as credenciais de acesso ao banco baseado no ambiente (Local/Remoto)."""
+    cfg = obter_configuracoes_sistema().get('DB', {})
+    db_mode = os.getenv('DB_MODE', 'local').lower()
     
-    # 🔥 Sistema de perfis: LOCAL ou REMOTE
-    # Para alternar, defina a variável de ambiente: DB_MODE=local ou DB_MODE=remote
-    db_mode = os.getenv('DB_MODE', 'local').lower()  # Padrão: LOCAL
-    
-    # Configurações por perfil
-    DB_PROFILES = {
-        'local': {
-            'host': '192.168.100.202',
-            'port': 1521,
-            'service': 'XE',
-            'user': 'Sankhya',
-            'password': 'tecsis'
-        },
-        'remote': {
-            'host': 'hfsemear.ddns.net',
-            'port': 1521,
-            'service': 'XE',
-            'user': 'Sankhya',
-            'password': 'tecsis'
-        }
+    perfis_banco = {
+        'local': {'host': '', 'port': 1521, 'service': 'XE', 'user': '', 'password': ''},
+        'remote': {'host': '', 'port': 1521, 'service': 'XE', 'user': '', 'password': ''}
     }
-    
-    # Selecionar perfil (fallback para local se modo inválido)
-    profile = DB_PROFILES.get(db_mode, DB_PROFILES['local'])
-    
-    # Permitir override individual via variáveis de ambiente (prioridade máxima)
-    host = os.getenv('SANKHYA_DB_HOST', cfg.get('host', profile['host']))
-    port = int(os.getenv('SANKHYA_DB_PORT', cfg.get('port', profile['port'])))
-    service_name = os.getenv('SANKHYA_DB_SERVICE', cfg.get('service_name', profile['service']))
-    sid = os.getenv('SANKHYA_DB_SID', cfg.get('sid'))  # optional override when DB uses SID
-    full_dsn = os.getenv('SANKHYA_DB_DSN', cfg.get('dsn'))  # optional: full easy connect/tnsnames alias
-    user = os.getenv('SANKHYA_DB_USER', cfg.get('user', profile['user']))
-    password = os.getenv('SANKHYA_DB_PASSWORD', cfg.get('password', profile['password']))
-    
-    # Log do modo ativo (apenas primeira vez)
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f'[DB CONFIG] Modo: {db_mode.upper()} | Host: {host}:{port} | Service: {service_name}')
+    perfil = perfis_banco.get(db_mode, perfis_banco['local'])
     
     return {
-        'host': host,
-        'port': port,
-        'service_name': service_name,
-        'sid': sid,
-        'dsn': full_dsn,
-        'user': user,
-        'password': password,
+        'host': os.getenv('SANKHYA_DB_HOST', cfg.get('host', perfil['host'])),
+        'port': int(os.getenv('SANKHYA_DB_PORT', cfg.get('port', perfil['port']))),
+        'service_name': os.getenv('SANKHYA_DB_SERVICE', cfg.get('service_name', perfil['service'])),
+        'sid': os.getenv('SANKHYA_DB_SID', cfg.get('sid')),
+        'dsn': os.getenv('SANKHYA_DB_DSN', cfg.get('dsn')),
+        'user': os.getenv('SANKHYA_DB_USER', cfg.get('user', perfil['user'])),
+        'password': os.getenv('SANKHYA_DB_PASSWORD', cfg.get('password', perfil['password'])),
     }
 
-
-DEFAULT_PARAMS = {
-    'TOP_ENTRADA': 11,
-    'TOP_CLASS': 26,
-    'TOP_VALE_COMPRA': 13,
-    'TOP_PED_VENDA': 34,
-    'TOP_VENDAS': [35, 37],
-    'TOP_AVARIA': 30,
-    'PROD_IN_NATURA': 863,
-    'PROD_CLASS_LIST': [358, 359, 907],
-    'PROD_DESCARTE': 910,
-    # Flags de lote para automação
-    'AUTO_DUPLICATE_CLASSIFICATION': False,
-    'AUTO_DUPLICATE_ON_SAVE': False,    # Duplicar ao salvar item classificável
-    'AUTO_CREATE_VALE_COMPRA': False,  # Será implementado na tela Comercial
-    'FALLBACK_MANUAL_ENABLED': True,
-    # Parâmetros Financeiros (TGFFIN)
-    'FINANCEIRO_BANCO_PADRAO': 33,          # CODBCO
-    'FINANCEIRO_CONTA_BANCARIA': 2,         # CODCTABCOINT
-    'FINANCEIRO_TIPO_TITULO': 13,           # CODTIPTIT
-    'FINANCEIRO_DIAS_VENCIMENTO': 30,       # Dias para vencimento
-}
-
-# ===== Faturamento / Vale de Compra Helpers (TOP 13) =====
-from datetime import datetime, timedelta, date as _date
-from typing import List, Dict, Any, Optional
-
-def _next_wednesday(base: _date | None = None) -> _date:
-    """Retorna a próxima quarta-feira (sempre futura).
-    Se hoje for quarta, retorna a quarta da semana seguinte.
-    """
-    if base is None:
-        base = datetime.now().date()
-    # weekday(): Monday=0 ... Sunday=6; Wednesday=2
-    wd = base.weekday()
-    days_ahead = (2 - wd) % 7
-    if days_ahead == 0:
-        days_ahead = 7
-    return base + timedelta(days=days_ahead)
-
-def check_existing_vale(nunota_pedido: int) -> Optional[int]:
-    """
-    Verifica se já existe um vale (TOP 13) vinculado ao pedido (TOP 11).
-    Retorna o NUNOTA do vale existente ou None se não houver.
-    """
-    try:
-        pedido_int = int(nunota_pedido)
-    except Exception:
-        return None
-    
-    try:
-        with get_connection() as conn:
-            cur = conn.cursor()
-            
-            # Busca o NUMNOTA do pedido
-            cur.execute("SELECT NUMNOTA FROM TGFCAB WHERE NUNOTA=:n", n=pedido_int)
-            r = cur.fetchone()
-            numnota_pedido = r[0] if (r and r[0] and r[0] != 0) else pedido_int
-            
-            # Busca vale (TOP 13) que tenha NUMPEDIDO = NUMNOTA do pedido
-            # Como pode ser NUMNOTA ou NUNOTA, buscamos por ambos
-            cur.execute("""
-                SELECT NUNOTA 
-                FROM TGFCAB 
-                WHERE CODTIPOPER=13 
-                  AND NUMPEDIDO=:numpedido
-            """, numpedido=numnota_pedido)
-            
-            vale_row = cur.fetchone()
-            return int(vale_row[0]) if vale_row else None
-        
-    except Exception as e:
-        print(f"Erro ao verificar vale existente: {e}")
-        return None
-
-def gerar_vale_compra_top13(nunota_11: int, itens_precos: List[Dict[str, Any]]) -> Dict[str, Any]:
-    # Corpo movido para implementação simplificada posterior (ver abaixo).
-    # Esta definição foi sobrescrita; manter placeholder para evitar referências quebradas se importada antes.
-    return {'ok': False, 'error': 'Função gerar_vale_compra_top13 redefinida mais abaixo'}
-
-# Implementação efetiva (segunda definição) — usar nome diferente interno e expor wrapper se necessário
-def gerar_vale_compra_top13_impl(nunota_11: int, itens_precos: List[Dict[str, Any]]) -> Dict[str, Any]:
-    result: Dict[str, Any] = {'ok': False}
-    try:
-        if not is_write_enabled():
-            result['error'] = 'Escrita desabilitada'
-            return result
-        try:
-            nunota_11_int = int(nunota_11)
-        except Exception:
-            result['error'] = 'nunota_11 invalido'
-            return result
-        
-        # Verifica se já existe um vale para este pedido
-        vale_existente = check_existing_vale(nunota_11_int)
-        if vale_existente is not None:
-            result['ok'] = False
-            result['error'] = f'Já existe um vale (NUNOTA {vale_existente}) vinculado a este pedido'
-            result['vale_existente'] = vale_existente
-            return result
-        
-        itens_validos: List[Dict[str, Any]] = []
-        for it in (itens_precos or []):
-            try:
-                seq = int(it.get('sequencia') or 0)
-                preco_raw = it.get('preco') if it.get('preco') is not None else it.get('preco_final')
-                preco = float(preco_raw)
-                if preco <= 0:
-                    result['error'] = 'Preco invalido (<=0) para sequencia %s' % seq
-                    return result
-                itens_validos.append({'sequencia': seq, 'preco': preco})
-            except Exception:
-                result['error'] = 'Item invalido'
-                return result
-        if not itens_validos:
-            result['error'] = 'Lista de itens vazia'
-            return result
-        with get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT CODEMP, CODPARC, CODNAT, CODCENCUS, CODTIPOPER, DHTIPOPER, DTNEG, CODAGREGACAO FROM TGFCAB WHERE NUNOTA=:n", n=nunota_11_int)
-            row = cur.fetchone()
-            if not row:
-                result['error'] = 'NUNOTA 11 nao encontrada'
-                return result
-            CODEMP, CODPARC, CODNAT, CODCENCUS, _ct, _dh, _dt, CODAGREGACAO = row
-            
-            # Buscar NUMNOTA do pedido para vincular no vale
-            # Se NUMNOTA for 0 ou nulo, usamos o próprio NUNOTA como referência
-            cur.execute("SELECT NUMNOTA FROM TGFCAB WHERE NUNOTA=:n", n=nunota_11_int)
-            numnota_row = cur.fetchone()
-            numnota_pedido = numnota_row[0] if (numnota_row and numnota_row[0] and numnota_row[0] != 0) else nunota_11_int
-            
-            params = get_params()
-            top_13 = int(params.get('TOP_VALE_COMPRA', 13))
-            # TIPMOV da TOP 13
-            cur.execute("SELECT TIPMOV FROM (SELECT TIPMOV, DHALTER FROM TGFTOP WHERE CODTIPOPER=:k ORDER BY DHALTER DESC) WHERE ROWNUM=1", k=top_13)
-            r = cur.fetchone()
-            tipmov_13 = r[0] if r and r[0] else 'C'
-            hoje = datetime.now().strftime('%d/%m/%Y')
-            dtfatur = _next_wednesday().strftime('%d/%m/%Y')
-            cab = {
-                'CODEMP': CODEMP,
-                'CODPARC': CODPARC,
-                'CODTIPOPER': top_13,
-                'CODNAT': CODNAT,
-                'CODCENCUS': CODCENCUS,
-                'DTNEG': hoje,
-                'DTMOV': hoje,
-                'DTENTSAI': hoje,
-                'TIPMOV': tipmov_13,
-                'NUMNOTA': 0,
-                'NUMPEDIDO': numnota_pedido,  # Vincula ao pedido original
-                'PENDENTE': 'S',
-                'STATUSNOTA': 'A'
-            }
-            plan = insert_cabecalho(cab, dry_run=False)
-            if not plan.get('executed'):
-                result['error'] = 'Falha criar cabecalho'
-                result['details'] = plan
-                return result
-            nunota_13 = plan.get('nunota')
-            # DTFATUR
-            try:
-                cols = _get_table_columns(conn, 'TGFCAB')
-                if 'DTFATUR' in cols:
-                    cur.execute("UPDATE TGFCAB SET DTFATUR=TO_DATE(:d,'DD/MM/YYYY') WHERE NUNOTA=:n", d=dtfatur, n=nunota_13)
-            except Exception:
-                pass
-            # Incluir GERAPRODUCAO para preservar a flag ao copiar itens para TOP13
-            cur.execute("SELECT SEQUENCIA, CODPROD, QTDNEG, CODVOL, GERAPRODUCAO FROM TGFITE WHERE NUNOTA=:n", n=nunota_11_int)
-            origem = cur.fetchall()
-            total = 0.0
-            seq_new = 0
-            import logging
-            logger = logging.getLogger(__name__)
-
-            for seq11, codprod, qtdneg, codvol, geraprod in origem:
-                preco_entry = None
-                for iv in itens_validos:
-                    if iv['sequencia'] == seq11:
-                        preco_entry = iv
-                        break
-                if not preco_entry:
-                    conn.rollback()
-                    result['error'] = 'Preco nao informado para sequencia %s' % seq11
-                    return result
-                preco = float(preco_entry['preco'])
-                vlrtot = round(preco * float(qtdneg), 2)
-                total += vlrtot
-                seq_new += 1
-                try:
-                    # Preservar GERAPRODUCAO do item origem
-                    cur.execute(
-                        "INSERT INTO TGFITE (NUNOTA, SEQUENCIA, CODEMP, CODPROD, QTDNEG, VLRUNIT, VLRTOT, CODVOL, CODAGREGACAO, GERAPRODUCAO, OBSERVACAO) "
-                        "VALUES (:n,:s,:e,:p,:q,:u,:t,:v,:c,:g,:o)",
-                        n=nunota_13, s=seq_new, e=CODEMP, p=codprod, q=qtdneg, u=preco, t=vlrtot, v=codvol, c=CODAGREGACAO, g=geraprod, o='Gerado via app'
-                    )
-                    logger.debug(f"Duplicando item seq11={seq11} codprod={codprod} geraproducao_origem={geraprod} para nunota_13={nunota_13} seq_new={seq_new}")
-                except Exception as ie:
-                    conn.rollback()
-                    result['error'] = 'Falha inserir item seq %s: %s' % (seq11, ie)
-                    return result
-            try:
-                cur.execute("UPDATE TGFCAB SET VLRNOTA=:v WHERE NUNOTA=:n", v=total, n=nunota_13)
-            except Exception:
-                pass
-            conn.commit()
-            result.update({'ok': True, 'nunota_11': nunota_11_int, 'nunota_13': nunota_13, 'dtfatur': dtfatur, 'status': 'A', 'total': total, 'itens': len(origem)})
-            return result
-    except Exception as e:
-        result['error'] = 'Erro gerar vale: %s' % e
-        return result
-
-# Redefinir nome público para implementação efetiva
-gerar_vale_compra_top13 = gerar_vale_compra_top13_impl  # type: ignore
-def get_params():
-    cfg = _get_app_config().get('PARAMS', {})
-    params = DEFAULT_PARAMS.copy()
-    if isinstance(cfg, dict):
-        params.update(cfg)
+def obter_parametros_globais():
+    """Retorna os parâmetros de negócio (Ex: TOP_ENTRADA = 11)."""
+    cfg = obter_configuracoes_sistema().get('PARAMS', {})
+    params = PARAMETROS_PADRAO.copy()
+    if isinstance(cfg, dict): params.update(cfg)
     return params
 
-
-# ===== Lightweight in-memory caches (per-process) to reduce DB roundtrips =====
-# Safe because Oracle metadata and product volume mappings change rarely during a Django worker lifetime.
-# If needed, call clear_caches() after DDL changes or VOAs maintenance.
-_COLS_CACHE: dict[str, set] = {}
-_PK_CACHE: dict[str, list] = {}
-_FK_CACHE: dict[str, list] = {}
-_NN_CACHE: dict[str, list] = {}
-_TRG_CACHE: dict[str, list] = {}
-_LIKE_COLS_CACHE: dict[tuple[str, str], list] = {}
-_BASE_UNIT_CACHE: dict[int, str] = {}
-_FACTOR_CACHE: dict[tuple[int, str], float | None] = {}
-
-
-def clear_caches(kind: str | None = None):
-    kinds = {k.strip().lower() for k in ([kind] if kind else [])}
-    def m(k):
-        return (not kinds) or (k in kinds)
-    if m('cols'):
-        _COLS_CACHE.clear()
-    if m('pk'):
-        _PK_CACHE.clear()
-    if m('fk'):
-        _FK_CACHE.clear()
-    if m('nn') or m('notnull'):
-        _NN_CACHE.clear()
-    if m('trg') or m('triggers'):
-        _TRG_CACHE.clear()
-    if m('like') or m('likecols'):
-        _LIKE_COLS_CACHE.clear()
-    if m('unit') or m('base'):
-        _BASE_UNIT_CACHE.clear()
-    if m('factor') or m('unit'):
-        _FACTOR_CACHE.clear()
-
-
-def _make_dsn(host: str, port: int, service_name: str | None, sid: str | None, full_dsn: str | None) -> str:
-    # Use makedsn when available; otherwise use host:port/service_name
+def verificar_permissao_escrita() -> bool:
+    """Verifica se o sistema tem permissão para salvar/alterar dados no Oracle."""
     try:
-        # If a full DSN (easy connect or tns alias) is given, prefer it as-is
-        if full_dsn:
-            return full_dsn
-        if sid:
-            return cx_Oracle.makedsn(host, port, sid=sid)
+        cfg = obter_configuracoes_sistema()
+        if isinstance(cfg, dict) and cfg.get('WRITE_ENABLED') is True: return True
+    except Exception: pass
+    return os.getenv('PACKINGHOUSE_WRITE_ENABLED', 'false').lower() in ('1', 'true', 'yes', 'on')
+
+def _montar_string_conexao(host: str, port: int, service_name: str | None, sid: str | None, full_dsn: str | None) -> str:
+    """Monta a string DSN exigida pelo driver do Oracle."""
+    try:
+        if full_dsn: return full_dsn
+        if sid: return cx_Oracle.makedsn(host, port, sid=sid)
         return cx_Oracle.makedsn(host, port, service_name=service_name)
     except Exception:
-        if full_dsn:
-            return full_dsn
-        if sid:
-            return f"{host}:{port}/{sid}"
+        if full_dsn: return full_dsn
+        if sid: return f"{host}:{port}/{sid}"
         return f"{host}:{port}/{service_name}"
 
-
 @contextmanager
-def get_connection():
-    global _POOL
-    dsn_cfg = _get_dsn_cfg()
-    dsn = _make_dsn(
-        dsn_cfg['host'], dsn_cfg['port'], dsn_cfg.get('service_name'), dsn_cfg.get('sid'), dsn_cfg.get('dsn')
-    )
+def obter_conexao_oracle():
+    """Gerenciador de contexto para abrir e fechar a conexão com o Oracle de forma segura."""
+    global _POOL_CONEXOES
+    db = obter_configuracoes_banco()
+    dsn = _montar_string_conexao(db['host'], db['port'], db.get('service_name'), db.get('sid'), db.get('dsn'))
     conn = None
     try:
-        # Initialize pool on first use when supported by the driver
-        if _POOL is None and hasattr(cx_Oracle, 'create_pool'):
+        if _POOL_CONEXOES is None and hasattr(cx_Oracle, 'create_pool'):
             try:
-                _POOL = cx_Oracle.create_pool(
-                    user=dsn_cfg['user'], password=dsn_cfg['password'], dsn=dsn,
+                _POOL_CONEXOES = cx_Oracle.create_pool(
+                    user=db['user'], password=db['password'], dsn=dsn,
                     min=1, max=max(4, int(os.getenv('SANKHYA_DB_POOL_MAX', '4'))), increment=1
                 )
-            except Exception:
-                _POOL = None
-        if _POOL is not None and hasattr(_POOL, 'acquire'):
-            conn = _POOL.acquire()
+            except Exception: _POOL_CONEXOES = None
+            
+        if _POOL_CONEXOES is not None and hasattr(_POOL_CONEXOES, 'acquire'):
+            conn = _POOL_CONEXOES.acquire()
         else:
-            conn = cx_Oracle.connect(user=dsn_cfg['user'], password=dsn_cfg['password'], dsn=dsn)
+            conn = cx_Oracle.connect(user=db['user'], password=db['password'], dsn=dsn)
     except Exception:
-        # Fallback to direct connection if pooling failed
-        conn = cx_Oracle.connect(user=dsn_cfg['user'], password=dsn_cfg['password'], dsn=dsn)
+        conn = cx_Oracle.connect(user=db['user'], password=db['password'], dsn=dsn)
     try:
         yield conn
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        try: conn.close()
+        except Exception: pass
 
-
-def test_oracle_connection():
+def _obter_colunas_da_tabela(conn, tabela: str) -> set[str]:
+    """Lista dinamicamente as colunas de uma tabela (com cache para performance)."""
     try:
-        with get_connection() as conn:
-            conn.ping()
-            print('Conexão Oracle bem-sucedida!')
-        return True
-    except Exception as e:
-        print(f'Erro na conexão Oracle: {e}')
-        return False
-
-
-def select_all_tgfpar():
-    try:
-        with get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT NOMEPARC FROM TGFPAR')
-            rows = cursor.fetchall()
-            for row in rows:
-                print(row)
-            return rows
-    except Exception as e:
-        print(f'Erro ao consultar tgfpar: {e}')
-        return []
-
-
-def is_write_enabled() -> bool:
-    try:
-        cfg = _get_app_config()
-        if isinstance(cfg, dict) and cfg.get('WRITE_ENABLED') is True:
-            return True
-    except Exception:
-        pass
-    return os.getenv('PACKINGHOUSE_WRITE_ENABLED', 'false').lower() in ('1', 'true', 'yes', 'on')
-
-
-def _fetchall(conn, sql: str, **binds):
-    cur = conn.cursor()
-    cur.execute(sql, **binds)
-    return cur.fetchall()
-
-
-def get_table_pk(table: str):
-    t = str(table).upper()
-    if t in _PK_CACHE:
-        return _PK_CACHE[t]
-    sql = (
-        "SELECT cc.column_name FROM user_constraints c "
-        "JOIN user_cons_columns cc ON cc.constraint_name = c.constraint_name "
-        "WHERE c.table_name = :t AND c.constraint_type = 'P' ORDER BY cc.position"
-    )
-    with get_connection() as conn:
-        rows = _fetchall(conn, sql, t=t)
-        _PK_CACHE[t] = [r[0] for r in rows]
-        return _PK_CACHE[t]
-
-
-def get_table_fks(table: str):
-    t = str(table).upper()
-    if t in _FK_CACHE:
-        return _FK_CACHE[t]
-    sql = (
-        "SELECT a.column_name, pk.table_name r_table, pkc.column_name r_column "
-        "FROM user_constraints c "
-        "JOIN user_cons_columns a  ON a.constraint_name  = c.constraint_name "
-        "JOIN user_constraints pk ON pk.constraint_name = c.r_constraint_name "
-        "JOIN user_cons_columns pkc ON pkc.constraint_name = pk.constraint_name AND pkc.position = a.position "
-        "WHERE c.table_name = :t AND c.constraint_type = 'R' ORDER BY a.position"
-    )
-    with get_connection() as conn:
-        _FK_CACHE[t] = _fetchall(conn, sql, t=t)
-        return _FK_CACHE[t]
-
-
-def get_not_null_cols(table: str):
-    t = str(table).upper()
-    if t in _NN_CACHE:
-        return _NN_CACHE[t]
-    sql = (
-        "SELECT column_name, data_type, data_default FROM user_tab_cols "
-        "WHERE table_name=:t AND nullable='N'"
-    )
-    with get_connection() as conn:
-        _NN_CACHE[t] = _fetchall(conn, sql, t=t)
-        return _NN_CACHE[t]
-
-
-def get_triggers(table: str):
-    t = str(table).upper()
-    if t in _TRG_CACHE:
-        return _TRG_CACHE[t]
-    sql = "SELECT trigger_name, status FROM user_triggers WHERE table_name = :t"
-    with get_connection() as conn:
-        _TRG_CACHE[t] = _fetchall(conn, sql, t=t)
-        return _TRG_CACHE[t]
-
-
-def find_triggers_using_nextval(table: str, column_keyword: str = 'NUNOTA'):
-    sql = (
-        "SELECT trigger_name FROM user_triggers "
-        "WHERE table_name=:t AND UPPER(trigger_body) LIKE :k1 AND UPPER(trigger_body) LIKE '%NEXTVAL%'"
-    )
-    with get_connection() as conn:
-        try:
-            return [r[0] for r in _fetchall(conn, sql, t=table.upper(), k1=f"%{column_keyword.upper()}%")]
-        except Exception:
-            return []
-
-
-def list_sequences_like(pattern: str):
-    sql = "SELECT sequence_name FROM user_sequences WHERE sequence_name LIKE :p"
-    with get_connection() as conn:
-        return [r[0] for r in _fetchall(conn, sql, p=pattern.upper())]
-
-
-def _exists(sql: str, **binds) -> bool:
-    with get_connection() as conn:
+        t = str(tabela).upper()
+        if t in _CACHE_COLUNAS: return _CACHE_COLUNAS[t]
         cur = conn.cursor()
-        cur.execute(sql, **binds)
-        return cur.fetchone() is not None
-
-
-def validar_cabecalho_minimo(d: dict):
-    errs: list[str] = []
-    warns: list[str] = []
-
-    # Campos mínimos (considerando exigências do TRG_INC_TGFCAB)
-    required = ['CODEMP', 'CODPARC', 'CODTIPOPER', 'CODNAT', 'CODCENCUS', 'DTNEG']
-    for k in required:
-        if d.get(k) in (None, ''):
-            errs.append(f"Campo obrigatório ausente: {k}")
-
-    # Empresas (origem e negociação) em TSIEMP
-    try:
-        if d.get('CODEMP'):
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT COUNT(1) FROM TSIEMP WHERE CODEMP=:v", v=d['CODEMP'])
-                (cnt,) = cur.fetchone()
-                if int(cnt) == 0:
-                    errs.append(f"Empresa (CODEMP={d['CODEMP']}) inexistente em TSIEMP")
-        else:
-            errs.append("Empresa (CODEMP) obrigatória")
-    except Exception:
-        warns.append("Não foi possível validar TSIEMP (CODEMP)")
-
-    try:
-        if d.get('CODEMPNEGOC'):
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT COUNT(1) FROM TSIEMP WHERE CODEMP=:v", v=d['CODEMPNEGOC'])
-                (cnt,) = cur.fetchone()
-                if int(cnt) == 0:
-                    errs.append(f"Empresa de negociação (CODEMPNEGOC={d['CODEMPNEGOC']}) inexistente em TSIEMP")
-    except Exception:
-        warns.append("Não foi possível validar TSIEMP (CODEMPNEGOC)")
-
-    # Parceiro ativo + papel conforme TIPMOV (fornecedor vs cliente)
-    try:
-        if d.get('CODPARC') is not None:
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT ATIVO, FORNECEDOR, CLIENTE FROM TGFPAR WHERE CODPARC=:v", v=d['CODPARC'])
-                row = cur.fetchone()
-                if not row:
-                    errs.append("Parceiro (CODPARC) inexistente")
-                else:
-                    ativo, fornecedor, cliente = row
-                    if str(ativo).upper() != 'S':
-                        errs.append("Parceiro (CODPARC) inativo")
-                    tipmov = (d.get('TIPMOV') or '').upper()
-                    if tipmov in ('O','C','E') and str(fornecedor).upper() != 'S':
-                        errs.append("Parceiro deve ser fornecedor (FORNECEDOR='S') para TIPMOV de entrada ('O','C','E')")
-                    if tipmov in ('P','V','D','1','2','3','8','N') and str(cliente).upper() != 'S':
-                        errs.append("Parceiro deve ser cliente (CLIENTE='S') para TIPMOV de venda ('P','V','D','1','2','3','8','N')")
-        else:
-            errs.append("Parceiro (CODPARC) obrigatório")
-    except Exception:
-        warns.append("Não foi possível validar TGFPAR (ativo/papel)")
-
-    # Transportadora: permitir 0/ausente; validar apenas se > 0
-    try:
-        codtransp = d.get('CODPARCTRANSP')
-        if codtransp not in (None, '', 0):
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT COUNT(1) FROM TGFPAR WHERE CODPARC=:v AND ATIVO='S'", v=codtransp)
-                (cnt,) = cur.fetchone()
-                if int(cnt) == 0:
-                    errs.append("Transportadora (CODPARCTRANSP) inativa ou inexistente")
-    except Exception:
-        warns.append("Não foi possível validar CODPARCTRANSP")
-
-    # Vendedor: permitir 0 (padrão de algumas bases). Validar somente se > 0.
-    try:
-        codvend = d.get('CODVEND')
-        if codvend not in (None, '', 0):
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT COUNT(1) FROM TGFVEN WHERE CODVEND=:v AND ATIVO='S'", v=codvend)
-                (cnt,) = cur.fetchone()
-                if int(cnt) == 0:
-                    errs.append("Vendedor (CODVEND) inativo ou inexistente")
-    except Exception:
-        warns.append("Não foi possível validar TGFVEN")
-
-    # Natureza ativa e analítica
-    try:
-        if d.get('CODNAT') is not None:
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT COUNT(1) FROM TGFNAT WHERE CODNAT=:v AND ATIVA='S' AND ANALITICA='S'", v=d['CODNAT'])
-                (cnt,) = cur.fetchone()
-                if int(cnt) == 0:
-                    errs.append("Natureza (CODNAT) inativa ou não analítica")
-    except Exception:
-        warns.append("Não foi possível validar TGFNAT")
-
-    # Centro de resultado ativo e analítico
-    try:
-        if d.get('CODCENCUS'):
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT COUNT(1) FROM TSICUS WHERE CODCENCUS=:v AND ATIVO='S' AND ANALITICO='S'", v=d['CODCENCUS'])
-                (cnt,) = cur.fetchone()
-                if int(cnt) == 0:
-                    errs.append("Centro de Resultado (CODCENCUS) inativo ou não analítico")
-        else:
-            errs.append("Centro de Resultado (CODCENCUS) obrigatório")
-    except Exception:
-        warns.append("Não foi possível validar TSICUS")
-
-    # Projeto: permitir 0/ausente; validar apenas se > 0 e exigir ativo+analítico
-    try:
-        codproj = d.get('CODPROJ')
-        if codproj not in (None, '', 0):
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT COUNT(1) FROM TCSPRJ WHERE CODPROJ=:v AND ATIVO='S' AND ANALITICO='S'", v=codproj)
-                (cnt,) = cur.fetchone()
-                if int(cnt) == 0:
-                    errs.append("Projeto (CODPROJ) inativo, não analítico ou inexistente")
-    except Exception:
-        warns.append("Não foi possível validar TCSPRJ")
-
-    # TOP ativo e TIPMOV compatível (com DHALTER escolhido)
-    try:
-        if d.get('CODTIPOPER'):
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT ATIVO, TIPMOV FROM TGFTOP WHERE CODTIPOPER=:k AND DHALTER = :d",
-                    k=d['CODTIPOPER'], d=d.get('DHTIPOPER')
-                )
-                row = cur.fetchone()
-                if not row:
-                    errs.append("TOP (CODTIPOPER/DHTIPOPER) inexistente — DHTIPOPER deve casar com TGFTOP.DHALTER")
-                else:
-                    ativo, top_tipmov = row
-                    if str(ativo).upper() != 'S':
-                        errs.append("TOP inativa (TGFTOP.ATIVO<>'S')")
-                    if d.get('TIPMOV') and top_tipmov and str(d['TIPMOV']).upper() != str(top_tipmov).upper():
-                        errs.append("TIPMOV da nota não corresponde ao TIPMOV da TOP selecionada")
-    except Exception:
-        warns.append("Não foi possível validar TGFTOP (ATIVO/TIPMOV)")
-
-    # Tipo de negociação (TPV): obrigatório para TIPMOV P/V/D; proibido (0) em T/R
-    try:
-        tipmov = (d.get('TIPMOV') or '').upper()
-        if tipmov in ('P','V','D'):
-            if not d.get('CODTIPVENDA'):
-                errs.append("Tipo de negociação (CODTIPVENDA) obrigatório para TIPMOV P/V/D")
-            else:
-                # Se DHTIPVENDA foi preenchido no plano, validar ativo
-                if d.get('DHTIPVENDA'):
-                    with get_connection() as conn:
-                        cur = conn.cursor()
-                        cur.execute(
-                            "SELECT COUNT(1) FROM TGFTPV WHERE CODTIPVENDA=:v AND DHALTER=:d AND ATIVO='S'",
-                            v=d['CODTIPVENDA'], d=d['DHTIPVENDA']
-                        )
-                        (cnt,) = cur.fetchone()
-                        if int(cnt) == 0:
-                            errs.append("Tipo de negociação (TGFTPV) inativo para o DHALTER selecionado")
-        if tipmov in ('T','R'):
-            if d.get('CODTIPVENDA') not in (None, '', 0):
-                errs.append("Para TIPMOV T/R, CODTIPVENDA deve ser 0")
-    except Exception:
-        warns.append("Não foi possível validar TGFTPV")
-
-    # Possível duplicidade de NUMNOTA (aviso)
-    if d.get('NUMNOTA'):
-        try:
-            serie = d.get('SERIENOTA') or ''
-            if _exists(
-                "SELECT 1 FROM TGFCAB WHERE CODEMP=:e AND NUMNOTA=:n AND NVL(SERIENOTA,'')=NVL(:s,'')",
-                e=d['CODEMP'], n=d['NUMNOTA'], s=serie
-            ):
-                warns.append("Já existe documento com CODEMP/NUMNOTA/SERIENOTA — confirme regra de unicidade")
-        except Exception:
-            warns.append("Não foi possível checar duplicidade de NUMNOTA")
-
-    # Transferência local bloqueada (UTILIZALOCAL='N')
-    try:
-        if (d.get('TIPMOV') or '').upper() == 'T' and d.get('CODEMP') and d.get('CODEMPNEGOC') and d['CODEMP'] == d['CODEMPNEGOC']:
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT LOGICO FROM TSIPAR WHERE CHAVE='UTILIZALOCAL'")
-                row = cur.fetchone()
-                if row and str(row[0]).upper() == 'N':
-                    errs.append("Transferência local bloqueada (TSIPAR UTILIZALOCAL='N') para TIPMOV 'T' com mesma empresa")
-    except Exception:
-        warns.append("Não foi possível consultar TSIPAR (UTILIZALOCAL)")
-
-    return errs, warns
-
-
-def _coerce_hour_int(hr) -> int:
-    if hr in (None, ''):
-        from datetime import datetime
-        return int(datetime.now().strftime('%H%M%S'))
-    s = str(hr).replace(':','').strip()
-    if not s.isdigit():
-        raise ValueError('HRMOV inválido')
-    return int(s)
-
-
-def plan_insert_cabecalho(d: dict) -> dict:
-    """Monta um plano de INSERT na TGFCAB com binds, após validações básicas.
-    Não executa nada; retorna SQL, binds, erros/avisos e detecção de trigger/sequence para NUNOTA.
-    """
-    # Defaults recomendados
-    data = d.copy()
-    data.setdefault('TIPMOV', 'E')
-    if not data.get('DTMOV'):
-        data['DTMOV'] = data.get('DTNEG')
-    if not data.get('DTENTSAI'):
-        data['DTENTSAI'] = data.get('DTNEG')
-    if not data.get('HRMOV'):
-        data['HRMOV'] = _coerce_hour_int(d.get('HRMOV'))
-    data.setdefault('PENDENTE', 'S')
-    data.setdefault('STATUSNOTA', 'A')
-    if 'CODEMPNEGOC' not in data and data.get('CODEMP'):
-        data['CODEMPNEGOC'] = data['CODEMP']
-
-    # Preencher DHTIPOPER e conciliar TIPMOV com a TOP
-    if data.get('CODTIPOPER') and not data.get('DHTIPOPER'):
-        try:
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT MAX(DHALTER) FROM TGFTOP WHERE CODTIPOPER=:k",
-                    k=data['CODTIPOPER']
-                )
-                (dh,) = cur.fetchone()
-                if dh:
-                    data['DHTIPOPER'] = dh
-                # Tentar obter TIPMOV da TOP mais recente
-                cur.execute(
-                    "SELECT TIPMOV FROM (SELECT TIPMOV, DHALTER FROM TGFTOP WHERE CODTIPOPER=:k ORDER BY DHALTER DESC) WHERE ROWNUM=1",
-                    k=data['CODTIPOPER']
-                )
-                row = cur.fetchone()
-                if row and row[0]:
-                    top_tipmov = row[0]
-                    if data.get('TIPMOV') and data['TIPMOV'] != top_tipmov:
-                        # harmonizar conforme trigger exige igualdade
-                        data['TIPMOV'] = top_tipmov
-        except Exception:
-            pass
-
-    # Se TIPMOV de venda/pedido/devolução, exigir/ajustar TPV (CODTIPVENDA/DHTIPVENDA)
-    try:
-        tipmov = (data.get('TIPMOV') or '').upper()
-        if tipmov in ('P','V','D') and data.get('CODTIPVENDA'):
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT MAX(DHALTER) FROM TGFTPV WHERE CODTIPVENDA=:v",
-                    v=data['CODTIPVENDA']
-                )
-                row = cur.fetchone()
-                if row and row[0]:
-                    data['DHTIPVENDA'] = row[0]
-    except Exception:
-        pass
-
-    errs, warns = validar_cabecalho_minimo(data)
-
-    # Inspeções de metadados
-    pk_cols = get_table_pk('TGFCAB')
-    fks = get_table_fks('TGFCAB')
-    notnulls = get_not_null_cols('TGFCAB')
-    triggers = get_triggers('TGFCAB')
-    trig_nextval = find_triggers_using_nextval('TGFCAB', 'NUNOTA')
-    seq_guess = list_sequences_like('%NUNOTA%')
-    # Extra introspection (cross-schema, if permitted) and identity check
-    all_trig = []
-    all_seq = []
-    identity = None
-    try:
-        with get_connection() as conn:
-            try:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT trigger_name FROM all_triggers "
-                    "WHERE table_name=:t AND UPPER(trigger_body) LIKE :k1 AND UPPER(trigger_body) LIKE '%NEXTVAL%'",
-                    t='TGFCAB', k1='%NUNOTA%')
-                all_trig = [r[0] for r in cur.fetchall()]
-            except Exception:
-                all_trig = []
-            try:
-                cur.execute(
-                    "SELECT sequence_owner, sequence_name FROM all_sequences WHERE sequence_name LIKE :p",
-                    p='%NUNOTA%')
-                all_seq = [f"{r[0]}.{r[1]}" for r in cur.fetchall()]
-            except Exception:
-                all_seq = []
-            try:
-                cur.execute(
-                    "SELECT identity_column FROM user_tab_cols WHERE table_name='TGFCAB' AND column_name='NUNOTA'"
-                )
-                row = cur.fetchone()
-                identity = row[0] if row else None
-            except Exception:
-                identity = None
-    except Exception:
-        pass
-
-    uses_trigger_nunota = len(trig_nextval) > 0
-    notnull_cols = {c for c, _t, _d in notnulls}
-    requires_nunota = ('NUNOTA' in notnull_cols) and (not identity) and (not uses_trigger_nunota)
-
-    # Ajuste: se NUMNOTA é NOT NULL e não informado, preencher com 0 (placeholder)
-    if 'NUMNOTA' in notnull_cols and (data.get('NUMNOTA') in (None, '')):
-        data['NUMNOTA'] = 0
-
-    # Checar existência da coluna DTALTER para sempre popular com SYSDATE no INSERT
-    has_dtalter = False
-    try:
-        with get_connection() as _c:
-            has_dtalter = 'DTALTER' in _get_table_columns(_c, 'TGFCAB')
-    except Exception:
-        has_dtalter = False
-
-    # Montar SQL minimalista com RETURNING NUNOTA
-    cols = [
-        'CODEMP','CODEMPNEGOC','CODPARC','CODPARCTRANSP','CODVEND',
-        'CODTIPOPER','DHTIPOPER','TIPMOV',
-        'CODNAT','CODCENCUS','CODPROJ',
-        'CODTIPVENDA','DHTIPVENDA',
-        'DTNEG','DTMOV','DTENTSAI','HRMOV',
-        'NUMNOTA','NUMPEDIDO','OBSERVACAO','PENDENTE','STATUSNOTA'
-    ]
-    if has_dtalter:
-        cols.append('DTALTER')
-    if requires_nunota:
-        cols = ['NUNOTA'] + cols
-    # Remover campos não informados (opcionais)
-    for opt in ['CODCENCUS','CODPROJ','CODPARCTRANSP','CODVEND','CODTIPVENDA','DHTIPVENDA','NUMNOTA','NUMPEDIDO','OBSERVACAO','DHTIPOPER']:
-        val = data.get(opt)
-        if val in (None, ''):
-            try:
-                cols.remove(opt)
-            except ValueError:
-                pass
-
-    value_exprs = []
-    binds = {}
-    for c in cols:
-        if c == 'DTALTER' and has_dtalter:
-            value_exprs.append('SYSDATE')
-            continue
-        if c in ('DTNEG','DTMOV','DTENTSAI'):
-            value_exprs.append(f"TO_DATE(:{c}, 'DD/MM/YYYY')")
-            binds[c] = data[c]
-        elif c == 'DHTIPOPER':
-            value_exprs.append(f":{c}")
-            binds[c] = data[c]
-        else:
-            value_exprs.append(f":{c}")
-            binds[c] = data.get(c)
-
-    col_list = ', '.join(cols)
-    val_list = ', '.join(value_exprs)
-    sql = f"INSERT INTO TGFCAB ({col_list}) VALUES ({val_list}) RETURNING NUNOTA INTO :out_nunota"
-
-    plan = {
-        'ok': len(errs)==0,
-        'errors': errs,
-        'warnings': warns,
-        'sql': sql,
-        'binds': binds,
-        'requires_nunota': requires_nunota,
-        'uses_trigger_for_nunota': uses_trigger_nunota,
-        'sequence_candidates': seq_guess,
-        'all_triggers_using_nextval': all_trig,
-        'all_sequences_candidates': all_seq,
-        'identity_column_flag': identity,
-        'pk': pk_cols,
-        'fks': [{'col': c, 'ref_table': rt, 'ref_col': rc} for c, rt, rc in fks],
-        'not_nulls': [{'col': c, 'type': t, 'default': dflt} for c, t, dflt in notnulls],
-        'triggers': [{'name': n, 'status': s} for n, s in triggers],
-        'data': data,
-    }
-    # Se definimos NUMNOTA automaticamente por ser NOT NULL, registrar aviso
-    try:
-        if 'NUMNOTA' in notnull_cols and int(d.get('NUMNOTA') or 0) == 0 and int(data.get('NUMNOTA') or 0) == 0:
-            plan.setdefault('warnings', []).append('NUMNOTA é NOT NULL nesta base; definido como 0 por padrão. Informe um número de documento se necessário.')
-    except Exception:
-        pass
-
-    return plan
-
-
-def insert_cabecalho(d: dict, dry_run: bool = True) -> dict:
-    """Executa (ou simula) o INSERT do cabeçalho TGFCAB. Respeita feature-flag de escrita.
-    Retorna dict com plano e, se executado, o NUNOTA gerado.
-    """
-    plan = plan_insert_cabecalho(d)
-    if dry_run or not is_write_enabled():
-        if not is_write_enabled() and not dry_run:
-            plan.setdefault('warnings', []).append('Escrita desabilitada por política — execução em modo simulado')
-        return plan
-
-    if not plan['ok']:
-        return plan
-
-    with get_connection() as conn:
-        try:
-            cur = conn.cursor()
-            out_n = cur.var(cx_Oracle.NUMBER)
-            binds = plan['binds'].copy()
-            # Preencher NUNOTA se necessário e ainda não definido
-            if plan.get('requires_nunota'):
-                try:
-                    if not binds.get('NUNOTA'):
-                        binds['NUNOTA'] = _obter_proximo_nunota(conn)
-                        plan['nunota_assigned_before'] = binds['NUNOTA']
-                except Exception as gen_err:
-                    plan.setdefault('warnings', []).append(f'Falha ao gerar NUNOTA automaticamente: {gen_err}')
-            binds['out_nunota'] = out_n
-            cur.execute(plan['sql'], binds)
-            raw = out_n.getvalue()
-            if isinstance(raw, list):
-                raw = raw[0] if raw else None
-            nunota_val = int(raw) if raw is not None else None
-            conn.commit()
-            plan['nunota'] = nunota_val
-            plan['executed'] = True
-            return plan
-        except cx_Oracle.DatabaseError as e:
-            # Tratamento de violação de PK_TGFCAB: tentar regenerar NUNOTA e reexecutar uma vez
-            try:
-                err, = e.args
-                code = getattr(err, 'code', None)
-                msg = getattr(err, 'message', str(e))
-            except Exception:
-                code = None
-                msg = str(e)
-            if plan.get('requires_nunota') and code in (1, '1') and ('PK_TGFCAB' in (msg or '')):
-                try:
-                    cur = conn.cursor()
-                    out_n = cur.var(cx_Oracle.NUMBER)
-                    binds = plan['binds'].copy()
-                    binds['NUNOTA'] = _obter_proximo_nunota(conn)
-                    plan['nunota_retry_assigned'] = binds['NUNOTA']
-                    binds['out_nunota'] = out_n
-                    cur.execute(plan['sql'], binds)
-                    raw2 = out_n.getvalue()
-                    if isinstance(raw2, list):
-                        raw2 = raw2[0] if raw2 else None
-                    nunota_val = int(raw2) if raw2 is not None else None
-                    conn.commit()
-                    plan['nunota'] = nunota_val
-                    plan['executed'] = True
-                    plan.setdefault('warnings', []).append('NUNOTA colidiu com PK; gerado novo NUNOTA e reexecutado com sucesso.')
-                    return plan
-                except Exception as e2:
-                    try:
-                        err2, = getattr(e2, 'args', [None])
-                        plan['db_error'] = {
-                            'code': getattr(err2, 'code', None),
-                            'message': getattr(err2, 'message', str(e2)),
-                        }
-                    except Exception:
-                        plan['db_error'] = {'message': str(e2)}
-                    plan['executed'] = False
-                    return plan
-            # Sem possibilidade de retry, reportar erro
-            plan['db_error'] = {'code': code, 'message': msg}
-            plan['executed'] = False
-            return plan
-
-def insert_cabecalho_fast(d: dict, dry_run: bool = False) -> dict:
-    """
-    Versão OTIMIZADA de insert_cabecalho que bypassa validações de metadados.
-    Usa INSERT direto com campos fixos conhecidos do Sankhya.
-    
-    ~5x mais rápido que insert_cabecalho() tradicional.
-    
-    Use quando:
-    - Performance é crítica
-    - Campos são conhecidos e validados no frontend
-    - Não precisa de validação dinâmica de schema
-    
-    Campos obrigatórios:
-    - CODEMP, CODPARC, CODTIPOPER, CODNAT, DTNEG
-    
-    Retorna: dict com {'ok': bool, 'nunota': int, 'executed': bool, 'error': str}
-    """
-    out = {'ok': False, 'executed': False, 'nunota': None}
-    
-    if dry_run or not is_write_enabled():
-        out['error'] = 'Modo dry_run ou escrita desabilitada'
-        return out
-    
-    # Validações mínimas
-    required = ['CODEMP', 'CODPARC', 'CODTIPOPER', 'CODNAT', 'DTNEG']
-    missing = [f for f in required if not d.get(f)]
-    if missing:
-        out['error'] = f'Campos obrigatórios faltando: {", ".join(missing)}'
-        return out
-    
-    try:
-        with get_connection() as conn:
-            cur = conn.cursor()
-            
-            # Buscar DHTIPOPER e TIPMOV da TOP
-            cur.execute("""
-                SELECT TIPMOV, DHALTER 
-                FROM (SELECT TIPMOV, DHALTER FROM TGFTOP WHERE CODTIPOPER=:k ORDER BY DHALTER DESC) 
-                WHERE ROWNUM=1
-            """, k=d['CODTIPOPER'])
-            top_row = cur.fetchone()
-            if not top_row:
-                out['error'] = f'CODTIPOPER {d["CODTIPOPER"]} não encontrado em TGFTOP'
-                return out
-            
-            tipmov = top_row[0]
-            dhtipoper = top_row[1]
-            
-            # Gerar NUNOTA para a nova TOP 26
-            cur.execute("SELECT NVL(MAX(NUNOTA),0)+1 FROM TGFCAB")
-            nunota = int(cur.fetchone()[0])
-            
-            # Defaults
-            codemp = int(d['CODEMP'])
-            codparc = int(d['CODPARC'])
-            codtipoper = int(d['CODTIPOPER'])
-            codnat = int(d['CODNAT'])
-            codcencus = int(d.get('CODCENCUS', 0)) if d.get('CODCENCUS') else None
-            codvend = int(d.get('CODVEND', 0)) if d.get('CODVEND') else None
-            codparctransp = int(d.get('CODPARCTRANSP', 0)) if d.get('CODPARCTRANSP') else None
-            codproj = int(d.get('CODPROJ', 0)) if d.get('CODPROJ') else None
-            
-            dtneg = d['DTNEG']  # Formato DD/MM/YYYY
-            dtmov = d.get('DTMOV') or dtneg
-            dtentsai = d.get('DTENTSAI') or dtneg
-            hrmov = d.get('HRMOV') or '0'
-            observacao = d.get('OBSERVACAO') or d.get('OBS')
-            pendente = d.get('PENDENTE', 'S')
-            statusnota = d.get('STATUSNOTA', 'A')
-            
-            # REGRA: Ao criar TOP 26 (Classificação), copiar NUMNOTA e NUMPEDIDO do TOP 11 vinculado
-            p = get_params()
-            TOP_ENTRADA = int(p['TOP_ENTRADA'])  # TOP 11
-            TOP_CLASS = int(p['TOP_CLASS'])      # TOP 26
-            
-            # Inicializar com valores fornecidos ou None
-            numnota_final = d.get('NUMNOTA')
-            numpedido_final = int(d.get('NUMPEDIDO', 0)) if d.get('NUMPEDIDO') else None
-            
-            print(f'🔍 [insert_cabecalho_fast] CODTIPOPER={codtipoper}, TOP_CLASS={TOP_CLASS}')
-            print(f'🔍 [insert_cabecalho_fast] NUNOTA_ORIGEM no payload: {d.get("NUNOTA_ORIGEM")}')
-            print(f'🔍 [insert_cabecalho_fast] NUMNOTA no payload: {d.get("NUMNOTA")}')
-            print(f'🔍 [insert_cabecalho_fast] NUMPEDIDO no payload: {d.get("NUMPEDIDO")}')
-            
-            if codtipoper == TOP_CLASS:
-                print(f'✅ [TOP 26 DETECTADO] Iniciando busca do TOP 11 de origem...')
-                # Buscar NUNOTA do pedido origem (TOP 11) 
-                nunota_origem = d.get('NUNOTA_ORIGEM')
-                if nunota_origem:
-                    try:
-                        print(f'🔍 Verificando se TOP 11 NUNOTA={nunota_origem} existe...')
-                        cur.execute("""
-                            SELECT NUNOTA
-                            FROM TGFCAB
-                            WHERE NUNOTA = :nunota AND CODTIPOPER = :top
-                        """, nunota=int(nunota_origem), top=TOP_ENTRADA)
-                        
-                        row_origem = cur.fetchone()
-                        if row_origem:
-                            print(f'✅ TOP 11 encontrado! NUNOTA={row_origem[0]}')
-                            
-                            # CRÍTICO: TOP 26 deve referenciar o TOP 11
-                            # NUMNOTA = NUNOTA do TOP 11
-                            # NUMPEDIDO = NUNOTA do TOP 11
-                            numnota_final = int(nunota_origem)
-                            numpedido_final = int(nunota_origem)
-                            
-                            print(f'🔗 [TOP 26] Configurado para vincular ao TOP 11:')
-                            print(f'🔗 [TOP 26]   NUMNOTA = {numnota_final} (NUNOTA do TOP 11)')
-                            print(f'🔗 [TOP 26]   NUMPEDIDO = {numpedido_final} (NUNOTA do TOP 11)')
-                        else:
-                            print(f'⚠️ [TOP 26] Pedido origem (TOP 11) NUNOTA {nunota_origem} não encontrado')
-                    except Exception as e:
-                        print(f'⚠️ [TOP 26] Erro ao buscar dados do TOP 11: {e}')
-                        import traceback
-                        traceback.print_exc()
-                else:
-                    print(f'⚠️ [TOP 26] NUNOTA_ORIGEM não fornecido no payload')
-            
-            # Se NUMNOTA não foi copiado do TOP 11, usar o NUNOTA gerado
-            if not numnota_final:
-                numnota_final = nunota
-                print(f'ℹ️ NUMNOTA não copiado, usando NUNOTA gerado: {numnota_final}')
-            
-            numnota = numnota_final
-            numpedido = numpedido_final
-            print(f'📋 Valores finais: NUMNOTA={numnota}, NUMPEDIDO={numpedido}')
-            
-            # Construir INSERT dinâmico com campos obrigatórios e padrões
-            cols = ['NUNOTA', 'CODEMP', 'CODEMPNEGOC', 'CODPARC', 'CODTIPOPER', 'DHTIPOPER', 'TIPMOV',
-                   'CODNAT', 'DTNEG', 'DTMOV', 'DTENTSAI', 'HRMOV', 'NUMNOTA', 'PENDENTE', 'STATUSNOTA', 'DTALTER',
-                   'TIPFRETE', 'CIF_FOB', 'ISSRETIDO', 'APROVADO', 'IRFRETIDO', 'DIGITAL', 'CANCELADO']
-            vals = [':NUNOTA', ':CODEMP', ':CODEMP', ':CODPARC', ':CODTIPOPER', ':DHTIPOPER', ':TIPMOV',
-                   ':CODNAT', 'TO_DATE(:DTNEG,\'DD/MM/YYYY\')', 'TO_DATE(:DTMOV,\'DD/MM/YYYY\')', 
-                   'TO_DATE(:DTENTSAI,\'DD/MM/YYYY\')', ':HRMOV', ':NUMNOTA', ':PENDENTE', ':STATUSNOTA', 'SYSDATE',
-                   ':TIPFRETE', ':CIF_FOB', ':ISSRETIDO', ':APROVADO', ':IRFRETIDO', ':DIGITAL', ':CANCELADO']
-            
-            binds = {
-                'NUNOTA': nunota,
-                'CODEMP': codemp,
-                'CODPARC': codparc,
-                'CODTIPOPER': codtipoper,
-                'DHTIPOPER': dhtipoper,
-                'TIPMOV': tipmov,
-                'CODNAT': codnat,
-                'DTNEG': dtneg,
-                'DTMOV': dtmov,
-                'DTENTSAI': dtentsai,
-                'HRMOV': hrmov,
-                'NUMNOTA': numnota,
-                'PENDENTE': pendente,
-                'STATUSNOTA': statusnota,
-                'TIPFRETE': 'N',
-                'CIF_FOB': 'C',
-                'ISSRETIDO': 'N',
-                'APROVADO': 'N',
-                'IRFRETIDO': 'S',
-                'DIGITAL': 'N',
-                'CANCELADO': 'N',
-            }
-            
-            # Adicionar campos opcionais se fornecidos
-            if numpedido:
-                cols.append('NUMPEDIDO')
-                vals.append(':NUMPEDIDO')
-                binds['NUMPEDIDO'] = numpedido
-            if codcencus:
-                cols.append('CODCENCUS')
-                vals.append(':CODCENCUS')
-                binds['CODCENCUS'] = codcencus
-            if codvend:
-                cols.append('CODVEND')
-                vals.append(':CODVEND')
-                binds['CODVEND'] = codvend
-            if codparctransp:
-                cols.append('CODPARCTRANSP')
-                vals.append(':CODPARCTRANSP')
-                binds['CODPARCTRANSP'] = codparctransp
-            if codproj:
-                cols.append('CODPROJ')
-                vals.append(':CODPROJ')
-                binds['CODPROJ'] = codproj
-            if observacao:
-                cols.append('OBSERVACAO')
-                vals.append(':OBSERVACAO')
-                binds['OBSERVACAO'] = observacao
-            
-            sql = f"INSERT INTO TGFCAB ({', '.join(cols)}) VALUES ({', '.join(vals)})"
-            
-            cur.execute(sql, binds)
-            conn.commit()
-            
-            out['ok'] = True
-            out['executed'] = True
-            out['nunota'] = nunota
-            out['sql'] = sql
-            out['binds'] = {k: v for k, v in binds.items() if k != 'DHTIPOPER'}  # Não expor timestamp interno
-            
-            return out
-            
-    except Exception as e:
-        out['error'] = str(e)
-        out['db_error'] = {'message': str(e)}
-        try:
-            if hasattr(e, 'args') and e.args:
-                err = e.args[0]
-                if hasattr(err, 'code'):
-                    out['db_error']['code'] = err.code
-                if hasattr(err, 'message'):
-                    out['db_error']['message'] = err.message
-        except:
-            pass
-        return out
-
-def _obter_proximo_nunota(conn) -> int:
-    """Gera próximo NUNOTA evitando colisão com PK.
-    Estratégia: usar USER_SEQUENCES/ALL_SEQUENCES candidatas e avançar NEXTVAL até superar MAX(NUNOTA);
-    fallback para MAX(NUNOTA)+1 se nenhuma sequence apropriada.
-    """
-    cur = conn.cursor()
-    # MAX atual
-    cur.execute("SELECT NVL(MAX(NUNOTA),0) FROM TGFCAB")
-    (mx,) = cur.fetchone()
-    mx = int(mx or 0)
-
-    # Tentar sequences do usuário primeiro
-    seqs: list[tuple[str, str]] = []
-    try:
-        cur.execute("SELECT sequence_name FROM user_sequences WHERE sequence_name LIKE :p OR sequence_name LIKE :p2 ORDER BY sequence_name", p='%NUNOTA%', p2='%TGFCAB%')
-        seqs = [(None, r[0]) for r in cur.fetchall()]
-    except Exception:
-        seqs = []
-    if not seqs:
-        try:
-            cur.execute("SELECT sequence_owner, sequence_name FROM all_sequences WHERE sequence_name LIKE :p OR sequence_name LIKE :p2 ORDER BY sequence_owner, sequence_name",
-                        p='%NUNOTA%', p2='%TGFCAB%')
-            seqs = [(r[0], r[1]) for r in cur.fetchall()]
-        except Exception:
-            seqs = []
-
-    def _nextval(owner: str|None, name: str) -> int:
-        if owner:
-            cur.execute(f"SELECT {owner}.{name}.NEXTVAL FROM DUAL")
-        else:
-            cur.execute(f"SELECT {name}.NEXTVAL FROM DUAL")
-        (v,) = cur.fetchone()
-        return int(v)
-
-    for owner, name in seqs:
-        try:
-            val = _nextval(owner, name)
-            # Avança até ficar acima do MAX atual (com limite de iterações)
-            steps = 0
-            while val <= mx and steps < 100:
-                val = _nextval(owner, name)
-                steps += 1
-            if val > mx:
-                return val
-        except Exception:
-            continue
-
-    # Fallback seguro: MAX+1
-    return mx + 1
-
-
-def plan_update_cabecalho(d: dict) -> dict:
-    """Planeja UPDATE no cabeçalho TGFCAB. Revalida campos-chave e monta SQL com binds.
-    Campos aceitos para atualização: NUMNOTA, DTNEG, DTMOV, DTENTSAI, HRMOV, CODPARC, CODTIPOPER, DHTIPOPER, CODNAT, CODCENCUS, OBSERVACAO, STATUSNOTA, QTDBATIDAS.
-    Requer: NUNOTA.
-    """
-    data = d.copy()
-    errs: list[str] = []
-    warns: list[str] = []
-
-    try:
-        nunota = int(data.get('NUNOTA'))
-    except Exception:
-        nunota = None
-    if not nunota:
-        errs.append('NUNOTA obrigatório para atualização')
-
-    # Carregar cabeçalho atual para defaults/validação
-    current = None
-    if nunota:
-        try:
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT CODEMP, CODPARC, CODTIPOPER, CODNAT, CODCENCUS, DTNEG, DTMOV, DTENTSAI, HRMOV, NUMNOTA FROM TGFCAB WHERE NUNOTA=:n", n=nunota)
-                row = cur.fetchone()
-                if row:
-                    current = {
-                        'CODEMP': row[0], 'CODPARC': row[1], 'CODTIPOPER': row[2], 'CODNAT': row[3], 'CODCENCUS': row[4],
-                        'DTNEG': row[5], 'DTMOV': row[6], 'DTENTSAI': row[7], 'HRMOV': row[8], 'NUMNOTA': row[9],
-                    }
-                else:
-                    errs.append('Cabeçalho (NUNOTA) não encontrado')
-        except Exception:
-            warns.append('Falha ao carregar cabeçalho atual para validação')
-
-    # Preparar payload completo para validação
-    if current:
-        payload = current.copy()
-        # Coerções de entrada (datas no formato dd/mm/yyyy se vierem como yyyy-mm-dd)
-        def _to_br(val):
-            if val in (None, '', 'None', 'null'):
-                return None
-            s = str(val)
-            if len(s) == 10 and s[4] == '-' and s[7] == '-':
-                return f"{s[8:10]}/{s[5:7]}/{s[0:4]}"
-            return s
-        # Aplicar overrides vindos no dicionário
-        if data.get('NUMNOTA') is not None:
-            payload['NUMNOTA'] = data.get('NUMNOTA')
-        if data.get('DTNEG'):
-            payload['DTNEG'] = _to_br(data.get('DTNEG'))
-        if data.get('DTMOV'):
-            payload['DTMOV'] = _to_br(data.get('DTMOV'))
-        if data.get('DTENTSAI'):
-            payload['DTENTSAI'] = _to_br(data.get('DTENTSAI'))
-        if data.get('HRMOV'):
-            payload['HRMOV'] = data.get('HRMOV')
-        if data.get('CODPARC') is not None:
-            payload['CODPARC'] = data.get('CODPARC')
-        if data.get('CODTIPOPER') is not None:
-            payload['CODTIPOPER'] = data.get('CODTIPOPER')
-        if data.get('CODNAT') is not None:
-            payload['CODNAT'] = data.get('CODNAT')
-        if data.get('CODCENCUS') is not None:
-            payload['CODCENCUS'] = data.get('CODCENCUS')
-        if data.get('OBSERVACAO') is not None:
-            payload['OBSERVACAO'] = data.get('OBSERVACAO')
-
-        # Ajustar TIPMOV/DHTIPOPER conforme TOP
-        try:
-            if payload.get('CODTIPOPER'):
-                with get_connection() as conn:
-                    cur = conn.cursor()
-                    cur.execute("SELECT MAX(DHALTER) FROM TGFTOP WHERE CODTIPOPER=:k", k=payload['CODTIPOPER'])
-                    (dhmax,) = cur.fetchone()
-                    if dhmax:
-                        data['DHTIPOPER'] = dhmax
-                        payload['DHTIPOPER'] = dhmax
-                    cur.execute(
-                        "SELECT TIPMOV FROM (SELECT TIPMOV, DHALTER FROM TGFTOP WHERE CODTIPOPER=:k ORDER BY DHALTER DESC) WHERE ROWNUM=1",
-                        k=payload['CODTIPOPER']
-                    )
-                    row = cur.fetchone()
-                    if row and row[0]:
-                        payload['TIPMOV'] = row[0]
-        except Exception:
-            pass
-
-        # Validar conjunto SOMENTE se estamos alterando campos estruturais
-        # Campos "livres" (QTDBATIDAS, OBSERVACAO, STATUSNOTA, PENDENTE) não exigem validação completa
-        campos_livres_apenas = all(
-            data.get(k) is None 
-            for k in ['CODPARC', 'CODTIPOPER', 'CODNAT', 'CODCENCUS', 'DTNEG', 'DTMOV', 'DTENTSAI', 'NUMNOTA']
-        )
-        if not campos_livres_apenas:
-            v_errs, v_warns = validar_cabecalho_minimo(payload)
-            errs.extend(v_errs)
-            warns.extend(v_warns)
-
-    # Construir SQL de UPDATE apenas com campos informados
-    sets = []
-    binds = {'NUNOTA': nunota}
-    if data.get('NUMNOTA') is not None:
-        sets.append('NUMNOTA=:NUMNOTA')
-        binds['NUMNOTA'] = data.get('NUMNOTA')
-    if data.get('CODEMP') is not None:
-        sets.append('CODEMP=:CODEMP')
-        binds['CODEMP'] = data.get('CODEMP')
-    for col in ('DTNEG','DTMOV','DTENTSAI'):
-        if data.get(col):
-            sets.append(f"{col}=TO_DATE(:{col}, 'YYYY-MM-DD')")
-            binds[col] = data.get(col)
-    if data.get('HRMOV'):
-        sets.append('HRMOV=:HRMOV')
-        binds['HRMOV'] = data.get('HRMOV')
-    if data.get('CODPARC') is not None:
-        sets.append('CODPARC=:CODPARC')
-        binds['CODPARC'] = data.get('CODPARC')
-    if data.get('CODTIPOPER') is not None:
-        sets.append('CODTIPOPER=:CODTIPOPER')
-        binds['CODTIPOPER'] = data.get('CODTIPOPER')
-        if data.get('DHTIPOPER') is not None:
-            sets.append('DHTIPOPER=:DHTIPOPER')
-            binds['DHTIPOPER'] = data.get('DHTIPOPER')
-    if data.get('CODNAT') is not None:
-        sets.append('CODNAT=:CODNAT')
-        binds['CODNAT'] = data.get('CODNAT')
-    if data.get('CODCENCUS') is not None:
-        sets.append('CODCENCUS=:CODCENCUS')
-        binds['CODCENCUS'] = data.get('CODCENCUS')
-    if data.get('OBSERVACAO') is not None:
-        sets.append('OBSERVACAO=:OBSERVACAO')
-        binds['OBSERVACAO'] = data.get('OBSERVACAO')
-
-    # Quantidade total descartada (campo existente em TGFCAB)
-    if data.get('QTDBATIDAS') is not None:
-        try:
-            # Aceita int/float ou string numérica
-            qtdbatidas_val = data.get('QTDBATIDAS')
-            # Não forçar cast rígido aqui; Oracle aceitará numérico compatível
-            binds['QTDBATIDAS'] = qtdbatidas_val
-            sets.append('QTDBATIDAS=:QTDBATIDAS')
-        except Exception:
-            errs.append('QTDBATIDAS inválido')
-
-    # STATUSNOTA ('A' Atendimento, 'L' Liberado)
-    if data.get('STATUSNOTA') is not None:
-        try:
-            sn = str(data.get('STATUSNOTA') or '').strip().upper()
-        except Exception:
-            sn = ''
-        if sn not in ('A', 'L'):
-            errs.append("STATUSNOTA inválido (use 'A' ou 'L')")
-        else:
-            sets.append('STATUSNOTA=:STATUSNOTA')
-            binds['STATUSNOTA'] = sn
-    # PENDENTE ('S' ou 'N')
-    if data.get('PENDENTE') is not None:
-        try:
-            pd = str(data.get('PENDENTE') or '').strip().upper()
-        except Exception:
-            pd = ''
-        if pd not in ('S','N'):
-            errs.append("PENDENTE inválido (use 'S' ou 'N')")
-        else:
-            sets.append('PENDENTE=:PENDENTE')
-            binds['PENDENTE'] = pd
-
-    if not sets and len(errs) == 0:
-        warns.append('Nenhuma alteração informada')
-    # Se houver alterações, e a coluna DTALTER existir, acrescente DTALTER=SYSDATE
-    if sets:
-        try:
-            with get_connection() as _c:
-                if 'DTALTER' in _get_table_columns(_c, 'TGFCAB'):
-                    sets.append('DTALTER=SYSDATE')
-        except Exception:
-            pass
-
-    sql = f"UPDATE TGFCAB SET {', '.join(sets)} WHERE NUNOTA=:NUNOTA" if sets else None
-    return {
-        'ok': len(errs) == 0 and bool(sets),
-        'errors': errs,
-        'warnings': warns,
-        'sql': sql,
-        'binds': binds,
-        'data': data,
-    }
-
-
-def update_cabecalho(d: dict, dry_run: bool = True) -> dict:
-    plan = plan_update_cabecalho(d)
-    if dry_run or not is_write_enabled():
-        if not is_write_enabled() and not dry_run:
-            plan.setdefault('warnings', []).append('Escrita desabilitada por política — execução em modo simulado')
-        return plan
-    if not plan['ok']:
-        return plan
-    with get_connection() as conn:
-        try:
-            cur = conn.cursor()
-            cur.execute(plan['sql'], plan['binds'])
-            conn.commit()
-            plan['executed'] = True
-            return plan
-        except cx_Oracle.DatabaseError as e:
-            try:
-                err, = e.args
-                code = getattr(err, 'code', None)
-                msg = getattr(err, 'message', str(e))
-            except Exception:
-                code = None
-                msg = str(e)
-            plan['db_error'] = {'code': code, 'message': msg}
-            plan['executed'] = False
-            return plan
-
-def get_trigger_body(trigger_name: str) -> str | None:
-    """Obtém corpo do trigger (se possível) com ALL_TRIGGERS; fallback para ALL_SOURCE concatenando linhas."""
-    t = trigger_name.upper()
-    with get_connection() as conn:
-        cur = conn.cursor()
-        try:
-            cur.execute("SELECT trigger_body FROM all_triggers WHERE trigger_name=:n", n=t)
-            row = cur.fetchone()
-            if row and row[0]:
-                return row[0]
-        except Exception:
-            pass
-        try:
-            cur.execute(
-                "SELECT text FROM all_source WHERE name=:n AND type='TRIGGER' ORDER BY line",
-                n=t
-            )
-            parts = [r[0] for r in cur.fetchall()]
-            return ''.join(parts) if parts else None
-        except Exception:
-            return None
-
-def get_trigger_ddl(owner: str | None, trigger_name: str) -> str | None:
-    name = (trigger_name or '').upper()
-    with get_connection() as conn:
-        cur = conn.cursor()
-        # Try ALL_TRIGGERS columns (no full DDL, but includes header/body)
-        try:
-            if owner:
-                cur.execute(
-                    "SELECT description, trigger_body FROM all_triggers WHERE owner=:o AND trigger_name=:n",
-                    o=owner.upper(), n=name
-                )
-            else:
-                cur.execute(
-                    "SELECT description, trigger_body FROM all_triggers WHERE trigger_name=:n",
-                    n=name
-                )
-            row = cur.fetchone()
-            if row:
-                descr, body = row
-                ddl = f"-- {owner+'.' if owner else ''}{name}\nCREATE OR REPLACE TRIGGER {owner+'.' if owner else ''}{name}\n{descr}\n{body}\n/\n"
-                return ddl
-        except Exception:
-            pass
-        # Fallback: stitch from ALL_SOURCE
-        try:
-            if owner:
-                cur.execute(
-                    "SELECT text FROM all_source WHERE owner=:o AND name=:n AND type='TRIGGER' ORDER BY line",
-                    o=owner.upper(), n=name
-                )
-            else:
-                cur.execute(
-                    "SELECT text FROM all_source WHERE name=:n AND type='TRIGGER' ORDER BY line",
-                    n=name
-                )
-            parts = [r[0] for r in cur.fetchall()]
-            return ''.join(parts) + "\n/\n" if parts else None
-        except Exception:
-            return None
-
-
-def proximo_sequencial_lote(data) -> str:
-    """Retorna próximo sequencial HEX (5 dígitos) para o prefixo AAMMDD do lote (CODAGREGACAO).
-    Busca TGFITE por prefixo de CODAGREGACAO, independente do DTNEG do cabeçalho.
-    """
-    from datetime import datetime, date as _date
-    if isinstance(data, str):
-        data = datetime.strptime(data, '%Y-%m-%d').date()
-    if not isinstance(data, _date):
-        raise ValueError('data inválida para gerar lote')
-    prefix = data.strftime('%y%m%d')
-    # Buscar todos lotes com esse prefixo e extrair sufixo como HEX
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT CODAGREGACAO FROM TGFITE WHERE CODAGREGACAO LIKE :pfx AND CODAGREGACAO IS NOT NULL", pfx=f"{prefix}%")
-        rows = cur.fetchall()
-    max_incr = 0
-    preflen = len(prefix)
-    for (ctrl,) in rows:
-        s = (ctrl or '').strip().upper()
-        if not s.startswith(prefix):
-            continue
-        if len(s) <= preflen:
-            continue
-        suf = s[preflen:]
-        try:
-            val = int(suf, 16)
-        except Exception:
-            continue
-        if val > max_incr:
-            max_incr = val
-    nxt = max_incr + 1
-    if nxt > int('FFFFF', 16):
-        raise ValueError('Limite diário de FFFFF (HEX) excedido')
-    return format(nxt, 'X').upper().zfill(5)
-
-
-def gerar_lote(data, codparc=None, codprod=None):
-    """Gera lote no padrão AAMMDD + 'P' + codparc + 'P' + codprod + 'S' + sequencia(2dig).
-    Sequencia é incremental por data+codparc+codprod e sem padding à esquerda.
-    Ex: 250924P536P358S01 or 250924P6P25S14
-    """
-    from datetime import datetime, date as _date
-    if isinstance(data, str):
-        data = datetime.strptime(data, '%Y-%m-%d').date()
-    if not isinstance(data, _date):
-        raise ValueError('data inválida para gerar lote')
-    prefix = data.strftime('%y%m%d')
-    # Build key prefix for searching existing CODAGREGACAO values
-    # Pattern: AAMMDDP<codparc>P<codprod>S
-    cp = str(codparc) if codparc is not None else ''
-    cpp = str(codprod) if codprod is not None else ''
-    key_prefix = f"{prefix}P{cp}P{cpp}S"
-    # Find existing ones and extract trailing sequence number
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT CODAGREGACAO FROM TGFITE WHERE CODAGREGACAO LIKE :pfx AND CODAGREGACAO IS NOT NULL", pfx=f"{key_prefix}%")
-        rows = cur.fetchall()
-    max_seq = 0
-    preflen = len(key_prefix)
-    for (val,) in rows:
-        s = (val or '').strip()
-        if not s.startswith(key_prefix):
-            continue
-        suf = s[preflen:]
-        # try to parse numeric suffix
-        try:
-            seqv = int(suf)
-        except Exception:
-            continue
-        if seqv > max_seq:
-            max_seq = seqv
-    next_seq = max_seq + 1
-    return f"{prefix}P{cp}P{cpp}S{next_seq:02d}"
-
-
-def obter_proxima_sequencia(nunota: int) -> int:
-    """Retorna próxima SEQUENCIA para um NUNOTA em TGFITE (max + 1). Se nenhum item, retorna 1."""
-    sql = "SELECT NVL(MAX(SEQUENCIA),0) + 1 FROM TGFITE WHERE NUNOTA = :nunota"
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, nunota=nunota)
-        (prox,) = cur.fetchone()
-        return int(prox)
-
-
-def montar_item_compra(nunota: int, codparc: int, codprod: int, quantidade: float, vlrunit: float, data, sufixo: str|None=None):
-    """Monta estrutura de item bruto (entrada) com lote (CODAGREGACAO) gerado.
-    Não insere no banco, apenas retorna dict pronto para bind.
-    """
-    from datetime import date as _date, datetime
-    if not isinstance(data, _date):
-        data = datetime.strptime(str(data), '%Y-%m-%d').date()
-    codag = gerar_lote(data, codparc, codprod)
-    sequencia = obter_proxima_sequencia(nunota)
-    vlrtot = round(quantidade * vlrunit, 2)
-    return {
-        'NUNOTA': nunota,
-        'SEQUENCIA': sequencia,
-        'CODPROD': codprod,
-        'QTDNEG': quantidade,
-        'VLRUNIT': vlrunit,
-        'VLRTOT': vlrtot,
-        'CODPARC': codparc,
-        'CODAGREGACAO': codag,
-        'CODVOL': 'UN',
-        'OBSERVACAO': f'Entrada automatizada lote {codag}'
-    }
-
-
-def build_insert_item_sql():
-    """Retorna SQL parametrizado para inserir item em TGFITE (campos mínimos)."""
-    return (
-        "INSERT INTO TGFITE (NUNOTA, SEQUENCIA, CODEMP, CODPROD, QTDNEG, PESO, VLRUNIT, VLRTOT, CODVOL, CODLOCALORIG, CODAGREGACAO, OBSERVACAO, GERAPRODUCAO) "
-        "VALUES (:NUNOTA, :SEQUENCIA, :CODEMP, :CODPROD, :QTDNEG, :PESO, :VLRUNIT, :VLRTOT, :CODVOL, :CODLOCALORIG, :CODAGREGACAO, :OBSERVACAO, :GERAPRODUCAO)"
-    )
-
-
-def plan_insert_item(d: dict) -> dict:
-    """Planeja o INSERT em TGFITE com validações mínimas e binds calculados.
-    Campos esperados: NUNOTA, CODPROD, QTDNEG, VLRUNIT, CODAGREGACAO(opcional), CODVOL(opcional), OBSERVACAO(opcional).
-    """
-    data = d.copy()
-    errs: list[str] = []
-    warns: list[str] = []
-
-    # Coerções/Defaults
-    try:
-        data['NUNOTA'] = int(data.get('NUNOTA'))
-    except Exception:
-        errs.append('NUNOTA inválido ou ausente')
-    try:
-        data['CODPROD'] = int(data.get('CODPROD'))
-    except Exception:
-        errs.append('CODPROD inválido ou ausente')
-    try:
-        data['QTDNEG'] = float(data.get('QTDNEG'))
-    except Exception:
-        errs.append('QTDNEG inválida ou ausente')
-    try:
-        vu = float(data.get('VLRUNIT'))
-        if vu < 0:
-            warns.append('VLRUNIT negativo — verifique política')
-        data['VLRUNIT'] = vu
-    except Exception:
-        errs.append('VLRUNIT inválido ou ausente')
-    data['CODVOL'] = (data.get('CODVOL') or 'UN')
-    # CODLOCALORIG: padrão 101 conforme solicitação
-    try:
-        data['CODLOCALORIG'] = int(data.get('CODLOCALORIG') or data.get('CODLOCAL') or 101)
-    except Exception:
-        data['CODLOCALORIG'] = 101
-    # data['LOTE'] removed; use CODAGREGACAO instead
-    data['CODAGREGACAO'] = (data.get('CODAGREGACAO') or None)
-    obs = data.get('OBSERVACAO')
-    data['OBSERVACAO'] = obs if (obs not in (None, '')) else None
-
-    # GERAPRODUCAO (classificação): aceitar 'S'/'N' (case-insensitive); default None para deixar trigger definir 'S'
-    try:
-        gp = d.get('GERAPRODUCAO') if 'GERAPRODUCAO' in d else d.get('geraproducao')
-    except Exception:
-        gp = None
-    if gp is not None:
-        s = str(gp).strip().upper()
-        if s in ('S','N'):
-            data['GERAPRODUCAO'] = s
-        else:
-            data['GERAPRODUCAO'] = None
-    else:
-        data['GERAPRODUCAO'] = None
-
-    # Regras simples
-    if 'QTDNEG' in data and (isinstance(data['QTDNEG'], (int, float)) and data['QTDNEG'] <= 0):
-        errs.append('QTDNEG deve ser > 0')
-
-    # Verificar existência de NUNOTA e obter dados do cabeçalho (DTNEG, CODPARC, CODEMP, CODTIPOPER/DHTIPOPER)
-    dtneg_date = None
-    codparc = None
-    codemp = None
-    cab_codtop = None
-    cab_dhtop = None
-    if not errs:
-        try:
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT DTNEG, CODPARC, CODEMP, CODTIPOPER, DHTIPOPER FROM TGFCAB WHERE NUNOTA=:n", n=data['NUNOTA'])
-                row = cur.fetchone()
-                if not row:
-                    errs.append('NUNOTA inexistente em TGFCAB')
-                else:
-                    dtneg_date, codparc, codemp, cab_codtop, cab_dhtop = row[0], row[1], row[2], row[3], row[4]
-                    # Validar que TOP/DHALTER existem
-                    if cab_codtop is None or cab_dhtop is None:
-                        errs.append('Cabeçalho sem DHTIPOPER vinculado à TOP — não atende trigger')
-                    else:
-                        try:
-                            cur.execute("SELECT 1 FROM TGFTOP WHERE CODTIPOPER=:k AND DHALTER=:d", k=cab_codtop, d=cab_dhtop)
-                            if cur.fetchone() is None:
-                                errs.append('TOP/DHALTER inválidos para a nota (TGFTOP)')
-                        except Exception:
-                            pass
-                    # Validar empresa em TGFEMP (trigger usa TGFEMP)
-                    if codemp is not None:
-                        try:
-                            cur.execute("SELECT 1 FROM TGFEMP WHERE CODEMP=:e", e=codemp)
-                            if cur.fetchone() is None:
-                                errs.append(f'Empresa (CODEMP={codemp}) não encontrada em TGFEMP — trigger pode falhar')
-                        except Exception:
-                            pass
-        except Exception:
-            warns.append('Falha ao validar NUNOTA em TGFCAB')
-    try:
-        data['CODVOL'] = str(data['CODVOL']).strip().upper()
-    except Exception:
-        pass
-    # Validar CODVOL em TGFVOL
-    if not errs and data.get('CODVOL'):
-        try:
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT 1 FROM TGFVOL WHERE UPPER(CODVOL)=:v", v=str(data['CODVOL']).upper())
-                if cur.fetchone() is None:
-                    errs.append(f"Unidade (CODVOL='{data['CODVOL']}') inexistente em TGFVOL")
-        except Exception:
-            warns.append('Falha ao validar TGFVOL (CODVOL)')
-
-    # Verificar existência do produto
-    if not errs:
-        try:
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT COUNT(1) FROM TGFPRO WHERE CODPROD=:p", p=data['CODPROD'])
-                (cnt,) = cur.fetchone()
-                if int(cnt) == 0:
-                    errs.append('Produto (CODPROD) inexistente')
-        except Exception:
-            warns.append('Falha ao validar TGFPRO')
-
-    # IMPORTANTE: Agora QTDNEG vem em KG (Total kg) do frontend
-    # Não fazer conversão de unidade - QTDNEG já é o valor final em KG
-    # CODVOL será a unidade alternativa (ex: CX) apenas para referência
-    # Comentando conversão para manter QTDNEG em KG conforme digitado
-    # try:
-    #     if not errs and data.get('CODPROD') is not None and data.get('CODVOL'):
-    #         base, fator = get_base_unit_and_factor(int(data['CODPROD']), str(data['CODVOL']))
-    #         if base and str(base).upper() != str(data['CODVOL']).upper() and (fator is None or float(fator) <= 0):
-    #             errs.append(f"Unidade (CODVOL='{data['CODVOL']}') não é alternativa válida para o produto {data['CODPROD']}")
-    #         if base and str(base).upper() != str(data['CODVOL']).upper() and fator and float(fator) > 0:
-    #             try:
-    #                 q_alt = float(data['QTDNEG'])
-    #                 q_base = round(q_alt * float(fator), 6)
-    #                 data['QTDNEG'] = q_base
-    #                 warns.append(f"QTDNEG normalizada para a unidade base {base} (×{fator}): {q_alt} {data['CODVOL']} = {q_base} {base}")
-    #             except Exception:
-    #                 pass
-    # except Exception:
-    #     pass
-
-    # Calcular SEQUENCIA e valores
-    sequencia = None
-    if not errs and data.get('NUNOTA') is not None:
-        try:
-            sequencia = obter_proxima_sequencia(int(data['NUNOTA']))
-        except Exception:
-            warns.append('Não foi possível calcular SEQUENCIA; usando 1')
-            sequencia = 1
-    data['SEQUENCIA'] = sequencia
-    try:
-        data['VLRTOT'] = round(float(data['QTDNEG']) * float(data['VLRUNIT']), 2)
-    except Exception:
-        data['VLRTOT'] = None
-
-    # Política de CODAGREGACAO:
-    # - Para notas de Classificação (TOP_CLASS), exigir CODAGREGACAO fornecido pelo cliente (lote imutável)
-    # - Para outras TOPs, manter comportamento de sugerir automaticamente quando possível
-    try:
-        top_class = get_params().get('TOP_CLASS')
-    except Exception:
-        top_class = None
-    is_class_note = False
-    try:
-        if cab_codtop is not None and top_class is not None and int(cab_codtop) == int(top_class):
-            is_class_note = True
-    except Exception:
-        is_class_note = False
-
-    if is_class_note:
-        if not data.get('CODAGREGACAO'):
-            errs.append('CODAGREGACAO (lote) é obrigatório para itens de Classificação (TOP 26)')
-        # Política de preços: TOP 26 não trabalha com preço
-        try:
-            data['VLRUNIT'] = 0.0
-            data['VLRTOT'] = 0.0
-        except Exception:
-            pass
-    else:
-        # Gerar CODAGREGACAO se não informado but dtneg available (não-classificação)
-        if not data.get('CODAGREGACAO') and dtneg_date is not None:
-            try:
-                data['CODAGREGACAO'] = gerar_lote(dtneg_date, codparc, data.get('CODPROD'))
-                warns.append(f"CODAGREGACAO não informado; sugerido automaticamente: {data['CODAGREGACAO']}")
-            except Exception:
-                pass
-
-    # Montar SQL/binds mínimos — incluir DTALTER=SYSDATE se a coluna existir em TGFITE
-    has_dtalter_tgfite = False
-    try:
-        with get_connection() as _c:
-            has_dtalter_tgfite = 'DTALTER' in _get_table_columns(_c, 'TGFITE')
-    except Exception:
-        has_dtalter_tgfite = False
-
-    cols = [
-        'NUNOTA','SEQUENCIA','CODEMP','CODPROD','QTDNEG','PESO','VLRUNIT','VLRTOT','CODVOL','CODLOCALORIG','CODAGREGACAO','OBSERVACAO','GERAPRODUCAO'
-    ]
-    if has_dtalter_tgfite:
-        cols.append('DTALTER')
-    val_exprs = []
-    for c in cols:
-        if c == 'DTALTER':
-            val_exprs.append('SYSDATE')
-        else:
-            val_exprs.append(f":{c}")
-    sql = f"INSERT INTO TGFITE ({', '.join(cols)}) VALUES ({', '.join(val_exprs)})"
-    binds = {
-        'NUNOTA': data.get('NUNOTA'),
-        'SEQUENCIA': data.get('SEQUENCIA'),
-        'CODEMP': codemp,
-        'CODPROD': data.get('CODPROD'),
-        'QTDNEG': data.get('QTDNEG'),
-        'PESO': data.get('PESO'),
-        'VLRUNIT': 0.0 if is_class_note else data.get('VLRUNIT'),
-        'VLRTOT': 0.0 if is_class_note else data.get('VLRTOT'),
-        'CODVOL': data.get('CODVOL'),
-        'CODLOCALORIG': data.get('CODLOCALORIG'),
-        'CODAGREGACAO': data.get('CODAGREGACAO'),
-        'OBSERVACAO': data.get('OBSERVACAO'),
-        'GERAPRODUCAO': data.get('GERAPRODUCAO'),
-    }
-
-    return {
-        'ok': len(errs) == 0,
-        'errors': errs,
-        'warnings': warns,
-        'sql': sql,
-        'binds': binds,
-        'data': data,
-    }
-
-# ===== Standardization helpers (must be defined before insert/update item usage) =====
-def _get_table_columns(conn, table: str) -> set[str]:
-    try:
-        t = str(table).upper()
-        cached = _COLS_CACHE.get(t)
-        if cached is not None:
-            return cached
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT column_name FROM user_tab_cols WHERE table_name=:t",
-            t=t
-        )
+        cur.execute("SELECT column_name FROM user_tab_cols WHERE table_name=:t", t=t)
         cols = {r[0].upper() for r in cur.fetchall()}
-        _COLS_CACHE[t] = cols
+        _CACHE_COLUNAS[t] = cols
         return cols
     except Exception:
         return set()
 
+# --- CONSULTAS GENÉRICAS (TYPEAHEADS) ---
 
-def standardize_item_fields(nunota: int, sequencia: int, conn=None) -> dict:
-    """Standardize post-write columns on TGFITE.
-    Applies the following defaults when the respective columns exist:
-      - NUTAB=77
-      - ALIQICMS=0, ALIQIPI=0, CODTRIB=0, M3=0, SOLCOMPRA='N', TERCEIROS='N',
-        ALTURA=0, LARGURA=0, ESPESSURA=0, PRECOBASE=0, VLRACRESCDESC=0,
-        VLRRETENCAO=0, CSTIPI=-1, QTDWMS=0, BASESTUFDEST=0, VLRICMSUFDEST=0,
-        BASESTANT=0, STATUSLOSTE='N', QTDVOL=1, VLRSTEXTRANOTA=0, VLRUNITMOE=0,
-        VLRDESCMOE=0, VLRTOTMOE=0, ALIQSTEXTRANOTA=0, BASESTEXTRANOTA=0,
-        VLRREPREDSEMDESC=0, CODSIT08EFD='N', INDREPDES=1
-    Always updates DTALTER=SYSDATE if the column exists.
-    """
-    res = {'ok': False, 'updated': 0, 'sql': None}
-    if nunota in (None, '') or sequencia in (None, ''):
-        res['error'] = 'Parâmetros inválidos'
-        return res
-    owns_conn = False
-    if conn is None:
-        conn = get_connection().__enter__()
-        owns_conn = True
-    try:
+def consultar_parceiros_oracle(termo: str, limite: int = 10):
+    """Busca parceiros ativos na TGFPAR (Por código ou nome)."""
+    if not termo: return []
+    termo = str(termo).strip().upper()
+    with obter_conexao_oracle() as conn:
         cur = conn.cursor()
-        cols = _get_table_columns(conn, 'TGFITE')
-        # Build SETs with requested defaults when columns exist
-        wanted_defaults = {
-            'NUTAB': 77,
-            'ALIQICMS': 0,
-            'ALIQIPI': 0,
-            'CODTRIB': 0,
-            'M3': 0,
-            'SOLCOMPRA': 'N',
-            'TERCEIROS': 'N',
-            'ALTURA': 0,
-            'LARGURA': 0,
-            'ESPESSURA': 0,
-            'VLRACRESCDESC': 0,
-            'VLRRETENCAO': 0,
-            'CSTIPI': -1,
-            'QTDWMS': 0,
-            'BASESTUFDEST': 0,
-            'VLRICMSUFDEST': 0,
-            'BASESTANT': 0,
-            'STATUSLOSTE': 'N',
-            'STATUSLOTE': 'N',
-            'QTDVOL': 1,
-            'VLRSTEXTRANOTA': 0,
-            'VLRUNITMOE': 0,
-            'VLRDESCMOE': 0,
-            'VLRTOTMOE': 0,
-            'ALIQSTEXTRANOTA': 0,
-            'BASESTEXTRANOTA': 0,
-            'VLRREPREDSEMDESC': 0,
-            'CODSIT08EFD': 'N',
-            'INDREPDES': 1,
-            'ATUALESTTERC': 'N',
-            'CUSTO': 0,
-        }
-        apply_items = [(k, v) for k, v in wanted_defaults.items() if k in cols]
-        # Special handling: do NOT overwrite PRECOBASE if it's already set. Only default to 0 when NULL.
-        try:
-            if 'PRECOBASE' in cols:
-                cur.execute("SELECT PRECOBASE FROM TGFITE WHERE NUNOTA=:N AND SEQUENCIA=:S", N=int(nunota), S=int(sequencia))
-                row_pb = cur.fetchone()
-                current_pb = row_pb[0] if row_pb else None
-                if current_pb in (None, ''):
-                    apply_items.append(('PRECOBASE', 0))
-                # else: keep existing PRECOBASE (user-edited) — do not add to defaults
-        except Exception:
-            # On any error reading current value, be conservative and do not touch PRECOBASE
-            pass
-        set_parts = []
-        binds = {}
-        if apply_items:
-            set_parts.extend([f"{k} = :{k}" for k, _ in apply_items])
-            binds.update({k: v for k, v in apply_items})
-        if 'DTALTER' in cols:
-            set_parts.append('DTALTER = SYSDATE')
-        if not set_parts:
-            res['ok'] = True
-            return res
-        sql = f"UPDATE TGFITE SET {', '.join(set_parts)} WHERE NUNOTA=:N AND SEQUENCIA=:S"
-        binds['N'] = int(nunota)
-        binds['S'] = int(sequencia)
-        cur.execute(sql, binds)
-        res['updated'] = int(cur.rowcount or 0)
-        conn.commit()
-        res['sql'] = sql
-        res['binds'] = binds
-        res['ok'] = True
-        return res
-    finally:
-        if owns_conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-
-
-
-def insert_item(d: dict, dry_run: bool = True) -> dict:
-    """Executa (ou simula) o INSERT do item em TGFITE.
-    Retorna dict com plano, e se executado, confirma a sequência gravada.
-    """
-    plan = plan_insert_item(d)
-    if dry_run or not is_write_enabled():
-        if not is_write_enabled() and not dry_run:
-            plan.setdefault('warnings', []).append('Escrita desabilitada por política — execução em modo simulado')
-        return plan
-
-    if not plan['ok']:
-        return plan
-
-    with get_connection() as conn:
-        try:
-            cur = conn.cursor()
-            cur.execute(plan['sql'], plan['binds'])
-            conn.commit()
-            plan['executed'] = True
-            plan['nunota'] = plan['binds'].get('NUNOTA')
-            plan['sequencia'] = plan['binds'].get('SEQUENCIA')
-            # Apply standardization for SIM columns after insert
-            try:
-                std = standardize_item_fields(plan['nunota'], plan['sequencia'], conn=conn)
-                plan['standardize'] = std
-            except Exception as _e:
-                plan.setdefault('warnings', []).append(f'Falha ao padronizar colunas SIM: {_e}')
-            return plan
-        except cx_Oracle.DatabaseError as e:
-            try:
-                err, = e.args
-                code = getattr(err, 'code', None)
-                msg = getattr(err, 'message', str(e))
-            except Exception:
-                code = None
-                msg = str(e)
-            plan['db_error'] = {'code': code, 'message': msg}
-            plan['executed'] = False
-            return plan
-
-
-def insert_item_fast(d: dict, dry_run: bool = False) -> dict:
-    """
-    Versão ULTRA-OTIMIZADA de insert_item que bypassa validações pesadas.
-    Usa INSERT direto com campos fixos conhecidos do Sankhya.
-    
-    OTIMIZAÇÕES APLICADAS:
-    - Elimina validações de TGFVOL, TGFPRO, TGFTOP (assume frontend validou)
-    - Remove UPDATE de VLRNOTA (triggers Sankhya fazem automaticamente)
-    - Remove chamada a standardize_item_fields (não essencial para portal)
-    - Remove geração automática de lote via gerar_lote() (query pesada em TGFITE)
-    - Busca apenas CODEMP e CODTIPOPER do cabeçalho (campos essenciais)
-    
-    ~10x mais rápido que insert_item() tradicional.
-    
-    Use quando:
-    - Performance é crítica (portal, operações frequentes)
-    - Campos já validados no frontend
-    - NUNOTA já existe e é válido
-    - CODAGREGACAO fornecido ou pode ser NULL
-    
-    Campos obrigatórios:
-    - NUNOTA, CODPROD, QTDNEG, VLRUNIT
-    
-    Retorna: dict com {'ok': bool, 'nunota': int, 'sequencia': int, 'executed': bool}
-    """
-    out = {'ok': False, 'executed': False, 'nunota': None, 'sequencia': None, 'warnings': []}
-    
-    if dry_run or not is_write_enabled():
-        out['error'] = 'Modo dry_run ou escrita desabilitada'
-        return out
-    
-    # Validações mínimas
-    warnings: list[str] = []
-
-    try:
-        nunota = int(d.get('NUNOTA'))
-        codprod = int(d.get('CODPROD'))
-        qtdneg = float(d.get('QTDNEG'))
-        vlrunit = float(d.get('VLRUNIT'))
-    except (TypeError, ValueError):
-        out['error'] = 'Campos obrigatórios inválidos: NUNOTA, CODPROD, QTDNEG, VLRUNIT'
-        return out
-    
-    if qtdneg <= 0:
-        out['error'] = 'QTDNEG deve ser > 0'
-        return out
-    
-    try:
-        with get_connection() as conn:
-            cur = conn.cursor()
-            table_cols = _get_table_columns(conn, 'TGFITE')
-
-            col_len_map: Dict[str, int] = {}
-            cur_meta = None
-            try:
-                cur_meta = conn.cursor()
-                cur_meta.execute(
-                    "SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH FROM USER_TAB_COLS WHERE TABLE_NAME = :t",
-                    t='TGFITE'
-                )
-                for name, dtype, length in cur_meta:
-                    try:
-                        if dtype and str(dtype).upper() in {'CHAR', 'NCHAR', 'VARCHAR2', 'NVARCHAR2'}:
-                            col_len_map[str(name).upper()] = int(length or 0)
-                    except Exception:
-                        continue
-            except Exception:
-                col_len_map = {}
-            finally:
-                try:
-                    if cur_meta is not None:
-                        cur_meta.close()
-                except Exception:
-                    pass
-
-            def clamp_text(col: str, value) -> Optional[str]:
-                if value is None:
-                    return None
-                text = str(value)
-                limit = col_len_map.get(col.upper())
-                if limit and limit > 0 and len(text) > limit:
-                    warnings.append(f"{col.upper()} truncado de {len(text)} para {limit} caracteres")
-                    return text[:limit]
-                return text
-
-            # Buscar apenas CODEMP e CODTIPOPER (dados essenciais)
-            cur.execute("SELECT CODEMP, CODTIPOPER FROM TGFCAB WHERE NUNOTA=:n", n=nunota)
-            cab_row = cur.fetchone()
-            if not cab_row:
-                out['error'] = f'NUNOTA {nunota} não encontrado'
-                return out
-            
-            codemp = cab_row[0]
-            codtipoper = cab_row[1]
-            
-            # Calcular próxima SEQUENCIA
-            cur.execute("SELECT NVL(MAX(SEQUENCIA),0)+1 FROM TGFITE WHERE NUNOTA=:n", n=nunota)
-            sequencia = int(cur.fetchone()[0])
-            
-            # Defaults
-            peso = d.get('PESO') or 0
-            # CODVOL: usar unidade alternativa do payload (ex: CX)
-            codvol = d.get('CODVOL') or 'UN'
-            codvol = clamp_text('CODVOL', str(codvol).strip().upper())
-            codlocalorig = int(d.get('CODLOCALORIG') or d.get('CODLOCAL') or 101)
-            codagregacao = d.get('CODAGREGACAO') or d.get('LOTE')
-            if codagregacao is not None:
-                codagregacao = str(codagregacao).strip()
-                if codagregacao == '':
-                    codagregacao = None
-            controle_val = d.get('CONTROLE') or d.get('CODCONTROLE')
-            if controle_val is not None:
-                controle_val = str(controle_val).strip()
-                if controle_val == '':
-                    controle_val = None
-            if not codagregacao and controle_val:
-                codagregacao = controle_val
-            observacao = d.get('OBSERVACAO') or d.get('OBS')
-            geraproducao = d.get('GERAPRODUCAO') or d.get('geraproducao')
-            
-            # QTDNEG já vem em KG do frontend (Total kg)
-            # CODVOL mantém unidade alternativa original (ex: CX)
-            # Não faz conversão de unidade - salva diretamente o valor recebido
-            
-            # Gerar lote se não fornecido (exceto TOP classificação)
-            top_class = None
-            try:
-                top_class = get_params().get('TOP_CLASS')
-            except:
-                pass
-            
-            is_class_note = (top_class and codtipoper == int(top_class))
-            
-            # Para TOP classificação, CODAGREGACAO é obrigatório e já validado no frontend
-            # Para outros, aceitar None se não fornecido (triggers podem gerar)
-            if not codagregacao and not is_class_note:
-                # Não gerar automaticamente - deixar trigger fazer ou aceitar NULL
-                # Isso elimina query pesada em TGFITE
-                pass
-            
-            # Para TOP classificação, zerar valores
-            if is_class_note:
-                vlrunit = 0.0
-                vlrtot = 0.0
-            else:
-                vlrtot = round(qtdneg * vlrunit, 2)
-            
-            # Normalizar GERAPRODUCAO
-            if geraproducao:
-                gp_str = str(geraproducao).strip().upper()
-                if gp_str in ('S', 'N'):
-                    geraproducao = gp_str
-                else:
-                    geraproducao = None
-            else:
-                geraproducao = None
-            
-            # Construir INSERT com colunas apenas quando disponíveis na tabela alvo
-            cols_sql = ['NUNOTA', 'SEQUENCIA', 'CODEMP', 'CODPROD', 'QTDNEG', 'VLRUNIT', 'VLRTOT']
-            vals_sql = [':NUNOTA', ':SEQUENCIA', ':CODEMP', ':CODPROD', ':QTDNEG', ':VLRUNIT', ':VLRTOT']
-
-            binds = {
-                'NUNOTA': nunota,
-                'SEQUENCIA': sequencia,
-                'CODEMP': codemp,
-                'CODPROD': codprod,
-                'QTDNEG': qtdneg,
-                'VLRUNIT': vlrunit,
-                'VLRTOT': vlrtot,
-            }
-
-            if 'PESO' in table_cols:
-                cols_sql.append('PESO')
-                vals_sql.append(':PESO')
-                binds['PESO'] = peso
-            if 'CODVOL' in table_cols:
-                cols_sql.append('CODVOL')
-                vals_sql.append(':CODVOL')
-                binds['CODVOL'] = codvol
-
-            # Compat: alguns bancos usam CODLOCAL ou CODLOCALORIG
-            if 'CODLOCALORIG' in table_cols:
-                cols_sql.append('CODLOCALORIG')
-                vals_sql.append(':CODLOCALORIG')
-                binds['CODLOCALORIG'] = codlocalorig
-            elif 'CODLOCAL' in table_cols:
-                cols_sql.append('CODLOCAL')
-                vals_sql.append(':CODLOCAL')
-                binds['CODLOCAL'] = codlocalorig
-            if 'CODLOCALDEST' in table_cols:
-                cols_sql.append('CODLOCALDEST')
-                vals_sql.append(':CODLOCALDEST')
-                binds['CODLOCALDEST'] = codlocalorig
-
-            if 'DTALTER' in table_cols:
-                cols_sql.append('DTALTER')
-                vals_sql.append('SYSDATE')
-            
-            # Adicionar campos opcionais
-            if codagregacao:
-                lote_val = str(codagregacao)
-                for col_name in ('CODAGREGACAO', 'LOTE'):
-                    if col_name in table_cols and col_name not in binds:
-                        val = clamp_text(col_name, lote_val)
-                        if val is None:
-                            continue
-                        cols_sql.append(col_name)
-                        vals_sql.append(f':{col_name}')
-                        binds[col_name] = val
-
-            if controle_val:
-                ctrl_text = clamp_text('CONTROLE', controle_val)
-                if ctrl_text is not None:
-                    for col_name in ('CONTROLE', 'CODCONTROLE'):
-                        if col_name in table_cols and col_name not in binds:
-                            cols_sql.append(col_name)
-                            vals_sql.append(f':{col_name}')
-                            binds[col_name] = ctrl_text
-            
-            if observacao:
-                obs_val = clamp_text('OBSERVACAO', observacao)
-                if obs_val:
-                    cols_sql.append('OBSERVACAO')
-                    vals_sql.append(':OBSERVACAO')
-                    binds['OBSERVACAO'] = obs_val
-            
-            if geraproducao:
-                cols_sql.append('GERAPRODUCAO')
-                vals_sql.append(':GERAPRODUCAO')
-                binds['GERAPRODUCAO'] = geraproducao
-            
-            sql = f"INSERT INTO TGFITE ({', '.join(cols_sql)}) VALUES ({', '.join(vals_sql)})"
-            
-            cur.execute(sql, binds)
-            conn.commit()
-            
-            out['ok'] = True
-            out['executed'] = True
-            out['nunota'] = nunota
-            out['sequencia'] = sequencia
-            out['sql'] = sql
-            out['binds'] = binds
-            if warnings:
-                out['warnings'] = warnings
-            
-            return out
-            
-    except Exception as e:
-        out['error'] = str(e)
-        out['db_error'] = {'message': str(e)}
-        try:
-            import logging
-            logger = logging.getLogger(__name__)
-            binds_debug = locals().get('binds')
-            debug_payload = {
-                'payload': d,
-                'binds': binds_debug,
-                'warnings': warnings,
-            }
-            if isinstance(binds_debug, dict):
-                debug_payload['bind_lengths'] = {
-                    key: len(val) if isinstance(val, str) else None for key, val in binds_debug.items()
-                }
-            try:
-                col_len_map  # type: ignore[name-defined]
-            except NameError:
-                pass
-            else:
-                debug_payload['col_limits'] = col_len_map  # type: ignore[assignment]
-            try:
-                logger.warning('insert_item_fast failed: %s | debug=%s', e, debug_payload)
-            except Exception:
-                pass
-        except Exception:
-            pass
-        try:
-            if hasattr(e, 'args') and e.args:
-                err = e.args[0]
-                if hasattr(err, 'code'):
-                    out['db_error']['code'] = err.code
-                if hasattr(err, 'message'):
-                    out['db_error']['message'] = err.message
-        except:
-            pass
-        return out
-
-
-def plan_update_item(d: dict) -> dict:
-    """Planeja UPDATE em TGFITE para um item existente identificado por NUNOTA+SEQUENCIA.
-    Campos aceitos para atualização: CODPROD, QTDNEG, VLRUNIT, CODVOL, CODLOCALORIG, LOTE, OBSERVACAO,
-    AD_SIMQTDDESC, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2.
-    Requer: NUNOTA e SEQUENCIA.
-    """
-    data = d.copy()
-    errs: list[str] = []
-    warns: list[str] = []
-
-    try:
-        data['NUNOTA'] = int(data.get('NUNOTA'))
-    except Exception:
-        errs.append('NUNOTA inválido ou ausente')
-    try:
-        data['SEQUENCIA'] = int(data.get('SEQUENCIA'))
-    except Exception:
-        errs.append('SEQUENCIA inválida ou ausente')
-
-    if errs:
-        return {'ok': False, 'errors': errs, 'warnings': warns, 'data': data}
-
-    # Verificar existência do item
-    try:
-        with get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT 1 FROM TGFITE WHERE NUNOTA=:n AND SEQUENCIA=:s", n=data['NUNOTA'], s=data['SEQUENCIA'])
-            if cur.fetchone() is None:
-                errs.append('Item (NUNOTA/SEQUENCIA) não encontrado')
-    except Exception:
-        warns.append('Falha ao validar existência do item')
-
-    # Coerções/opcionais
-    if data.get('CODPROD') is not None:
-        try:
-            data['CODPROD'] = int(data.get('CODPROD'))
-        except Exception:
-            errs.append('CODPROD inválido')
-    if data.get('QTDNEG') is not None:
-        try:
-            data['QTDNEG'] = float(data.get('QTDNEG'))
-            if data['QTDNEG'] <= 0:
-                errs.append('QTDNEG deve ser > 0')
-        except Exception:
-            errs.append('QTDNEG inválida')
-    if data.get('VLRUNIT') is not None:
-        try:
-            data['VLRUNIT'] = float(data.get('VLRUNIT'))
-        except Exception:
-            errs.append('VLRUNIT inválido')
-    # Permitir atualizar PRECOBASE (Preço Inicial unitário na tela Comercial)
-    if data.get('PRECOBASE') is not None:
-        def _parse_decimal(val):
-            try:
-                # aceita numérico direto
-                if isinstance(val, (int, float)):
-                    return float(val)
-                s = str(val).strip()
-                if s == '':
-                    return None
-                # remove símbolos monetários e espaços
-                import re
-                s = re.sub(r"[^0-9,\.-]", "", s)
-                # remove separadores de milhar (.) quando há vírgula como decimal
-                if ',' in s and '.' in s:
-                    s = s.replace('.', '')
-                # vírgula para decimal
-                s = s.replace(',', '.')
-                return float(s)
-            except Exception:
-                return None
-        pb = _parse_decimal(data.get('PRECOBASE'))
-        if pb is None:
-            # valor inválido: não incluir PRECOBASE na atualização (em vez de gravar 0)
-            data.pop('PRECOBASE', None)
-            warns.append('PRECOBASE ignorado (formato inválido)')
+        if termo.isdigit():
+            sql = "SELECT CODPARC, NOMEPARC FROM TGFPAR WHERE (CODPARC = :k OR TO_CHAR(CODPARC) LIKE :pfx) AND NVL(ATIVO,'S')='S' AND ROWNUM <= :lim"
+            cur.execute(sql, k=int(termo), pfx=f"{termo}%", lim=limite)
         else:
-            data['PRECOBASE'] = pb
-    # FORÇAR SEMPRE KG: ignorar CODVOL do frontend e sempre salvar em KG
-    # QTDNEG já vem em KG (Total kg) - não precisa conversão
-    # CODVOL mantém unidade alternativa original (ex: CX)
-    if data.get('CODVOL'):
-        data['CODVOL'] = str(data['CODVOL']).strip().upper()
-    print(f"🔍 UPDATE: QTDNEG={data.get('QTDNEG')} kg, CODVOL={data.get('CODVOL')}")
-
-    # Se VLRUNIT e QTDNEG presentes, recalcular VLRTOT apenas se VLRTOT não foi explicitamente fornecido
-    # Isso permite que comercial_dist_save envie VLRTOT exato da tela sem recálculos indevidos
-    if data.get('QTDNEG') is not None and data.get('VLRUNIT') is not None:
-        # Só recalcula se VLRTOT não foi fornecido no payload original (d)
-        if d.get('VLRTOT') is None:
-            try:
-                data['VLRTOT'] = round(float(data['QTDNEG']) * float(data['VLRUNIT']), 2)
-            except Exception:
-                data['VLRTOT'] = None
-
-    # Se a nota for TOP_CLASS, forçar preço 0 (política: TOP 26 não trabalha com preço)
-    try:
-        with get_connection() as _c3:
-            cur3 = _c3.cursor()
-            cur3.execute("SELECT CODTIPOPER FROM TGFCAB WHERE NUNOTA=:n", n=data['NUNOTA'])
-            row3 = cur3.fetchone()
-            codtop3 = row3[0] if row3 else None
-            top_class3 = get_params().get('TOP_CLASS')
-            if codtop3 is not None and top_class3 is not None and int(codtop3) == int(top_class3):
-                data['VLRUNIT'] = 0.0
-                data['VLRTOT'] = 0.0
-    except Exception:
-        pass
-
-    # Montar SETs/binds
-    sets = []
-    binds = {'NUNOTA': data['NUNOTA'], 'SEQUENCIA': data['SEQUENCIA']}
-    if data.get('CODPROD') is not None:
-        sets.append('CODPROD=:CODPROD'); binds['CODPROD'] = data['CODPROD']
-    if data.get('QTDNEG') is not None:
-        sets.append('QTDNEG=:QTDNEG'); binds['QTDNEG'] = data['QTDNEG']
-    if data.get('PESO') is not None:
-        sets.append('PESO=:PESO'); binds['PESO'] = data['PESO']
-    if data.get('VLRUNIT') is not None:
-        sets.append('VLRUNIT=:VLRUNIT'); binds['VLRUNIT'] = data['VLRUNIT']
-    if data.get('VLRTOT') is not None:
-        sets.append('VLRTOT=:VLRTOT'); binds['VLRTOT'] = data['VLRTOT']
-    if data.get('PRECOBASE') is not None:
-        sets.append('PRECOBASE=:PRECOBASE'); binds['PRECOBASE'] = data['PRECOBASE']
-    if data.get('CODVOL') is not None:
-        sets.append('CODVOL=:CODVOL'); binds['CODVOL'] = data['CODVOL']
-    if data.get('CODLOCALORIG') is not None:
-        sets.append('CODLOCALORIG=:CODLOCALORIG'); binds['CODLOCALORIG'] = data['CODLOCALORIG']
-    if data.get('CODAGREGACAO') is not None:
-        # Enforce: if destination header is TOP_CLASS, do not allow changing CODAGREGACAO (immutable lote)
-        try:
-            with get_connection() as _c2:
-                cur2 = _c2.cursor()
-                cur2.execute("SELECT CODTIPOPER FROM TGFCAB WHERE NUNOTA=:n", n=data['NUNOTA'])
-                row2 = cur2.fetchone()
-                codtop = row2[0] if row2 else None
-                top_class = get_params().get('TOP_CLASS')
-                if codtop is not None and top_class is not None and int(codtop) == int(top_class):
-                    # skip adding CODAGREGACAO to SETs for classification note
-                    pass
-                else:
-                    sets.append('CODAGREGACAO=:CODAGREGACAO'); binds['CODAGREGACAO'] = data['CODAGREGACAO']
-        except Exception:
-            # On failure to determine, default to allowing update
-            sets.append('CODAGREGACAO=:CODAGREGACAO'); binds['CODAGREGACAO'] = data['CODAGREGACAO']
-    if data.get('OBSERVACAO') is not None:
-        sets.append('OBSERVACAO=:OBSERVACAO'); binds['OBSERVACAO'] = data['OBSERVACAO']
-    # Permitir alterar GERAPRODUCAO quando informado
-    if d.get('GERAPRODUCAO') is not None or d.get('geraproducao') is not None:
-        val = d.get('GERAPRODUCAO') if d.get('GERAPRODUCAO') is not None else d.get('geraproducao')
-        sval = str(val).strip().upper() if val is not None else None
-        if sval in ('S','N'):
-            sets.append('GERAPRODUCAO=:GERAPRODUCAO'); binds['GERAPRODUCAO'] = sval
-        else:
-            # valor inválido é ignorado, sem erro
-            pass
-    
-    # Permitir salvar campos de simulação Extra/Médio (AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2)
-    if data.get('AD_SIMQTD1') is not None:
-        try:
-            sets.append('AD_SIMQTD1=:AD_SIMQTD1'); binds['AD_SIMQTD1'] = float(data['AD_SIMQTD1'])
-        except Exception:
-            pass
-    if data.get('AD_SIMQTD2') is not None:
-        try:
-            sets.append('AD_SIMQTD2=:AD_SIMQTD2'); binds['AD_SIMQTD2'] = float(data['AD_SIMQTD2'])
-        except Exception:
-            pass
-    if data.get('AD_SIMVLR1') is not None:
-        try:
-            sets.append('AD_SIMVLR1=:AD_SIMVLR1'); binds['AD_SIMVLR1'] = float(data['AD_SIMVLR1'])
-        except Exception:
-            pass
-    if data.get('AD_SIMVLR2') is not None:
-        try:
-            sets.append('AD_SIMVLR2=:AD_SIMVLR2'); binds['AD_SIMVLR2'] = float(data['AD_SIMVLR2'])
-        except Exception:
-            pass
-    if data.get('AD_SIMQTDDESC') is not None:
-        try:
-            sets.append('AD_SIMQTDDESC=:AD_SIMQTDDESC'); binds['AD_SIMQTDDESC'] = float(data['AD_SIMQTDDESC'])
-        except Exception:
-            pass
-
-    if not sets:
-        warns.append('Nenhuma coluna para atualizar')
-
-    if sets:
-        try:
-            with get_connection() as _c:
-                if 'DTALTER' in _get_table_columns(_c, 'TGFITE'):
-                    sets.append('DTALTER=SYSDATE')
-        except Exception:
-            pass
-    sql = f"UPDATE TGFITE SET {', '.join(sets)} WHERE NUNOTA=:NUNOTA AND SEQUENCIA=:SEQUENCIA" if sets else None
-
-    return {'ok': len(errs) == 0 and bool(sets), 'errors': errs, 'warnings': warns, 'sql': sql, 'binds': binds, 'data': data}
-
-
-def update_item(d: dict, dry_run: bool = True) -> dict:
-    """Executa (ou simula) um UPDATE em TGFITE para o item identificado por NUNOTA/SEQUENCIA."""
-    plan = plan_update_item(d)
-    if dry_run or not is_write_enabled():
-        if not is_write_enabled() and not dry_run:
-            plan.setdefault('warnings', []).append('Escrita desabilitada por política — execução em modo simulado')
-        return plan
-    if not plan.get('ok'):
-        return plan
-    try:
-        with get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(plan['sql'], plan['binds'])
-            conn.commit()
-            plan['executed'] = True
-            # Apply standardization after update as well
-            try:
-                std = standardize_item_fields(plan['binds']['NUNOTA'], plan['binds']['SEQUENCIA'], conn=conn)
-                plan['standardize'] = std
-            except Exception as _e:
-                plan.setdefault('warnings', []).append(f'Falha ao padronizar colunas SIM: {_e}')
-            return plan
-    except cx_Oracle.DatabaseError as e:
-        try:
-            err, = e.args
-            plan['db_error'] = {'code': getattr(err, 'code', None), 'message': getattr(err, 'message', str(e))}
-        except Exception:
-            plan['db_error'] = {'message': str(e)}
-        plan['executed'] = False
-        return plan
-
-
-def calcular_agregados_lote(lote: str) -> dict:
-    """Calcula agregados principais do lote pesquisando TGFCAB/TGFITE usando TOPs reais."""
-    p = get_params()
-    TOP_ENTRADA = p['TOP_ENTRADA']
-    TOP_CLASS = p.get('TOP_CLASS', 26)
-    TOP_CLASS = p.get('TOP_CLASS', 26)
-    # Also need TOP_CLASS (e.g., 26) for classification status lookup below
-    TOP_CLASS = p.get('TOP_CLASS', 26)
-    TOP_CLASS = p['TOP_CLASS']
-    TOP_CLASS = p['TOP_CLASS']
-    TOP_CLASS = p['TOP_CLASS']
-    TOP_CLASS = p['TOP_CLASS']
-    TOP_CLASS = p['TOP_CLASS']
-    TOP_CLASS = p['TOP_CLASS']
-    TOP_CLASS = p['TOP_CLASS']
-    TOP_CLASS = p['TOP_CLASS']
-    TOP_CLASS = p['TOP_CLASS']
-    TOP_CLASS = p['TOP_CLASS']
-    TOP_CLASS = p['TOP_CLASS']
-    TOP_CLASS = p['TOP_CLASS']
-    TOP_CLASS = p['TOP_CLASS']
-    TOP_PED_VENDA = p['TOP_PED_VENDA']
-    TOP_VENDAS = p['TOP_VENDAS']
-    TOP_AVARIA = p['TOP_AVARIA']
-    PROD_IN_NATURA = p['PROD_IN_NATURA']
-    PROD_CLASS_LIST = p['PROD_CLASS_LIST']
-    PROD_DESCARTE = p['PROD_DESCARTE']
-
-    class_list_sql = ','.join(str(x) for x in PROD_CLASS_LIST)
-    vendas_list_sql = ','.join(str(x) for x in TOP_VENDAS)
-
-    agregados = {
-        'lote': lote,
-        'qtd_prevista': 0.0,
-        'qtd_classificada': 0.0,
-        'qtd_descartada': 0.0,
-        'qtd_vendida': 0.0,
-        'qtd_reservada': 0.0,
-        'qtd_disponivel': 0.0,
-        'divergencia': 0.0,
-        'estado': 'Desconhecido'
-    }
-    with get_connection() as conn:
-        cur = conn.cursor()
-        # Prevista (entrada in natura)
-        cur.execute(
-            """
-            SELECT NVL(SUM(i.QTDNEG), 0)
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-             WHERE i.CODAGREGACAO = :c
-               AND c.CODTIPOPER = :top
-               AND i.CODPROD = :prod
-            """,
-            c=lote, top=TOP_ENTRADA, prod=PROD_IN_NATURA
-        )
-        (agregados['qtd_prevista'],) = cur.fetchone()
-
-        # Classificada
-        cur.execute(
-            f"""
-            SELECT NVL(SUM(i.QTDNEG), 0)
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-             WHERE i.CODAGREGACAO = :c
-               AND c.CODTIPOPER = :top
-               AND i.CODPROD IN ({class_list_sql})
-            """,
-            c=lote, top=TOP_CLASS
-        )
-        (agregados['qtd_classificada'],) = cur.fetchone()
-
-        # Descarte (910) em classificação e avaria
-        cur.execute(
-            """
-            SELECT NVL(SUM(i.QTDNEG), 0)
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-             WHERE i.CODAGREGACAO = :c
-               AND i.CODPROD = :prod
-               AND c.CODTIPOPER IN (:tc, :ta)
-            """,
-            c=lote, prod=PROD_DESCARTE, tc=TOP_CLASS, ta=TOP_AVARIA
-        )
-        (agregados['qtd_descartada'],) = cur.fetchone()
-
-        # Vendida (TOPs vendas)
-        cur.execute(
-            f"""
-            SELECT NVL(SUM(i.QTDNEG), 0)
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-             WHERE i.CODAGREGACAO = :c
-               AND c.CODTIPOPER IN ({vendas_list_sql})
-            """,
-            c=lote
-        )
-        (agregados['qtd_vendida'],) = cur.fetchone()
-
-        # Reservada (pedido de venda TOP)
-        cur.execute(
-            """
-            SELECT NVL(SUM(i.QTDNEG), 0)
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-             WHERE i.CODAGREGACAO = :c
-               AND c.CODTIPOPER = :top
-            """,
-            c=lote, top=TOP_PED_VENDA
-        )
-        (agregados['qtd_reservada'],) = cur.fetchone()
-
-    agregados['qtd_disponivel'] = max(0.0, float(agregados['qtd_classificada']) - float(agregados['qtd_vendida']) - float(agregados['qtd_reservada']))
-    agregados['divergencia'] = float(agregados['qtd_classificada']) + float(agregados['qtd_descartada']) - float(agregados['qtd_prevista'])
-
-    if agregados['qtd_prevista'] > 0 and agregados['qtd_classificada'] == 0 and agregados['qtd_descartada'] == 0:
-        agregados['estado'] = 'Pedido Compra'
-    elif agregados['qtd_classificada'] > 0 and agregados['qtd_disponivel'] > 0:
-        agregados['estado'] = 'Classificando'
-    elif agregados['qtd_disponivel'] == 0 and agregados['qtd_classificada'] > 0:
-        agregados['estado'] = 'Encerrado'
-    else:
-        agregados['estado'] = 'Entregue' if agregados['qtd_reservada'] == 0 else 'Parcialmente Entregue'
-
-    return agregados
-
-def resumo_classificacao_por_lote(lote: str) -> list[tuple]:
-    """Agrega itens classificados (TOP 26) por produto para um lote (CODAGREGACAO).
-    Retorna lista de tuplas: (DESCRPROD, SUM_CX, SUM_KG, FATOR_CX, FABRICANTE)
-    Regras:
-      - Considera somente cabeçalhos com CODTIPOPER = TOP_CLASS
-      - QTDNEG sempre armazenado na unidade BASE (KG) - normalizar usando TGFVOA
-      - SUM_CX = QTDNEG / fator de conversão CX (de TGFVOA)
-      - SUM_KG = QTDNEG direto (já está em KG)
-      - FATOR_CX = quantidade de KG por CX (para uso no frontend)
-      - FABRICANTE = fabricante do produto (TGFPRO.FABRICANTE)
-    """
-    p = get_params()
-    top_class = p['TOP_CLASS']
-    sql = (
-        """
-        SELECT p.DESCRPROD,
-               SUM(
-                   CASE
-                       WHEN (vcx.QUANTIDADE > 0 AND UPPER(NVL(vcx.DIVIDEMULTIPLICA,'M'))='M')
-                       THEN NVL(i.QTDNEG,0) / vcx.QUANTIDADE
-                       ELSE 0
-                   END
-               ) AS SUM_CX,
-               SUM(NVL(i.QTDNEG,0)) AS SUM_KG,
-               MAX(vcx.QUANTIDADE) AS FATOR_CX,
-               UPPER(NVL(p.FABRICANTE,'')) AS FABRICANTE
-          FROM TGFITE i
-          JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-          LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
-          LEFT JOIN TGFVOA vcx ON vcx.CODPROD = i.CODPROD AND UPPER(vcx.CODVOL)='CX'
-         WHERE i.CODAGREGACAO = :lote AND c.CODTIPOPER = :top
-         GROUP BY p.DESCRPROD, UPPER(NVL(p.FABRICANTE,''))
-         ORDER BY UPPER(NVL(p.FABRICANTE,'')), p.DESCRPROD
-        """
-    )
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, lote=lote, top=top_class)
+            sql = "SELECT CODPARC, NOMEPARC FROM TGFPAR WHERE UPPER(NOMEPARC) LIKE :q AND NVL(ATIVO,'S')='S' AND ROWNUM <= :lim"
+            cur.execute(sql, q=f"%{termo}%", lim=limite)
         return cur.fetchall()
 
-
-def consultar_lote(lote: str) -> dict:
-    """Retorna detalhes do lote: itens agrupados por tipo e agregados."""
-    p = get_params()
-    TOP_ENTRADA = p['TOP_ENTRADA']
-    TOP_CLASS = p['TOP_CLASS']
-    TOP_PED_VENDA = p['TOP_PED_VENDA']
-    TOP_VENDAS = p['TOP_VENDAS']
-    TOP_AVARIA = p['TOP_AVARIA']
-    PROD_CLASS_LIST = p['PROD_CLASS_LIST']
-
-    class_list_sql = ','.join(str(x) for x in PROD_CLASS_LIST)
-    vendas_list_sql = ','.join(str(x) for x in TOP_VENDAS)
-
-    resultado = {
-        'agregados': calcular_agregados_lote(lote),
-        'entradas': [],
-        'classificaveis': [],
-        'classificacoes': [],
-        'descarte': [],
-        'vendas': [],
-        'reservas': [],
-        'nunota_class': None,
-        'statusnota_class': None,
-    }
-    # Perf counters
-    import time
-    t0 = time.perf_counter()
-    t_ag0 = time.perf_counter()
-    # calcular_agregados_lote já executado acima
-    t_ag1 = time.perf_counter()
-    with get_connection() as conn:
-        cur = conn.cursor()
-
-        # Entradas
-        t_e0 = time.perf_counter()
-        cur.execute(
-            """
-            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.PESO, i.VLRUNIT, i.VLRTOT, pr.NOMEPARC
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-              LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
-              LEFT JOIN TGFPAR pr ON pr.CODPARC = c.CODPARC
-             WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top
-             ORDER BY c.NUNOTA, i.SEQUENCIA
-            """,
-            c=lote, top=TOP_ENTRADA
-        )
-        resultado['entradas'] = cur.fetchall()
-        t_e1 = time.perf_counter()
-
-        # Itens classificáveis (entrada TOP_ENTRADA com GERAPRODUCAO = 'S' apenas)
-        t_cv0 = time.perf_counter()
-        cur.execute(
-            """
-            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.PESO, i.VLRUNIT, i.VLRTOT
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-              LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
-                         WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top_ent
-                             AND NVL(i.GERAPRODUCAO, 'N') = 'S'
-             ORDER BY c.NUNOTA, i.SEQUENCIA
-            """,
-            c=lote, top_ent=TOP_ENTRADA
-        )
-        resultado['classificaveis'] = cur.fetchall()
-        t_cv1 = time.perf_counter()
-
-        # Classificações — mostrar todos os itens classificados (TOP_CLASS)
-        t_cl0 = time.perf_counter()
-        cur.execute(
-            """
-            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.PESO, i.VLRUNIT, i.VLRTOT
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-              LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
-             WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top
-             ORDER BY c.NUNOTA, i.SEQUENCIA
-            """,
-            c=lote, top=TOP_CLASS
-        )
-        resultado['classificacoes'] = cur.fetchall()
-        t_cl1 = time.perf_counter()
-
-        # Descarte
-        t_ds0 = time.perf_counter()
-        cur.execute(
-            """
-            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.QTDNEG
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-              LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
-             WHERE i.CODAGREGACAO = :c AND i.CODPROD = 910 AND c.CODTIPOPER IN (:tc, :ta)
-             ORDER BY c.NUNOTA, i.SEQUENCIA
-            """,
-            c=lote, tc=TOP_CLASS, ta=TOP_AVARIA
-        )
-        resultado['descarte'] = cur.fetchall()
-        t_ds1 = time.perf_counter()
-
-        # Vendas
-        t_v0 = time.perf_counter()
-        cur.execute(
-            f"""
-            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.QTDNEG, i.VLRUNIT, i.VLRTOT, c.CODTIPOPER
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-              LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
-             WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER IN ({vendas_list_sql})
-             ORDER BY c.NUNOTA, i.SEQUENCIA
-            """,
-            c=lote
-        )
-        resultado['vendas'] = cur.fetchall()
-        t_v1 = time.perf_counter()
-
-        # Reservas
-        t_r0 = time.perf_counter()
-        cur.execute(
-            """
-            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.QTDNEG
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-              LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
-             WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top
-             ORDER BY c.NUNOTA, i.SEQUENCIA
-            """,
-            c=lote, top=TOP_PED_VENDA
-        )
-        resultado['reservas'] = cur.fetchall()
-        t_r1 = time.perf_counter()
-
-        # Nota TOP_CLASS existente para este lote (se houver)
-        try:
-            t_nc0 = time.perf_counter()
-            cur.execute(
-                """
-                SELECT i.NUNOTA FROM (
-                  SELECT DISTINCT i.NUNOTA
-                    FROM TGFITE i
-                    JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-                   WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top
-                   ORDER BY i.NUNOTA DESC
-                ) WHERE ROWNUM = 1
-                """,
-                c=lote, top=TOP_CLASS
-            )
-            row_nc = cur.fetchone()
-            if row_nc and row_nc[0] is not None:
-                try:
-                    resultado['nunota_class'] = int(row_nc[0])
-                except Exception:
-                    resultado['nunota_class'] = row_nc[0]
-                # Fetch PENDENTE for this header
-                try:
-                    cur.execute("SELECT PENDENTE FROM TGFCAB WHERE NUNOTA=:n", n=resultado['nunota_class'])
-                    row_st = cur.fetchone()
-                    if row_st and row_st[0] is not None:
-                        try:
-                            resultado['pendente_class'] = str(row_st[0]).strip()
-                        except Exception:
-                            resultado['pendente_class'] = row_st[0]
-                except Exception:
-                    resultado['pendente_class'] = None
-            t_nc1 = time.perf_counter()
-        except Exception:
-            resultado['nunota_class'] = None
-            t_nc1 = time.perf_counter()
-    t1 = time.perf_counter()
-    try:
-        resultado['timings'] = {
-            'total_ms': int((t1 - t0) * 1000),
-            'agregados_ms': int((t_ag1 - t_ag0) * 1000),
-            'entradas_ms': int((t_e1 - t_e0) * 1000),
-            'classificaveis_ms': int((t_cv1 - t_cv0) * 1000),
-            'classificacoes_ms': int((t_cl1 - t_cl0) * 1000),
-            'descarte_ms': int((t_ds1 - t_ds0) * 1000),
-            'vendas_ms': int((t_v1 - t_v0) * 1000),
-            'reservas_ms': int((t_r1 - t_r0) * 1000),
-            'nunota_class_ms': int((t_nc1 - t_nc0) * 1000),
-        }
-    except Exception:
-        pass
-    return resultado
-
-
-def consultar_lote_light(lote: str) -> dict:
-    """Versão leve de consultar_lote usada no clique da UI.
-    Busca somente:
-      - entradas (TOP_ENTRADA)
-      - itens classificáveis (subset de entradas com GERAPRODUCAO='S')
-      - classificações (TOP_CLASS)
-      - nunota_class (mais recente)
-      - qtdbatidas (descarte total do cabeçalho TOP_CLASS)
-      - prod_in_natura (CODPROD do item in natura)
-    Ignora agregados, vendas, reservas e descarte para reduzir latência.
-    Retorna também um bloco de timings em milissegundos.
+def consultar_produtos_oracle(q: str = "", limit: int = 15, allow_in_natura: bool = False, grupo_inicia_com: str = None):
     """
-    p = get_params()
-    TOP_ENTRADA = p['TOP_ENTRADA']
-    TOP_CLASS = p['TOP_CLASS']
-    PROD_IN_NATURA = p['PROD_IN_NATURA']
-
-    resultado = {
-        'entradas': [],
-        'classificaveis': [],
-        'classificacoes': [],
-        'nunota_class': None,
-        'statusnota_class': None,
-        'qtdbatidas': None,
-        'prod_in_natura': None,
-    }
-    import time
-    t0 = time.perf_counter()
-    with get_connection() as conn:
-        cur = conn.cursor()
-
-        # Entradas (TOP_ENTRADA)
-        t_e0 = time.perf_counter()
-        cur.execute(
-            """
-            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.PESO, i.VLRUNIT, i.VLRTOT, pr.NOMEPARC
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-              LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
-              LEFT JOIN TGFPAR pr ON pr.CODPARC = c.CODPARC
-             WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top
-             ORDER BY c.NUNOTA, i.SEQUENCIA
-            """,
-            c=lote, top=TOP_ENTRADA
-        )
-        resultado['entradas'] = cur.fetchall()
-        t_e1 = time.perf_counter()
-
-        # Classificáveis (subset das entradas com GERAPRODUCAO='S')
-        t_cv0 = time.perf_counter()
-        cur.execute(
-            """
-            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.PESO, i.VLRUNIT, i.VLRTOT
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-              LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
-             WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top_ent
-               AND NVL(i.GERAPRODUCAO, 'N') = 'S'
-             ORDER BY c.NUNOTA, i.SEQUENCIA
-            """,
-            c=lote, top_ent=TOP_ENTRADA
-        )
-        resultado['classificaveis'] = cur.fetchall()
-        t_cv1 = time.perf_counter()
-
-        # Classificações (TOP_CLASS)
-        t_cl0 = time.perf_counter()
-        cur.execute(
-            """
-            SELECT c.NUNOTA, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.PESO, i.VLRUNIT, i.VLRTOT
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-              LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
-             WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top
-             ORDER BY c.NUNOTA, i.SEQUENCIA
-            """,
-            c=lote, top=TOP_CLASS
-        )
-        resultado['classificacoes'] = cur.fetchall()
-        t_cl1 = time.perf_counter()
-
-        # Status TOP_CLASS agregado por lote (preferir 'L' se qualquer nota TOP 26 do lote estiver liberada)
-        t_nc0 = time.perf_counter()
-        try:
-            cur.execute(
-                """
-                SELECT MAX(CASE WHEN c.PENDENTE='N' THEN 1 ELSE 0 END) AS has_n,
-                       MAX(c.NUNOTA) AS nunota_any,
-                       MAX(c.PENDENTE) AS pendente_any
-                  FROM TGFITE i
-                  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-                 WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top
-                """,
-                c=lote, top=TOP_CLASS
-            )
-            row_nc = cur.fetchone()
-            if row_nc:
-                has_n, nun_any, pendente_any = row_nc
-                try:
-                    resultado['nunota_class'] = int(nun_any) if nun_any is not None else None
-                except Exception:
-                    resultado['nunota_class'] = nun_any
-                try:
-                    hn = int(has_n or 0)
-                except Exception:
-                    hn = 0
-                if hn > 0:
-                    resultado['pendente_class'] = 'N'
-                else:
-                    try:
-                        resultado['pendente_class'] = (pendente_any or '').strip()
-                    except Exception:
-                        resultado['pendente_class'] = pendente_any
-        except Exception:
-            pass
-        t_nc1 = time.perf_counter()
-
-        # QTDBATIDAS do cabeçalho TOP_CLASS (se houver)
-        t_cr0 = time.perf_counter()
-        if resultado['nunota_class']:
-            try:
-                cur.execute(
-                    "SELECT QTDBATIDAS FROM TGFCAB WHERE NUNOTA=:n",
-                    n=resultado['nunota_class']
-                )
-                row_cr = cur.fetchone()
-                if row_cr and row_cr[0] is not None:
-                    try:
-                        resultado['qtdbatidas'] = float(row_cr[0])
-                    except Exception:
-                        resultado['qtdbatidas'] = row_cr[0]
-            except Exception:
-                pass
-        t_cr1 = time.perf_counter()
-
-        # Produto IN NATURA (buscar CODPROD do item classificável no TOP_ENTRADA)
-        t_pin0 = time.perf_counter()
-        # Buscar o CODPROD In Natura das entradas deste lote
-        # O produto IN NATURA correto é aquele que tem GERAPRODUCAO = 'S' no TOP_ENTRADA
-        try:
-            cur.execute(
-                """
-                SELECT CODPROD FROM (
-                  SELECT i.CODPROD
-                    FROM TGFITE i
-                    JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-                   WHERE i.CODAGREGACAO = :c 
-                     AND c.CODTIPOPER = :top
-                     AND NVL(i.GERAPRODUCAO, 'N') = 'S'
-                   ORDER BY c.NUNOTA DESC, i.SEQUENCIA
-                ) WHERE ROWNUM = 1
-                """,
-                c=lote, top=TOP_ENTRADA
-            )
-            row_pin = cur.fetchone()
-            if row_pin and row_pin[0] is not None:
-                try:
-                    resultado['prod_in_natura'] = int(row_pin[0])
-                except Exception:
-                    resultado['prod_in_natura'] = row_pin[0]
-        except Exception:
-            pass
-        t_pin1 = time.perf_counter()
-
-    t1 = time.perf_counter()
-    try:
-        resultado['timings'] = {
-            'total_ms': int((t1 - t0) * 1000),
-            'entradas_ms': int((t_e1 - t_e0) * 1000),
-            'classificaveis_ms': int((t_cv1 - t_cv0) * 1000),
-            'classificacoes_ms': int((t_cl1 - t_cl0) * 1000),
-            'nunota_class_ms': int((t_nc1 - t_nc0) * 1000),
-            'qtdbatidas_ms': int((t_cr1 - t_cr0) * 1000),
-            'prod_in_natura_ms': int((t_pin1 - t_pin0) * 1000),
-            'mode': 'light',
-        }
-    except Exception:
-        pass
-    return resultado
-
-
-def consultar_lotes_sumario(lotes: list[str]) -> dict[str, dict]:
-    """Batched summary for multiple lotes to speed up the classificação page.
-    Returns a dict mapping lote -> {
-      parceiro, produto_descr, qtd_pedido, qtd_classificada, qtd_disponivel,
-      exemplo_nunota, exemplo_seq, nunota_class
-    }
-    Note: produtos_entrada list is intentionally omitted for performance; the UI
-    falls back to produto_descr when list is empty.
+    Busca produtos de forma inteligente, suportando filtros de in natura, grupo e pesquisa textual/numérica.
     """
-    if not lotes:
-        return {}
-    # Ensure unique and reasonable length
-    keys = [str(c) for c in lotes if c]
-    if not keys:
-        return {}
-    # Build placeholders for IN clause
-    placeholders = []
+    where = ["NVL(ATIVO, 'S') = 'S'"]
     binds = {}
-    for idx, c in enumerate(keys):
-        ph = f"c{idx}"
-        placeholders.append(f":{ph}")
-        binds[ph] = c
-    in_clause = ",".join(placeholders)
-
-    p = get_params()
-    TOP_ENTRADA = p['TOP_ENTRADA']
-    TOP_CLASS = p['TOP_CLASS']
-    TOP_PED_VENDA = p['TOP_PED_VENDA']
-    TOP_VENDAS = p['TOP_VENDAS']
-    PROD_IN_NATURA = p['PROD_IN_NATURA']
-    PROD_CLASS_LIST = p['PROD_CLASS_LIST']
-
-    vendas_list_sql = ",".join(str(x) for x in TOP_VENDAS)
-    class_list_sql = ",".join(str(x) for x in PROD_CLASS_LIST)
-
-    out: dict[str, dict] = {c: {
-        'parceiro': '', 'produto_descr': '',
-        'codparc': None,
-        'qtd_pedido': 0.0, 'qtd_classificada': 0.0, 'qtd_disponivel': 0.0,
-        'exemplo_nunota': None, 'exemplo_seq': None, 'nunota_class': None,
-        'produtos_entrada': [],
-    } for c in keys}
-
-    import time
-    t0 = time.perf_counter()
-    with get_connection() as conn:
-        cur = conn.cursor()
-        # 1) Entradas: parceiro, qtd_pedido (In Natura), exemplo nunota/seq
-        t_ent0 = time.perf_counter()
-        sql_ent = f"""
-                        SELECT i.CODAGREGACAO AS CTRL,
-                                     MAX(pr.NOMEPARC) AS PARCEIRO,
-                                     MAX(c.CODPARC) AS CODPARC,
-                                     -- Qtde de caixas calculada dividindo a quantidade base pelo fator da unidade alternativa (quando CX)
-                                     SUM(CASE 
-                                                 WHEN c.CODTIPOPER = :top_ent 
-                                                    AND UPPER(NVL(i.CODVOL,'')) = 'CX' 
-                                                    AND (
-                                                             CASE 
-                                                                 WHEN voa.FATOR IS NOT NULL AND voa.FATOR > 0 THEN voa.FATOR
-                                                                 WHEN voa.QUANTIDADE IS NOT NULL AND UPPER(NVL(voa.DIVIDEMULTIPLICA,'M')) = 'M' THEN voa.QUANTIDADE
-                                                                 WHEN voa.QUANTIDADE IS NOT NULL AND UPPER(NVL(voa.DIVIDEMULTIPLICA,'M')) = 'D' AND voa.QUANTIDADE <> 0 THEN (1/voa.QUANTIDADE)
-                                                                 ELSE NULL
-                                                             END
-                                                            ) > 0
-                                                    THEN i.QTDNEG / (
-                                                             CASE 
-                                                                 WHEN voa.FATOR IS NOT NULL AND voa.FATOR > 0 THEN voa.FATOR
-                                                                 WHEN voa.QUANTIDADE IS NOT NULL AND UPPER(NVL(voa.DIVIDEMULTIPLICA,'M')) = 'M' THEN voa.QUANTIDADE
-                                                                 WHEN voa.QUANTIDADE IS NOT NULL AND UPPER(NVL(voa.DIVIDEMULTIPLICA,'M')) = 'D' AND voa.QUANTIDADE <> 0 THEN (1/voa.QUANTIDADE)
-                                                                 ELSE NULL
-                                                             END
-                                                    )
-                                                 ELSE 0 
-                                             END) AS QTD_CX,
-                                     -- Qtde em KG: somar somente produtos cuja unidade base é KG
-                                     SUM(CASE WHEN c.CODTIPOPER = :top_ent AND UPPER(NVL(pp.CODVOL,'')) = 'KG' THEN i.QTDNEG ELSE 0 END) AS QTD_KG,
-                                     MIN(c.NUNOTA) KEEP (DENSE_RANK FIRST ORDER BY c.NUNOTA) AS EX_NUNOTA,
-                                     MIN(i.SEQUENCIA) KEEP (DENSE_RANK FIRST ORDER BY i.SEQUENCIA) AS EX_SEQ
-                            FROM TGFITE i
-                            JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-                            LEFT JOIN TGFPAR pr ON pr.CODPARC = c.CODPARC
-                            LEFT JOIN TGFPRO pp ON pp.CODPROD = i.CODPROD
-                            LEFT JOIN TGFVOA voa ON voa.CODPROD = i.CODPROD AND UPPER(voa.CODVOL) = UPPER(NVL(i.CODVOL,''))
-                         WHERE i.CODAGREGACAO IN ({in_clause})
-                         GROUP BY i.CODAGREGACAO
-        """
-        cur.execute(sql_ent, {**binds, 'top_ent': TOP_ENTRADA})
-        rows_ent = cur.fetchall()
-        t_ent1 = time.perf_counter()
-        for ctrl, parceiro, codparc, qtd_cx, qtd_kg, ex_n, ex_s in rows_ent:
-            d = out.get(ctrl)
-            if d is not None:
-                d['parceiro'] = parceiro or ''
-                try:
-                    d['codparc'] = int(codparc) if codparc is not None else None
-                except Exception:
-                    d['codparc'] = codparc
-                # New fields
-                try:
-                    d['qtd_cx'] = float(qtd_cx or 0)
-                except Exception:
-                    d['qtd_cx'] = 0.0
-                try:
-                    d['qtd_kg'] = float(qtd_kg or 0)
-                except Exception:
-                    d['qtd_kg'] = 0.0
-                # Back-compat for existing UI: keep qtd_pedido as qtd_cx
-                d['qtd_pedido'] = d['qtd_cx']
-                d['exemplo_nunota'] = ex_n
-                d['exemplo_seq'] = ex_s
-
-        # 2) Classificada: sum for class products in TOP_CLASS
-        t_cls0 = time.perf_counter()
-        sql_cls = (
-            f"""
-            SELECT i.CODAGREGACAO AS CTRL, NVL(SUM(i.QTDNEG), 0)
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-             WHERE i.CODAGREGACAO IN ({in_clause})
-               AND c.CODTIPOPER = :top_class
-               AND i.CODPROD IN ({class_list_sql})
-             GROUP BY i.CODAGREGACAO
-            """
-        )
-        cur.execute(sql_cls, {**binds, 'top_class': TOP_CLASS})
-        rows_cls = cur.fetchall()
-        t_cls1 = time.perf_counter()
-        for ctrl, qtd_class in rows_cls:
-            d = out.get(ctrl)
-            if d is not None:
-                try:
-                    d['qtd_classificada'] = float(qtd_class or 0)
-                except Exception:
-                    d['qtd_classificada'] = 0.0
-
-        # 3) Vendas (TOPs vendas)
-        t_vnd0 = time.perf_counter()
-        sql_vnd = (
-            f"""
-            SELECT i.CODAGREGACAO AS CTRL, NVL(SUM(i.QTDNEG), 0)
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-             WHERE i.CODAGREGACAO IN ({in_clause})
-               AND c.CODTIPOPER IN ({vendas_list_sql})
-             GROUP BY i.CODAGREGACAO
-            """
-        )
-        cur.execute(sql_vnd, binds)
-        rows_vnd = cur.fetchall()
-        vendidas = {ctrl: float(q or 0) for ctrl, q in rows_vnd}
-        t_vnd1 = time.perf_counter()
-
-        # 4) Reservas (pedido de venda TOP)
-        t_rsv0 = time.perf_counter()
-        sql_rsv = (
-            f"""
-            SELECT i.CODAGREGACAO AS CTRL, NVL(SUM(i.QTDNEG), 0)
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-             WHERE i.CODAGREGACAO IN ({in_clause})
-               AND c.CODTIPOPER = :top_ped
-             GROUP BY i.CODAGREGACAO
-            """
-        )
-        cur.execute(sql_rsv, {**binds, 'top_ped': TOP_PED_VENDA})
-        rows_rsv = cur.fetchall()
-        reservadas = {ctrl: float(q or 0) for ctrl, q in rows_rsv}
-        t_rsv1 = time.perf_counter()
-
-        # 5) NUNOTA TOP_CLASS existente (mais recente)
-        t_nc0 = time.perf_counter()
-        sql_ncls = (
-            f"""
-            SELECT ctrl, MAX(nun) AS nunota_class FROM (
-              SELECT i.CODAGREGACAO AS ctrl, i.NUNOTA AS nun
-                FROM TGFITE i
-                JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-               WHERE i.CODAGREGACAO IN ({in_clause})
-                 AND c.CODTIPOPER = :top_class
-            ) GROUP BY ctrl
-            """
-        )
-        cur.execute(sql_ncls, {**binds, 'top_class': TOP_CLASS})
-        rows_nc = cur.fetchall()
-        t_nc1 = time.perf_counter()
-        for ctrl, nun in rows_nc:
-            d = out.get(ctrl)
-            if d is not None:
-                d['nunota_class'] = nun
-
-        # 6) Produtos de entrada por lote (TOP_ENTRADA)
-        t_pe0 = time.perf_counter()
-        sql_pe = (
-            f"""
-            SELECT i.CODAGREGACAO AS CTRL, i.CODPROD, p.DESCRPROD
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-              LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
-             WHERE i.CODAGREGACAO IN ({in_clause}) AND c.CODTIPOPER = :top_ent
-             GROUP BY i.CODAGREGACAO, i.CODPROD, p.DESCRPROD
-            """
-        )
-        cur.execute(sql_pe, {**binds, 'top_ent': TOP_ENTRADA})
-        rows_pe = cur.fetchall()
-        t_pe1 = time.perf_counter()
-        for ctrl, cod, descr in rows_pe:
-            d = out.get(ctrl)
-            if d is not None:
-                lst = d.setdefault('produtos_entrada', [])
-                try:
-                    cod_i = int(cod) if cod is not None else None
-                except Exception:
-                    cod_i = cod
-                lst.append({'cod': cod_i, 'descr': descr or ''})
-
-        # Set produto_descr from first product when available
-        for d in out.values():
-            if d['produtos_entrada']:
-                first = d['produtos_entrada'][0]
-                d['produto_descr'] = (first.get('descr') or '').strip()
-
-        # Compute disponibilidade
-        for ctrl, d in out.items():
-            q_class = float(d.get('qtd_classificada') or 0)
-            q_vend = float(vendidas.get(ctrl) or 0)
-            q_resv = float(reservadas.get(ctrl) or 0)
-            disp = q_class - q_vend - q_resv
-            d['qtd_disponivel'] = disp if disp > 0 else 0.0
-
-    t1 = time.perf_counter()
-    try:
-        import logging
-        logging.getLogger(__name__).info(
-            '[sumario] ent=%dms cls=%dms vnd=%dms rsv=%dms nuncls=%dms prod=%dms total=%dms lotes=%d',
-            int((t_ent1 - t_ent0) * 1000), int((t_cls1 - t_cls0) * 1000), int((t_vnd1 - t_vnd0) * 1000),
-            int((t_rsv1 - t_rsv0) * 1000), int((t_nc1 - t_nc0) * 1000), int((t_pe1 - t_pe0) * 1000),
-            int((t1 - t0) * 1000), len(keys)
-        )
-    except Exception:
-        pass
-        return out
-
-
-def listar_lotes_recentes(
-    days: int = 7,
-    limit: int = 50,
-    codparc: int | None = None,
-    codprod: int | None = None,
-    codprods: list[int] | None = None,
-    date_start: str | None = None,
-    date_end: str | None = None,
-):
-    """Lista LOTEs distintos com movimentação recente.
-    - Periodicidade por `days` (padrão) ou por período explícito (`date_start`/`date_end`, formato YYYY-MM-DD).
-    - Filtros opcionais por parceiro (`codparc`) e por produto único (`codprod`) ou vários (`codprods`).
-    """
-    from datetime import datetime, date as _date
-
-    def _to_date(val: str | _date | None):
-        if val in (None, '', 'None', 'none', 'null'):
-            return None
-        if isinstance(val, _date):
-            return val
-        if isinstance(val, datetime):
-            return val.date()
-        try:
-            return datetime.strptime(str(val), "%Y-%m-%d").date()
-        except Exception:
-            return None
-
-    dtini = _to_date(date_start)
-    dtfim = _to_date(date_end)
-
-    where = [
-        "i.CODAGREGACAO IS NOT NULL",
-        "LENGTH(i.CODAGREGACAO) >= 8",
-    ]
-    binds: dict[str, object] = {}
-
-    if dtini and dtfim:
-        where.append("TRUNC(c.DTNEG) BETWEEN :dtini AND :dtfim")
-        binds["dtini"] = dtini
-        binds["dtfim"] = dtfim
-    elif dtini:
-        where.append("TRUNC(c.DTNEG) >= :dtini")
-        binds["dtini"] = dtini
-    elif dtfim:
-        where.append("TRUNC(c.DTNEG) <= :dtfim")
-        binds["dtfim"] = dtfim
+    
+    # Filtro: allow_in_natura (SELECIONADO = '0')
+    if allow_in_natura:
+        where.append("TO_CHAR(SELECIONADO) = '0'")
+        
+    # Filtro: Grupo Inicia Com
+    if grupo_inicia_com:
+        where.append("TO_CHAR(CODGRUPOPROD) LIKE :grupo_ini")
+        binds['grupo_ini'] = f"{grupo_inicia_com}%"
+        
+    # Monta a base do SELECT com as 3 colunas exigidas pelo views.py
+    sql_base = f"SELECT CODPROD, DESCRPROD, SELECIONADO FROM TGFPRO WHERE {' AND '.join(where)}"
+    
+    # Lógica de Pesquisa (q)
+    if q and q.strip():
+        termo = q.strip()
+        if termo.isdigit():
+            # Busca exata pelo código (aparece primeiro) ou parcial pelo código
+            k = int(termo)
+            sql = (
+                "SELECT CODPROD, DESCRPROD, SELECIONADO FROM ("
+                f"{sql_base} AND CODPROD = :k"
+                " UNION ALL "
+                f"{sql_base} AND TO_CHAR(CODPROD) LIKE :p AND CODPROD <> :k"
+                ") WHERE ROWNUM <= :lim"
+            )
+            binds.update({'k': k, 'p': f"{termo}%", 'lim': limit})
+        else:
+            # Busca parcial pela descrição
+            sql = f"SELECT CODPROD, DESCRPROD, SELECIONADO FROM ({sql_base} AND UPPER(DESCRPROD) LIKE :p ORDER BY DESCRPROD) WHERE ROWNUM <= :lim"
+            binds.update({'p': f"%{termo.upper()}%", 'lim': limit})
     else:
-        where.append("c.DTNEG >= SYSDATE - :days")
-        binds["days"] = days
+        # Se não digitou nada no campo, traz a lista inicial ordenada
+        sql = f"SELECT CODPROD, DESCRPROD, SELECIONADO FROM ({sql_base} ORDER BY DESCRPROD) WHERE ROWNUM <= :lim"
+        binds.update({'lim': limit})
 
-    if codparc is not None:
-        where.append("c.CODPARC = :codparc")
-        binds["codparc"] = codparc
-
-    # Produtos: único ou lista
-    in_clause = None
-    if codprods:
-        plist = [int(x) for x in codprods]
-        if plist:
-            in_clause = ",".join(str(x) for x in plist)
-    if in_clause:
-        where.append(f"i.CODPROD IN ({in_clause})")
-    elif codprod is not None:
-        where.append("i.CODPROD = :codprod")
-        binds["codprod"] = codprod
-
-    sql = (
-        "SELECT DISTINCT i.CODAGREGACAO "
-        "FROM TGFITE i JOIN TGFCAB c ON c.NUNOTA=i.NUNOTA "
-        f"WHERE {' AND '.join(where)} "
-        "ORDER BY i.CODAGREGACAO DESC"
-    )
-    with get_connection() as conn:
+    with obter_conexao_oracle() as conn:
         cur = conn.cursor()
-        cur.execute(sql, binds)
-        rows = cur.fetchmany(limit)
-        return [r[0] for r in rows]
-
-
-def listar_lotes_entradas_classificaveis(
-        days: int = 7,
-        limit: int = 50,
-        codparc: int | None = None,
-        codprod: int | None = None,
-        date_start: str | None = None,
-        date_end: str | None = None,
-        nunota_ini: int | None = None,
-    ):
-        """Lista LOTEs (lotes) a partir de itens de ENTRADA (TOP 11) que são classificáveis (GERAPRODUCAO='S').
-        - Filtro por período (DTNEG) com days ou date_start/date_end
-        - Filtros opcionais por CODPARC, CODPROD e NUNOTA_INI
-        - Retorna até `limit` lotes distintos (ordenados por DTNEG desc e lote desc)
-        """
-        from datetime import datetime, date as _date, timedelta
-
-        def _to_date(val: str | _date | None):
-            if val in (None, '', 'None', 'none', 'null'):
-                return None
-            if isinstance(val, _date):
-                return val
-            if isinstance(val, datetime):
-                return val.date()
-            try:
-                return datetime.strptime(str(val), "%Y-%m-%d").date()
-            except Exception:
-                return None
-
-        params = get_params()
-        TOP_ENTRADA = params['TOP_ENTRADA']  # 11
-
-        dtini = _to_date(date_start)
-        dtfim = _to_date(date_end)
-        if dtini is None and dtfim is None and days is not None:
-            dtini = (_date.today() - timedelta(days=days))
-            dtfim = _date.today()
-
-        where = [
-            "c.CODTIPOPER = :top_entrada",
-            "i.CODAGREGACAO IS NOT NULL",
-            "NVL(i.GERAPRODUCAO,'N') = 'S'",
-        ]
-        binds: dict[str, object] = {"top_entrada": TOP_ENTRADA}
-
-        if dtini:
-            where.append("TRUNC(c.DTNEG) >= :dtini")
-            binds["dtini"] = dtini
-        if dtfim:
-            where.append("TRUNC(c.DTNEG) <= :dtfim")
-            binds["dtfim"] = dtfim
-        if codparc is not None:
-            where.append("c.CODPARC = :codparc")
-            binds["codparc"] = codparc
-        if codprod is not None:
-            where.append("i.CODPROD = :codprod")
-            binds["codprod"] = codprod
-        if nunota_ini is not None:
-            # Filter by NUNOTA starting with the typed digits (prefix match)
-            where.append("TO_CHAR(c.NUNOTA) LIKE :nunota_pattern")
-            binds["nunota_pattern"] = str(nunota_ini) + '%'
-
-        inner = (
-            "SELECT DISTINCT i.CODAGREGACAO AS lote, c.DTNEG "
-            "FROM TGFITE i JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA "
-            f"WHERE {' AND '.join(where)} "
-            "ORDER BY c.DTNEG DESC, i.CODAGREGACAO DESC"
-        )
-        sql = f"SELECT lote FROM ({inner}) WHERE ROWNUM <= :lim"
-        binds['lim'] = int(limit or 50)
-        with get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(sql, binds)
-            rows = cur.fetchall()
-            # return as list of tuples to mirror other list_* functions usage
-            return [(r[0],) if not isinstance(r, (list, tuple)) else r for r in rows]
-
-
-def consultar_lotes_sumario_top11_classificaveis(lotes: list[str]) -> dict[str, dict]:
-    """Resumo leve para múltiplos lotes baseado SOMENTE em entradas TOP 11
-    classificáveis (GERAPRODUCAO='S') para uso na página de Classificação.
-    Retorna por lote: parceiro/codparc, qtd_cx, qtd_kg e lista de produtos classificáveis.
-    """
-    if not lotes:
-        return {}
-    keys = [str(c) for c in lotes if c]
-    if not keys:
-        return {}
-
-    # Build IN clause
-    placeholders = []
-    binds: dict[str, object] = {}
-    for idx, c in enumerate(keys):
-        ph = f"c{idx}"
-        placeholders.append(f":{ph}")
-        binds[ph] = c
-    in_clause = ",".join(placeholders)
-
-    p = get_params()
-    TOP_ENTRADA = p['TOP_ENTRADA']
-    TOP_CLASS = p.get('TOP_CLASS', 26)
-
-    out: dict[str, dict] = {c: {
-        'parceiro': '',
-        'codparc': None,
-        'qtd_cx': 0.0,
-        'qtd_kg': 0.0,
-        'qtd_cx_classificado': 0.0,  # soma das caixas classificadas (TOP 26)
-        'peso_inn': None,
-        'nunota_class': None,
-        'statusnota_class': None,
-        'produtos_entrada': [],  # classifiable products only
-        'nunota_portal': None,  # 🔗 NUNOTA do TOP 11 (Portal/Entrada)
-        'nunota_top26': None,  # 🔗 NUNOTA da TOP 26 (Classificação) para verificação de negociação
-    } for c in keys}
-    with get_connection() as conn:
-        cur = conn.cursor()
-        # Partner + quantities by volume
-        # Qtde cx: normaliza QTDNEG da unidade do item para CX usando fatores do TGFVOA.
-        # Regra:
-        # - Se o item já estiver em CX, usa QTDNEG direto.
-        # - Caso contrário, converte a QTDNEG para a unidade base (via TGFVOA do CODVOL do item) e depois divide pelo fator da CX.
-        sql_q = f"""
-                SELECT i.CODAGREGACAO AS CTRL,
-                         MAX(UPPER(NVL(pr.NOMEPARC, pr.RAZAOSOCIAL))) AS PARCEIRO,
-                         MAX(c.CODPARC) AS CODPARC,
-                         MAX(c.NUNOTA) AS NUNOTA_PORTAL,
-                         SUM(
-                                 CASE WHEN UPPER(NVL(i.CODVOL,''))='CX' THEN i.QTDNEG
-                                            ELSE
-                                                CASE
-                                                    -- Fator base por CX (kg/caixa, un/caixa, etc)
-                                                    WHEN (
-                                                             CASE
-                                                                 WHEN vcx.QUANTIDADE IS NOT NULL AND UPPER(NVL(vcx.DIVIDEMULTIPLICA,'M'))='M' THEN vcx.QUANTIDADE
-                                                                 WHEN vcx.QUANTIDADE IS NOT NULL AND UPPER(NVL(vcx.DIVIDEMULTIPLICA,'M'))='D' AND vcx.QUANTIDADE<>0 THEN (1/vcx.QUANTIDADE)
-                                                                 ELSE NULL
-                                                             END
-                                                    ) > 0
-                                                    THEN (
-                                                      -- Quantidade em unidade base do produto
-                                                      (
-                                                        CASE
-                                                          WHEN UPPER(NVL(pp.CODVOL,'')) = UPPER(NVL(i.CODVOL,'')) THEN i.QTDNEG
-                                                          ELSE
-                                                            CASE
-                                                              WHEN (
-                                                                       CASE
-                                                                         WHEN vio.QUANTIDADE IS NOT NULL AND UPPER(NVL(vio.DIVIDEMULTIPLICA,'M'))='M' THEN vio.QUANTIDADE
-                                                                         WHEN vio.QUANTIDADE IS NOT NULL AND UPPER(NVL(vio.DIVIDEMULTIPLICA,'M'))='D' AND vio.QUANTIDADE<>0 THEN (1/vio.QUANTIDADE)
-                                                                         ELSE NULL
-                                                                       END
-                                                              ) > 0 THEN i.QTDNEG * (
-                                                                       CASE
-                                                                         WHEN vio.QUANTIDADE IS NOT NULL AND UPPER(NVL(vio.DIVIDEMULTIPLICA,'M'))='M' THEN vio.QUANTIDADE
-                                                                         WHEN vio.QUANTIDADE IS NOT NULL AND UPPER(NVL(vio.DIVIDEMULTIPLICA,'M'))='D' AND vio.QUANTIDADE<>0 THEN (1/vio.QUANTIDADE)
-                                                                         ELSE NULL
-                                                                       END
-                                                              )
-                                                              ELSE NULL
-                                                            END
-                                                        END
-                                                      ) / (
-                                                         CASE
-                                                           WHEN vcx.QUANTIDADE IS NOT NULL AND UPPER(NVL(vcx.DIVIDEMULTIPLICA,'M'))='M' THEN vcx.QUANTIDADE
-                                                           WHEN vcx.QUANTIDADE IS NOT NULL AND UPPER(NVL(vcx.DIVIDEMULTIPLICA,'M'))='D' AND vcx.QUANTIDADE<>0 THEN (1/vcx.QUANTIDADE)
-                                                           ELSE NULL
-                                                         END
-                                                      )
-                                                    )
-                                                    ELSE 0
-                                                END
-                                 END
-                         ) AS QTD_CX,
-                         -- Qtde em KG (somar quando base for KG)
-                         SUM(CASE WHEN UPPER(NVL(pp.CODVOL,''))='KG' THEN i.QTDNEG ELSE 0 END) AS QTD_KG
-                    FROM TGFITE i
-                    JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-                    LEFT JOIN TGFPAR pr ON pr.CODPARC = c.CODPARC
-                    LEFT JOIN TGFPRO pp ON pp.CODPROD = i.CODPROD
-                    LEFT JOIN TGFVOA vcx ON vcx.CODPROD = i.CODPROD AND UPPER(vcx.CODVOL)='CX'
-                    LEFT JOIN TGFVOA vio ON vio.CODPROD = i.CODPROD AND UPPER(vio.CODVOL) = UPPER(NVL(i.CODVOL,''))
-                 WHERE i.CODAGREGACAO IN ({in_clause})
-                     AND c.CODTIPOPER = :top_ent
-                 GROUP BY i.CODAGREGACAO
-        """
-        cur.execute(sql_q, {**binds, 'top_ent': TOP_ENTRADA})
-        for ctrl, parceiro, codparc, nunota_portal, qcx, qkg in cur.fetchall():
-            d = out.get(ctrl)
-            if not d:
-                continue
-            d['parceiro'] = parceiro or ''
-            try:
-                d['codparc'] = int(codparc) if codparc is not None else None
-            except Exception:
-                d['codparc'] = codparc
-            try:
-                d['nunota_portal'] = int(nunota_portal) if nunota_portal is not None else None
-            except Exception:
-                d['nunota_portal'] = nunota_portal
-            try:
-                d['qtd_cx'] = float(qcx or 0)
-            except Exception:
-                d['qtd_cx'] = 0.0
-            try:
-                d['qtd_kg'] = float(qkg or 0)
-            except Exception:
-                d['qtd_kg'] = 0.0
-
-        # Classifiable product list — return manufacturer (FABRICANTE)
-        sql_p = (
-            f"""
-            SELECT i.CODAGREGACAO AS CTRL, i.CODPROD, MAX(UPPER(NVL(p.FABRICANTE,''))) AS FABRICANTE
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-              LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
-             WHERE i.CODAGREGACAO IN ({in_clause})
-               AND c.CODTIPOPER = :top_ent
-             GROUP BY i.CODAGREGACAO, i.CODPROD
-            """
-        )
-        cur.execute(sql_p, {**binds, 'top_ent': TOP_ENTRADA})
-        for ctrl, cod, fabricante in cur.fetchall():
-            d = out.get(ctrl)
-            if not d:
-                continue
-            lst = d.setdefault('produtos_entrada', [])
-            try:
-                cod_i = int(cod) if cod is not None else None
-            except Exception:
-                cod_i = cod
-            lst.append({'cod': cod_i, 'fabricante': fabricante or ''})
-
-        # PESO do item de entrada (qualquer produto) para cada lote: usa qualquer PESO não nulo
-        sql_pw = (
-            f"""
-            SELECT i.CODAGREGACAO AS CTRL, MAX(i.PESO) AS PESO
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-             WHERE i.CODAGREGACAO IN ({in_clause})
-               AND c.CODTIPOPER = :top_ent
-               AND i.PESO IS NOT NULL
-             GROUP BY i.CODAGREGACAO
-            """
-        )
-        cur.execute(sql_pw, {**binds, 'top_ent': TOP_ENTRADA})
-        for ctrl, peso in cur.fetchall():
-            d = out.get(ctrl)
-            if not d:
-                continue
-            try:
-                d['peso_inn'] = float(peso) if peso is not None else None
-            except Exception:
-                d['peso_inn'] = peso
-
-        # TOP 26 (Classificação) status per lote:
-        # Prefer 'N' if ANY classification note for that control is not pending; otherwise use any pendente available.
-        # TAMBÉM soma a quantidade de caixas classificadas (soma de todos os itens TOP 26 desse lote)
-        # LÓGICA SANKHYA: QTDNEG sempre armazenado na unidade BASE (KG), mesmo quando lançado em CX.
-        # NOSSA NORMALIZAÇÃO: sempre dividir QTDNEG pelo fator de conversão (TGFVOA.QUANTIDADE) para obter CX.
-        sql_nc = (
-            f"""
-            SELECT i.CODAGREGACAO AS ctrl,
-                   MAX(CASE WHEN c.PENDENTE = 'N' THEN 1 ELSE 0 END) AS has_n,
-                   MAX(c.NUNOTA) AS nunota_any,
-                   MAX(c.PENDENTE) AS pendente_any,
-                   SUM(
-                       CASE
-                           WHEN (vcx.QUANTIDADE > 0 AND UPPER(NVL(vcx.DIVIDEMULTIPLICA,'M'))='M') 
-                           THEN i.QTDNEG / vcx.QUANTIDADE
-                           ELSE 0
-                       END
-                   ) AS QTD_CX_CLASSIF
-              FROM TGFITE i
-              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-              LEFT JOIN TGFVOA vcx ON vcx.CODPROD = i.CODPROD AND UPPER(vcx.CODVOL)='CX'
-             WHERE i.CODAGREGACAO IN ({in_clause})
-               AND c.CODTIPOPER = :top_class
-             GROUP BY i.CODAGREGACAO
-            """
-        )
-        cur.execute(sql_nc, {**binds, 'top_class': TOP_CLASS})
-        for ctrl, has_n, nun_any, pendente_any, qtd_cx_classif in cur.fetchall():
-            d = out.get(ctrl)
-            if not d:
-                continue
-            d['nunota_class'] = nun_any
-            d['nunota_top26'] = nun_any  # NUNOTA da TOP 26 para verificação de negociação
-            try:
-                d['qtd_cx_classificado'] = float(qtd_cx_classif or 0)
-            except Exception:
-                d['qtd_cx_classificado'] = 0.0
-            try:
-                hn = int(has_n or 0)
-            except Exception:
-                hn = 0
-            if hn > 0:
-                d['pendente_class'] = 'N'
-            else:
-                try:
-                    d['pendente_class'] = (pendente_any or '').strip()
-                except Exception:
-                    d['pendente_class'] = pendente_any
-
-    return out
-
-
-def listar_itens_sem_lote(limit: int = 50):
-    """Lista itens de entrada (TOP 11, CODPROD 863) sem CODAGREGACAO definido."""
-    TOP_ENTRADA = 11
-    CODPROD_IN_NATURA = 863
-    sql = (
-        "SELECT c.NUNOTA, i.SEQUENCIA, c.CODPARC, i.CODPROD, i.QTDNEG, c.DTNEG "
-        "FROM TGFITE i JOIN TGFCAB c ON c.NUNOTA=i.NUNOTA "
-        "WHERE c.CODTIPOPER = :top AND i.CODPROD = :codprod "
-    "AND (i.CODAGREGACAO IS NULL OR LENGTH(i.CODAGREGACAO)=0) "
-        "ORDER BY c.DTNEG DESC"
-    )
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, top=TOP_ENTRADA, codprod=CODPROD_IN_NATURA)
-        rows = cur.fetchmany(limit)
-    return rows
-
-
-def gerar_lote_para_item(nunota: int, sequencia: int, data: str | None = None, commit: bool = False) -> str:
-    """Gera e (opcionalmente) grava LOTE para um item específico de entrada.
-    - Se data não informada, usa DTNEG do cabeçalho (TGFCAB).
-    - commit=False: apenas mostra SQL/params (dry-run). commit=True: executa e faz commit.
-    Retorna o LOTE gerado.
-    """
-    from datetime import datetime
-    if data is None:
-        with get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT DTNEG FROM TGFCAB WHERE NUNOTA=:n", n=nunota)
-            row = cur.fetchone()
-            if not row:
-                raise ValueError('NUNOTA não encontrado')
-            dtneg = row[0]
-            if isinstance(dtneg, datetime):
-                data = dtneg.strftime('%Y-%m-%d')
-            else:
-                data = str(dtneg)[:10]
-    lote = gerar_lote(data)
-    # Se a coluna DTALTER existir, atualize também DTALTER=SYSDATE
-    try:
-        with get_connection() as _c:
-            has_dtalter = 'DTALTER' in _get_table_columns(_c, 'TGFITE')
-    except Exception:
-        has_dtalter = False
-    sql = "UPDATE TGFITE SET CODAGREGACAO=:c" + (", DTALTER=SYSDATE" if has_dtalter else "") + " WHERE NUNOTA=:n AND SEQUENCIA=:s"
-    params = {'c': lote, 'n': nunota, 's': sequencia}
-    if not commit:
-        print('DRY-RUN SQL ->', sql)
-        print('DRY-RUN BINDS ->', params)
-        return lote
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, **params)
-        conn.commit()
-    return lote
-
-
-def listar_lotes_portal(
-    days: int = 7,
-    limit: int = 50,
-    codparc: int | None = None,
-    codprod: int | None = None,
-    date_start: str | None = None,
-    date_end: str | None = None,
-):
-    """Lista lotes/lotes para Portal (apenas TOP 11 - Pedidos de Compra)."""
-    from datetime import datetime, date as _date, timedelta
-    
-    def _to_date(val: str | _date | None):
-        if val in (None, '', 'None', 'none', 'null'):
-            return None
-        if isinstance(val, _date):
-            return val
-        if isinstance(val, datetime):
-            return val.date()
+        
+        # Ignora acentos e maiúsculas/minúsculas no Oracle
         try:
-            return datetime.strptime(str(val), "%Y-%m-%d").date()
-        except Exception:
-            return None
-
-    params = get_params()
-    TOP_ENTRADA = params['TOP_ENTRADA']  # 11
-
-    dtini = _to_date(date_start)
-    dtfim = _to_date(date_end)
-    
-    if dtini is None and dtfim is None:
-        dtini = (_date.today() - timedelta(days=days))
-        dtfim = _date.today()
-
-    where = ["c.CODTIPOPER = :top_entrada"]
-    binds = {"top_entrada": TOP_ENTRADA}
-    
-    if dtini:
-        where.append("c.DTNEG >= :dtini")
-        binds["dtini"] = dtini
-    if dtfim:
-        where.append("c.DTNEG <= :dtfim")
-        binds["dtfim"] = dtfim
-    if codparc:
-        where.append("c.CODPARC = :codparc")
-        binds["codparc"] = codparc
-    if codprod:
-        where.append("i.CODPROD = :codprod")
-        binds["codprod"] = codprod
-
-    sql = (
-        "SELECT DISTINCT i.CODAGREGACAO AS lote, "
-        "       c.CODPARC, p.RAZAOSOCIAL, c.DTNEG, "
-        "       COUNT(DISTINCT i.NUNOTA) AS notas, "
-        "       COUNT(*) AS itens, "
-        "       NVL(SUM(i.QTDNEG), 0) AS qtd_total "
-        "FROM TGFITE i "
-        "JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA "
-        "LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC "
-        f"WHERE {' AND '.join(where)} "
-        "  AND i.CODAGREGACAO IS NOT NULL "
-        "GROUP BY i.CODAGREGACAO, c.CODPARC, p.RAZAOSOCIAL, c.DTNEG "
-        "ORDER BY c.DTNEG DESC, i.CODAGREGACAO DESC"
-    )
-    
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, binds)
-        return cur.fetchmany(limit)
-
-
-def listar_lotes_classificacao(
-    days: int = 7,
-    limit: int = 50,
-    codparc: int | None = None,
-    codprod: int | None = None,
-    date_start: str | None = None,
-    date_end: str | None = None,
-):
-    """Lista lotes/lotes para Classificação (apenas TOP 26 - Classificação)."""
-    from datetime import datetime, date as _date, timedelta
-    
-    def _to_date(val: str | _date | None):
-        if val in (None, '', 'None', 'none', 'null'):
-            return None
-        if isinstance(val, _date):
-            return val
-        if isinstance(val, datetime):
-            return val.date()
-        try:
-            return datetime.strptime(str(val), "%Y-%m-%d").date()
-        except Exception:
-            return None
-
-    params = get_params()
-    TOP_CLASS = params['TOP_CLASS']  # 26
-
-    dtini = _to_date(date_start)
-    dtfim = _to_date(date_end)
-    
-    if dtini is None and dtfim is None:
-        dtini = (_date.today() - timedelta(days=days))
-        dtfim = _date.today()
-
-    where = ["c.CODTIPOPER = :top_class"]
-    binds = {"top_class": TOP_CLASS}
-    
-    if dtini:
-        where.append("c.DTNEG >= :dtini")
-        binds["dtini"] = dtini
-    if dtfim:
-        where.append("c.DTNEG <= :dtfim")
-        binds["dtfim"] = dtfim
-    if codparc:
-        where.append("c.CODPARC = :codparc")
-        binds["codparc"] = codparc
-    if codprod:
-        where.append("i.CODPROD = :codprod")
-        binds["codprod"] = codprod
-
-    # Apply server-side row limiting with ROWNUM to avoid materializing the full grouped set
-    inner = (
-        "SELECT DISTINCT i.CODAGREGACAO AS lote, "
-        "       c.NUNOTA, c.CODPARC, p.RAZAOSOCIAL, c.DTNEG, c.STATUSNOTA, "
-        "       COUNT(*) AS itens, "
-        "       NVL(SUM(i.QTDNEG), 0) AS qtd_classificada, "
-        "       MAX(c.OBSERVACAO) AS obs "
-        "FROM TGFITE i "
-        "JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA "
-        "LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC "
-        f"WHERE {' AND '.join(where)} "
-        "  AND i.CODAGREGACAO IS NOT NULL "
-        "GROUP BY i.CODAGREGACAO, c.NUNOTA, c.CODPARC, p.RAZAOSOCIAL, c.DTNEG, c.STATUSNOTA "
-        "ORDER BY c.DTNEG DESC, i.CODAGREGACAO DESC"
-    )
-    sql = f"SELECT * FROM ({inner}) WHERE ROWNUM <= :lim"
-    binds['lim'] = int(limit or 50)
-
-    import time
-    t0 = time.perf_counter()
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, binds)
-        rows = cur.fetchall()
-        t1 = time.perf_counter()
-        try:
-            import logging
-            logging.getLogger(__name__).info('[lotes_class] rows=%d ms=%d', len(rows), int((t1 - t0) * 1000))
+            cur.execute("ALTER SESSION SET NLS_COMP=LINGUISTIC")
+            cur.execute("ALTER SESSION SET NLS_SORT=BINARY_AI")
         except Exception:
             pass
-        return rows
 
-
-def listar_produtos(limit: int = 50, offset: int = 0, nome: str | None = None):
-    """Lista produtos (TGFPRO) de forma simples. Read-only."""
-    where = ["1=1"]
-    binds: dict[str, object] = {}
-    if nome:
-        where.append("UPPER(DESCRPROD) LIKE :nome")
-        binds["nome"] = f"%{nome.upper()}%"
-    sql = (
-        "SELECT CODPROD, DESCRPROD "
-        "FROM TGFPRO "
-        f"WHERE {' AND '.join(where)} "
-        "ORDER BY CODPROD "
-    )
-    with get_connection() as conn:
-        cur = conn.cursor()
-        # Oracle: paginação simples via fetchmany após salto manual quando necessário
         cur.execute(sql, binds)
-        # Pular offset manualmente
-        if offset:
-            for _ in range(offset):
-                if cur.fetchone() is None:
-                    return []
-        rows = cur.fetchmany(limit)
-        return rows
+        return cur.fetchall() # Retorna as 3 colunas para o views.py
 
-
-def listar_parceiros(limit: int = 50, offset: int = 0, nome: str | None = None):
-    """Lista parceiros (TGFPAR) de forma simples. Read-only."""
-    where = ["1=1"]
-    binds: dict[str, object] = {}
-    if nome:
-        where.append("UPPER(NOMEPARC) LIKE :nome")
-        binds["nome"] = f"%{nome.upper()}%"
-    sql = (
-        "SELECT CODPARC, NOMEPARC "
-        "FROM TGFPAR "
-        f"WHERE {' AND '.join(where)} "
-        "ORDER BY CODPARC "
-    )
-    with get_connection() as conn:
+def consultar_tipos_operacao_oracle(termo: str, limite: int = 10):
+    """Busca tipos de operação (TOP) ativos na TGFTOP."""
+    if not termo: return []
+    termo = str(termo).strip().upper()
+    with obter_conexao_oracle() as conn:
         cur = conn.cursor()
-        cur.execute(sql, binds)
-        if offset:
-            for _ in range(offset):
-                if cur.fetchone() is None:
-                    return []
-        rows = cur.fetchmany(limit)
-        return rows
-
-
-def listar_itens_portal_basico(
-    days: int = 60,
-    date_start: str | None = None,
-    date_end: str | None = None,
-    codparc: int | None = None,
-    codprod: int | None = None,
-    classificavel: str | None = None,
-    sem_preco: bool = False,
-    limit: int = 50,
-    offset: int = 0,
-):
-    """Lista itens de TOP 11 (Portal) com colunas básicas para o painel Comercial.
-    Retorna tuplas: (NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, VLRNOTA_CAB, AD_SIMQTDDESC, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2, CODAGREGACAO, CODTIPOPER, NUMPEDIDO, FABRICANTE, QTDCONFERIDA)
-    Suporta filtros por data, parceiro, produto e flag de classificável, com paginação segura via ROW_NUMBER.
-    """
-    from datetime import datetime, date as _date
-
-    def _to_date(val):
-        if val in (None, '', 'None', 'none', 'null'):
-            return None
-        if isinstance(val, _date):
-            return val
-        if isinstance(val, datetime):
-            return val.date()
-        try:
-            return datetime.strptime(str(val), "%Y-%m-%d").date()
-        except Exception:
-            return None
-
-    p = get_params()
-    TOP_ENTRADA = int(p['TOP_ENTRADA'])
-
-    dtini = _to_date(date_start)
-    dtfim = _to_date(date_end)
-
-    where = ["c.CODTIPOPER = :top"]
-    binds: dict[str, object] = {"top": TOP_ENTRADA}
-
-    if dtini and dtfim:
-        where.append("TRUNC(c.DTNEG) BETWEEN :dtini AND :dtfim")
-        binds["dtini"], binds["dtfim"] = dtini, dtfim
-    elif dtini:
-        where.append("TRUNC(c.DTNEG) >= :dtini")
-        binds["dtini"] = dtini
-    elif dtfim:
-        where.append("TRUNC(c.DTNEG) <= :dtfim")
-        binds["dtfim"] = dtfim
-    else:
-        where.append("c.DTNEG >= SYSDATE - :days")
-        binds["days"] = int(days or 60)
-
-    if codparc is not None:
-        where.append("c.CODPARC = :codparc")
-        binds["codparc"] = int(codparc)
-    if codprod is not None:
-        where.append("i.CODPROD = :codprod")
-        binds["codprod"] = int(codprod)
-
-    classificavel_flag = (classificavel or '').strip().upper()
-    if classificavel_flag == 'N':
-        where.append("NVL(i.GERAPRODUCAO, 'S') = 'N'")
-    elif classificavel_flag == 'S':
-        where.append("NVL(i.GERAPRODUCAO, 'S') <> 'N'")
-    
-    if sem_preco:
-        where.append("(i.PRECOBASE IS NULL OR i.PRECOBASE <= 0)")
-
-    inner = (
-        "SELECT /*+ INDEX(c TGFCAB_PK) */ p.NOMEPARC, NVL(pr.FABRICANTE, pr.DESCRPROD) AS PRODNAME, i.QTDNEG, c.DTNEG, i.CODVOL, i.CODPROD, c.NUNOTA, i.SEQUENCIA, NVL(i.GERAPRODUCAO, 'S') AS GP, i.PESO AS PESO, i.PRECOBASE AS PRECOBASE, i.VLRUNIT AS VLRUNIT, "
-        "  COALESCE("
-        "    (SELECT SUM(vale_i.VLRTOT)"
-        "       FROM TGFITE vale_i"
-        "      WHERE vale_c.NUNOTA IS NOT NULL"
-        "        AND vale_i.NUNOTA = vale_c.NUNOTA"
-        "        AND vale_i.CODPROD = i.CODPROD"
-        "        AND NVL(vale_i.CODAGREGACAO, '__SEM_LOTE__') = NVL(i.CODAGREGACAO, '__SEM_LOTE__')"
-        "    ), i.VLRTOT, 0) AS VLRTOT, "
-        "  NVL(vale_c.VLRNOTA, c.VLRNOTA) AS VLRNOTA_CAB, "
-        "  i.AD_SIMQTDDESC AS AD_SIMQTDDESC, "
-        "  i.AD_SIMQTD1, i.AD_SIMQTD2, i.AD_SIMVLR1, i.AD_SIMVLR2, i.CODAGREGACAO, c.CODTIPOPER, c.NUMPEDIDO, pr.FABRICANTE, i.QTDCONFERIDA "
-        "  FROM TGFCAB c "
-        "  JOIN TGFITE i ON c.NUNOTA = i.NUNOTA "
-        "  LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC "
-        "  LEFT JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD "
-        "  LEFT JOIN TGFCAB vale_c ON vale_c.CODTIPOPER = 13 AND vale_c.NUMPEDIDO = c.NUNOTA "
-        f" WHERE {' AND '.join(where)} "
-        "  ORDER BY c.DTNEG DESC, c.NUNOTA DESC, i.SEQUENCIA ASC"
-    )
-    sql = (
-        "SELECT NOMEPARC, PRODNAME, QTDNEG, DTNEG, CODVOL, CODPROD, NUNOTA, SEQUENCIA, GP, PESO, PRECOBASE, VLRUNIT, VLRTOT, VLRNOTA_CAB, AD_SIMQTDDESC, AD_SIMQTD1, AD_SIMQTD2, AD_SIMVLR1, AD_SIMVLR2, CODAGREGACAO, CODTIPOPER, NUMPEDIDO, FABRICANTE, QTDCONFERIDA FROM ("
-        "  SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.DTNEG DESC, t.NUNOTA DESC, t.SEQUENCIA ASC) rn FROM (" + inner + ") t"
-        ") WHERE rn BETWEEN :start_row AND :end_row"
-    )
-    binds["start_row"] = int(offset) + 1
-    binds["end_row"] = int(offset) + int(limit)
-
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, binds)
-        return cur.fetchall()
-
-def buscar_parceiros(q: str, limit: int = 10):
-    """Busca parceiros por código (numérico) ou nome (LIKE), retornando tuplas (CODPARC, NOMEPARC).
-    - Caso `q` seja numérico, filtra por `CODPARC LIKE 'q%'`.
-    - Caso contrário, filtra por `NOMEPARC LIKE '%q%'` (case-insensitive).
-    """
-    if not q:
-        return []
-    import re
-    q = str(q).strip()
-    m = re.match(r"^(\d+)", q)
-    by_code = bool(m)
-    code_prefix = m.group(1) if m else None
-    with get_connection() as conn:
-        cur = conn.cursor()
-        lim = max(1, int(limit))
-        if by_code and code_prefix:
-            # Definitivo: exato primeiro (prio=0), depois prefixos (prio=1)
-            qprefix = f"{code_prefix}%"
-            qpad = code_prefix.zfill(9) + "%"
-            try:
-                k = int(code_prefix)
-            except Exception:
-                k = None
-            sql = (
-                "SELECT CODPARC, NOMEPARC FROM ("
-                "  SELECT CODPARC, NOMEPARC FROM ("
-                "    SELECT CODPARC, NOMEPARC, 0 AS PRIO FROM TGFPAR WHERE (:k IS NOT NULL AND CODPARC = :k)"
-                "    UNION ALL "
-                "    SELECT CODPARC, NOMEPARC, 1 AS PRIO FROM TGFPAR "
-                "     WHERE (TO_CHAR(CODPARC) LIKE :qprefix OR LPAD(TO_CHAR(CODPARC), 9, '0') LIKE :qpad) "
-                "       AND (:k IS NULL OR CODPARC <> :k)"
-                "  ) t ORDER BY PRIO, CODPARC"
-                ") WHERE ROWNUM <= :lim"
-            )
-            cur.execute(sql, k=k, qprefix=qprefix, qpad=qpad, lim=lim)
+        if termo.isdigit():
+            sql = "SELECT DISTINCT CODTIPOPER, DESCROPER FROM TGFTOP WHERE (CODTIPOPER = :k OR TO_CHAR(CODTIPOPER) LIKE :pfx) AND ROWNUM <= :lim"
+            cur.execute(sql, k=int(termo), pfx=f"{termo}%", lim=limite)
         else:
-            sql = (
-                "SELECT CODPARC, NOMEPARC FROM ("
-                "  SELECT CODPARC, NOMEPARC FROM TGFPAR WHERE UPPER(NOMEPARC) LIKE :q ORDER BY NOMEPARC"
-                ") WHERE ROWNUM <= :lim"
-            )
-            cur.execute(sql, q=f"%{q.upper()}%", lim=lim)
+            sql = "SELECT DISTINCT CODTIPOPER, DESCROPER FROM TGFTOP WHERE UPPER(DESCROPER) LIKE :q AND ROWNUM <= :lim"
+            cur.execute(sql, q=f"%{termo}%", lim=limite)
         return cur.fetchall()
 
+def consultar_naturezas_oracle(termo: str, limite: int = 10):
+    """Busca naturezas de receita/despesa na TGFNAT."""
+    if not termo: return []
+    termo = str(termo).strip().upper()
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        if termo.isdigit():
+            sql = "SELECT DISTINCT CODNAT, DESCRNAT FROM TGFNAT WHERE (CODNAT = :k OR TO_CHAR(CODNAT) LIKE :pfx) AND ROWNUM <= :lim"
+            cur.execute(sql, k=int(termo), pfx=f"{termo}%", lim=limite)
+        else:
+            sql = "SELECT DISTINCT CODNAT, DESCRNAT FROM TGFNAT WHERE UPPER(DESCRNAT) LIKE :q AND ROWNUM <= :lim"
+            cur.execute(sql, q=f"%{termo}%", lim=limite)
+        return cur.fetchall()
 
-def get_nunota_vale_from_pedido(nunota_pedido: int):
-    """
-    Busca o NUNOTA do VALE (TOP 13) vinculado ao PEDIDO (TOP 11).
-    Usa a coluna NUMPEDIDO em TGFCAB.
-    
-    Args:
-        nunota_pedido: NUNOTA do PEDIDO (TOP 11)
-    
-    Returns:
-        int: NUNOTA do VALE ou None se não encontrado
-    """
+def consultar_cabecalho_venda_oracle(nunota: int):
+    """Devolve os dados do cabeçalho de um pedido de venda para popular o modal de edição.
+    Retorna tupla (codemp, nome_emp, codparc, nome_parc, codtipvenda, descr_tpv, dtneg, obs)
+    ou None se a nota não existir."""
     sql = """
-        SELECT NUNOTA 
-        FROM TGFCAB 
-        WHERE NUMPEDIDO = :pedido_num 
-          AND CODTIPOPER = 13
-        ORDER BY NUNOTA DESC
+        SELECT c.CODEMP, e.NOMEFANTASIA, c.CODPARC, p.NOMEPARC,
+               c.CODTIPVENDA, t.DESCRTIPVENDA, c.DTNEG, c.OBSERVACAO
+        FROM   TGFCAB c
+        LEFT JOIN TSIEMP e ON e.CODEMP = c.CODEMP
+        LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC
+        LEFT JOIN TGFTPV t ON t.CODTIPVENDA = c.CODTIPVENDA AND t.DHALTER = c.DHTIPVENDA
+        WHERE  c.NUNOTA = :n
     """
-    
-    with get_connection() as conn:
+    with obter_conexao_oracle() as conn:
         cur = conn.cursor()
-        cur.execute(sql, pedido_num=int(nunota_pedido))
-        rows = cur.fetchall()
-        return int(rows[0][0]) if rows and rows[0] else None
+        cur.execute(sql, n=int(nunota))
+        return cur.fetchone()
 
-
-def upsert_vale_item(nunota_vale: int, codprod: int, qtdneg: float,
-                     vlrunit: float, lote: str, produto_tipo: str) -> dict:
-    """
-    INSERT ou UPDATE item no VALE (TGFITE).
-    
-    - Se item já existe (mesmo CODPROD + LOTE): UPDATE
-    - Se não existe: INSERT com MAX(SEQUENCIA)+1
-    
-    Args:
-        nunota_vale: NUNOTA do VALE (TOP 13)
-        codprod: CODPROD do produto EXTRA ou MÉDIO
-        qtdneg: Quantidade em KG
-        vlrunit: Valor unitário (R$/KG)
-        lote: LOTE (LOTE/CODAGREGACAO) - obrigatório
-        produto_tipo: 'EXTRA' ou 'MEDIO' (para log)
-    
-    Returns:
-        dict com status da operação
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-    
-    with get_connection() as conn:
+def consultar_empresas_oracle(termo: str, limite: int = 10):
+    """Busca empresas ativas na TSIEMP."""
+    if not termo: return []
+    termo = str(termo).strip().upper()
+    with obter_conexao_oracle() as conn:
         cur = conn.cursor()
-        cols = _get_table_columns(conn, 'TGFITE')
-        lote_candidates = ('LOTE', 'CODAGREGACAO', 'CONTROLE', 'CODCONTROLE')
-        lote_cols = [c for c in lote_candidates if c in cols]
-        if not lote_cols:
-            logger.error(f"[VALE] Nenhuma coluna de lote encontrada em TGFITE: candidatos {lote_candidates}")
-            return {
-                'action': None,
-                'success': False,
-                'error': 'TGFITE não possui coluna de lote compatível (LOTE/CODAGREGACAO/CONTROLE/CODCONTROLE)'
-            }
-        lote_filters = ' OR '.join(f"{col} = :lote" for col in lote_cols)
-        sql_check = f"""
-            SELECT SEQUENCIA, QTDNEG, VLRUNIT, VLRTOT
-              FROM TGFITE
-             WHERE NUNOTA = :nunota
-               AND CODPROD = :codprod
-               AND ({lote_filters})
-        """
-
-        cur.execute(sql_check, nunota=int(nunota_vale), codprod=int(codprod), lote=str(lote))
-        rows = cur.fetchall()
-        existing = rows[0] if rows else None
-        
-        # Se encontrou mais de um, logar warning
-        if len(rows) > 1:
-            logger.warning(f'[VALE] Múltiplos itens encontrados para CODPROD={codprod} LOTE={lote} - usando primeiro')
-            for r in rows:
-                logger.warning(f'[VALE]   SEQ={r[0]} QTDNEG={r[1]} VLRUNIT={r[2]} VLRTOT={r[3]}')
-        
-        vlrtot = float(qtdneg) * float(vlrunit)
-        
-        if existing:
-            # UPDATE item existente
-            sequencia = int(existing[0])
-            
-            update_payload = {
-                'NUNOTA': int(nunota_vale),
-                'SEQUENCIA': sequencia,
-                'QTDNEG': float(qtdneg),
-                'VLRUNIT': float(vlrunit),
-                'VLRTOT': vlrtot
-            }
-            
-            plan = update_item(update_payload, dry_run=False)
-            
-            logger.info(f'[VALE] UPDATE {produto_tipo} - NUNOTA={nunota_vale} SEQ={sequencia} CODPROD={codprod}')
-            
-            return {
-                'action': 'UPDATE',
-                'sequencia': sequencia,
-                'codprod': codprod,
-                'qtdneg': qtdneg,
-                'vlrunit': vlrunit,
-                'vlrtot': vlrtot,
-                'success': plan.get('executed', False),
-                'plan': plan
-            }
+        if termo.isdigit():
+            sql = "SELECT DISTINCT CODEMP, NOMEFANTASIA FROM TSIEMP WHERE (CODEMP = :k OR TO_CHAR(CODEMP) LIKE :pfx) AND ROWNUM <= :lim"
+            cur.execute(sql, k=int(termo), pfx=f"{termo}%", lim=limite)
         else:
-            # INSERT novo item (MAX(SEQUENCIA)+1)
-            sql_max_seq = """
-                SELECT COALESCE(MAX(SEQUENCIA), 0) + 1
-                  FROM TGFITE
-                 WHERE NUNOTA = :nunota
-            """
-            cur.execute(sql_max_seq, nunota=int(nunota_vale))
-            nova_sequencia = int(cur.fetchone()[0])
-            
-            # Buscar dados do cabeçalho
-            sql_cab = """
-                SELECT CODPARC, CODVEND, DTNEG, CODNAT, CODCENCUS, CODEMP
-                FROM TGFCAB
-                WHERE NUNOTA = :nunota
-            """
-            cur.execute(sql_cab, nunota=int(nunota_vale))
-            cab_row = cur.fetchone()
-            
-            if not cab_row:
-                return {
-                    'action': 'INSERT',
-                    'success': False,
-                    'error': f'Cabeçalho não encontrado para NUNOTA {nunota_vale}'
-                }
-            
-            codparc = cab_row[0]
-            codvend = cab_row[1]
-            dtneg = cab_row[2]
-            codnat = cab_row[3]
-            codcencus = cab_row[4]
-            codemp = cab_row[5]
-            
-            # Montar payload para insert_item_fast
-            insert_payload = {
-                'NUNOTA': int(nunota_vale),
-                'CODPROD': int(codprod),
-                'QTDNEG': float(qtdneg),
-                'VLRUNIT': float(vlrunit),
-                'CODVOL': 'KG',  # Sempre KG
-                'CODAGREGACAO': str(lote),  # Mantém compatibilidade com ambientes que utilizam CODAGREGACAO
-                'LOTE': str(lote),
-                'CONTROLE': str(lote),
-                'CODCONTROLE': str(lote),
-            }
-            
-            result = insert_item_fast(insert_payload, dry_run=False)
-            success = bool(result.get('executed'))
-            details: dict[str, Any] = {'fast': result}
+            sql = "SELECT DISTINCT CODEMP, NOMEFANTASIA FROM TSIEMP WHERE UPPER(NOMEFANTASIA) LIKE :q AND ROWNUM <= :lim"
+            cur.execute(sql, q=f"%{termo}%", lim=limite)
+        return cur.fetchall()
 
-            if not success:
-                logger.warning('[VALE] INSERT fast falhou para NUNOTA=%s CODPROD=%s lote=%s; tentando fallback padrão', nunota_vale, codprod, lote)
-                fallback_payload = {
-                    'NUNOTA': int(nunota_vale),
-                    'CODPROD': int(codprod),
-                    'QTDNEG': float(qtdneg),
-                    'VLRUNIT': float(vlrunit),
-                    'CODVOL': 'KG',
-                    'CODAGREGACAO': str(lote),
-                    'OBSERVACAO': insert_payload.get('OBSERVACAO') or f'{produto_tipo} gerado via portal',
-                    'GERAPRODUCAO': insert_payload.get('GERAPRODUCAO'),
-                }
-                try:
-                    fallback = insert_item(fallback_payload, dry_run=False)
-                except Exception as fallback_exc:  # pragma: no cover - defensive
-                    fallback = {'ok': False, 'executed': False, 'error': str(fallback_exc)}
-                details['fallback'] = fallback
-                success = bool(fallback.get('executed'))
-                if success:
-                    result = fallback  # expose fields úteis (nunota/seq)
+def consultar_tipos_negociacao_oracle(termo: str, limite: int = 10):
+    """Busca tipos de negociação ativos na TGFTPV."""
+    if not termo: return []
+    termo = str(termo).strip().upper()
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        if termo.isdigit():
+            sql = "SELECT DISTINCT CODTIPVENDA, DESCRTIPVENDA FROM TGFTPV WHERE (CODTIPVENDA = :k OR TO_CHAR(CODTIPVENDA) LIKE :pfx) AND ROWNUM <= :lim"
+            cur.execute(sql, k=int(termo), pfx=f"{termo}%", lim=limite)
+        else:
+            sql = "SELECT DISTINCT CODTIPVENDA, DESCRTIPVENDA FROM TGFTPV WHERE UPPER(DESCRTIPVENDA) LIKE :q AND ROWNUM <= :lim"
+            cur.execute(sql, q=f"%{termo}%", lim=limite)
+        return cur.fetchall()
 
-            logger.info('[VALE] INSERT %s - NUNOTA=%s CODPROD=%s sucesso=%s', produto_tipo, nunota_vale, codprod, success)
-            
-            return {
-                'action': 'INSERT',
-                'sequencia': result.get('sequencia') or nova_sequencia,
-                'codprod': codprod,
-                'qtdneg': qtdneg,
-                'vlrunit': vlrunit,
-                'vlrtot': vlrtot,
-                'success': success,
-                'result': details
-            }
+def consultar_centros_resultado_oracle(termo: str, limite: int = 10):
+    """Busca centros de resultado na TSICUS."""
+    if not termo: return []
+    termo = str(termo).strip().upper()
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        if termo.isdigit():
+            sql = "SELECT DISTINCT CODCENCUS, DESCRCENCUS FROM TSICUS WHERE (CODCENCUS = :k OR TO_CHAR(CODCENCUS) LIKE :pfx) AND ROWNUM <= :lim"
+            cur.execute(sql, k=int(termo), pfx=f"{termo}%", lim=limite)
+        else:
+            sql = "SELECT DISTINCT CODCENCUS, DESCRCENCUS FROM TSICUS WHERE UPPER(DESCRCENCUS) LIKE :q AND ROWNUM <= :lim"
+            cur.execute(sql, q=f"%{termo}%", lim=limite)
+        return cur.fetchall()
 
 
-def _recalc_vlrnota(conn, nunota: int) -> dict:
+# ==============================================================================
+# 💰 Autenticação de Usuários
+# Interface para login e controle de acesso, usando o sistema de usuários do Django.
+# ==============================================================================
+
+# Configuração básica para garantir que o log apareça no seu terminal
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def autenticar_usuario_sankhya(usuario, senha) -> dict:
+    url_api = "http://hfsemear.ddns.net:8180/mge/service.sbr?serviceName=MobileLoginSP.login"
+    
+    # Montando o envelope XML que o seu Sankhya exige
+    xml_payload = f"""
+    <serviceRequest serviceName="MobileLoginSP.login">
+        <requestBody>
+            <NOMUSU>{usuario}</NOMUSU>
+            <INTERNO>{senha}</INTERNO>
+            <KEEPCONNECTED>N</KEEPCONNECTED>
+        </requestBody>
+    </serviceRequest>
     """
-    Helper interno: Recalcula VLRNOTA do cabeçalho baseado na soma dos itens.
     
-    Args:
-        conn: Conexão do Oracle já aberta
-        nunota: NUNOTA do cabeçalho
-    
-    Returns:
-        dict com 'vlrnota' e 'updated'
-    """
-    cur = conn.cursor()
-    
-    # Calcular soma dos VLRTOT
-    sql_sum = """
-        SELECT NVL(SUM(VLRTOT), 0)
-        FROM TGFITE
-        WHERE NUNOTA = :nunota
-    """
-    cur.execute(sql_sum, nunota=int(nunota))
-    row = cur.fetchone()
-    vlrnota_value = float(row[0]) if row and row[0] is not None else 0.0
-    
-    # Atualizar TGFCAB.VLRNOTA
-    sql_update = """
-        UPDATE TGFCAB
-        SET VLRNOTA = :vlrnota
-        WHERE NUNOTA = :nunota
-    """
-    cur.execute(sql_update, vlrnota=vlrnota_value, nunota=int(nunota))
-    updated = cur.rowcount > 0
-    
-    return {
-        'vlrnota': vlrnota_value,
-        'updated': updated
+    headers = {
+        'Content-Type': 'text/xml; charset=ISO-8859-1',
+        'User-Agent': 'Mozilla/5.0'
     }
-
-
-def delete_vale_items(nunota_vale: int, codprod_in_natura: int):
-    """
-    Deleta APENAS os produtos Extra/Médio do VALE (TOP 13).
-    Preserva outros produtos que possam existir no VALE.
-    
-    Args:
-        nunota_vale: NUNOTA do VALE (TOP 13)
-        codprod_in_natura: CODPROD do produto IN NATURA para identificar Extra/Médio
-    
-    Returns:
-        dict com:
-        - success: bool
-        - deleted_count: quantidade de itens deletados
-        - products_deleted: lista de CODPROD deletados
-        - error: mensagem de erro (se houver)
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-    
-    logger.info(f'[DELETE VALE] Iniciando exclusão - NUNOTA={nunota_vale}, CODPROD_IN_NATURA={codprod_in_natura}')
     
     try:
-        # 1. Buscar CODPROD Extra/Médio
-        produtos = get_produtos_extra_medio(codprod_in_natura)
-        codprod_extra = produtos.get('extra')
-        codprod_medio = produtos.get('medio')
+        # Enviando como DATA (string XML) em vez de JSON
+        api_response = requests.post(url_api, data=xml_payload, headers=headers, timeout=15)
         
-        if not codprod_extra and not codprod_medio:
-            logger.warning(f'[DELETE VALE] Nenhum produto Extra/Médio encontrado para CODPROD {codprod_in_natura}')
-            return {
-                'success': True,
-                'deleted_count': 0,
-                'products_deleted': [],
-                'message': 'Nenhum produto Extra/Médio encontrado'
-            }
+        # O seu Sankhya responde em XML, então vamos ler o XML
+        from xml.etree import ElementTree as ET
+        root = ET.fromstring(api_response.content)
         
-        codprods_to_delete = []
-        if codprod_extra:
-            codprods_to_delete.append(int(codprod_extra))
-        if codprod_medio:
-            codprods_to_delete.append(int(codprod_medio))
+        status = root.get('status') # Atributo status="1" ou "0"
         
-        logger.info(f'[DELETE VALE] Produtos a deletar: {codprods_to_delete}')
-        
-        with get_connection() as conn:
-            cur = conn.cursor()
-            
-            # 2. Verificar quantos itens serão deletados (para log)
-            placeholders = ','.join([f':cod{i}' for i in range(len(codprods_to_delete))])
-            sql_check = f"""
-                SELECT SEQUENCIA, CODPROD, QTDNEG, VLRUNIT
-                FROM TGFITE
-                WHERE NUNOTA = :nunota
-                AND CODPROD IN ({placeholders})
-            """
-            params_check = {'nunota': int(nunota_vale)}
-            for i, cod in enumerate(codprods_to_delete):
-                params_check[f'cod{i}'] = cod
-            
-            cur.execute(sql_check, **params_check)
-            items_to_delete = cur.fetchall()
-            
-            logger.info(f'[DELETE VALE] Itens encontrados para deletar: {len(items_to_delete)}')
-            for item in items_to_delete:
-                logger.info(f'[DELETE VALE]   - SEQ={item[0]}, CODPROD={item[1]}, QTDNEG={item[2]}, VLRUNIT={item[3]}')
-            
-            if not items_to_delete:
-                logger.info('[DELETE VALE] Nenhum item encontrado no VALE para deletar')
-                return {
-                    'success': True,
-                    'deleted_count': 0,
-                    'products_deleted': codprods_to_delete,
-                    'message': 'Nenhum item encontrado no VALE'
-                }
-            
-            # 3. DELETE dos itens
-            sql_delete = f"""
-                DELETE FROM TGFITE
-                WHERE NUNOTA = :nunota
-                AND CODPROD IN ({placeholders})
-            """
-            params_delete = {'nunota': int(nunota_vale)}
-            for i, cod in enumerate(codprods_to_delete):
-                params_delete[f'cod{i}'] = cod
-            
-            cur.execute(sql_delete, **params_delete)
-            deleted_count = cur.rowcount
-            
-            logger.info(f'[DELETE VALE] Deletados {deleted_count} itens')
-            
-            # 4. Recalcular VLRNOTA do VALE
-            recalc_result = _recalc_vlrnota(conn, int(nunota_vale))
-            logger.info(f'[DELETE VALE] VLRNOTA recalculado: {recalc_result}')
-            
-            conn.commit()
-            
-            return {
-                'success': True,
-                'deleted_count': deleted_count,
-                'products_deleted': codprods_to_delete,
-                'items': [{'sequencia': i[0], 'codprod': i[1], 'qtdneg': float(i[2]), 'vlrunit': float(i[3])} for i in items_to_delete],
-                'vlrnota_recalc': recalc_result
-            }
-            
+        if status == "1":
+            # Sucesso! Agora vamos buscar os dados no Oracle (Fase 2)
+            # Mantenha o seu código de SELECT no Oracle aqui abaixo...
+            pass 
+        else:
+            # Falha: Captura a mensagem de erro dentro da tag <statusMessage>
+            msg_node = root.find('statusMessage')
+            import base64
+            # O Sankhya costuma mandar a mensagem em Base64 dentro do CDATA
+            try:
+                error_msg = base64.b64decode(msg_node.text).decode('iso-8859-1')
+            except:
+                error_msg = msg_node.text if msg_node is not None else "Usuário ou senha inválidos."
+                
+            return {'autenticado': False, 'error': error_msg}
+
     except Exception as e:
-        logger.error(f'[DELETE VALE] Erro ao deletar itens: {e}', exc_info=True)
-        return {
-            'success': False,
-            'deleted_count': 0,
-            'products_deleted': [],
-            'error': str(e)
-        }
+        logger.error(f"Erro na comunicação XML: {str(e)}")
+        return {'autenticado': False, 'error': 'Servidor ERP indisponível.'}
 
-
-def criar_tgffin(nunota_vale: int, valor_liquido: Optional[float] = None) -> Dict[str, Any]:
+    # =========================================================================
+    # FASE 2: BUSCA NO ORACLE (Grupo Principal + Grupos Adicionais TSIGPU)
+    # =========================================================================
+    sql_usuario = """
+        SELECT U.CODUSU, U.NOMEUSU, U.CODGRUPO
+        FROM TSIUSU U
+        WHERE UPPER(U.NOMEUSU) = UPPER(:u) 
+          AND (U.DTLIMACESSO IS NULL OR TRUNC(U.DTLIMACESSO) >= TRUNC(SYSDATE))
     """
-    Cria registro financeiro (TGFFIN) para TOP 13 confirmado.
     
-    Baseado na Etapa 7 do rastreamento Sankhya (arquivo: Rastreamento Banco Sankhya.txt).
-    
-    Regras:
-    - Valores 0 são enviados como 0 (não NULL)
-    - Campos vazios/NULL são enviados como NULL
-    - FINCONFIRMADO = 'S' (já confirmado - Etapa 7)
-    - AUTORIZADO = 'N' (não autorizado - Etapa 7)
-    - Vencimento = DTFATUR + dias configurados (padrão: 30 dias)
-    - Banco, Conta e Tipo Título são configuráveis via get_params()
-    
-    Args:
-        nunota_vale: NUNOTA do TOP 13 (vale de compra)
-        
-    Returns:
-        dict com:
-        - ok: bool - True se sucesso
-        - nufin: int - ID do financeiro gerado
-        - vlrdesdob: float - Valor do desdobramento
-        - dtvenc: str - Data de vencimento (formato DD/MM/YYYY)
-        - error: str - Mensagem de erro (se houver)
-    """
-    import logging
-    import math
-    logger = logging.getLogger(__name__)
-    
-    out: Dict[str, Any] = {'ok': False, 'nufin': None}
-    
-    if not is_write_enabled():
-        out['error'] = 'Escrita desabilitada no sistema'
-        logger.warning('[CRIAR TGFFIN] Escrita desabilitada')
-        return out
-        
-    try:
-        nunota_int = int(nunota_vale)
-    except Exception:
-        out['error'] = f'NUNOTA inválido: {nunota_vale}'
-        logger.error(f'[CRIAR TGFFIN] NUNOTA inválido: {nunota_vale}')
-        return out
-        
-    logger.info(f'[CRIAR TGFFIN] Iniciando criação para NUNOTA={nunota_int}')
-        
-    try:
-        with get_connection() as conn:
-            cur = conn.cursor()
-            
-            # 0. Verificar se já existe TGFFIN para este NUNOTA
-            logger.debug(f'[CRIAR TGFFIN] Verificando se já existe TGFFIN para NUNOTA={nunota_int}')
-            cur.execute("""
-                SELECT NUFIN, NURENEG, VLRBAIXA 
-                FROM TGFFIN 
-                WHERE NUNOTA = :n
-            """, n=nunota_int)
-            
-            existing_row = cur.fetchone()
-            if existing_row:
-                existing_nufin, existing_nureneg, existing_vlrbaixa = existing_row
-                logger.warning(f'[CRIAR TGFFIN] ⚠️ Já existe TGFFIN para NUNOTA {nunota_int}: NUFIN={existing_nufin}')
-                out['error'] = f'Vale já está faturado (NUFIN: {existing_nufin}). Use DESFATURAR antes de faturar novamente.'
-                out['nufin'] = existing_nufin
-                return out
-            
-            # 1. Buscar dados do cabeçalho (TOP 13)
-            logger.debug(f'[CRIAR TGFFIN] Buscando dados do cabeçalho NUNOTA={nunota_int}')
-            cur.execute("""
-                SELECT 
-                    CODEMP, NUMNOTA, DTNEG, CODPARC, CODTIPOPER, 
-                    CODNAT, CODCENCUS, DTENTSAI, VLRNOTA, DTFATUR
-                FROM TGFCAB 
-                WHERE NUNOTA = :n
-            """, n=nunota_int)
-            
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(sql_usuario, u=usuario)
             row = cur.fetchone()
-            if not row:
-                out['error'] = f'NUNOTA {nunota_int} não encontrada na TGFCAB'
-                logger.error(f'[CRIAR TGFFIN] NUNOTA {nunota_int} não encontrada')
-                return out
+            
+            if row:
+                codusu, nome, codgrupo_primario = row
+                grupos = set()
                 
-            (CODEMP, NUMNOTA, DTNEG, CODPARC, CODTIPOPER, 
-             CODNAT, CODCENCUS, DTENTSAI, VLRNOTA, DTFATUR) = row
-            
-            # Garantir que valores numéricos sejam válidos (None se vazio)
-            CODNAT = int(CODNAT) if CODNAT and str(CODNAT).strip() else None
-            CODCENCUS = int(CODCENCUS) if CODCENCUS and str(CODCENCUS).strip() else None
-            VLRNOTA = float(VLRNOTA) if VLRNOTA is not None else 0.0
-
-            liquido_override = None
-            if valor_liquido is not None:
-                try:
-                    candidate = float(valor_liquido)
-                    if math.isfinite(candidate) and candidate >= 0:
-                        liquido_override = round(candidate, 2)
-                except Exception:
-                    liquido_override = None
-
-            if liquido_override is not None and abs(liquido_override - VLRNOTA) > 0.01:
-                logger.info('[CRIAR TGFFIN] Ajustando VLRDESDOB pelo valor líquido informado: %s (VLRNOTA cabeçalho: %s)', liquido_override, VLRNOTA)
-
-            vlrdesdob_value = liquido_override if liquido_override is not None else VLRNOTA
-            if vlrdesdob_value < 0:
-                vlrdesdob_value = 0.0
-            
-            logger.debug(f'[CRIAR TGFFIN] Dados: CODEMP={CODEMP}, NUMNOTA={NUMNOTA}, '
-                        f'CODPARC={CODPARC}, CODTIPOPER={CODTIPOPER}, VLRNOTA={VLRNOTA}, '
-                        f'CODNAT={CODNAT}, CODCENCUS={CODCENCUS}')
-            
-            # 2. Buscar DHTIPOPER da TOP
-            cur.execute("""
-                SELECT DHALTER 
-                FROM (
-                    SELECT DHALTER 
-                    FROM TGFTOP 
-                    WHERE CODTIPOPER = :top 
-                    ORDER BY DHALTER DESC
-                ) 
-                WHERE ROWNUM = 1
-            """, top=CODTIPOPER)
-            
-            dhtipoper_row = cur.fetchone()
-            DHTIPOPER = dhtipoper_row[0] if dhtipoper_row else None
-            
-            logger.debug(f'[CRIAR TGFFIN] DHTIPOPER={DHTIPOPER}')
-            
-            # 3. Gerar NUFIN (sequence ou MAX+1)
-            try:
-                cur.execute("SELECT SQ_TGFFIN_NUFIN.NEXTVAL FROM DUAL")
-                NUFIN = cur.fetchone()[0]
-                logger.debug(f'[CRIAR TGFFIN] NUFIN gerado via sequence: {NUFIN}')
-            except Exception:
-                cur.execute("SELECT NVL(MAX(NUFIN), 0) + 1 FROM TGFFIN")
-                NUFIN = cur.fetchone()[0]
-                logger.debug(f'[CRIAR TGFFIN] NUFIN gerado via MAX+1: {NUFIN}')
-            
-            # 4. Calcular datas
-            # Usar DTFATUR como base para vencimento (conforme rastreamento)
-            if DTFATUR:
-                base_date = DTFATUR if isinstance(DTFATUR, datetime) else datetime.now()
-            else:
-                base_date = DTNEG if isinstance(DTNEG, datetime) else datetime.now()
-            
-            # 5. Parâmetros configuráveis via tabela de parâmetros
-            params = get_params()
-            CODBCO = int(params.get('FINANCEIRO_BANCO_PADRAO', 33))
-            CODCTABCOINT = int(params.get('FINANCEIRO_CONTA_BANCARIA', 2))
-            CODTIPTIT = int(params.get('FINANCEIRO_TIPO_TITULO', 13))
-            DIAS_VENC = int(params.get('FINANCEIRO_DIAS_VENCIMENTO', 30))
-            
-            # Calcular vencimento
-            dtvenc = base_date + timedelta(days=DIAS_VENC)
-
-            # Normalizar datas (sem componente de hora) para atender gatilhos do financeiro
-            if isinstance(base_date, datetime):
-                dtneg_trunc = datetime(base_date.year, base_date.month, base_date.day)
-            else:
-                dtneg_trunc = base_date
-
-            if isinstance(dtvenc, datetime):
-                dtvenc_trunc = datetime(dtvenc.year, dtvenc.month, dtvenc.day)
-            else:
-                dtvenc_trunc = dtvenc
-            
-            logger.info(f'[CRIAR TGFFIN] Parâmetros: CODBCO={CODBCO}, CODCTABCOINT={CODCTABCOINT}, '
-                       f'CODTIPTIT={CODTIPTIT}, DIAS_VENC={DIAS_VENC}')
-            logger.info(f'[CRIAR TGFFIN] Base: {dtneg_trunc.strftime("%d/%m/%Y") if isinstance(dtneg_trunc, datetime) else dtneg_trunc}, '
-                       f'Vencimento: {dtvenc_trunc.strftime("%d/%m/%Y") if isinstance(dtvenc_trunc, datetime) else dtvenc_trunc}')
-            
-            # 6. INSERT TGFFIN conforme Etapa 7 (TGFFIN após confirmar TOP 13)
-            # Baseado no arquivo: Rastreamento Banco Sankhya.txt
-            # Importante: Valores 0 são enviados como 0, campos vazios como NULL
-            # PROVISAO = 'N' (título confirmado, não provisório)
-            # AUTORIZADO = 'N', RECDESP = -1, DESDOBRAMENTO = 1, SEQUENCIA = 1
-            logger.debug('[CRIAR TGFFIN] Executando INSERT na TGFFIN (Etapa 7)...')
-            
-            cur.execute("""
-                INSERT INTO TGFFIN (
-                    NUFIN, CODEMP, NUMNOTA, DTNEG, DESDOBRAMENTO, DHMOV,
-                    DTVENCINIC, DTVENC, CODPARC, CODTIPOPER, DHTIPOPER,
-                    CODBCO, CODCTABCOINT, CODNAT, CODCENCUS, CODPROJ,
-                    CODVEND, CODMOEDA, CODTIPTIT, VLRDESDOB, VLRVENDOR,
-                    VLRIRF, VLRISS, DESPCART, ISSRETIDO, VLRDESC,
-                    VLRMULTA, VLRINSS, TIPMULTA, VLRJURO, TIPJURO,
-                    BASEICMS, ALIQICMS, DHTIPOPERBAIXA, VLRBAIXA,
-                    AUTORIZADO, RECDESP, PROVISAO, ORIGEM, NUNOTA,
-                    RATEADO, DTENTSAI, VLRPROV, IRFRETIDO, INSSRETIDO,
-                    CARTAODESC, DTALTER, NUMCONTRATO, ORDEMCARGA, CODVEICULO,
-                    CODUSU, SEQUENCIA, VLRDESCEMBUT, VLRJUROEMBUT, VLRMULTAEMBUT,
-                    VLRMOEDA, VLRMOEDABAIXA, VLRMULTANEGOC, VLRJURONEGOC,
-                    VLRMULTALIB, VLRJUROLIB, VLRALIBERAR, DTPRAZO,
-                    FINCONFIRMADO, VLRGNREDOIS, RECEBIDO, VLRDESDOBCALC,
-                    NUMOCORRENCIAS
-                ) VALUES (
-                    :NUFIN, :CODEMP, :NUMNOTA, :DTNEG, 1, SYSDATE,
-                    :DTVENCINIC, :DTVENC, :CODPARC, :CODTIPOPER, :DHTIPOPER,
-                    :CODBCO, :CODCTABCOINT, :CODNAT, :CODCENCUS, 0,
-                    0, 0, :CODTIPTIT, :VLRDESDOB, 0,
-                    0, 0, 0, 'N', 0,
-                    0, 0, 1, 0, 1,
-                    0, 0, TO_DATE('01/01/1998','DD/MM/YYYY'), 0,
-                    'N', -1, 'N', 'E', :NUNOTA,
-                    'N', :DTENTSAI, 0, 'S', 'S',
-                    0, SYSDATE, 0, 0, 0,
-                    0, 1, 0, 0, 0,
-                    0, 0, 0, 0,
-                    0, 0, 0, :DTPRAZO,
-                    'S', 0, 0, 0,
-                    NULL
-                )
-            """, {
-                'NUFIN': int(NUFIN),
-                'CODEMP': int(CODEMP),
-                'NUMNOTA': int(nunota_int),
-                'NUNOTA': int(nunota_int),
-                'DTNEG': dtneg_trunc,
-                'DTVENCINIC': dtvenc_trunc,
-                'DTVENC': dtvenc_trunc,
-                'DTENTSAI': DTENTSAI,
-                'DTPRAZO': dtvenc_trunc,
-                'DHTIPOPER': DHTIPOPER,
-                'CODPARC': int(CODPARC),
-                'CODTIPOPER': int(CODTIPOPER),
-                'CODBCO': int(CODBCO),
-                'CODCTABCOINT': int(CODCTABCOINT),
-                'CODNAT': CODNAT,
-                'CODCENCUS': CODCENCUS,
-                'CODTIPTIT': int(CODTIPTIT),
-                'VLRDESDOB': float(vlrdesdob_value)
-            })
-            
-            # Commit isolado para TGFFIN (rollback não afeta TGFCAB)
-            conn.commit()
-            
-            logger.info(f'[CRIAR TGFFIN] ✅ Sucesso! NUFIN={NUFIN}, VLRDESDOB={vlrdesdob_value}, '
-                       f'DTVENC={dtvenc.strftime("%d/%m/%Y")}')
-            
-            out['ok'] = True
-            out['nufin'] = NUFIN
-            out['vlrdesdob'] = float(vlrdesdob_value)
-            out['dtvenc'] = dtvenc.strftime('%d/%m/%Y')
-            out['valor_liquido'] = liquido_override if liquido_override is not None else VLRNOTA
-            
-            return out
-            
-    except Exception as e:
-        out['error'] = f'Erro ao criar TGFFIN: {str(e)}'
-        logger.error(f'[CRIAR TGFFIN] ❌ Erro: {e}', exc_info=True)
-        return out
-
-
-def modal_faturamento_auto_save(
-    nunota_pedido: int,
-    sequencia: int,
-    codprod: int,
-    codagregacao: str,
-    vlrtot: float,
-    is_classificavel: bool,
-    items_snapshot: Optional[List[Dict[str, Any]]] = None
-) -> dict:
-    """
-    Auto-salva alterações do modalFaturamento.
-    
-    Comportamento:
-    - Classificável: Apenas cria cabeçalho VALE se não existir. Edita PEDIDO (PRECOBASE, VLRUNIT, VLRTOT).
-    - Não Classificável: Cria/edita VALE completo (cabeçalho + item). Edita PEDIDO (VLRUNIT, VLRTOT).
-    
-    IMPORTANTE: O usuário digita VLRTOT (valor total), e o sistema calcula VLRUNIT = VLRTOT / QTDNEG.
-    
-    Args:
-        nunota_pedido: NUNOTA do PEDIDO (TOP 11)
-        sequencia: SEQUENCIA do item no PEDIDO
-        codprod: CODPROD do item
-        codagregacao: LOTE do item
-        vlrtot: VLRTOT desejado (valor total que o usuário digitou)
-        is_classificavel: True = Classificável, False = Não Classificável
-    
-    Returns:
-        dict com:
-        - success: bool
-        - nunota_vale: int (NUNOTA do VALE criado/encontrado)
-        - vlrnota_pedido: float (VLRNOTA atualizado do PEDIDO)
-        - vlrnota_vale: float (VLRNOTA atualizado do VALE, se aplicável)
-        - action: str ('classificavel' ou 'nao_classificavel')
-        - vlrunit: float (VLRUNIT calculado)
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-    
-    logger.info(f'[MODAL AUTO-SAVE] Iniciando - NUNOTA={nunota_pedido}, SEQ={sequencia}, '
-                f'CODPROD={codprod}, LOTE={codagregacao}, VLRTOT={vlrtot}, '
-                f'IS_CLASSIFICAVEL={is_classificavel}')
-
-    snapshot_payload = items_snapshot or []
-    if snapshot_payload:
-        logger.info('[MODAL AUTO-SAVE] Snapshot recebido com %s itens', len(snapshot_payload))
-    
-    try:
-        with get_connection() as conn:
-            try:
-                cur = conn.cursor()
+                # 1. Adiciona o grupo principal do usuário
+                if codgrupo_primario is not None:
+                    grupos.add(str(codgrupo_primario))
                 
-                # 1. Buscar QTDNEG e PRECOBASE do item no PEDIDO
-                sql_item = """
-                    SELECT QTDNEG, PRECOBASE, GERAPRODUCAO
-                    FROM TGFITE
-                    WHERE NUNOTA = :nunota AND SEQUENCIA = :seq
+                # 2. Busca os grupos extras na TSIGPU (ignorando os com data vencida)
+                sql_extras = """
+                    SELECT CODGRUPO 
+                    FROM TSIGPU 
+                    WHERE CODUSU = :cod
+                      AND (DATAFIM IS NULL OR TRUNC(DATAFIM) >= TRUNC(SYSDATE))
                 """
-                cur.execute(sql_item, nunota=int(nunota_pedido), seq=int(sequencia))
-                item_row = cur.fetchone()
+                cur.execute(sql_extras, cod=codusu)
                 
-                if not item_row:
-                    logger.error(f'[MODAL AUTO-SAVE] Item não encontrado - NUNOTA={nunota_pedido}, SEQ={sequencia}')
-                    return {
-                        'success': False,
-                        'error': 'Item não encontrado no PEDIDO'
-                    }
+                # Adiciona todos os grupos extras no "set" (que evita duplicidades)
+                for g in cur.fetchall():
+                    grupos.add(str(g[0]))
                 
-                qtdneg = float(item_row[0])
-                precobase_atual = float(item_row[1]) if item_row[1] else 0.0
-                # Preservar flag GERAPRODUCAO do item do pedido (pode ser 'S','N' ou NULL)
-                geraprod = item_row[2] if len(item_row) > 2 else None
-                if geraprod is not None:
-                    try:
-                        geraprod = str(geraprod).strip().upper()
-                    except Exception:
-                        geraprod = None
-                if geraprod not in (None, 'S', 'N'):
-                    geraprod = None
+                return {
+                    'autenticado': True,
+                    'codusu': codusu,
+                    'nome': nome,
+                    'grupos': list(grupos) # Retorna a lista completa!
+                }
+            else:
+                return {'autenticado': False, 'error': 'Usuário não encontrado ou bloqueado no banco local.'}
                 
-                # Calcular VLRUNIT a partir do VLRTOT (o usuário digita o total)
-                if qtdneg == 0:
-                    logger.error(f'[MODAL AUTO-SAVE] QTDNEG = 0 - impossível calcular VLRUNIT')
-                    return {
-                        'success': False,
-                        'error': 'Quantidade (QTDNEG) não pode ser zero'
-                    }
-                
-                vlrunit = vlrtot / qtdneg
-                
-                logger.info(f'[MODAL AUTO-SAVE] Calculado - QTDNEG={qtdneg}, VLRTOT={vlrtot}, VLRUNIT={vlrunit}')
-                
-                # 2. Verificar/Criar VALE (cabeçalho)
-                nunota_vale = get_nunota_vale_from_pedido(nunota_pedido)
-                
-                if not nunota_vale:
-                    # Criar cabeçalho do VALE
-                    logger.info(f'[MODAL AUTO-SAVE] VALE não existe, criando cabeçalho...')
-                    
-                    # Buscar dados do PEDIDO para replicar no VALE
-                    sql_pedido = """
-                        SELECT CODEMP, CODPARC, DTNEG, CODNAT, CODCENCUS, CODVEND, OBSERVACAO, CODTIPVENDA
-                        FROM TGFCAB
-                        WHERE NUNOTA = :nunota
-                    """
-                    cur.execute(sql_pedido, nunota=int(nunota_pedido))
-                    pedido_row = cur.fetchone()
-                    
-                    if not pedido_row:
-                        logger.error(f'[MODAL AUTO-SAVE] PEDIDO não encontrado - NUNOTA={nunota_pedido}')
-                        return {
-                            'success': False,
-                            'error': 'PEDIDO não encontrado'
-                        }
-                    
-                    codemp = int(pedido_row[0])
-                    codparc = int(pedido_row[1])
-                    dtneg = pedido_row[2]
-                    codnat = int(pedido_row[3]) if pedido_row[3] else None
-                    codcencus = int(pedido_row[4]) if pedido_row[4] else None
-                    codvend = int(pedido_row[5]) if pedido_row[5] else None
-                    observacao = str(pedido_row[6]) if pedido_row[6] else None
-                    codtipvenda = int(pedido_row[7]) if pedido_row[7] else None
-                    
-                    # Buscar TIPMOV e DHALTER da TOP 13
-                    sql_top = """
-                        SELECT TIPMOV, DHALTER 
-                        FROM (SELECT TIPMOV, DHALTER FROM TGFTOP WHERE CODTIPOPER=13 ORDER BY DHALTER DESC) 
-                        WHERE ROWNUM=1
-                    """
-                    cur.execute(sql_top)
-                    top_row = cur.fetchone()
-                    
-                    if not top_row:
-                        logger.error('[MODAL AUTO-SAVE] TOP 13 não encontrada')
-                        return {
-                            'success': False,
-                            'error': 'TOP 13 não configurada no sistema'
-                        }
-                    
-                    tipmov = top_row[0] if top_row[0] else 'C'
-                    dhtipoper = top_row[1]
-                    
-                    # Gerar NUNOTA manualmente (MAX+1)
-                    sql_max_nunota = "SELECT NVL(MAX(NUNOTA), 0) + 1 FROM TGFCAB"
-                    cur.execute(sql_max_nunota)
-                    nunota_vale = int(cur.fetchone()[0])
-                    
-                    # Formatar datas
-                    from datetime import datetime
-                    hoje = datetime.now().strftime('%d/%m/%Y')
-                    
-                    # INSERT cabeçalho VALE
-                    sql_insert_cab = """
-                        INSERT INTO TGFCAB (
-                            NUNOTA, CODEMP, CODEMPNEGOC, CODPARC, CODTIPOPER, DHTIPOPER, TIPMOV,
-                            CODNAT, CODCENCUS, DTNEG, DTMOV, DTENTSAI,
-                            NUMNOTA, NUMPEDIDO, PENDENTE, STATUSNOTA, HRMOV, APROVADO, DTALTER,
-                            VLRNOTA
-                        ) VALUES (
-                            :NUNOTA, :CODEMP, :CODEMP, :CODPARC, 13, :DHTIPOPER, :TIPMOV,
-                            :CODNAT, :CODCENCUS, TO_DATE(:DTNEG,'DD/MM/YYYY'), TO_DATE(:DTMOV,'DD/MM/YYYY'), TO_DATE(:DTENTSAI,'DD/MM/YYYY'),
-                            :NUMNOTA, :NUMPEDIDO, 'S', 'A', TO_CHAR(SYSDATE,'HH24MISS'), 'N', SYSDATE,
-                            0
-                        )
-                    """
-                    cur.execute(sql_insert_cab, {
-                        'NUNOTA': nunota_vale,
-                        'CODEMP': codemp,
-                        'CODPARC': codparc,
-                        'DHTIPOPER': dhtipoper,
-                        'TIPMOV': tipmov,
-                        'CODNAT': codnat,
-                        'CODCENCUS': codcencus,
-                        'DTNEG': hoje,
-                        'DTMOV': hoje,
-                        'DTENTSAI': hoje,
-                        'NUMNOTA': int(nunota_pedido),
-                        'NUMPEDIDO': int(nunota_pedido)
-                    })
-                    
-                    logger.info(f'[MODAL AUTO-SAVE] ✅ Cabeçalho VALE criado - NUNOTA={nunota_vale}')
-                    
-                    # Commit do cabeçalho antes de inserir itens
-                    conn.commit()
-                else:
-                    logger.info(f'[MODAL AUTO-SAVE] VALE já existe - NUNOTA={nunota_vale}')
-                
-                # 3. Processar conforme tipo
-                if is_classificavel:
-                    # CLASSIFICÁVEL: Apenas editar PEDIDO (PRECOBASE = valor por unidade digitado)
-                    logger.info(f'[MODAL AUTO-SAVE] Processando CLASSIFICÁVEL')
-                    
-                    # PRECOBASE deve ser o valor por unidade (CX) = VLRTOT / QTDNEG
-                    precobase = vlrtot / qtdneg if qtdneg > 0 else vlrunit
-                    
-                    sql_update_pedido = """
-                        UPDATE TGFITE
-                        SET PRECOBASE = :precobase,
-                            VLRUNIT = :vlrunit,
-                            VLRTOT = :vlrtot
-                        WHERE NUNOTA = :nunota AND SEQUENCIA = :seq
-                    """
-                    cur.execute(sql_update_pedido,
-                               precobase=precobase,
-                               vlrunit=vlrunit,
-                               vlrtot=vlrtot,
-                               nunota=int(nunota_pedido),
-                               seq=int(sequencia))
-                    
-                    logger.info(f'[MODAL AUTO-SAVE] ✅ PEDIDO atualizado - PRECOBASE={precobase}, VLRUNIT={vlrunit}, VLRTOT={vlrtot}')
-                    
-                    # Recalcular VLRNOTA do PEDIDO
-                    recalc_pedido = _recalc_vlrnota(conn, int(nunota_pedido))
-                    
-                    conn.commit()
-                    
-                    return {
-                        'success': True,
-                        'action': 'classificavel',
-                        'nunota_vale': nunota_vale,
-                        'vlrnota_pedido': recalc_pedido['vlrnota'],
-                        'vlrnota_vale': None,
-                        'vlrunit': vlrunit
-                    }
-                
-                else:
-                    # NÃO CLASSIFICÁVEL: Editar PEDIDO + Adicionar/Editar VALE
-                    logger.info(f'[MODAL AUTO-SAVE] Processando NÃO CLASSIFICÁVEL')
-                    
-                    # PRECOBASE deve ser o valor por unidade (CX) = VLRTOT / QTDNEG
-                    precobase = vlrtot / qtdneg if qtdneg > 0 else vlrunit
-                    
-                    # 3.1. Atualizar PEDIDO (PRECOBASE, VLRUNIT, VLRTOT)
-                    sql_update_pedido = """
-                        UPDATE TGFITE
-                        SET PRECOBASE = :precobase,
-                            VLRUNIT = :vlrunit,
-                            VLRTOT = :vlrtot
-                        WHERE NUNOTA = :nunota AND SEQUENCIA = :seq
-                    """
-                    cur.execute(sql_update_pedido,
-                               precobase=precobase,
-                               vlrunit=vlrunit,
-                               vlrtot=vlrtot,
-                               nunota=int(nunota_pedido),
-                               seq=int(sequencia))
-                    
-                    logger.info(f'[MODAL AUTO-SAVE] ✅ PEDIDO atualizado - PRECOBASE={precobase}, VLRUNIT={vlrunit}, VLRTOT={vlrtot}')
-                    
-                    # 3.2. Verificar se item já existe no VALE
-                    # Buscar por CODPROD primeiro (lote pode ter variações de formatação)
-                    sql_check_vale = """
-                        SELECT SEQUENCIA, CONTROLE, CODAGREGACAO
-                        FROM TGFITE
-                        WHERE NUNOTA = :nunota 
-                          AND CODPROD = :codprod
-                    """
-                    cur.execute(sql_check_vale,
-                               nunota=int(nunota_vale),
-                               codprod=int(codprod))
-                    vale_items = cur.fetchall()
-                    
-                    # Se houver múltiplos itens do mesmo produto, filtrar por lote
-                    vale_item = None
-                    if vale_items:
-                        if len(vale_items) == 1:
-                            # Apenas um item deste produto, usar independente do lote
-                            vale_item = vale_items[0]
-                            logger.info(f'[MODAL AUTO-SAVE] Item VALE único encontrado - SEQ={vale_item[0]}')
-                        else:
-                            # Múltiplos itens, tentar match por lote (normalizado)
-                            lote_pedido = str(codagregacao).strip().upper()
-                            for item in vale_items:
-                                controle = str(item[1] or '').strip().upper()
-                                codag = str(item[2] or '').strip().upper()
-                                if controle == lote_pedido or codag == lote_pedido:
-                                    vale_item = item
-                                    logger.info(f'[MODAL AUTO-SAVE] Item VALE encontrado por lote - SEQ={vale_item[0]}')
-                                    break
-                            if not vale_item:
-                                # Nenhum match por lote, usar primeiro item como fallback
-                                vale_item = vale_items[0]
-                                logger.warning(f'[MODAL AUTO-SAVE] ⚠️ Múltiplos itens do produto {codprod}, lote não corresponde. Usando primeiro item SEQ={vale_item[0]}')
-                    else:
-                        logger.info(f'[MODAL AUTO-SAVE] Item NÃO encontrado no VALE - CODPROD={codprod}, será inserido')
-                    
-                    if vale_item:
-                        # UPDATE item no VALE
-                        seq_vale = int(vale_item[0])
-                        
-                        # Atualizar item do VALE e preservar GERAPRODUCAO conforme origem
-                        sql_update_vale = """
-                            UPDATE TGFITE
-                            SET QTDNEG = :qtdneg,
-                                VLRUNIT = :vlrunit,
-                                VLRTOT = :vlrtot,
-                                GERAPRODUCAO = :geraprod
-                            WHERE NUNOTA = :nunota AND SEQUENCIA = :seq
-                        """
-                        cur.execute(sql_update_vale,
-                                   qtdneg=qtdneg,
-                                   vlrunit=vlrunit,
-                                   vlrtot=vlrtot,
-                                   geraprod=geraprod,
-                                   nunota=int(nunota_vale),
-                                   seq=seq_vale)
-                        
-                        logger.info(f'[MODAL AUTO-SAVE] ✅ Item VALE atualizado - SEQ={seq_vale}')
-                    
-                    else:
-                        # INSERT novo item no VALE
-                        sql_max_seq = """
-                            SELECT NVL(MAX(SEQUENCIA), 0) + 1
-                            FROM TGFITE
-                            WHERE NUNOTA = :nunota
-                        """
-                        cur.execute(sql_max_seq, nunota=int(nunota_vale))
-                        seq_vale = int(cur.fetchone()[0])
-                        
-                        # Buscar CODVOL do item no PEDIDO
-                        sql_item_dados = """
-                            SELECT CODVOL
-                            FROM TGFITE
-                            WHERE NUNOTA = :nunota AND SEQUENCIA = :seq
-                        """
-                        cur.execute(sql_item_dados, nunota=int(nunota_pedido), seq=int(sequencia))
-                        item_dados = cur.fetchone()
-                        codvol = str(item_dados[0]) if item_dados and item_dados[0] else 'KG'
-                        
-                        # Usar insert_item para criar item no VALE (cuida dos triggers)
-                        # Incluir GERAPRODUCAO no payload para garantir que o VALE mantenha a mesma flag
-                        item_payload = {
-                            'NUNOTA': int(nunota_vale),
-                            'CODPROD': int(codprod),
-                            'QTDNEG': qtdneg,
-                            'VLRUNIT': vlrunit,
-                            'VLRTOT': vlrtot,
-                            'CODVOL': codvol,
-                            'LOTE': str(codagregacao),
-                            'CODAGREGACAO': str(codagregacao),
-                            'GERAPRODUCAO': geraprod
-                        }
-                        
-                        insert_result = insert_item(item_payload, dry_run=False)
-                        
-                        if not insert_result.get('executed'):
-                            raise Exception(f'Falha ao inserir item no VALE: {insert_result}')
-                        
-                        logger.info(f'[MODAL AUTO-SAVE] ✅ Item VALE inserido - SEQ={seq_vale}')
-                    
-                    # Recalcular VLRNOTA do PEDIDO e VALE
-                    recalc_pedido = _recalc_vlrnota(conn, int(nunota_pedido))
-                    recalc_vale = _recalc_vlrnota(conn, int(nunota_vale))
-                    
-                    conn.commit()
-                    
-                    return {
-                        'success': True,
-                        'action': 'nao_classificavel',
-                        'nunota_vale': nunota_vale,
-                        'vlrnota_pedido': recalc_pedido['vlrnota'],
-                        'vlrnota_vale': recalc_vale['vlrnota'],
-                        'vlrunit': vlrunit
-                    }
-                
-            except Exception as inner_e:
-                # Rollback na mesma conexão onde ocorreu o erro
-                conn.rollback()
-                logger.error(f'[MODAL AUTO-SAVE] Erro durante operação, rollback executado: {inner_e}', exc_info=True)
-                raise  # Re-lança para o except externo capturar
-    
-    except Exception as e:
-        logger.error(f'[MODAL AUTO-SAVE] Erro: {e}', exc_info=True)
-        return {
-            'success': False,
-            'error': str(e)
-        }
+        except Exception as e:
+            logger.error(f"Erro ao buscar grupos do usuário: {e}")
+            return {'autenticado': False, 'error': 'Erro de autorização no banco de dados.'}
+
+def alterar_senha_sankhya(codusu, nova_senha):
+    """Atualiza a senha INTERNO na TSIUSU usando a criptografia do ERP."""
+    if not verificar_permissao_escrita(): return False
+    sql = "UPDATE TSIUSU SET INTERNO = STP_CRYPT(:p) WHERE CODUSU = :cod"
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, p=nova_senha, cod=codusu)
+        conn.commit()
+        return cur.rowcount > 0
 
 
-def get_produtos_extra_medio(codprod_in_natura: int):
+# ==============================================================================
+# 📦 MÓDULO EXCLUSIVO: ENTRADA (COMPRAS / TOP 11)
+# Regras de negócio, cálculos, geração de lote e persistência de dados
+# ==============================================================================
+
+def gerar_proximo_numero_unico_cabecalho(conn) -> int:
+    """Consulta a TGFCAB e retorna MAX(NUNOTA) + 1."""
+    cur = conn.cursor()
+    cur.execute("SELECT NVL(MAX(NUNOTA),0) FROM TGFCAB")
+    mx = int(cur.fetchone()[0] or 0)
+    return mx + 1
+
+def gerar_proxima_sequencia_item(nunota: int) -> int:
+    """Consulta a TGFITE e retorna MAX(SEQUENCIA) + 1 para uma nota específica."""
+    sql = "SELECT NVL(MAX(SEQUENCIA),0) + 1 FROM TGFITE WHERE NUNOTA = :nunota"
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, nunota=nunota)
+        return int(cur.fetchone()[0])
+
+def gerar_codigo_lote_rastreabilidade(data_negociacao, codparc=None, codprod=None) -> str:
     """
-    Busca os códigos de produtos EXTRA e MÉDIO relacionados ao produto IN NATURA.
+    Gera o código de lote no formato: AAMMDD + 'P' + codparc + 'P' + codprod + 'S' + sequencial_do_dia.
+    Exemplo: 260317P76P358S01
+    """
+    if isinstance(data_negociacao, str): 
+        data_negociacao = datetime.strptime(data_negociacao, '%Y-%m-%d').date()
+    if not isinstance(data_negociacao, _date): 
+        raise ValueError('Data inválida para gerar o lote')
     
-    Lógica:
-    - Busca produtos do mesmo FABRICANTE
-    - Filtra por PRODUTONFE contendo 'EXTRA' ou 'MEDIO'/'MÉDIO'
-    - Exclui o próprio produto IN NATURA da busca
+    prefixo_data = data_negociacao.strftime('%y%m%d')
+    str_parc = str(codparc) if codparc is not None else ''
+    str_prod = str(codprod) if codprod is not None else ''
+    padrao_busca = f"{prefixo_data}P{str_parc}P{str_prod}S"
     
-    Args:
-        codprod_in_natura: Código do produto IN NATURA (ex: 31)
-    
-    Returns:
-        dict com as chaves:
-        - 'extra': CODPROD do produto EXTRA (ou None)
-        - 'medio': CODPROD do produto MÉDIO (ou None)
-        - 'fabricante': FABRICANTE do produto (ou None)
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT CODAGREGACAO FROM TGFITE WHERE CODAGREGACAO LIKE :pfx AND CODAGREGACAO IS NOT NULL", pfx=f"{padrao_busca}%")
+        lotes_existentes = cur.fetchall()
         
-    Exemplo de retorno:
-        {'extra': 351, 'medio': 352, 'fabricante': 'ABACATE HASS'}
+    maior_sequencia = 0
+    tamanho_padrao = len(padrao_busca)
+    
+    for (lote_encontrado,) in lotes_existentes:
+        lote_str = (lote_encontrado or '').strip()
+        if not lote_str.startswith(padrao_busca): continue
+        
+        sufixo_numerico = lote_str[tamanho_padrao:]
+        try:
+            seq_int = int(sufixo_numerico)
+            if seq_int > maior_sequencia: 
+                maior_sequencia = seq_int
+        except Exception: continue
+        
+    proxima_sequencia = f"{maior_sequencia + 1:02d}"
+    return f"{padrao_busca}{proxima_sequencia}"
+
+
+# --- MANIPULAÇÃO DO CABEÇALHO (TGFCAB) ---
+
+def inserir_cabecalho_nota_banco(dados: dict, simulacao: bool = False, conexao_existente: Optional[Any] = None) -> dict:
     """
-    print(f'[get_produtos_extra_medio] Iniciando busca para codprod_in_natura={codprod_in_natura}')
+    Insere um novo registro na TGFCAB.
+    Bypassa validações complexas para focar em performance.
+    """
+    resultado = {'ok': False, 'executed': False, 'nunota': None}
+    gerencia_conexao = conexao_existente is None
     
-    if not codprod_in_natura:
-        print('[get_produtos_extra_medio] codprod_in_natura é None/vazio')
-        return {'extra': None, 'medio': None, 'fabricante': None}
-    
-    with get_connection() as conn:
+    if gerencia_conexao and (simulacao or not verificar_permissao_escrita()):
+        resultado['error'] = 'Modo simulação ou escrita desabilitada'
+        return resultado
+        
+    campos_obrigatorios = ['CODEMP', 'CODPARC', 'CODTIPOPER', 'CODNAT', 'DTNEG']
+    faltando = [c for c in campos_obrigatorios if not dados.get(c)]
+    if faltando:
+        resultado['error'] = f'Campos obrigatórios faltando: {", ".join(faltando)}'
+        return resultado
+
+    def _executar_insercao(conn):
         cur = conn.cursor()
         
-        # Primeiro, buscar o FABRICANTE do produto IN NATURA
-        sql_fabricante = """
-            SELECT FABRICANTE
-            FROM TGFPRO
-            WHERE CODPROD = :codprod
-        """
-        print(f'[get_produtos_extra_medio] Buscando FABRICANTE do CODPROD {codprod_in_natura}')
-        cur.execute(sql_fabricante, codprod=int(codprod_in_natura))
-        row_fab = cur.fetchone()
+        # Busca detalhes da TOP
+        cur.execute("""
+            SELECT TIPMOV, DHALTER FROM (
+                SELECT TIPMOV, DHALTER FROM TGFTOP WHERE CODTIPOPER=:k ORDER BY DHALTER DESC
+            ) WHERE ROWNUM=1
+        """, k=dados['CODTIPOPER'])
         
-        if not row_fab or not row_fab[0]:
-            print(f'[get_produtos_extra_medio] FABRICANTE não encontrado para CODPROD {codprod_in_natura}')
-            return {'extra': None, 'medio': None, 'fabricante': None}
-        
-        fabricante = row_fab[0]
-        print(f'[get_produtos_extra_medio] FABRICANTE encontrado: "{fabricante}"')
-        
-        # Buscar produtos do mesmo fabricante com EXTRA ou MEDIO na DESCRIÇÃO
-        # Ordena por CODPROD para priorizar códigos menores (convenção)
-        sql = """
-            SELECT CODPROD, UPPER(DESCRPROD) AS NOME
-            FROM TGFPRO
-            WHERE FABRICANTE = :fabricante
-              AND CODPROD != :codprod_in_natura
-              AND (
-                  UPPER(DESCRPROD) LIKE '%EXTRA%' 
-                  OR UPPER(DESCRPROD) LIKE '%MEDIO%'
-                  OR UPPER(DESCRPROD) LIKE '%MÉDIO%'
-                  OR UPPER(DESCRPROD) LIKE '%MEDIA%'
-                  OR UPPER(DESCRPROD) LIKE '%MÉDIA%'
-              )
-            ORDER BY CODPROD
-        """
-        
-        print(f'[get_produtos_extra_medio] Buscando produtos EXTRA/MEDIO do fabricante "{fabricante}"')
-        cur.execute(sql, fabricante=fabricante, codprod_in_natura=int(codprod_in_natura))
-        rows = cur.fetchall()
-        
-        print(f'[get_produtos_extra_medio] Encontrados {len(rows)} produtos candidatos')
-        for r in rows:
-            print(f'[get_produtos_extra_medio]   - CODPROD={r[0]}, NOME={r[1]}')
-        
-        resultado = {'extra': None, 'medio': None, 'fabricante': fabricante}
-        
-        for codprod, nome in rows:
-            nome_upper = str(nome or '').upper()
-            # Prioriza o primeiro encontrado de cada tipo
-            if 'EXTRA' in nome_upper and resultado['extra'] is None:
-                resultado['extra'] = int(codprod)
-                print(f'[get_produtos_extra_medio] EXTRA definido como {codprod}')
-            elif ('MEDIO' in nome_upper or 'MÉDIO' in nome_upper or 'MEDIA' in nome_upper or 'MÉDIA' in nome_upper) and resultado['medio'] is None:
-                resultado['medio'] = int(codprod)
-                print(f'[get_produtos_extra_medio] MEDIO definido como {codprod}')
+        linha_top = cur.fetchone()
+        if not linha_top:
+            resultado['error'] = f"CODTIPOPER {dados['CODTIPOPER']} não encontrado na TGFTOP"
+            return resultado
             
-            # Se já encontrou ambos, pode parar
-            if resultado['extra'] and resultado['medio']:
-                break
+        tipmov, dhtipoper = linha_top
+        novo_nunota = gerar_proximo_numero_unico_cabecalho(conn)
         
-        # FALLBACK: Se não encontrou EXTRA nem MÉDIO, buscar produto sem "IN NATURA"
-        if resultado['extra'] is None and resultado['medio'] is None:
-            print(f'[get_produtos_extra_medio] FALLBACK - Não encontrou EXTRA/MÉDIO, buscando produto sem "IN NATURA"')
-            
-            # Buscar produto do mesmo fabricante SEM "IN NATURA" no nome
-            sql_fallback = """
-                SELECT CODPROD, UPPER(DESCRPROD) AS NOME
-                FROM TGFPRO
-                WHERE FABRICANTE = :fabricante
-                  AND CODPROD != :codprod_in_natura
-                  AND UPPER(DESCRPROD) NOT LIKE '%IN NATURA%'
-                  AND UPPER(DESCRPROD) NOT LIKE '%INNATURA%'
-                  AND UPPER(DESCRPROD) NOT LIKE '%INATURA%'
-                ORDER BY CODPROD
-            """
-            
-            cur.execute(sql_fallback, fabricante=fabricante, codprod_in_natura=int(codprod_in_natura))
-            fallback_rows = cur.fetchall()
-            
-            print(f'[get_produtos_extra_medio] FALLBACK - Encontrados {len(fallback_rows)} produtos sem "IN NATURA"')
-            for r in fallback_rows:
-                print(f'[get_produtos_extra_medio] FALLBACK   - CODPROD={r[0]}, NOME={r[1]}')
-            
-            if fallback_rows:
-                # Usar o primeiro produto encontrado como EXTRA
-                resultado['extra'] = int(fallback_rows[0][0])
-                print(f'[get_produtos_extra_medio] FALLBACK - Usando CODPROD {resultado["extra"]} como EXTRA')
+        colunas = ['NUNOTA', 'CODEMP', 'CODEMPNEGOC', 'CODPARC', 'CODTIPOPER', 'DHTIPOPER', 'TIPMOV',
+                   'CODNAT', 'DTNEG', 'DTMOV', 'DTENTSAI', 'HRMOV', 'NUMNOTA', 'PENDENTE', 'DTALTER',
+                   'TIPFRETE', 'CIF_FOB', 'ISSRETIDO', 'APROVADO', 'IRFRETIDO', 'DIGITAL', 'CANCELADO', 
+                   'AD_NUMPEDIDOORIG']
+               
+        valores = [':NUNOTA', ':CODEMP', ':CODEMP', ':CODPARC', ':CODTIPOPER', ':DHTIPOPER', ':TIPMOV',
+                   ':CODNAT', 'TO_DATE(:DTNEG,\'DD/MM/YYYY\')', 'TO_DATE(:DTMOV,\'DD/MM/YYYY\')', 
+                   'TO_DATE(:DTENTSAI,\'DD/MM/YYYY\')', 'TO_CHAR(SYSDATE, \'HH24MISS\')', ':NUMNOTA', 
+                   ':PENDENTE', 'SYSDATE',
+                   ':TIPFRETE', ':CIF_FOB', ':ISSRETIDO', ':APROVADO', ':IRFRETIDO', ':DIGITAL', ':CANCELADO', 
+                   ':AD_NUMPEDIDOORIG']
         
-        print(f'[get_produtos_extra_medio] Resultado final: {resultado}')
+        binds = {
+            'NUNOTA': novo_nunota, 
+            'CODEMP': int(dados['CODEMP']), 
+            'CODPARC': int(dados['CODPARC']), 
+            'CODTIPOPER': int(dados['CODTIPOPER']),
+            'DHTIPOPER': dhtipoper, 
+            'TIPMOV': tipmov, 
+            'CODNAT': int(dados['CODNAT']), 
+            'DTNEG': dados['DTNEG'],
+            'DTMOV': dados.get('DTMOV') or dados['DTNEG'], 
+            'DTENTSAI': dados.get('DTENTSAI') or dados['DTNEG'], 
+            'NUMNOTA': dados.get('NUMNOTA') or novo_nunota,
+            'PENDENTE': dados.get('PENDENTE', 'S'), 
+            'TIPFRETE': 'N', 'CIF_FOB': 'C', 'ISSRETIDO': 'N', 'APROVADO': 'N', 
+            'IRFRETIDO': 'S', 'DIGITAL': 'N', 'CANCELADO': 'N',
+            'AD_NUMPEDIDOORIG': int(dados.get('AD_NUMPEDIDOORIG') or novo_nunota)
+        }
+        
+        if dados.get('NUMPEDIDO'):
+            colunas.append('NUMPEDIDO')
+            valores.append(':NUMPEDIDO')
+            binds['NUMPEDIDO'] = int(dados['NUMPEDIDO'])
+
+        if dados.get('CODTIPVENDA'):
+            cur.execute("""
+                SELECT DHALTER FROM (
+                    SELECT DHALTER FROM TGFTPV WHERE CODTIPVENDA=:k ORDER BY DHALTER DESC
+                ) WHERE ROWNUM=1
+            """, k=int(dados['CODTIPVENDA']))
+            linha_tpv = cur.fetchone()
+            if not linha_tpv:
+                resultado['error'] = f"CODTIPVENDA {dados['CODTIPVENDA']} não encontrado na TGFTPV"
+                return resultado
+
+            colunas.append('CODTIPVENDA'); valores.append(':CODTIPVENDA')
+            binds['CODTIPVENDA'] = int(dados['CODTIPVENDA'])
+            colunas.append('DHTIPVENDA'); valores.append(':DHTIPVENDA')
+            binds['DHTIPVENDA'] = linha_tpv[0]
+
+        if dados.get('CODCENCUS'):
+            colunas.append('CODCENCUS')
+            valores.append(':CODCENCUS')
+            binds['CODCENCUS'] = int(dados['CODCENCUS'])
+            
+        if observacao := dados.get('OBSERVACAO') or dados.get('OBS'):
+            colunas.append('OBSERVACAO')
+            valores.append(':OBSERVACAO')
+            binds['OBSERVACAO'] = observacao
+        
+        sql = f"INSERT INTO TGFCAB ({', '.join(colunas)}) VALUES ({', '.join(valores)})"
+        cur.execute(sql, binds)
+        
+        if gerencia_conexao: conn.commit()
+        resultado.update({'ok': True, 'executed': True, 'nunota': novo_nunota, 'sql': sql})
+        return resultado
+
+    try:
+        if gerencia_conexao:
+            with obter_conexao_oracle() as conn_aberta: return _executar_insercao(conn_aberta)
+        return _executar_insercao(conexao_existente)
+    except Exception as e:
+        if gerencia_conexao and 'conn_aberta' in locals(): conn_aberta.rollback()
+        resultado['error'] = str(e)
+        return resultado
+
+def atualizar_cabecalho_venda_banco(dados: dict, simulacao: bool = False) -> dict:
+    """Atualiza o cabeçalho de um Pedido de Venda (TOP 34).
+
+    Função dedicada (não reutiliza atualizar_cabecalho_nota_banco) para:
+      1) gravar DHTIPVENDA com a DHALTER mais recente de TGFTPV — o trigger
+         TRG_INC_TGFCAB exige esse par CODTIPVENDA/DHTIPVENDA coerente;
+      2) evitar a 'auto-cura de origem' (AD_NUMPEDIDOORIG) que só faz sentido
+         para Entrada/Classificação.
+    """
+    resultado = {'ok': False, 'executed': False}
+    if simulacao or not verificar_permissao_escrita():
+        resultado['error'] = 'Modo simulação ou escrita desabilitada'
+        return resultado
+
+    try: nunota = int(dados['NUNOTA'])
+    except (KeyError, TypeError, ValueError):
+        resultado['error'] = 'NUNOTA obrigatório'
+        return resultado
+
+    colunas_set = []
+    binds = {'NUNOTA': nunota}
+
+    for campo in ('CODEMP', 'CODPARC'):
+        if dados.get(campo) is not None:
+            colunas_set.append(f"{campo}=:{campo}")
+            binds[campo] = int(dados[campo])
+
+    if dados.get('OBSERVACAO') is not None:
+        colunas_set.append('OBSERVACAO=:OBSERVACAO')
+        binds['OBSERVACAO'] = dados['OBSERVACAO']
+
+    if dados.get('DTNEG'):
+        val_str = str(dados['DTNEG'])
+        if len(val_str) == 10 and val_str[2] == '/':
+            val_str = f"{val_str[6:10]}-{val_str[3:5]}-{val_str[0:2]}"
+        colunas_set.append("DTNEG=TO_DATE(:DTNEG, 'YYYY-MM-DD')")
+        binds['DTNEG'] = val_str
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # CODTIPVENDA/DHTIPVENDA: par obrigatório exigido pelo trigger
+            if dados.get('CODTIPVENDA') is not None:
+                cur.execute("""
+                    SELECT DHALTER FROM (
+                        SELECT DHALTER FROM TGFTPV WHERE CODTIPVENDA=:k ORDER BY DHALTER DESC
+                    ) WHERE ROWNUM=1
+                """, k=int(dados['CODTIPVENDA']))
+                linha_tpv = cur.fetchone()
+                if not linha_tpv:
+                    resultado['error'] = f"CODTIPVENDA {dados['CODTIPVENDA']} não encontrado na TGFTPV"
+                    return resultado
+                colunas_set.append('CODTIPVENDA=:CODTIPVENDA')
+                binds['CODTIPVENDA'] = int(dados['CODTIPVENDA'])
+                colunas_set.append('DHTIPVENDA=:DHTIPVENDA')
+                binds['DHTIPVENDA'] = linha_tpv[0]
+
+            if not colunas_set:
+                resultado['error'] = 'Nenhum campo válido para atualizar'
+                return resultado
+
+            sql = f"UPDATE TGFCAB SET {', '.join(colunas_set)} WHERE NUNOTA=:NUNOTA"
+            cur.execute(sql, binds)
+            conn.commit()
+            resultado.update({'ok': True, 'executed': True, 'sql': sql})
+            return resultado
+    except Exception as e:
+        resultado['error'] = str(e)
         return resultado
 
 
-def listar_notas_compra(
-    days: int = 7,
-    date_start: str | None = None,
-    date_end: str | None = None,
-    nronota_ini: str | None = None,
-    nronota_fim: str | None = None,
-    nunota_ini: int | None = None,
-    nunota_fim: int | None = None,
-    codparc: int | None = None,
-    codprod: int | None = None,
-    lote: str | None = None,
-    tops: list[int] | None = None,
-    sort: str | None = None,
-    dir: str | None = None,
-    limit: int = 50,
-    offset: int = 0,
-):
-    """Lista notas (TGFCAB) com total de itens, com paginação via ROW_NUMBER.
-    - Usa NUMNOTA (número do documento) e NUNOTA (número único).
-    - Filtros opcionais adicionais: produto (i.CODPROD) e lote/lote (i.CODAGREGACAO).
-    """
-    from datetime import datetime, date as _date
+def atualizar_cabecalho_nota_banco(dados: dict, simulacao: bool = False) -> dict:
+    """Atualiza dados do cabeçalho existente com Auto-Cura de Origem."""
+    if simulacao or not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+        
+    try: nunota = int(dados.get('NUNOTA'))
+    except Exception: return {'ok': False, 'errors': ['NUNOTA obrigatório']}
 
-    def _to_date(val):
-        if val in (None, '', 'None', 'none', 'null'):
-            return None
-        if isinstance(val, _date):
-            return val
-        if isinstance(val, datetime):
-            return val.date()
+    colunas_set = []
+    binds = {'NUNOTA': nunota}
+
+    campos_int = ['NUMNOTA', 'CODEMP', 'CODPARC', 'CODTIPOPER', 'CODNAT', 'CODCENCUS']
+    for campo in campos_int:
+        if dados.get(campo) is not None:
+            colunas_set.append(f"{campo}=:{campo}")
+            binds[campo] = dados[campo]
+            
+    if dados.get('OBSERVACAO') is not None:
+        colunas_set.append('OBSERVACAO=:OBSERVACAO')
+        binds['OBSERVACAO'] = dados['OBSERVACAO']
+        
+    for campo_data in ('DTNEG','DTMOV','DTENTSAI'):
+        if dados.get(campo_data):
+            try:
+                val_str = str(dados[campo_data])
+                if len(val_str) == 10 and val_str[2] == '/':
+                    val_str = f"{val_str[6:10]}-{val_str[3:5]}-{val_str[0:2]}" # DD/MM/YYYY para YYYY-MM-DD
+                colunas_set.append(f"{campo_data}=TO_DATE(:{campo_data}, 'YYYY-MM-DD')")
+                binds[campo_data] = val_str
+            except Exception: pass
+
+    if not colunas_set:
+        return {'ok': False, 'errors': ['Nenhuma coluna válida para atualizar']}
+
+    sql = f"UPDATE TGFCAB SET {', '.join(colunas_set)} WHERE NUNOTA=:NUNOTA"
+    
+    with obter_conexao_oracle() as conn:
         try:
-            return datetime.strptime(str(val), "%Y-%m-%d").date()
-        except Exception:
-            return None
+            cur = conn.cursor()
+            
+            # =====================================================================
+            # 🔥 AUTO-CURA DO CABEÇALHO: Busca a origem real através dos lotes
+            # =====================================================================
+            cur.execute("""
+                SELECT MIN(AD_NUMPEDIDOORIG) 
+                FROM TGFITE 
+                WHERE CODAGREGACAO IN (SELECT CODAGREGACAO FROM TGFITE WHERE NUNOTA = :n)
+                  AND AD_NUMPEDIDOORIG IS NOT NULL
+            """, n=nunota)
+            res_orig = cur.fetchone()
+            
+            origem_real = None
+            if res_orig and res_orig[0]:
+                origem_real = int(res_orig[0])
+            else:
+                # Se a nota não tem itens ainda, verifica se ela já tem uma origem gravada. 
+                # Se estiver vazia, assume ela mesma (comum para TOP 11 nova).
+                cur.execute("SELECT AD_NUMPEDIDOORIG FROM TGFCAB WHERE NUNOTA = :n", n=nunota)
+                res_atual = cur.fetchone()
+                if not res_atual or not res_atual[0]:
+                    origem_real = nunota
+            
+            if origem_real:
+                sql_final = sql.replace(" WHERE NUNOTA=:NUNOTA", ", AD_NUMPEDIDOORIG=:AUTO_ORIG WHERE NUNOTA=:NUNOTA")
+                binds['AUTO_ORIG'] = origem_real
+            else:
+                sql_final = sql
+            # =====================================================================
+            
+            cur.execute(sql_final, binds)
+            conn.commit()
+            return {'ok': True, 'executed': True, 'sql': sql_final}
+        except Exception as e:
+            return {'ok': False, 'executed': False, 'db_error': {'message': str(e)}}
 
-    def _clean_doc(v):
-        if v in (None, '', 'None', 'none', 'null'):
-            return None
-        s = str(v).strip()
-        return s if s.isdigit() else None
+def recalcular_totais_nota_banco(nunota: int, conexao_existente=None) -> dict:
+    """
+    Soma QTDNEG e VLRTOT de todos os itens da TGFITE e atualiza VLRNOTA e QTDVOL no Cabeçalho.
+    Se não houver itens restantes, deleta o cabeçalho para não ficar órfão.
+    """
+    if not nunota: return {'ok': False, 'error': 'NUNOTA inválido'}
 
-    nronota_ini = _clean_doc(nronota_ini)
-    nronota_fim = _clean_doc(nronota_fim)
+    # Separamos a execução SQL pura para poder reaproveitar com ou sem conexão existente
+    def _executar(conn):
+        cur = conn.cursor()
+        cur.execute("SELECT NVL(SUM(VLRTOT), 0), NVL(SUM(QTDNEG), 0), COUNT(*) FROM TGFITE WHERE NUNOTA = :n", n=nunota)
+        vlr_total, qtd_total, total_itens = cur.fetchone()
 
-    dtini = _to_date(date_start)
-    dtfim = _to_date(date_end)
+        if int(total_itens) == 0:
+            cur.execute("DELETE FROM TGFCAB WHERE NUNOTA = :n", n=nunota)
+            return {'ok': True, 'cab_deleted': True}
+        else:
+            cur.execute("UPDATE TGFCAB SET VLRNOTA = :v, QTDVOL = :q WHERE NUNOTA = :n", v=float(vlr_total), q=float(qtd_total), n=nunota)
+            return {'ok': True, 'vlrnota': float(vlr_total), 'qtdvol': float(qtd_total), 'cab_deleted': False}
 
-    p = get_params()
-    default_top = [p['TOP_ENTRADA']]
-    tops_list = [int(t) for t in (tops or default_top)]
-    tops_sql = ",".join(str(t) for t in tops_list)
+    try:
+        if conexao_existente is None:
+            # Uso correto do Context Manager (Evita o erro DPY-1001)
+            with obter_conexao_oracle() as conn:
+                res = _executar(conn)
+                conn.commit()
+                return res
+        else:
+            # Usa a conexão que já veio aberta de outra função (ex: api_atualizar_preco_comercial)
+            return _executar(conexao_existente)
+    except Exception as e:
+        if conexao_existente is None and 'conn' in locals():
+            conn.rollback()
+        return {'ok': False, 'error': str(e)}
 
-    where = ["1=1", f"c.CODTIPOPER IN ({tops_sql})"]
-    binds: dict[str, object] = {}
+def excluir_nota_completa_banco(nunota: int, simulacao: bool = False) -> dict:
+    """Deleta todos os itens na TGFITE e logo após deleta o cabeçalho na TGFCAB."""
+    resultado = {'ok': False, 'executed': False, 'deleted_itens': 0, 'deleted_cab': 0, 'errors': []}
+    
+    if simulacao or not verificar_permissao_escrita():
+        resultado['ok'] = True; return resultado
 
-    if dtini and dtfim:
-        where.append("TRUNC(c.DTNEG) BETWEEN :dtini AND :dtfim")
-        binds["dtini"] = dtini
-        binds["dtfim"] = dtfim
-    elif dtini:
-        where.append("TRUNC(c.DTNEG) >= :dtini")
-        binds["dtini"] = dtini
-    elif dtfim:
-        where.append("TRUNC(c.DTNEG) <= :dtfim")
-        binds["dtfim"] = dtfim
-    else:
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            
+            cur.execute("DELETE FROM TGFITE WHERE NUNOTA=:n", n=int(nunota))
+            resultado['deleted_itens'] = int(cur.rowcount or 0)
+            
+            cur.execute("DELETE FROM TGFCAB WHERE NUNOTA=:n", n=int(nunota))
+            resultado['deleted_cab'] = int(cur.rowcount or 0)
+            
+            conn.commit()
+            resultado['ok'] = True
+            resultado['executed'] = resultado['deleted_cab'] > 0
+            return resultado
+    except Exception as e:
+        resultado['errors'].append(str(e))
+        return resultado
+
+
+# --- MANIPULAÇÃO DOS ITENS (TGFITE) ---
+
+def inserir_item_nota_banco(dados: dict, simulacao: bool = False, conexao_existente=None, codusu_logado=None, gerar_lote_auto: bool = True) -> dict:
+    """Insere um novo produto/item associado a uma nota."""
+    resultado = {'ok': False, 'executed': False, 'nunota': None, 'sequencia': None}
+    gerencia_conexao = conexao_existente is None
+    
+    if gerencia_conexao and (simulacao or not verificar_permissao_escrita()):
+        resultado['error'] = 'Modo simulação ou escrita desabilitada'
+        return resultado
+        
+    try:
+        nunota = int(dados['NUNOTA'])
+        codprod = int(dados['CODPROD'])
+        qtdneg = float(dados['QTDNEG'])
+        vlrunit = float(dados.get('VLRUNIT', 0))
+    except (KeyError, ValueError, TypeError):
+        resultado['error'] = 'Campos NUNOTA, CODPROD e QTDNEG são obrigatórios'
+        return resultado
+
+    def _executar(conn):
+        cur = conn.cursor()
+        colunas_tabela = _obter_colunas_da_tabela(conn, 'TGFITE')
+
+        cur.execute("SELECT CODEMP, DTNEG, CODPARC, AD_NUMPEDIDOORIG FROM TGFCAB WHERE NUNOTA=:n", n=nunota)
+        cab = cur.fetchone()
+        if not cab:
+            resultado['error'] = 'Cabeçalho NUNOTA não encontrado'
+            return resultado
+            
+        codemp, dtneg, codparc, ad_numpedidoorig = cab
+        sequencia = gerar_proxima_sequencia_item(nunota)
+        
+        peso = dados.get('PESO') or 0
+        codvol = str(dados.get('CODVOL', 'UN')).strip().upper()
+        codlocalorig = int(dados.get('CODLOCALORIG', 101))
+        observacao = dados.get('OBSERVACAO') or dados.get('OBS')
+        geraproducao = dados.get('GERAPRODUCAO') or dados.get('geraproducao')
+        
+        codagregacao = dados.get('CODAGREGACAO') or dados.get('LOTE')
+        if not codagregacao and gerar_lote_auto:
+            try:
+                # Formata a data como YYMMDD (ex: 260413)
+                aammdd = dtneg.strftime('%y%m%d') if hasattr(dtneg, 'strftime') else datetime.now().strftime('%y%m%d')
+
+                # 🔥 AJUSTE AQUI: :02d garante que o número tenha pelo menos 2 dígitos (1 vira 01)
+                seq_formatada = f"{sequencia:02d}"
+
+                # Gera o lote: NUNOTA + S + SEQUENCIA(00) + D + DATA
+                codagregacao = f"{nunota}S{seq_formatada}D{aammdd}"
+            except Exception:
+                pass
+
+        # =====================================================================
+        # 🔥 FIX TOP 26: HERANÇA AUTOMÁTICA DA ORIGEM PELO LOTE (CODAGREGACAO)
+        # =====================================================================
+        if codagregacao:
+            # Pergunta pro banco qual foi a nota RAIZ que originou esse Lote
+            cur.execute("""
+                SELECT MIN(AD_NUMPEDIDOORIG) 
+                FROM TGFITE 
+                WHERE CODAGREGACAO = :l 
+                  AND AD_NUMPEDIDOORIG IS NOT NULL
+            """, l=str(codagregacao))
+            res_origem = cur.fetchone()
+            
+            if res_origem and res_origem[0]:
+                origem_real = int(res_origem[0])
+                
+                # Se o cabeçalho atual (ex: TOP 26 vazia) está com a origem errada, corrige ele na hora!
+                if ad_numpedidoorig != origem_real:
+                    ad_numpedidoorig = origem_real
+                    cur.execute("UPDATE TGFCAB SET AD_NUMPEDIDOORIG = :o WHERE NUNOTA = :n", 
+                                o=origem_real, n=nunota)
+        # =====================================================================
+
+        vlrtot = round(float(qtdneg) * float(vlrunit), 2)
+        
+        colunas_sql = ['NUNOTA', 'SEQUENCIA', 'CODEMP', 'CODPROD', 'QTDNEG', 'VLRUNIT', 'VLRTOT', 'AD_NUMPEDIDOORIG']
+        valores_sql = [':NUNOTA', ':SEQUENCIA', ':CODEMP', ':CODPROD', ':QTDNEG', ':VLRUNIT', ':VLRTOT', ':AD_NUMPEDIDOORIG']
+        binds = {'NUNOTA': nunota, 'SEQUENCIA': sequencia, 'CODEMP': codemp, 'CODPROD': codprod, 
+                 'QTDNEG': qtdneg, 'VLRUNIT': vlrunit, 'VLRTOT': vlrtot, 'AD_NUMPEDIDOORIG': ad_numpedidoorig}
+
+        if codusu_logado and 'CODUSUULTALTER' in colunas_tabela:
+            colunas_sql.append('CODUSUULTALTER')
+            valores_sql.append(':codusu_log')
+            binds['codusu_log'] = int(codusu_logado)
+
+        qtdconferida = dados.get('QTDCONFERIDA') or qtdneg
+        if 'QTDCONFERIDA' in colunas_tabela:
+            colunas_sql.append('QTDCONFERIDA'); valores_sql.append(':QTDCONFERIDA'); binds['QTDCONFERIDA'] = float(qtdconferida)
+            
+        if 'PESO' in colunas_tabela:
+            colunas_sql.append('PESO'); valores_sql.append(':PESO'); binds['PESO'] = float(peso)
+            
+        if 'CODVOL' in colunas_tabela:
+            colunas_sql.append('CODVOL'); valores_sql.append(':CODVOL'); binds['CODVOL'] = codvol
+        
+        codvolparc = dados.get('CODVOLPARC')
+        if codvolparc and 'CODVOLPARC' in colunas_tabela:
+            colunas_sql.append('CODVOLPARC'); valores_sql.append(':CODVOLPARC'); binds['CODVOLPARC'] = str(codvolparc).strip().upper()
+            
+        if 'CODLOCALORIG' in colunas_tabela:
+            colunas_sql.append('CODLOCALORIG'); valores_sql.append(':CODLOCALORIG'); binds['CODLOCALORIG'] = codlocalorig
+
+        if codagregacao and 'CODAGREGACAO' in colunas_tabela:
+            colunas_sql.append('CODAGREGACAO'); valores_sql.append(':CODAGREGACAO'); binds['CODAGREGACAO'] = str(codagregacao)
+
+        if observacao and 'OBSERVACAO' in colunas_tabela:
+            colunas_sql.append('OBSERVACAO'); valores_sql.append(':OBSERVACAO'); binds['OBSERVACAO'] = str(observacao)
+
+        if geraproducao and 'GERAPRODUCAO' in colunas_tabela:
+            colunas_sql.append('GERAPRODUCAO'); valores_sql.append(':GERAPRODUCAO'); binds['GERAPRODUCAO'] = str(geraproducao).strip().upper()
+
+        sql = f"INSERT INTO TGFITE ({', '.join(colunas_sql)}) VALUES ({', '.join(valores_sql)})"
+        cur.execute(sql, binds)
+        
+        if gerencia_conexao: conn.commit()
+        resultado.update({'ok': True, 'executed': True, 'nunota': nunota, 'sequencia': sequencia})
+        return resultado
+
+    try:
+        if gerencia_conexao:
+            with obter_conexao_oracle() as c: return _executar(c)
+        return _executar(conexao_existente)
+    except Exception as e:
+        if gerencia_conexao and 'c' in locals(): c.rollback()
+        resultado['error'] = str(e)
+        return resultado
+
+def atualizar_item_nota_banco(dados: dict, simulacao: bool = False, conexao_existente=None) -> dict:
+    """Atualiza dados de um item existente."""
+    if simulacao or not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+
+    binds = {}
+    colunas_set = []
+
+    try:
+        binds['NUNOTA'] = int(dados.get('NUNOTA'))
+        binds['SEQUENCIA'] = int(dados.get('SEQUENCIA'))
+    except Exception:
+        return {'ok': False, 'errors': ['NUNOTA e SEQUENCIA obrigatórios']}
+
+    if dados.get('CODPROD') is not None:
+        colunas_set.append('CODPROD=:CODPROD'); binds['CODPROD'] = int(dados['CODPROD'])
+    if dados.get('QTDNEG') is not None:
+        colunas_set.append('QTDNEG=:QTDNEG'); binds['QTDNEG'] = float(dados['QTDNEG'])
+    if dados.get('PESO') is not None:
+        colunas_set.append('PESO=:PESO'); binds['PESO'] = float(dados['PESO'])
+    if dados.get('VLRUNIT') is not None:
+        colunas_set.append('VLRUNIT=:VLRUNIT'); binds['VLRUNIT'] = float(dados['VLRUNIT'])
+    if dados.get('VLRTOT') is not None:
+        colunas_set.append('VLRTOT=:VLRTOT'); binds['VLRTOT'] = float(dados['VLRTOT'])
+    elif 'QTDNEG' in binds and 'VLRUNIT' in binds:
+        colunas_set.append('VLRTOT=:VLRTOT'); binds['VLRTOT'] = round(binds['QTDNEG'] * binds['VLRUNIT'], 2)
+        
+    if dados.get('QTDCONFERIDA') is not None:
+        colunas_set.append('QTDCONFERIDA=:QTDCONFERIDA'); binds['QTDCONFERIDA'] = float(dados['QTDCONFERIDA'])
+    if dados.get('CODVOL') is not None:
+        colunas_set.append('CODVOL=:CODVOL'); binds['CODVOL'] = str(dados['CODVOL']).strip().upper()
+    if dados.get('CODVOLPARC') is not None:
+        colunas_set.append('CODVOLPARC=:CODVOLPARC'); binds['CODVOLPARC'] = str(dados['CODVOLPARC']).strip().upper()
+    if dados.get('OBSERVACAO') is not None:
+        colunas_set.append('OBSERVACAO=:OBSERVACAO'); binds['OBSERVACAO'] = dados['OBSERVACAO']
+        
+    gp = dados.get('GERAPRODUCAO') or dados.get('geraproducao')
+    if gp is not None:
+        colunas_set.append('GERAPRODUCAO=:GERAPRODUCAO'); binds['GERAPRODUCAO'] = str(gp).strip().upper()
+
+    if dados.get('AD_NUMPEDIDOORIG') is not None:
+        colunas_set.append('AD_NUMPEDIDOORIG=:AD_NUMPEDIDOORIG'); binds['AD_NUMPEDIDOORIG'] = int(dados['AD_NUMPEDIDOORIG'])
+
+    if dados.get('CODAGREGACAO') is not None:
+        colunas_set.append('CODAGREGACAO=:CODAGREGACAO'); binds['CODAGREGACAO'] = str(dados['CODAGREGACAO']).strip()
+
+    if not colunas_set:
+        return {'ok': False, 'errors': ['Nenhuma coluna informada para atualizar']}
+
+    sql = f"UPDATE TGFITE SET {', '.join(colunas_set)} WHERE NUNOTA=:NUNOTA AND SEQUENCIA=:SEQUENCIA"
+    
+    gerencia_conexao = conexao_existente is None
+    
+    def _exec_update(c):
+        cur = c.cursor()
+        sql_final = sql
+        
+        # 🔥 AUTO-CURA: Se for editar um item antigo da TOP 26 que está com a origem errada, ele arruma!
+        cur.execute("SELECT CODAGREGACAO, AD_NUMPEDIDOORIG FROM TGFITE WHERE NUNOTA = :n AND SEQUENCIA = :s", n=binds['NUNOTA'], s=binds['SEQUENCIA'])
+        row_atual = cur.fetchone()
+        
+        if row_atual and row_atual[0]:
+            lote_atual = row_atual[0]
+            cur.execute("SELECT MIN(AD_NUMPEDIDOORIG) FROM TGFITE WHERE CODAGREGACAO = :l AND AD_NUMPEDIDOORIG IS NOT NULL", l=lote_atual)
+            origem_real = cur.fetchone()
+            
+            if origem_real and origem_real[0]:
+                orig_val = int(origem_real[0])
+                if orig_val != row_atual[1] and 'AD_NUMPEDIDOORIG' not in binds:
+                    sql_final = sql_final.replace(" WHERE ", ", AD_NUMPEDIDOORIG = :AUTO_ORIG WHERE ")
+                    binds['AUTO_ORIG'] = orig_val
+                    # Conserta o Cabeçalho por tabela
+                    cur.execute("UPDATE TGFCAB SET AD_NUMPEDIDOORIG = :o WHERE NUNOTA = :n", o=orig_val, n=binds['NUNOTA'])
+        
+        cur.execute(sql_final, binds)
+        if gerencia_conexao: c.commit()
+        return {'ok': True, 'executed': True, 'sql': sql_final}
+
+    try:
+        if gerencia_conexao:
+            with obter_conexao_oracle() as c: return _exec_update(c)
+        return _exec_update(conexao_existente)
+    except Exception as e:
+        if gerencia_conexao and 'c' in locals(): c.rollback()
+        return {'ok': False, 'executed': False, 'db_error': {'message': str(e)}}
+
+def excluir_itens_nota_banco(nunota: int, sequencias: list[int], simulacao: bool = False) -> dict:
+    """Exclui múltiplos itens de uma vez e retorna a quantidade de linhas afetadas."""
+    resultado = {'ok': False, 'executed': False, 'deleted': 0, 'errors': []}
+    if simulacao or not verificar_permissao_escrita():
+        resultado['ok'] = True; return resultado
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            count = 0
+            # Deletar de trás pra frente evita quebra de integridade caso hajam dependências
+            for seq in sorted(sequencias, reverse=True):
+                cur.execute("DELETE FROM TGFITE WHERE NUNOTA=:n AND SEQUENCIA=:s", n=int(nunota), s=int(seq))
+                count += cur.rowcount or 0
+            conn.commit()
+            resultado.update({'ok': True, 'executed': True, 'deleted': count})
+            return resultado
+    except Exception as e:
+        resultado['errors'].append(str(e))
+        return resultado
+
+# --- LISTAGENS DE TELA ---
+
+def listar_notas_compra_paginado(limite: int = 50, offset: int = 0, **kwargs):
+    """Busca o cabeçalho das notas de Entrada com filtros (Data, Parceiro, Nro) e paginação."""
+    where = ["c.CODTIPOPER = :top"]
+    binds = {"top": obter_parametros_globais()['TOP_ENTRADA']}
+    
+    if kwargs.get('date_start') and kwargs.get('date_end'):
+        where.append("TRUNC(c.DTNEG) BETWEEN TO_DATE(:ds, 'YYYY-MM-DD') AND TO_DATE(:de, 'YYYY-MM-DD')")
+        binds['ds'] = kwargs['date_start']; binds['de'] = kwargs['date_end']
+    elif kwargs.get('days') is not None:
         where.append("c.DTNEG >= SYSDATE - :days")
-        binds["days"] = days
-
-    if nronota_ini and nronota_fim:
-        where.append("c.NUMNOTA BETWEEN :num_ini AND :num_fim")
-        binds["num_ini"] = nronota_ini
-        binds["num_fim"] = nronota_fim
-    elif nronota_ini:
-        where.append("c.NUMNOTA >= :num_ini")
-        binds["num_ini"] = nronota_ini
-    elif nronota_fim:
-        where.append("c.NUMNOTA <= :num_fim")
-        binds["num_fim"] = nronota_fim
-
-    if nunota_ini and nunota_fim:
-        where.append("c.NUNOTA BETWEEN :nunota_ini AND :nunota_fim")
-        binds["nunota_ini"] = nunota_ini
-        binds["nunota_fim"] = nunota_fim
-    elif nunota_ini:
-        where.append("c.NUNOTA >= :nunota_ini")
-        binds["nunota_ini"] = nunota_ini
-    elif nunota_fim:
-        where.append("c.NUNOTA <= :nunota_fim")
-        binds["nunota_fim"] = nunota_fim
-
-    if codparc is not None:
+        binds['days'] = int(kwargs['days'])
+        
+    # ==========================================
+    # CORREÇÃO: Pesquisa parcial de Pedido/NUNOTA
+    # ==========================================
+    if kwargs.get('nunota_ini'):
+        # Converte a chave primária para texto e busca em qualquer parte
+        where.append("TO_CHAR(c.NUNOTA) LIKE '%' || :nunota || '%'")
+        # Passa o valor como string pura, sem tentar converter para int
+        binds['nunota'] = str(kwargs['nunota_ini']).strip()
+        
+    if kwargs.get('codparc'):
         where.append("c.CODPARC = :codparc")
-        binds["codparc"] = codparc
-
-    # Filtros opcionais por item
-    if codprod is not None:
-        where.append("i.CODPROD = :codprod")
-        binds["codprod"] = codprod
-    if lote:
-        where.append("i.CODAGREGACAO = :lote")
-        binds["lote"] = lote
-
-    inner_sql = (
+        binds['codparc'] = int(kwargs['codparc'])
+        
+    sql_base = (
         "SELECT c.NUNOTA, c.NUMNOTA, c.DTNEG, c.CODPARC, p.NOMEPARC, NVL(SUM(i.VLRTOT),0) VLRTOTAL "
         "  FROM TGFCAB c "
         "  LEFT JOIN TGFITE i ON i.NUNOTA = c.NUNOTA "
@@ -5342,1994 +1074,2123 @@ def listar_notas_compra(
         f" WHERE {' AND '.join(where)} "
         " GROUP BY c.NUNOTA, c.NUMNOTA, c.DTNEG, c.CODPARC, p.NOMEPARC"
     )
-
-    # Ordenação segura via whitelist
-    sort_key = (sort or 'dtneg').lower()
-    dir_key = (dir or 'desc').lower()
-    dir_sql = 'DESC' if dir_key not in ('asc', 'desc') else dir_key.upper()
-    sort_map = {
-        'nunota': 't.NUNOTA',
-        'nronota': 't.NUMNOTA',
-        'dtneg': 't.DTNEG',
-        'parceiro': 't.NOMEPARC',
-        'valor': 't.VLRTOTAL',
-    }
-    sort_col = sort_map.get(sort_key, 't.DTNEG')
-    order_expr = f"{sort_col} {dir_sql}, t.NUNOTA DESC"
-
-    sql = (
+    
+    sql_paginado = (
         "SELECT NUNOTA, NUMNOTA, DTNEG, CODPARC, NOMEPARC, VLRTOTAL FROM ("
-        f" SELECT t.*, ROW_NUMBER() OVER (ORDER BY {order_expr}) rn FROM (" + inner_sql + ") t"
-        ") WHERE rn BETWEEN :start_row AND :end_row ORDER BY rn"
+        f" SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.DTNEG DESC, t.NUNOTA DESC) rn FROM ({sql_base}) t"
+        ") WHERE rn BETWEEN :start_row AND :end_row"
     )
+    
+    binds['start_row'] = offset + 1
+    binds['end_row'] = offset + limite
 
-    binds["start_row"] = int(offset) + 1
-    binds["end_row"] = int(offset) + int(limit)
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(sql_paginado, binds)
+        return cur.fetchall()
 
-    with get_connection() as conn:
+def listar_itens_por_nota(nunota: int):
+
+    """Busca todos os itens de uma nota específica (Para exibir no grid)."""
+    sql = (
+        "SELECT i.CODAGREGACAO, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, "
+        "       i.PESO, i.VLRUNIT, i.VLRTOT, i.OBSERVACAO, i.GERAPRODUCAO, i.QTDCONFERIDA, i.CODVOLPARC,"
+        "       i.AD_SIMQTD1, i.AD_SIMVLR1, i.AD_SIMQTD2, i.AD_SIMVLR2, i.AD_SIMQTDDESC "
+        "  FROM TGFITE i "
+        "  LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD "
+        " WHERE i.NUNOTA = :nunota ORDER BY i.SEQUENCIA"
+    )
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, nunota=nunota)
+        return cur.fetchall()
+    
+# ==============================================================================
+# 🧪 3. MÓDULO EXCLUSIVO: CLASSIFICAÇÃO (PACKING HOUSE / TOP 26)
+# Interface entre Lotes In Natura (TOP 11) e Produtos Acabados (TOP 26)
+# ==============================================================================
+
+def listar_lotes_para_classificacao(filtros: dict):
+    sql_base = """
+        WITH Lotes_Top11 AS (
+            SELECT 
+                i.CODAGREGACAO, 
+                MAX(i.NUNOTA) AS NUNOTA_ORIGEM, 
+                MAX(c11.DTNEG) AS DTNEG,
+                MAX(c11.CODPARC) AS CODPARC,
+                MAX(p.NOMEPARC) AS NOMEPARC, 
+                MAX(pr.DESCRPROD) AS DESCRPROD, 
+                SUM(i.QTDNEG) AS QTD_IN_NATURA,
+                SUM(i.QTDCONFERIDA) AS QTD_CX,      -- 👈 NOVO
+                MAX(i.PESO) AS PESO_UNIT            -- 👈 NOVO
+            FROM TGFITE i
+            INNER JOIN TGFCAB c11 ON i.NUNOTA = c11.NUNOTA
+            LEFT JOIN TGFPAR p   ON c11.CODPARC = p.CODPARC
+            LEFT JOIN TGFPRO pr  ON i.CODPROD = pr.CODPROD
+            WHERE i.CODAGREGACAO IS NOT NULL
+              AND c11.CODTIPOPER = 11
+              AND i.GERAPRODUCAO = 'S'
+            GROUP BY i.CODAGREGACAO
+        ),
+        Status_Top26 AS (
+            SELECT 
+                i26.CODAGREGACAO,
+                CASE 
+                    WHEN COUNT(c26.NUNOTA) > 0 AND MIN(c26.PENDENTE) = 'N' AND MAX(c26.PENDENTE) = 'N' THEN 'VERDE'
+                    WHEN COUNT(c26.NUNOTA) > 0 THEN 'AMARELO'
+                END AS STATUS_COR
+            FROM TGFCAB c26
+            INNER JOIN TGFITE i26 ON c26.NUNOTA = i26.NUNOTA
+            WHERE c26.CODTIPOPER = 26 
+              AND c26.STATUSNOTA <> 'E'
+            GROUP BY i26.CODAGREGACAO
+        )
+        SELECT 
+            t11.CODAGREGACAO,
+            t11.NUNOTA_ORIGEM,
+            t11.DTNEG,
+            t11.NOMEPARC,
+            t11.DESCRPROD,
+            t11.QTD_IN_NATURA,
+            NVL(s26.STATUS_COR, 'VERMELHO') AS STATUS_COR,
+            t11.CODPARC,
+            t11.QTD_CX,     -- Index 8
+            t11.PESO_UNIT   -- Index 9
+        FROM Lotes_Top11 t11
+        LEFT JOIN Status_Top26 s26 ON t11.CODAGREGACAO = s26.CODAGREGACAO
+    """
+
+    binds = {}
+    sql_filtros = f"SELECT * FROM ({sql_base}) t WHERE 1=1"
+
+    if filtros.get('lote'):
+        sql_filtros += " AND UPPER(t.CODAGREGACAO) LIKE :lote"
+        binds['lote'] = f"%{str(filtros['lote']).upper()}%"
+    if filtros.get('nunota_ini'):
+        sql_filtros += " AND TO_CHAR(t.NUNOTA_ORIGEM) LIKE :nunota"
+        binds['nunota'] = f"%{filtros['nunota_ini']}%"
+    if filtros.get('fabricante'):
+        sql_filtros += " AND UPPER(t.DESCRPROD) LIKE :fab"
+        binds['fab'] = f"%{str(filtros['fabricante']).upper()}%"
+    if filtros.get('codparc'):
+        sql_filtros += " AND t.CODPARC = :p_codparc"
+        binds['p_codparc'] = filtros['codparc']
+
+    if filtros.get('date_start') and filtros.get('date_end'):
+        sql_filtros += " AND TRUNC(t.DTNEG) BETWEEN TO_DATE(:dstart, 'YYYY-MM-DD') AND TO_DATE(:dend, 'YYYY-MM-DD')"
+        binds['dstart'] = filtros['date_start']
+        binds['dend'] = filtros['date_end']
+    else:
+        sql_filtros += " AND t.DTNEG >= SYSDATE - 60"
+
+    status_list = [s.upper() for s in filtros.get('status_list', [])]
+    
+    if 'VERDE' in status_list:
+        ordem_sql = "a.DTNEG DESC, a.NUNOTA_ORIGEM DESC"
+    else:
+        ordem_sql = "a.DTNEG ASC, a.NUNOTA_ORIGEM ASC"
+
+    if status_list:
+        placeholders = [f":s{i}" for i in range(len(status_list))]
+        sql_filtros += f" AND t.STATUS_COR IN ({', '.join(placeholders)})"
+        for i, s in enumerate(status_list):
+            binds[f"s{i}"] = s.upper()
+
+    limit = int(filtros.get('limit', 50))
+    page = int(filtros.get('page', 1))
+    offset = (page - 1) * limit
+
+    sql_paginado = f"""
+        SELECT * FROM (
+            SELECT a.*, ROW_NUMBER() OVER (ORDER BY {ordem_sql}) AS rn
+            FROM ({sql_filtros}) a
+        ) WHERE rn BETWEEN :start_row AND :end_row
+    """
+    binds['start_row'] = offset + 1
+    binds['end_row'] = offset + limit
+
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(sql_paginado, binds)
+        return cur.fetchall()
+
+def obter_balanco_massa_lote(nunota: int, lote: str):
+    """
+    Calcula o resumo usando NUNOTA (ID da nota) e CODAGREGACAO (Texto do lote).
+    Não utiliza o campo AD_NUNOTA_ORIGEM.
+    """
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            
+            # 1. Busca dados da Entrada (TOP 11) - Usa o NUNOTA da nota de origem
+            sql_entrada = """
+                SELECT NVL(SUM(QTDNEG), 0), NVL(SUM(AD_QTDAVARIA), 0)
+                FROM TGFITE 
+                WHERE NUNOTA = :n AND CODAGREGACAO = :l AND GERAPRODUCAO = 'S'
+            """
+            cur.execute(sql_entrada, n=nunota, l=lote)
+            row_in = cur.fetchone()
+            in_natura, descarte = (float(row_in[0] or 0), float(row_in[1] or 0))
+
+            # 2. Busca o que já foi classificado (TOP 26) - Usa o texto do Lote como ponte
+            sql_classificado = """
+                SELECT SUM(NVL(i.QTDNEG, 0))
+                FROM TGFITE i
+                JOIN TGFCAB c ON i.NUNOTA = c.NUNOTA
+                WHERE i.CODAGREGACAO = :l AND c.CODTIPOPER = 26 AND c.STATUSNOTA <> 'E'
+            """
+            cur.execute(sql_classificado, l=lote)
+            row_cl = cur.fetchone()
+            classificado = float(row_cl[0] or 0)
+
+            estoque = in_natura - (classificado + descarte)
+            rendimento = round((classificado / in_natura * 100), 2) if in_natura > 0 else 0
+            
+            return {
+                "in_natura": in_natura,
+                "classificado": classificado,
+                "descarte": descarte,
+                "estoque": estoque,
+                "rendimento": rendimento
+            }
+    except Exception as e:
+        logger.error("Erro Oracle no Resumo: %s", e)
+        return {"in_natura": 0, "classificado": 0, "descarte": 0, "estoque": 0, "rendimento": 0}    
+
+def atualizar_descarte_origem(nunota_origem: int, codagregacao: str, qtd_descarte: float):
+    """
+    Grava a quantidade de descarte no campo AD_QTDAVARIA do item original (TOP 11).
+    """
+    if not verificar_permissao_escrita():
+        return False
+        
+    sql = """
+        UPDATE TGFITE 
+        SET AD_QTDAVARIA = :qtd 
+        WHERE NUNOTA = :nunota AND CODAGREGACAO = :lote AND GERAPRODUCAO = 'S'
+    """
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, qtd=qtd_descarte, nunota=nunota_origem, lote=codagregacao)
+        conn.commit()
+        return cur.rowcount > 0
+
+def excluir_item_classificacao_com_cascata(nunota_26: int, sequencia: int):
+    """
+    Regra 4: Exclui o item da TOP 26. Se for o último, deleta o cabeçalho automaticamente.
+    """
+    if not verificar_permissao_escrita():
+        return {"ok": False, "error": "Escrita desabilitada"}
+
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        try:
+            # 1. Deleta o item
+            cur.execute("DELETE FROM TGFITE WHERE NUNOTA = :n AND SEQUENCIA = :s", n=nunota_26, s=sequencia)
+            
+            # 2. Verifica se ainda existem itens para este cabeçalho
+            cur.execute("SELECT COUNT(*) FROM TGFITE WHERE NUNOTA = :n", n=nunota_26)
+            restantes = cur.fetchone()[0]
+            
+            cabecalho_excluido = False
+            if restantes == 0:
+                cur.execute("DELETE FROM TGFCAB WHERE NUNOTA = :n", n=nunota_26)
+                cabecalho_excluido = True
+            
+            conn.commit()
+            return {"ok": True, "cabecalho_excluido": cabecalho_excluido}
+        except Exception as e:
+            conn.rollback()
+            return {"ok": False, "error": str(e)}
+        
+def obter_detalhes_lote_completo(nunota_origem: int, lote: str):
+    resultado = {
+        "resumo": {"in_natura": 0, "cx_in_natura": 0, "classificado": 0, "descarte": 0, "estoque": 0, "rendimento": 0, "fabricante": ""},
+        "itens": []
+    }
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        # ⭐ ALTERAÇÃO: SELECT agora busca o FABRICANTE (Índice 3)
+        cur.execute("""
+            SELECT 
+                NVL(SUM(i.QTDCONFERIDA), 0), NVL(MAX(i.PESO), 0), NVL(SUM(i.AD_QTDAVARIA), 0),
+                MAX(p.FABRICANTE) AS FABRICANTE
+            FROM TGFITE i
+            INNER JOIN TGFPRO p ON i.CODPROD = p.CODPROD
+            WHERE i.NUNOTA = :n AND i.CODAGREGACAO = :l AND i.GERAPRODUCAO = 'S'
+        """, {'n': nunota_origem, 'l': lote})
+        
+        row_in = cur.fetchone()
+        fabricante = str(row_in[3] or "").strip()
+        
+        if row_in:
+            cx_in_natura = float(row_in[0] or 0)
+            peso_unit = float(row_in[1] or 0)
+            descarte = float(row_in[2] or 0)
+            # Pegamos o fabricante e limpamos espaços extras
+            fabricante = str(row_in[3] or "").strip()
+            in_natura = cx_in_natura * peso_unit
+        else:
+            cx_in_natura, peso_unit, descarte, fabricante, in_natura = 0, 0, 0, "", 0
+
+        # 2. Busca o que já foi classificado (TOP 26)
+        cur.execute("""
+            SELECT SUM(NVL(i.QTDNEG, 0))
+            FROM TGFITE i
+            JOIN TGFCAB c ON i.NUNOTA = c.NUNOTA
+            WHERE i.CODAGREGACAO = :l AND c.CODTIPOPER = 26 AND c.STATUSNOTA <> 'E'
+        """, {'l': lote})
+        row_cl = cur.fetchone()
+        classificado = float(row_cl[0] or 0)
+
+        # 3. Cálculos de balanço de massa
+        estoque = in_natura - (classificado + descarte)
+        rendimento = round((classificado / in_natura * 100), 2) if in_natura > 0 else 0
+        
+        # ----------------------------------------------------------------------
+        # ⭐ MONTAGEM DO DICIONÁRIO: Agora com a chave 'fabricante'
+        # ----------------------------------------------------------------------
+        resultado["resumo"] = {
+            "in_natura": in_natura, 
+            "cx_in_natura": cx_in_natura,
+            "classificado": classificado, 
+            "descarte": descarte, 
+            "estoque": estoque, 
+            "rendimento": rendimento,
+            "fabricante": fabricante  # 👈 O dado viaja por aqui até o JS
+        }
+
+        # 4. Busca a lista de itens já classificados para a tabela inferior
+        cur.execute("""
+            SELECT i.CODAGREGACAO, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, NVL(i.QTDNEG, 0), NVL(i.PESO, 0), p.SELECIONADO, p.CARACTERISTICAS
+            FROM TGFITE i
+            JOIN TGFCAB c ON i.NUNOTA = c.NUNOTA
+            JOIN TGFPRO p ON i.CODPROD = p.CODPROD
+            WHERE c.CODTIPOPER = 26 
+              AND c.STATUSNOTA <> 'E'
+              AND i.CODAGREGACAO = :lote
+            ORDER BY i.SEQUENCIA
+        """, {'lote': lote})
+        
+        for r in cur.fetchall():
+            total_kg = float(r[4])
+            peso_item = float(r[5])
+            resultado["itens"].append({
+                "lote": str(r[0] or ""), "seq": int(r[1] or 0), "codprod": int(r[2] or 0),
+                "produto": str(r[3] or ""), "total_kg": total_kg, "peso": peso_item,
+                "total_cx": (total_kg / peso_item) if peso_item > 0 else 0,
+                "selecionado": int(r[6] if r[6] is not None else 0),
+                "caracteristicas": str(r[7] or "").upper() # 👈 NOVO: Pegando a característica
+            })
+            
+    return resultado
+
+
+# ==============================================================================
+# 💰 4. MÓDULO EXCLUSIVO: COMERCIAL (VENDAS E FATURAMENTO)
+# ==============================================================================
+
+def consultar_vales_comercial(filtros: dict):
+    """Busca os vales (Entradas TOP 11) com seus itens filtrados para a tela Comercial."""
+    binds = {'top': obter_parametros_globais()['TOP_ENTRADA']}
+    
+    # 1. Filtros de CABEÇALHO (Para achar a Nota)
+    where_cab = ["c.CODTIPOPER = :top", "c.STATUSNOTA <> 'E'"]
+    
+    if filtros.get('start') and filtros.get('end'):
+        where_cab.append("TRUNC(c.DTNEG) BETWEEN TO_DATE(:ds, 'YYYY-MM-DD') AND TO_DATE(:de, 'YYYY-MM-DD')")
+        binds['ds'] = filtros['start']
+        binds['de'] = filtros['end']
+    elif filtros.get('days') is not None:
+        where_cab.append("c.DTNEG >= SYSDATE - :days")
+        binds['days'] = int(filtros['days'])
+        
+    if filtros.get('codparc'):
+        where_cab.append("c.CODPARC = :codparc")
+        binds['codparc'] = int(filtros['codparc'])
+        
+    if filtros.get('nunota'):
+        # 🚀 BUSCA UNIVERSAL: Pesquisa pelo número do Pedido (TOP 11) OU pelo Vale (TOP 13)
+        where_cab.append("(c.NUNOTA = :nunota OR v13.NUNOTA_13 = :nunota)")
+        binds['nunota'] = int(filtros['nunota'])
+        
+    faturado = filtros.get('faturado')
+    if faturado == 'S':
+        where_cab.append("v13.NUFIN IS NOT NULL")
+    elif faturado == 'N':
+        where_cab.append("v13.NUFIN IS NULL")
+        
+    # 2. Filtros de ITEM (Define o que realmente atende à busca da tela)
+    where_item = []
+    
+    if filtros.get('fabricante'):
+        where_item.append("UPPER(pr.FABRICANTE) LIKE :fab")
+        binds['fab'] = f"%{str(filtros['fabricante']).upper()}%"
+        
+    sem_preco = filtros.get('sem_preco')
+    if sem_preco == '1':
+        where_item.append("NVL(i.PRECOBASE, 0) <= 0")
+    elif sem_preco == '0':
+        where_item.append("NVL(i.PRECOBASE, 0) > 0")
+        
+    classif = filtros.get('classificacao')
+    if classif == 'S':
+        where_item.append("NVL(i.GERAPRODUCAO, 'S') = 'S'")
+    elif classif == 'N':
+        where_item.append("NVL(i.GERAPRODUCAO, 'S') = 'N'")
+
+    limit = int(filtros.get('limit', 150))
+    offset = int(filtros.get('offset', 0))
+
+    if filtros.get('faturado') in ('S', 'T'):
+        ordem_sql = "DTNEG DESC, NUNOTA DESC, SEQUENCIA ASC"
+    else:
+        ordem_sql = "DTNEG ASC, NUNOTA ASC, SEQUENCIA ASC"
+
+    # Junta as regras
+    where_total = where_cab + where_item
+    where_sql = " AND ".join(where_total) if where_total else "1=1"
+    flag_sql = " AND ".join(where_item) if where_item else "1=1"
+
+    # 🚀 OTIMIZAÇÃO + FLAG: Traz a nota completa, mas marca quem passou no filtro!
+    sql_base = f"""
+        WITH Vales13 AS (
+            SELECT c13.NUMNOTA, 
+                   MAX(c13.NUNOTA) AS NUNOTA_13, 
+                   MAX(c13.VLRNOTA) AS VLRTOT_VALE, 
+                   MAX(f.NUFIN) AS NUFIN,
+                   SUM(CASE WHEN f.DHBAIXA IS NOT NULL THEN 1 ELSE 0 END) AS QTD_BAIXADOS
+            FROM TGFCAB c13
+            LEFT JOIN TGFFIN f ON f.NUNOTA = c13.NUNOTA
+            WHERE c13.CODTIPOPER = 13
+            GROUP BY c13.NUMNOTA
+        ),
+        Classificacoes26 AS (
+            SELECT i26.CODAGREGACAO, MIN(c26.PENDENTE) AS PENDENTE
+            FROM TGFCAB c26
+            JOIN TGFITE i26 ON c26.NUNOTA = i26.NUNOTA
+            WHERE c26.CODTIPOPER = 26 AND c26.STATUSNOTA <> 'E'
+            GROUP BY i26.CODAGREGACAO
+        ),
+        NotasFiltradas AS (
+            SELECT DISTINCT c.NUNOTA
+            FROM TGFCAB c
+            INNER JOIN TGFITE i ON c.NUNOTA = i.NUNOTA
+            LEFT JOIN TGFPRO pr ON i.CODPROD = pr.CODPROD
+            LEFT JOIN Vales13 v13 ON v13.NUMNOTA = c.NUNOTA
+            LEFT JOIN Classificacoes26 c26 ON c26.CODAGREGACAO = i.CODAGREGACAO
+            WHERE {where_sql}
+        )
+        SELECT 
+            c.NUNOTA, p.NOMEPARC AS PARCEIRO, c.DTNEG,
+            i.SEQUENCIA, i.CODPROD, pr.DESCRPROD AS PRODUTO, pr.FABRICANTE,
+            i.QTDNEG, i.QTDCONFERIDA, 
+            NVL(i.CODVOLPARC, i.CODVOL) AS CODVOL, 
+            i.PESO, i.VLRUNIT, i.VLRTOT,
+            i.QTDFIXADA, i.PRECOBASE,
+            v13.NUNOTA_13,
+            v13.VLRTOT_VALE,
+            v13.NUFIN,
+            NVL(v13.QTD_BAIXADOS, 0) AS QTD_BAIXADOS,
+            i.CODAGREGACAO,
+            c26.PENDENTE,
+            NVL(i.GERAPRODUCAO, 'S') AS GERAPRODUCAO,
+            
+            i.AD_SIMQTD1, 
+            i.AD_SIMVLR1, 
+            i.AD_SIMQTD2, 
+            i.AD_SIMVLR2, 
+            i.AD_SIMQTDDESC,
+            NVL(i.AD_SIMAUTO, 'S') AS AD_SIMAUTO,
+            
+            CASE WHEN {flag_sql} THEN 1 ELSE 0 END AS ATENDE_FILTRO
+
+        FROM TGFCAB c
+        INNER JOIN TGFITE i ON c.NUNOTA = i.NUNOTA
+        LEFT JOIN TGFPAR p ON c.CODPARC = p.CODPARC
+        LEFT JOIN TGFPRO pr ON i.CODPROD = pr.CODPROD
+        LEFT JOIN Vales13 v13 ON v13.NUMNOTA = c.NUNOTA
+        LEFT JOIN Classificacoes26 c26 ON c26.CODAGREGACAO = i.CODAGREGACAO
+        WHERE c.NUNOTA IN (SELECT NUNOTA FROM NotasFiltradas)
+    """
+
+    sql_paginado = f"""
+        SELECT * FROM (
+            SELECT a.*, ROW_NUMBER() OVER (ORDER BY {ordem_sql}) rn
+            FROM ({sql_base}) a
+        ) WHERE rn BETWEEN :offset_start AND :offset_end
+    """
+    
+    binds['offset_start'] = offset + 1
+    binds['offset_end'] = offset + limit
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql_paginado, binds)
+            
+            cols = [col[0].lower() for col in cur.description]
+            resultados = []
+            
+            for row in cur.fetchall():
+                row_dict = dict(zip(cols, row))
+                if row_dict.get('dtneg'):
+                    row_dict['dtneg'] = row_dict['dtneg'].strftime('%Y-%m-%d')
+                resultados.append(row_dict)
+                
+            return resultados
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Erro buscar vales comercial: {e}")
+        return []
+
+def atualizar_preco_inicial_entrada(nunota: int, sequencia: int, preco_inicial: float, qtd_conferida: float, geraproducao: str = 'S', peso_in_natura: float = 0) -> dict:
+    """
+    Atualiza a TOP 11. Se o produto NÃO for classificável (In Natura), 
+    copia o peso classificado e faz um Upsert automático na TOP 13.
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+
+    vlrtot = round(preco_inicial * qtd_conferida, 2)
+    geraproducao = str(geraproducao).strip().upper()
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            
+            # 1. Update Padrão da TOP 11
+            sql_top11 = """
+                UPDATE TGFITE 
+                SET PRECOBASE = :preco,
+                    VLRUNIT = :preco,
+                    QTDNEG = :qtd,
+                    VLRTOT = :tot
+            """
+            binds_top11 = {
+                'preco': float(preco_inicial),
+                'qtd': float(qtd_conferida),
+                'tot': float(vlrtot),
+                'nunota': int(nunota),
+                'seq': int(sequencia)
+            }
+
+            # 🚀 Se for In Natura (Fast-Track), espelha o peso classificado
+            if geraproducao != 'S' and peso_in_natura > 0:
+                sql_top11 += ", QTDFIXADA = :peso "
+                binds_top11['peso'] = float(peso_in_natura)
+
+            sql_top11 += " WHERE NUNOTA = :nunota AND SEQUENCIA = :seq"
+            cur.execute(sql_top11, binds_top11)
+
+            # 2. Lógica do Fast-Track (Auto-Faturamento na TOP 13)
+            nunota_13 = None
+            peso_copiado = None
+            
+            if geraproducao != 'S' and peso_in_natura > 0:
+                peso_copiado = peso_in_natura
+                
+                # Busca os dados do item da TOP 11
+                cur.execute("SELECT CODPROD, CODAGREGACAO, CODEMP FROM TGFITE WHERE NUNOTA = :n AND SEQUENCIA = :s", n=nunota, s=sequencia)
+                row_ite = cur.fetchone()
+                
+                if row_ite:
+                    codprod, codagregacao, codemp_ite = row_ite
+
+                    # Procura se o Vale TOP 13 já existe
+                    cur.execute("SELECT MAX(NUNOTA) FROM TGFCAB WHERE CODTIPOPER = 13 AND NUMNOTA = :n", n=nunota)
+                    res_13 = cur.fetchone()
+                    nunota_13 = int(res_13[0]) if res_13 and res_13[0] else None
+
+                    if not nunota_13:
+                        # Cria o Cabeçalho TOP 13
+                        cur.execute("SELECT CODEMP, CODPARC, CODNAT, CODCENCUS, DTNEG, AD_NUMPEDIDOORIG FROM TGFCAB WHERE NUNOTA = :n", n=nunota)
+                        cab_origem = cur.fetchone()
+                        if cab_origem:
+                            dados_novo_cab = {
+                                #'CODEMP': cab_origem[0], # seleciona a empresa do pedido de compra
+                                'CODEMP': 10,
+                                'CODPARC': cab_origem[1],
+                                'CODNAT': cab_origem[2] or 20010100, 'CODCENCUS': cab_origem[3] or 10100,
+                                'DTNEG': cab_origem[4].strftime('%d/%m/%Y') if cab_origem[4] else _date.today().strftime('%d/%m/%Y'),
+                                'CODTIPOPER': 13, 'NUMNOTA': nunota,
+                                'OBSERVACAO': 'Faturamento automático via SIG (Sistema Integrado de Gestão)',
+                                'AD_NUMPEDIDOORIG': cab_origem[5] or nunota
+                            }
+                            res_cab = inserir_cabecalho_nota_banco(dados_novo_cab, simulacao=False, conexao_existente=conn)
+                            if res_cab.get('ok'): nunota_13 = res_cab['nunota']
+
+                    if nunota_13:
+                        # Regra: TOP 13 salva em KG e Rateia o Valor
+                        kg_total = qtd_conferida * peso_in_natura
+                        vlr_kg = vlrtot / kg_total if kg_total > 0 else 0
+
+                        # Verifica se o item já existe na TOP 13
+                        cur.execute("SELECT SEQUENCIA FROM TGFITE WHERE NUNOTA = :n AND CODPROD = :p AND CODAGREGACAO = :l", 
+                                    n=nunota_13, p=codprod, l=codagregacao)
+                        ite_13 = cur.fetchone()
+
+                        if ite_13:
+                            # UPDATE (Ajuste de Custo/Quantidade)
+                            cur.execute("""
+                                UPDATE TGFITE 
+                                SET QTDNEG = :q, VLRUNIT = :v, VLRTOT = :t
+                                WHERE NUNOTA = :n AND SEQUENCIA = :s
+                            """, q=kg_total, v=vlr_kg, t=vlrtot, n=nunota_13, s=ite_13[0])
+                        else:
+                            # INSERT (Novo Produto no Vale)
+                            cur.execute("SELECT NVL(MAX(SEQUENCIA), 0) + 1 FROM TGFITE WHERE NUNOTA = :n", n=nunota_13)
+                            prox_seq = int(cur.fetchone()[0])
+                            cur.execute("""
+                                INSERT INTO TGFITE (NUNOTA, SEQUENCIA, CODEMP, CODPROD, QTDNEG, VLRUNIT, VLRTOT, CODAGREGACAO, CODVOL, CODLOCALORIG, AD_NUMPEDIDOORIG)
+                                VALUES (:n, :s, :e, :p, :q, :v, :t, :l, 'KG', 101, :origem)
+                            """, n=nunota_13, s=prox_seq, e=codemp_ite, p=codprod, q=kg_total, v=vlr_kg, t=vlrtot, l=codagregacao, origem=cab_origem[5] or nunota)
+                        
+                        # Recalcula a TOP 13 logo após inserir/atualizar
+                        recalcular_totais_nota_banco(nunota_13, conexao_existente=conn)
+
+            conn.commit()
+            return {
+                'ok': True, 'executed': True, 'vlrtot': vlrtot, 
+                'nunota_13': nunota_13, 'peso_copiado': peso_copiado
+            }
+            
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+    
+def atualizar_peso_comercial_entrada(nunota: int, sequencia: int, peso_classificado: float) -> dict:
+    """Atualiza o Peso Classificado (QTDFIXADA) do item na TOP 11."""
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+
+    sql = """
+        UPDATE TGFITE 
+        SET QTDFIXADA = :peso
+        WHERE NUNOTA = :nunota AND SEQUENCIA = :seq
+    """
+    binds = {
+        'peso': float(peso_classificado),
+        'nunota': int(nunota),
+        'seq': int(sequencia)
+    }
+    
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, binds)
+            conn.commit()
+            return {'ok': True, 'executed': True}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+def consultar_lista_ultimas_vendas(lote: str):
+    """Retorna a lista de vendas definindo a etiqueta pela regra do SELECIONADO."""
+    res_final = {"ultimasVendas": []}
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            
+            cur.execute("SELECT DISTINCT CODPROD FROM TGFITE WHERE CODAGREGACAO = :lote", lote=lote)
+            produtos_lote = [str(r[0]) for r in cur.fetchall()]
+            if not produtos_lote: return res_final
+            codprods_in = ','.join(produtos_lote)
+
+            sql_ultimas = f"""
+                SELECT * FROM (
+                    SELECT 
+                        v.DTNEG, 
+                        NVL(TO_CHAR(matriz.OBSERVACOES), matriz.NOMEPARC) AS NOME_EXIBICAO, 
+                        p.SELECIONADO, 
+                        v.VLR_KG_BANCO,
+                        NVL(p.PESOBRUTO, 22) AS PESO_CX
+                    FROM (
+                        SELECT DTNEG, CODPARCMATRIZ, CODPROD, VLR_KG_BANCO
+                        FROM (
+                            SELECT 
+                                c.DTNEG, parc.CODPARCMATRIZ, i.CODPROD, 
+                                (i.VLRTOT / NULLIF(i.QTDNEG, 0)) AS VLR_KG_BANCO,
+                                ROW_NUMBER() OVER (PARTITION BY parc.CODPARCMATRIZ ORDER BY c.DTNEG DESC, c.NUNOTA DESC) as rn
+                            FROM TGFCAB c
+                            JOIN TGFITE i ON c.NUNOTA = i.NUNOTA
+                            JOIN TGFPAR parc ON c.CODPARC = parc.CODPARC
+                            WHERE c.DTNEG >= SYSDATE - 15
+                              AND c.CODTIPOPER IN (35, 37) AND c.STATUSNOTA = 'L'
+                              AND i.CODPROD IN ({codprods_in})
+                        ) WHERE rn = 1 ORDER BY DTNEG DESC
+                    ) v
+                    JOIN TGFPRO p ON v.CODPROD = p.CODPROD
+                    JOIN TGFPAR matriz ON v.CODPARCMATRIZ = matriz.CODPARC
+                ) WHERE ROWNUM <= 15
+            """
+            cur.execute(sql_ultimas)
+            for row in cur.fetchall():
+                dtneg, nome_exibicao, selecionado, vlr_kg_banco, peso_cx = row
+                
+                # 🚀 REGRA DO SELECIONADO PARA A ETIQUETA DA LISTA
+                sel = str(selecionado).strip()
+                if sel == '1': tipo = "EXTRA"
+                elif sel == '2': tipo = "MÉDIO"
+                elif sel == '0': tipo = "IN NATURA"
+                else: tipo = "OUTROS"
+                
+                v_kg = float(vlr_kg_banco or 0)
+                p_cx = float(peso_cx or 22)
+                v_cx = v_kg * p_cx 
+                
+                res_final["ultimasVendas"].append({
+                    "data": dtneg.strftime('%d/%m') if dtneg else "",
+                    "cliente": str(nome_exibicao)[:18].strip(),
+                    "tipo": tipo,
+                    "preco_cx": v_cx,
+                    "preco_kg": v_kg
+                })
+    except Exception as e:
+        logger.error("Erro SQL Vendas: %s", e)
+    return res_final
+
+def consultar_calculo_ticket_medio(lote: str):
+    """Calcula o Ticket Médio e envia a 'Bandeira' de tipo de fluxo."""
+    # 🚀 ADICIONAMOS A BANDEIRA 'tipo_fluxo' AQUI
+    res_final = {"tipo_fluxo": "CLASSIFICADO", "ticketGeral": 0, "ticketExtra": 0, "ticketMedio": 0}
+    
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            
+            cur.execute("SELECT DISTINCT CODPROD FROM TGFITE WHERE CODAGREGACAO = :lote", lote=lote)
+            produtos_lote = [str(r[0]) for r in cur.fetchall()]
+            if not produtos_lote: return res_final
+            codprods_in = ','.join(produtos_lote)
+
+            cur.execute("""
+                SELECT TRUNC(DTNEG) FROM TGFCAB
+                WHERE NUNOTA = (SELECT MAX(NUNOTA) FROM TGFITE WHERE CODAGREGACAO = :lote)
+            """, lote=lote)
+            row_dt = cur.fetchone()
+            dt_compra = row_dt[0] if row_dt and row_dt[0] else None
+            
+            if dt_compra:
+                dt_str = dt_compra.strftime('%Y-%m-%d')
+                sql_media = f"""
+                    SELECT p.SELECIONADO, v.MEDIA
+                    FROM (
+                        SELECT /*+ LEADING(c) USE_NL(i) */
+                               i.CODPROD, NVL(SUM(i.VLRTOT) / NULLIF(SUM(i.QTDNEG), 0), 0) AS MEDIA
+                        FROM TGFCAB c
+                        JOIN TGFITE i ON c.NUNOTA = i.NUNOTA
+                        WHERE c.DTNEG >= TO_DATE('{dt_str}', 'YYYY-MM-DD')
+                          AND c.DTNEG < TO_DATE('{dt_str}', 'YYYY-MM-DD') + 6
+                          AND c.CODTIPOPER IN (35, 37) AND c.STATUSNOTA = 'L'
+                          AND i.CODPROD IN ({codprods_in})
+                        GROUP BY i.CODPROD
+                    ) v
+                    JOIN TGFPRO p ON v.CODPROD = p.CODPROD
+                """
+                cur.execute(sql_media)
+                for selecionado, media in cur.fetchall():
+                    sel = str(selecionado).strip()
+                    if sel == '1': 
+                        res_final["ticketExtra"] = float(media)
+                    elif sel == '2': 
+                        res_final["ticketMedio"] = float(media)
+                    elif sel == '0': 
+                        # 🚀 SE ENCONTROU PRODUTO 0, MARCA A BANDEIRA COMO IN NATURA
+                        res_final["ticketGeral"] = float(media)
+                        res_final["tipo_fluxo"] = "IN_NATURA"
+                        
+    except Exception as e:
+        logger.error("Erro Ticket Background: %s", e)
+    return res_final
+
+def salvar_vale_compra_banco(payload: dict) -> dict:
+    """
+    Cria ou atualiza uma TOP 13 vinculada a uma TOP 11.
+    Aplica substituição destrutiva apenas nos itens do Lote (CODAGREGACAO) especificado.
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada no sistema'}
+
+    nunota_origem = payload.get('nunota_origem')
+    lote = payload.get('lote')
+    itens = payload.get('itens_faturar', [])
+
+    if not nunota_origem or not lote or not itens:
+        return {'ok': False, 'error': 'Dados incompletos: NUNOTA, Lote e Itens são obrigatórios.'}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 1. Verifica se já existe a TOP 13 (Amarrada pelo NUMNOTA)
+            cur.execute("SELECT MAX(NUNOTA) FROM TGFCAB WHERE CODTIPOPER = 13 AND NUMNOTA = :n", n=nunota_origem)
+            res_13 = cur.fetchone()
+            nunota_13 = int(res_13[0]) if res_13 and res_13[0] else None
+
+            # 2. Se não existe, cria o Cabeçalho (Herdando dados da TOP 11)
+            if not nunota_13:
+                cur.execute("SELECT CODEMP, CODPARC, CODNAT, CODCENCUS, DTNEG, AD_NUMPEDIDOORIG FROM TGFCAB WHERE NUNOTA = :n", n=nunota_origem)
+                cab_origem = cur.fetchone()
+                if not cab_origem:
+                    return {'ok': False, 'error': 'Cabeçalho da nota de origem não encontrado.'}
+                
+                dados_novo_cab = {
+                    'CODEMP': cab_origem[0],
+                    'CODPARC': cab_origem[1],
+                    'CODNAT': cab_origem[2] or 20010100, # Fallback de segurança
+                    'CODCENCUS': cab_origem[3] or 10100,
+                    'DTNEG': cab_origem[4].strftime('%d/%m/%Y') if cab_origem[4] else _date.today().strftime('%d/%m/%Y'),
+                    'CODTIPOPER': 13,
+                    'NUMNOTA': nunota_origem,
+                    'OBSERVACAO': f'Faturamento gerado via Painel SIG(Sistema Integrado de Gestão)',
+                    'AD_NUMPEDIDOORIG': cab_origem[5] or nunota_origem
+                }
+                res_cab = inserir_cabecalho_nota_banco(dados_novo_cab, simulacao=False, conexao_existente=conn)
+                if not res_cab.get('ok'):
+                    raise Exception(f"Erro ao criar Vale 13: {res_cab.get('error')}")
+                nunota_13 = res_cab['nunota']
+
+            # 3. EXCLUSÃO CIRÚRGICA: Limpa apenas os itens deste Lote na TOP 13
+            cur.execute("DELETE FROM TGFITE WHERE NUNOTA = :n AND CODAGREGACAO = :l", n=nunota_13, l=lote)
+
+            # 4. INSERÇÃO DOS NOVOS ITENS (Extra / Médio)
+            cur.execute("SELECT CODEMP FROM TGFCAB WHERE NUNOTA = :n", n=nunota_13)
+            codemp_13 = cur.fetchone()[0]
+            
+            # Pega a origem para herdar nos itens
+            cur.execute("SELECT AD_NUMPEDIDOORIG FROM TGFCAB WHERE NUNOTA = :n", n=nunota_13)
+            res_origem = cur.fetchone()
+            ad_numpedidoorig = res_origem[0] if res_origem else nunota_origem
+
+            for item in itens:
+                codprod = item.get('codprod')
+                qtdneg = float(item.get('qtdneg', 0))
+                vlrunit = float(item.get('vlrunit', 0))
+                vlrtot = float(item.get('vlrtot', 0))
+
+                if not codprod or qtdneg <= 0:
+                    continue # Ignora cestas vazias
+
+                # Pega a próxima sequência livre na unha para evitar bloqueios de transação
+                cur.execute("SELECT NVL(MAX(SEQUENCIA), 0) + 1 FROM TGFITE WHERE NUNOTA = :n", n=nunota_13)
+                prox_seq = int(cur.fetchone()[0])
+
+                cur.execute("""
+                    INSERT INTO TGFITE (
+                        NUNOTA, SEQUENCIA, CODEMP, CODPROD, 
+                        QTDNEG, VLRUNIT, VLRTOT, CODAGREGACAO, 
+                        CODVOL, CODLOCALORIG, AD_NUMPEDIDOORIG
+                    )
+                    VALUES (
+                        :nunota, :seq, :emp, :prod, 
+                        :qtd, :vlr, :tot, :lote, 
+                        'KG', 101, :origem
+                    )
+                """, {
+                    'nunota': nunota_13, 'seq': prox_seq, 'emp': codemp_13, 
+                    'prod': codprod, 'qtd': qtdneg, 'vlr': vlrunit, 'tot': vlrtot, 
+                    'lote': lote, 'origem': ad_numpedidoorig
+                })
+
+            # Comita os itens para que a função de recálculo consiga enxergá-los
+            conn.commit()
+
+            # 5. Fechamento: Roda a procedure do banco para fechar o valor do cabeçalho
+            res_recalc = recalcular_totais_nota_banco(nunota_13)
+            if not res_recalc.get('ok'):
+                raise Exception(f"Erro ao fechar o valor da nota: {res_recalc.get('error')}")
+
+            return {'ok': True, 'nunota_13': nunota_13}
+
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+def zerar_negociacao_banco(nunota_origem: int, lote: str) -> dict:
+    """
+    Remove os itens de um lote específico do Vale de Compra (TOP 13).
+    Se o Vale ficar sem nenhum item, exclui o cabeçalho e financeiro.
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada no sistema'}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 1. Encontra o NUNOTA da TOP 13
+            cur.execute("SELECT MAX(NUNOTA) FROM TGFCAB WHERE CODTIPOPER = 13 AND NUMNOTA = :n", n=nunota_origem)
+            res = cur.fetchone()
+            if not res or not res[0]:
+                return {'ok': True, 'acao': 'nada_a_fazer', 'msg': 'Não há Vale gerado para zerar.'}
+            
+            nunota_13 = int(res[0])
+
+            # 2. Exclusão Cirúrgica: Deleta apenas os itens deste Lote
+            cur.execute("DELETE FROM TGFITE WHERE NUNOTA = :n AND CODAGREGACAO = :l", n=nunota_13, l=lote)
+            conn.commit()
+
+            # 3. Checagem de Segurança: Sobrou algum item de outro produtor/lote nesta nota?
+            cur.execute("SELECT COUNT(*) FROM TGFITE WHERE NUNOTA = :n", n=nunota_13)
+            qtd_restante = int(cur.fetchone()[0])
+
+            if qtd_restante > 0:
+                # Cenário A: Sobrou coisa na nota. Apenas recalcula o Valor Total do Cabeçalho.
+                recalcular_totais_nota_banco(nunota_13)
+                return {'ok': True, 'acao': 'itens_deletados'}
+            else:
+                # Cenário B: A nota ficou vazia. Exclui ela inteira (TGFCAB, TGFFIN) usando a função que você já tem.
+                res_exclusao = excluir_nota_completa_banco(nunota_13)
+                if not res_exclusao.get('ok'):
+                    raise Exception(res_exclusao.get('error'))
+                return {'ok': True, 'acao': 'nota_excluida'}
+
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+def desmembrar_pedido_classificacao(nunota_origem: int, lote_desmembrar: str) -> dict:
+    """
+    Clona o Pedido de Compra (TOP 11) original e transfere o lote selecionado para ele.
+    Transfere também TODO o histórico de classificação (TOP 26) amarrado a este lote, 
+    sejam classificações pendentes ou já finalizadas, garantindo a integridade do Balanço de Massa.
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada no sistema'}
+
+    try:
+        from datetime import date as _date
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 1. Verifica se o pedido de origem tem mais de 1 lote. Se tiver só 1, não há o que desmembrar.
+            cur.execute("SELECT COUNT(DISTINCT CODAGREGACAO) FROM TGFITE WHERE NUNOTA = :n", n=nunota_origem)
+            qtd_lotes = int(cur.fetchone()[0] or 0)
+            if qtd_lotes <= 1:
+                return {'ok': False, 'error': 'O pedido possui apenas este lote. Não é possível desmembrar.'}
+
+            # 2. Busca os dados do cabeçalho original (TOP 11) para clonar
+            cur.execute("""
+                SELECT CODEMP, CODPARC, CODNAT, CODCENCUS, DTNEG, CODTIPOPER, OBSERVACAO 
+                FROM TGFCAB WHERE NUNOTA = :n
+            """, n=nunota_origem)
+            cab_origem = cur.fetchone()
+            
+            if not cab_origem:
+                return {'ok': False, 'error': 'Cabeçalho original não encontrado.'}
+
+            obs_antiga = str(cab_origem[6] or '')
+            nova_obs = f"{obs_antiga} | Desmembrado do Pedido {nunota_origem}".strip()
+            
+            # Prepara os dados do novo pedido clonado
+            dados_novo_cab = {
+                'CODEMP': cab_origem[0],
+                'CODPARC': cab_origem[1],
+                'CODNAT': cab_origem[2], 
+                'CODCENCUS': cab_origem[3],
+                'DTNEG': cab_origem[4].strftime('%d/%m/%Y') if cab_origem[4] else _date.today().strftime('%d/%m/%Y'),
+                'CODTIPOPER': cab_origem[5], # TOP 11
+                'OBSERVACAO': nova_obs[:60]
+            }
+            
+            # Insere o novo cabeçalho usando a função existente
+            res_novo_cab = inserir_cabecalho_nota_banco(dados_novo_cab, simulacao=False, conexao_existente=conn)
+            if not res_novo_cab.get('ok'):
+                raise Exception(f"Erro ao criar novo Pedido: {res_novo_cab.get('error')}")
+                
+            nunota_novo = res_novo_cab['nunota']
+
+            # Corta o cordão umbilical: O novo pedido é a origem dele mesmo
+            cur.execute("UPDATE TGFCAB SET AD_NUMPEDIDOORIG = :n WHERE NUNOTA = :n", n=nunota_novo)
+
+            # 3. TRANSFERÊNCIA FÍSICA (In Natura): CLONAR E APAGAR
+            # Lê as colunas dinamicamente para fazer uma cópia idêntica (Bypass na Trigger do Sankhya)
+            colunas_ite = list(_obter_colunas_da_tabela(conn, 'TGFITE'))
+            if not colunas_ite:
+                raise Exception("Não foi possível ler a estrutura da tabela de itens.")
+                
+            colunas_str = ", ".join(colunas_ite)
+            select_cols = []
+            
+            # Substitui apenas o dono da nota, o resto copia igual
+            for c in colunas_ite:
+                if c == 'NUNOTA': select_cols.append(':novo_n')
+                elif c == 'AD_NUMPEDIDOORIG': select_cols.append(':novo_n')
+                else: select_cols.append(c)
+                
+            select_str = ", ".join(select_cols)
+            
+            # 3.1 Insere a cópia exata no pedido novo
+            sql_clone = f"INSERT INTO TGFITE ({colunas_str}) SELECT {select_str} FROM TGFITE WHERE NUNOTA = :velho_n AND CODAGREGACAO = :lote"
+            cur.execute(sql_clone, novo_n=nunota_novo, velho_n=nunota_origem, lote=lote_desmembrar)
+            
+            linhas_movidas = cur.rowcount
+            if linhas_movidas == 0:
+                raise Exception("Nenhum item físico (In Natura) encontrado para mover.")
+                
+            # 3.2 Apaga os itens do pedido velho
+            cur.execute("DELETE FROM TGFITE WHERE NUNOTA = :velho_n AND CODAGREGACAO = :lote", velho_n=nunota_origem, lote=lote_desmembrar)
+
+            # 4. TRANSFERÊNCIA DE CLASSIFICAÇÃO (TOP 26): Atualiza a origem de TODAS as TOP 26 deste lote
+            # Atualiza os ITENS classificados para apontarem para o novo pedido
+            cur.execute("""
+                UPDATE TGFITE 
+                SET AD_NUMPEDIDOORIG = :novo_n 
+                WHERE CODAGREGACAO = :lote 
+                  AND NUNOTA IN (SELECT NUNOTA FROM TGFCAB WHERE CODTIPOPER = 26)
+            """, novo_n=nunota_novo, lote=lote_desmembrar)
+            
+            # Atualiza os CABEÇALHOS das classificações para apontarem para o novo pedido
+            cur.execute("""
+                UPDATE TGFCAB 
+                SET AD_NUMPEDIDOORIG = :novo_n 
+                WHERE NUNOTA IN (
+                    SELECT NUNOTA FROM TGFITE WHERE CODAGREGACAO = :lote
+                ) AND CODTIPOPER = 26
+            """, novo_n=nunota_novo, lote=lote_desmembrar)
+
+            # 5. LIMPEZA DE VALE: Se esse lote já estava salvo em um Vale 13 na nota original, arranca de lá
+            cur.execute("SELECT MAX(NUNOTA) FROM TGFCAB WHERE CODTIPOPER = 13 AND NUMNOTA = :n", n=nunota_origem)
+            res_13 = cur.fetchone()
+            if res_13 and res_13[0]:
+                nunota_13_velho = int(res_13[0])
+                cur.execute("DELETE FROM TGFITE WHERE NUNOTA = :n AND CODAGREGACAO = :l", n=nunota_13_velho, l=lote_desmembrar)
+                recalcular_totais_nota_banco(nunota_13_velho, conexao_existente=conn)
+
+            # 6. Atualiza os valores totais (VLRNOTA, QTDVOL) dos dois pedidos principais
+            recalcular_totais_nota_banco(nunota_origem, conexao_existente=conn)
+            recalcular_totais_nota_banco(nunota_novo, conexao_existente=conn)
+
+            conn.commit()
+            return {'ok': True, 'novo_pedido': nunota_novo, 'linhas_movidas': linhas_movidas}
+
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+    
+def unificar_pedido_classificacao(nunota_origem: int, lote_unificar: str, nunota_destino: int) -> dict:
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada no sistema'}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 1. Verifica se o pedido de destino realmente existe
+            cur.execute("SELECT NUNOTA FROM TGFCAB WHERE NUNOTA = :n AND CODTIPOPER = 11", n=nunota_destino)
+            if not cur.fetchone():
+                return {'ok': False, 'error': 'Pedido de destino não encontrado no banco de dados.'}
+
+            # 2. TRANSFERÊNCIA FÍSICA (In Natura): Clonar para o destino e Apagar da Origem
+            colunas_ite = list(_obter_colunas_da_tabela(conn, 'TGFITE'))
+            colunas_str = ", ".join(colunas_ite)
+            
+            select_cols = []
+            for c in colunas_ite:
+                if c == 'NUNOTA' or c == 'AD_NUMPEDIDOORIG': select_cols.append(':novo_n')
+                else: select_cols.append(c)
+                
+            select_str = ", ".join(select_cols)
+            
+            # Insere no destino
+            sql_clone = f"INSERT INTO TGFITE ({colunas_str}) SELECT {select_str} FROM TGFITE WHERE NUNOTA = :velho_n AND CODAGREGACAO = :lote"
+            cur.execute(sql_clone, novo_n=nunota_destino, velho_n=nunota_origem, lote=lote_unificar)
+            linhas_movidas = cur.rowcount
+            if linhas_movidas == 0:
+                raise Exception("Item físico não encontrado na nota de origem.")
+                
+            # Apaga da origem
+            cur.execute("DELETE FROM TGFITE WHERE NUNOTA = :velho_n AND CODAGREGACAO = :lote", velho_n=nunota_origem, lote=lote_unificar)
+
+            # 3. TRANSFERÊNCIA DE CLASSIFICAÇÃO (TOP 26): Atualiza a origem de TODAS as TOP 26
+            cur.execute("""
+                UPDATE TGFITE SET AD_NUMPEDIDOORIG = :novo_n 
+                WHERE CODAGREGACAO = :lote AND NUNOTA IN (SELECT NUNOTA FROM TGFCAB WHERE CODTIPOPER = 26)
+            """, novo_n=nunota_destino, lote=lote_unificar)
+            
+            cur.execute("""
+                UPDATE TGFCAB SET AD_NUMPEDIDOORIG = :novo_n 
+                WHERE NUNOTA IN (SELECT NUNOTA FROM TGFITE WHERE CODAGREGACAO = :lote) AND CODTIPOPER = 26
+            """, novo_n=nunota_destino, lote=lote_unificar)
+
+            # 4. LIMPEZA DE VALE ORIGEM (Segurança extra)
+            cur.execute("SELECT MAX(NUNOTA) FROM TGFCAB WHERE CODTIPOPER = 13 AND NUMNOTA = :n", n=nunota_origem)
+            res_13 = cur.fetchone()
+            if res_13 and res_13[0]:
+                cur.execute("DELETE FROM TGFITE WHERE NUNOTA = :n AND CODAGREGACAO = :l", n=int(res_13[0]), l=lote_unificar)
+                recalcular_totais_nota_banco(int(res_13[0]), conexao_existente=conn)
+
+            # 5. Atualiza totais dos dois pedidos
+            recalcular_totais_nota_banco(nunota_origem, conexao_existente=conn)
+            recalcular_totais_nota_banco(nunota_destino, conexao_existente=conn)
+
+            conn.commit()
+            return {'ok': True, 'linhas_movidas': linhas_movidas}
+
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+def consultar_detalhes_vale_banco(nunota_13: int, lote: str) -> dict:
+    """Busca os itens reais faturados na TOP 13 para espelhar no painel."""
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT i.CODPROD, NVL(i.QTDNEG,0), NVL(i.VLRUNIT,0), NVL(i.VLRTOT,0), 
+                       p.CARACTERISTICAS, p.SELECIONADO
+                FROM TGFITE i
+                JOIN TGFPRO p ON i.CODPROD = p.CODPROD
+                WHERE i.NUNOTA = :n AND i.CODAGREGACAO = :l
+            """, n=nunota_13, l=lote)
+            
+            itens = []
+            for r in cur.fetchall():
+                itens.append({
+                    "codprod": int(r[0]),
+                    "qtdneg": float(r[1]),
+                    "vlrunit": float(r[2]),
+                    "vlrtot": float(r[3]),
+                    "caracteristicas": str(r[4] or "").upper(),
+                    "selecionado": int(r[5] or 0)
+                })
+            return {'ok': True, 'itens': itens}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+def atualizar_simulacao_item_banco(nunota: int, lote: str, sim_data: dict) -> dict:
+    """Atualiza os campos de simulação de negócio na TGFITE da TOP 11."""
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            
+            # 🚀 FIX: SQL totalmente limpo! Sem emojis ou comentários internos para não bugar o parser do Oracle.
+            cur.execute("""
+                UPDATE TGFITE 
+                SET AD_SIMQTD1 = :q1, 
+                    AD_SIMVLR1 = :v1, 
+                    AD_SIMQTD2 = :q2, 
+                    AD_SIMVLR2 = :v2, 
+                    AD_SIMQTDDESC = :v_desc,
+                    AD_SIMAUTO = :auto
+                WHERE NUNOTA = :nunota AND CODAGREGACAO = :lote
+            """, 
+            q1=sim_data.get('q1'), 
+            v1=sim_data.get('v1'),
+            q2=sim_data.get('q2'), 
+            v2=sim_data.get('v2'),
+            v_desc=sim_data.get('desc'),
+            auto=sim_data.get('auto', 'S'),
+            nunota=nunota, 
+            lote=lote)
+            
+            conn.commit()
+            return {'ok': True}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+def gerar_financeiro_banco(nunota_13: int, descontar_inss: bool = False, historico: str = '', vlrinss: float = 0, vlr_forcar_liquido: float = None, vlr_forcar_bruto: float = None) -> dict:
+    """Gera o financeiro (TGFFIN) e marca a nota como confirmada usando os valores exatos da interface."""
+    if not verificar_permissao_escrita(): return {'ok': False, 'error': 'Escrita desabilitada'}
+
+    from decimal import Decimal, ROUND_HALF_UP
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            
+            # 1. Trava de segurança
+            cur.execute("SELECT MAX(NUFIN) FROM TGFFIN WHERE NUNOTA = :n", n=nunota_13)
+            if cur.fetchone()[0]:
+                return {'ok': False, 'error': 'Esta nota já possui um título financeiro gerado.'}
+
+            # 2. Busca dados do Cabeçalho
+            cur.execute("""
+                SELECT CODEMP, CODPARC, CODNAT, CODCENCUS, DTNEG, VLRNOTA, NUMNOTA, DHTIPOPER
+                FROM TGFCAB WHERE NUNOTA = :n
+            """, n=nunota_13)
+            cab = cur.fetchone()
+            if not cab: return {'ok': False, 'error': 'Nota não encontrada no banco de dados.'}
+            
+            codemp, codparc, codnat, codcencus, dtneg, vlrnota, numnota, dhtipoper = cab
+            dt_venc = calcular_vencimento_agromil(dtneg)
+
+            # 3. Gera ID provisório
+            cur.execute("SELECT NVL(MAX(NUFIN), 0) + 1 FROM TGFFIN")
+            nufin_temp = cur.fetchone()[0]
+
+            # 🚀 BLINDAGEM SUPREMA: Confia cegamente nos valores enviados pela tela
+            vlr_bruto_final = vlr_forcar_bruto if vlr_forcar_bruto else vlrnota
+            vlr_liquido_final = vlr_forcar_liquido if vlr_forcar_liquido else vlr_bruto_final
+            
+            vlr_bruto = float(Decimal(str(vlr_bruto_final)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+            vlr_liquido = float(Decimal(str(vlr_liquido_final)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
+            sql_fin = """
+                INSERT INTO TGFFIN (
+                    NUFIN, NUNOTA, NUMNOTA, CODEMP, CODPARC, CODNAT, CODCENCUS, 
+                    ORIGEM, CODTIPOPER, DHTIPOPER, CODBCO, CODCTABCOINT, CODTIPTIT, 
+                    CODMOEDA, CODPROJ, CODVEND, CODVEICULO, DTNEG, DHMOV, DTALTER, 
+                    DTENTSAI, DTVENCINIC, DTVENC, DTPRAZO, VLRDESDOB, VLRBAIXA,
+                    DESDOBRAMENTO, SEQUENCIA, RECDESP, PROVISAO, FINCONFIRMADO, 
+                    AUTORIZADO, ISSRETIDO, IRFRETIDO, RATEADO, RECEBIDO,
+                    TIPMULTA, TIPJURO, DHTIPOPERBAIXA, HISTORICO
+                ) VALUES (
+                    :nufin, :nunota, :numnota, :emp, :parc, :nat, :cus,
+                    'E', 13, :dhtip, 336, 17, 9,
+                    0, 0, 0, 0, :dtneg, SYSDATE, SYSDATE,
+                    :dtneg, :dtvenc, :dtvenc, :dtvenc, :vlr_insert, 0,
+                    '1', 1, -1, 'N', 'S',
+                    'N', 'N', 'N', 'N', 0,
+                    1, 1, TO_DATE('01/01/1998','DD/MM/YYYY'), :hist
+                )
+            """
+
+            # 4. Faz a Inserção Inicial
+            cur.execute(sql_fin, {
+                'nufin': nufin_temp, 'nunota': nunota_13, 'numnota': numnota, 'emp': codemp,
+                'parc': codparc, 'nat': codnat, 'cus': codcencus, 'dhtip': dhtipoper,
+                'dtneg': dtneg, 'dtvenc': dt_venc, 
+                'vlr_insert': vlr_bruto,  
+                'hist': historico[:255]
+            })
+
+            # 5. Confirma a Nota (Aqui as triggers do Sankhya despertam)
+            cur.execute("UPDATE TGFCAB SET STATUSNOTA='L', DTFATUR=SYSDATE WHERE NUNOTA=:n", n=nunota_13)
+            
+            # 🚀 6. A MARRETA DEFINITIVA NO ALVO CERTO
+            # Ignoramos o NUFIN e vamos caçar o título pelo NUNOTA da nota
+            cur.execute("UPDATE TGFFIN SET VLRDESDOB = :vlr_final WHERE NUNOTA = :n", vlr_final=vlr_liquido, n=nunota_13)
+            cur.execute("UPDATE TGFCAB SET VLRNOTA = :vlr_cab WHERE NUNOTA = :n", vlr_cab=vlr_bruto, n=nunota_13)
+
+            conn.commit()
+
+            cur.execute("SELECT MAX(NUFIN) FROM TGFFIN WHERE NUNOTA = :n", n=nunota_13)
+            nufin_real = cur.fetchone()[0]
+
+            return {'ok': True, 'nufin': nufin_real}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+
+def upsert_preco_in_natura_modalFaturamento(nunota_origem: int, nunota_13: int, codprod: int, novo_preco: float) -> dict:
+    if not verificar_permissao_escrita(): return {'ok': False}
+    
+    try:
+        from datetime import date as _date
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            
+            # 1. 🚀 VERIFICA/CRIA O VALE (TOP 13)
+            # Independentemente do que o frontend mandar, consultamos a realidade do banco
+            cur.execute("SELECT MAX(NUNOTA) FROM TGFCAB WHERE CODTIPOPER = 13 AND NUMNOTA = :n", n=nunota_origem)
+            res_13 = cur.fetchone()
+            nunota_13_real = int(res_13[0]) if res_13 and res_13[0] else None
+
+            if not nunota_13_real:
+                # O Vale não existe. Vamos criar o Cabeçalho agora!
+                cur.execute("SELECT CODEMP, CODPARC, CODNAT, CODCENCUS, DTNEG, AD_NUMPEDIDOORIG FROM TGFCAB WHERE NUNOTA = :n", n=nunota_origem)
+                cab_origem = cur.fetchone()
+                if not cab_origem:
+                    return {'ok': False, 'error': 'Cabeçalho da nota de origem não encontrado.'}
+
+                dados_novo_cab = {
+                    #'CODEMP': cab_origem[0], # seleciona a empresa do pedido de compra
+                    'CODEMP': 10, 
+                    'CODPARC': cab_origem[1],
+                    'CODNAT': cab_origem[2] or 20010100, 'CODCENCUS': cab_origem[3] or 10100,
+                    'DTNEG': cab_origem[4].strftime('%d/%m/%Y') if cab_origem[4] else _date.today().strftime('%d/%m/%Y'),
+                    'CODTIPOPER': 13, 'NUMNOTA': nunota_origem,
+                    'OBSERVACAO': 'Faturamento automático via SIG (Sistema Integrado de Gestão)',
+                    'AD_NUMPEDIDOORIG': cab_origem[5] or nunota_origem
+                }
+                res_cab = inserir_cabecalho_nota_banco(dados_novo_cab, simulacao=False, conexao_existente=conn)
+                if not res_cab.get('ok'):
+                    return {'ok': False, 'error': f"Erro ao criar Vale 13: {res_cab.get('error')}"}
+                nunota_13_real = res_cab['nunota']
+
+            # 2. Busca os dados físicos do item na origem (TOP 11)
+            cur.execute("""
+                SELECT NVL(QTDCONFERIDA, QTDNEG), CODVOL, PESO, CODAGREGACAO, GERAPRODUCAO
+                FROM TGFITE 
+                WHERE NUNOTA = :origem AND CODPROD = :prod AND ROWNUM = 1
+            """, origem=nunota_origem, prod=codprod)
+            item_origem = cur.fetchone()
+            
+            if not item_origem:
+                return {'ok': False, 'error': 'Produto físico não encontrado na nota de origem.'}
+                
+            qtd_cx, vol_origem, peso_origem, lote_origem, geraprod_origem = item_origem
+            if qtd_cx <= 0:
+                return {'ok': False, 'error': 'A quantidade deste produto está zerada.'}
+                
+            # 🚀 MATEMÁTICA CIRÚRGICA PARA O SANKHYA:
+            # 1. Descobre o peso total (Ex: 8 cx * 17 kg = 136 kg)
+            peso_real = float(peso_origem) if float(peso_origem) > 0 else 1.0
+            qtd_kg = float(qtd_cx * peso_real)
+            
+            # 2. Descobre o Valor Total (Ex: 8 cx * 80,00 = 640,00)
+            vlr_tot = round(qtd_cx * novo_preco, 2)
+            
+            # 3. Calcula um Valor Unitário infinito para o Sankhya bater a conta exata!
+            # Ex: 640 / 136 = 4.7058823...
+            vlr_unit_kg = round(vlr_tot / qtd_kg, 7) if qtd_kg > 0 else 0
+
+            # 3. 🚀 TENTA ATUALIZAR O ITEM (Agora mandando QTDNEG em KG e CODVOL em KG)
+            cur.execute("""
+                UPDATE TGFITE 
+                SET QTDNEG = :qtdkg, VLRUNIT = :vlrkg, VLRTOT = :tot, CODVOL = 'KG', CODEMP = 10 
+                WHERE NUNOTA = :nota13 AND CODPROD = :prod
+            """, qtdkg=qtd_kg, vlrkg=vlr_unit_kg, tot=vlr_tot, nota13=nunota_13_real, prod=codprod)
+            
+            # 4. 🚀 SE NÃO ATUALIZOU, FAZ O INSERT MANDANDO KG
+            if cur.rowcount == 0:
+                dados_insercao = {
+                    'NUNOTA': nunota_13_real,
+                    'CODEMP': 10,
+
+                    'CODPROD': codprod,
+                    'QTDNEG': qtd_kg,
+                    'VLRUNIT': vlr_unit_kg, # O seu inserir_item_nota_banco vai arredondar o total certinho!
+                    'PESO': peso_origem,
+                    'CODVOL': 'KG',         # Força KG na tela do Sankhya
+                    'QTDCONFERIDA': qtd_cx,
+                    'CODAGREGACAO': lote_origem,
+                    'GERAPRODUCAO': geraprod_origem
+                }
+                
+                resultado_insert = inserir_item_nota_banco(dados_insercao, simulacao=False, conexao_existente=conn)
+                
+                if not resultado_insert.get('ok'):
+                    conn.rollback()
+                    return {'ok': False, 'error': f"Falha ao inserir item no Sankhya: {resultado_insert.get('error')}"}
+
+            # 5. INDISPENSÁVEL: Recalcula o cabeçalho (TGFCAB) para bater com os novos valores
+            recalcular_totais_nota_banco(nunota_13_real, conexao_existente=conn)
+
+            # Tudo deu certo! Salva as alterações no banco.
+            conn.commit()
+
+            # --- BLOCO DE INTEGRIDADE DO INSS ---
+            cur.execute("SELECT NVL(VLROUTROS, 0) FROM TGFCAB WHERE NUNOTA = :n", n=nunota_13_real)
+            vlr_outros_atual = cur.fetchone()[0]
+
+            if vlr_outros_atual > 0:
+                cur.execute("""
+                    SELECT ROUND(SUM(NVL(VLRTOT, 0)) * 0.0163, 2) 
+                    FROM TGFITE 
+                    WHERE NUNOTA = :n
+                """, n=nunota_13_real)
+                novo_inss = cur.fetchone()[0] or 0
+                
+                cur.execute("UPDATE TGFCAB SET VLROUTROS = :vlr WHERE NUNOTA = :n", vlr=novo_inss, n=nunota_13_real)
+                conn.commit()
+                recalcular_totais_nota_banco(nunota_13_real, conexao_existente=conn)
+            # --- FIM DO BLOCO ---
+
+            return {'ok': True, 'nunota_13': nunota_13_real, 'vlrtot': vlr_tot}
+            
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+def atualizar_desconto_inss_vale(nunota_13: int, valor_desconto: float) -> dict:
+    """
+    Salva o valor do INSS no campo VLROUTROS da TGFCAB (TOP 13) 
+    e recalcula os totais da nota.
+    """
+    if not verificar_permissao_escrita(): return {'ok': False}
+    
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            
+            # 1. Atualiza o valor do desconto (INSS) no campo VLROUTROS
+            cur.execute("""
+                UPDATE TGFCAB 
+                SET VLROUTROS = :vlr 
+                WHERE NUNOTA = :nota
+            """, vlr=valor_desconto, nota=nunota_13)
+            
+            # 2. Recalcula os totais da nota para que o VLRNOTA reflita a mudança
+            # (Utilizando a função que já existe no seu oracle_conn.py)
+            recalcular_totais_nota_banco(nunota_13, conexao_existente=conn)
+            
+            conn.commit()
+            return {'ok': True}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+def buscar_vlroutros_vale(nunota_13: int) -> float:
+    """Retorna o valor atual de VLROUTROS do cabeçalho da nota."""
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT NVL(VLROUTROS, 0) FROM TGFCAB WHERE NUNOTA = :n", n=nunota_13)
+            row = cur.fetchone()
+            return float(row[0]) if row else 0.0
+    except:
+        return 0.0
+
+def calcular_vencimento_agromil(dt_neg):
+    """
+    Regra Agromil: Pagamento toda quinta-feira. 
+    Corte na sexta: Compra até sexta vence na próxima quinta.
+    Compra sábado/domingo vence na quinta da semana subsequente.
+    """
+    # 0=Seg, 1=Ter, 2=Qua, 3=Qui, 4=Sex, 5=Sab, 6=Dom
+    dia_semana = dt_neg.weekday()
+    
+    if dia_semana <= 4:
+        dias_ate_quinta = (3 - dia_semana) + 7
+    else:
+        dias_ate_quinta = (3 - dia_semana) + 14
+        
+    return dt_neg + timedelta(days=dias_ate_quinta)
+
+def desfaturar_comercial_banco(nunota_13: int) -> dict:
+    """Deleta o financeiro (TGFFIN) sem alterar o status da nota (TGFCAB), evitando a trigger."""
+    if not verificar_permissao_escrita(): return {'ok': False}
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            
+            # Verifica existência e travas do financeiro
+            cur.execute("SELECT NUFIN, DHBAIXA, NURENEG FROM TGFFIN WHERE NUNOTA = :n", n=nunota_13)
+            fin = cur.fetchone()
+            
+            if fin:
+                nufin, dhbaixa, nureneg = fin
+                if dhbaixa: return {'ok': False, 'error': 'Bloqueado: Este título já possui baixa/pagamento no Sankhya.'}
+                if nureneg: return {'ok': False, 'error': 'Bloqueado: Este título foi renegociado no Sankhya.'}
+                
+                # Deleta apenas o financeiro
+                cur.execute("DELETE FROM TGFFIN WHERE NUFIN = :f", f=nufin)
+
+            # 🚀 REMOVIDO: O UPDATE da TGFCAB que tentava mudar o STATUSNOTA para 'A'
+            # Como a edição de preços foi liberada e o botão lê a TGFFIN, a nota pode ficar como 'L'.
+            
+            conn.commit()
+            return {'ok': True}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+# ==============================================================================
+# 💰 4. MÓDULO EXCLUSIVO: VENDAS
+# ==============================================================================
+
+def listar_vendas_paginado(limite: int = 50, offset: int = 0, **kwargs):
+    where = ["c.CODTIPOPER IN (34, 35, 37)", "c.STATUSNOTA <> 'E'"]
+    binds = {}
+    
+    # 1. Datas
+    if kwargs.get('date_start') and kwargs.get('date_end'):
+        where.append("TRUNC(c.DTNEG) BETWEEN TO_DATE(:ds, 'YYYY-MM-DD') AND TO_DATE(:de, 'YYYY-MM-DD')")
+        binds['ds'] = kwargs['date_start']
+        binds['de'] = kwargs['date_end']
+
+    # 2. Empresa
+    if kwargs.get('codemp'):
+        where.append("c.CODEMP = :codemp")
+        binds['codemp'] = int(kwargs['codemp'])
+
+    # 3. Pedido / Vale (NUNOTA)
+    if kwargs.get('nunota_ini'):
+        where.append("c.NUNOTA = :nunota")
+        binds['nunota'] = int(kwargs['nunota_ini'])
+
+    # 4. Nota Fiscal (NUMNOTA)
+    if kwargs.get('numnota'):
+        where.append("c.NUMNOTA = :numnota")
+        binds['numnota'] = int(kwargs['numnota'])
+
+    # 5. Operação (TOP)
+    if kwargs.get('top') and kwargs.get('top') != 'T':
+        where.append("c.CODTIPOPER = :top_v")
+        binds['top_v'] = int(kwargs['top'])
+
+    # 6. Parceiro (Cliente)
+    if kwargs.get('codparc'):
+        where.append("c.CODPARC = :codparc")
+        binds['codparc'] = int(kwargs['codparc'])
+
+    # 7. Produto (Busca inteligente: Se digitar número busca CODPROD, se digitar texto busca DESCRPROD)
+    if kwargs.get('codprod'):
+        prod_val = str(kwargs['codprod']).strip()
+        if prod_val.isdigit():
+            where.append("EXISTS (SELECT 1 FROM TGFITE i2 WHERE i2.NUNOTA = c.NUNOTA AND i2.CODPROD = :cp)")
+            binds['cp'] = int(prod_val)
+        else:
+            where.append("""
+                EXISTS (SELECT 1 FROM TGFITE i2 
+                        JOIN TGFPRO pr ON pr.CODPROD = i2.CODPROD 
+                        WHERE i2.NUNOTA = c.NUNOTA AND UPPER(pr.DESCRPROD) LIKE :dp)
+            """)
+            binds['dp'] = f"%{prod_val.upper()}%"
+
+    # 8. Lote
+    if kwargs.get('lote'):
+        where.append("EXISTS (SELECT 1 FROM TGFITE i3 WHERE i3.NUNOTA = c.NUNOTA AND UPPER(i3.CODAGREGACAO) LIKE :lt)")
+        binds['lt'] = f"%{str(kwargs['lote']).upper()}%"
+
+    # Restante da SQL permanece o mesmo...
+    sql_base = f"""
+        SELECT 
+            c.NUNOTA, c.CODTIPOPER, c.DTNEG, p.NOMEPARC, c.VLRNOTA,
+            CASE 
+                WHEN EXISTS (SELECT 1 FROM TGFITE i WHERE i.NUNOTA = c.NUNOTA AND i.CODAGREGACAO IS NULL) 
+                THEN 'PENDENTE' ELSE 'OK'
+            END AS STATUS_LOTE,
+            c.NUMNOTA,
+            c.CODEMP
+        FROM TGFCAB c
+        LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC
+        WHERE {' AND '.join(where)}
+    """
+    # ... código da paginação ...
+
+    sql_paginado = f"""
+        SELECT * FROM (
+            SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.DTNEG DESC, t.NUNOTA DESC) rn FROM ({sql_base}) t
+        ) WHERE rn BETWEEN :start_row AND :end_row
+    """
+    binds['start_row'] = offset + 1
+    binds['end_row'] = offset + limite
+
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(sql_paginado, binds)
+        return cur.fetchall()
+
+
+# ==============================================================================
+# 📦 RASTREABILIDADE — saldo por lote e atribuição em pedido de venda
+# Lê da view SANKHYA.ANDRE_IRIS_SALDO_LOTE (TGFEST não é tocada).
+# ==============================================================================
+
+def consultar_saldo_lote_disponivel(filtros: dict | None = None,
+                                    limite: int = 50, offset: int = 0) -> list[dict]:
+    """Saldo por (CODEMP, CODPROD, CODAGREGACAO) lendo da ANDRE_IRIS_SALDO_LOTE.
+
+    Retorna SOMENTE linhas vendáveis com saldo > 0
+    (status CLASSIFICADO e NAO_CLASSIFICAVEL).
+    Pernas não-vendáveis (AGUARDANDO_CLASSIFICACAO, AVARIA_FORNECEDOR,
+    AVARIA_INTERNA) ficam ocultas — a UI só lista o que pode ser vinculado.
+
+    Filtros opcionais:
+        q             busca textual: número exato → CODPROD; texto → FABRICANTE (LIKE)
+        codprod       código de produto exato
+        codagregacao  lote (LIKE %valor%, case-insensitive)
+        tipo          'classificavel' | 'nao_classificavel' (default: todos)
+
+    Paginação: limite (default 50) e offset (default 0).
+    """
+    filtros = filtros or {}
+    where = ["QTD_DISPONIVEL > 0"]
+    binds: dict = {}
+
+    if filtros.get('codprod'):
+        where.append("CODPROD = :codprod")
+        binds['codprod'] = int(filtros['codprod'])
+
+    # Filtro IN — usado pelo filtro cruzado da UI quando o usuário clica no
+    # header de um pedido (1..N produtos) ou no card de um lote (1 produto).
+    codprods_in = filtros.get('codprods')
+    if codprods_in:
+        try:
+            codprods_in = [int(x) for x in codprods_in if str(x).strip()]
+        except (TypeError, ValueError):
+            codprods_in = []
+        if codprods_in:
+            ks = []
+            for i, cp in enumerate(codprods_in):
+                k = f'cp_in_{i}'
+                ks.append(':' + k)
+                binds[k] = int(cp)
+            where.append(f"CODPROD IN ({', '.join(ks)})")
+
+    if filtros.get('codagregacao'):
+        where.append("UPPER(CODAGREGACAO) LIKE :lote")
+        binds['lote'] = f"%{str(filtros['codagregacao']).upper()}%"
+
+    # Filtro exato de FABRICANTE — usado quando o usuário seleciona no typeahead
+    if filtros.get('fabricante'):
+        where.append("UPPER(FABRICANTE) = :fab_exato")
+        binds['fab_exato'] = str(filtros['fabricante']).upper()
+
+    # Cross filter: mostra apenas lotes cujo CODPROD aparece em pedidos
+    # (TOP 34/35/37) de um cliente cujo nome casa com o termo digitado.
+    cliente_q = str(filtros.get('cliente_q') or '').strip()
+    if cliente_q:
+        where.append("""
+            EXISTS (
+                SELECT 1
+                FROM TGFITE i_cli
+                JOIN TGFCAB c_cli       ON c_cli.NUNOTA = i_cli.NUNOTA
+                LEFT JOIN TGFPAR p_cli  ON p_cli.CODPARC = c_cli.CODPARC
+                WHERE i_cli.CODPROD       = ANDRE_IRIS_SALDO_LOTE.CODPROD
+                  AND c_cli.CODTIPOPER   IN (34, 35, 37)
+                  AND c_cli.STATUSNOTA  <> 'E'
+                  AND UPPER(p_cli.NOMEPARC) LIKE :cliente_q
+            )
+        """)
+        binds['cliente_q'] = f"%{cliente_q.upper()}%"
+
+    termo = str(filtros.get('q') or '').strip()
+    if termo:
+        if termo.isdigit():
+            where.append("CODPROD = :q_codprod")
+            binds['q_codprod'] = int(termo)
+        else:
+            where.append("UPPER(FABRICANTE) LIKE :q_fab")
+            binds['q_fab'] = f"%{termo.upper()}%"
+
+    tipo = str(filtros.get('tipo') or '').strip().lower()
+    if tipo == 'classificavel':
+        where.append("STATUS_LINHA = 'CLASSIFICADO'")
+    elif tipo in ('nao_classificavel', 'naoclassificavel'):
+        where.append("STATUS_LINHA = 'NAO_CLASSIFICAVEL'")
+
+    # Filtro de janela temporal: prioriza data_ini/data_fim (range explícito).
+    # Fallback: desde_dias (legado, retrocompatibilidade dos testes).
+    data_ini = (filtros.get('data_ini') or '').strip() or None
+    data_fim = (filtros.get('data_fim') or '').strip() or None
+    if data_ini or data_fim:
+        if data_ini:
+            where.append("DTNEG_ORIGEM >= TO_DATE(:data_ini, 'YYYY-MM-DD')")
+            binds['data_ini'] = data_ini
+        if data_fim:
+            where.append("DTNEG_ORIGEM < TO_DATE(:data_fim, 'YYYY-MM-DD') + 1")
+            binds['data_fim'] = data_fim
+    else:
+        desde_dias = filtros.get('desde_dias')
+        try:
+            desde_dias = int(desde_dias) if desde_dias not in (None, '') else 0
+        except (TypeError, ValueError):
+            desde_dias = 0
+        if desde_dias > 0:
+            where.append("DTNEG_ORIGEM >= (TRUNC(SYSDATE) - :desde_dias)")
+            binds['desde_dias'] = desde_dias
+
+    # Paginação compatível com Oracle 11g (ROW_NUMBER + BETWEEN). Mesmo padrão
+    # já usado em listar_vendas_paginado.
+    sql_base = f"""
+        SELECT
+            CODEMP, CODPROD, DESCRPROD, FABRICANTE, SELECIONADO,
+            CODAGREGACAO, STATUS_LINHA,
+            QTD_ENTRADA, QTD_BAIXADA_VENDA, QTD_BAIXADA_AVARIA,
+            QTD_RESERVADA, QTD_DISPONIVEL, QTD_PENDENTE, QTD_AVARIA_INTERNA,
+            VENDAVEL,
+            NUNOTA_ORIGEM, DTNEG_ORIGEM, CODPARC_ORIGEM, NOMEPARC_ORIGEM
+        FROM SANKHYA.ANDRE_IRIS_SALDO_LOTE
+        WHERE {' AND '.join(where)}
+    """
+    sql = f"""
+        SELECT * FROM (
+            SELECT t.*, ROW_NUMBER() OVER (
+                ORDER BY t.DESCRPROD, t.STATUS_LINHA, t.CODAGREGACAO
+            ) AS RN
+            FROM ({sql_base}) t
+        ) WHERE RN BETWEEN :start_row AND :end_row
+    """
+    binds['start_row'] = int(offset) + 1
+    binds['end_row']   = int(offset) + int(limite)
+
+    cols = [
+        'codemp', 'codprod', 'descrprod', 'fabricante', 'selecionado',
+        'codagregacao', 'status_linha',
+        'qtd_entrada', 'qtd_baixada_venda', 'qtd_baixada_avaria',
+        'qtd_reservada', 'qtd_disponivel', 'qtd_pendente', 'qtd_avaria_interna',
+        'vendavel',
+        'nunota_origem', 'dtneg_origem', 'codparc_origem', 'nomeparc_origem',
+    ]
+
+    with obter_conexao_oracle() as conn:
         cur = conn.cursor()
         cur.execute(sql, binds)
         rows = cur.fetchall()
-        return rows
+
+    return [dict(zip(cols, row)) for row in rows]
 
 
-def listar_itens_da_nota(nunota: int):
-    """Retorna itens de uma nota (somente leitura) nos campos essenciais para rodapé/edição."""
-    sql = (
-        "SELECT i.CODAGREGACAO, i.SEQUENCIA, i.CODPROD, p.DESCRPROD, i.CODVOL, i.QTDNEG, i.PESO, i.VLRUNIT, i.VLRTOT, i.OBSERVACAO, i.GERAPRODUCAO "
-        "  FROM TGFITE i "
-        "  LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD "
-        " WHERE i.NUNOTA = :nunota "
-        " ORDER BY i.SEQUENCIA"
-    )
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, nunota=nunota)
-        return cur.fetchall()
+def consultar_vinculos_de_lote(codagregacao: str) -> list[dict]:
+    """Lista pedidos/vendas que tenham este CODAGREGACAO em TGFITE.
 
-
-def get_base_unit_and_factor(codprod: int, codvol: str) -> tuple[str | None, float | None]:
-    """Obtem a unidade base do produto (TGFPRO.CODVOL) e o fator de conversão para a unidade informada (TGFVOA).
-
-    Convenção: fator representa quantas unidades base existem em UMA unidade alternativa.
-    Ex.: produto base = KG e alterna = CX(22KG) -> fator = 22 (1 CX = 22 KG).
-
-    Retorna: (codvol_base, fator) — se não houver mapeamento, fator=None.
+    Considera apenas TOPs 34 (pedido), 35 (venda c/ NFe) e 37 (venda s/ NFe).
+    Não inclui TOP 13 (vale do fornecedor — CODPARC é o fornecedor, não cliente).
+    Ignora STATUSNOTA='E'.
     """
-    if codprod in (None, "", 0) or not codvol:
-        return None, None
-    try:
-        codvol_u = str(codvol).strip().upper()
-    except Exception:
-        codvol_u = None
-    base = None
-    fator = None
-    # Fast path: cached base for product and factor for (product, unit)
-    try:
-        if codprod and isinstance(codprod, int):
-            if codprod in _BASE_UNIT_CACHE:
-                base = _BASE_UNIT_CACHE[codprod]
-        key = (int(codprod or 0), codvol_u or '')
-        if key in _FACTOR_CACHE:
-            return (base or _BASE_UNIT_CACHE.get(key[0]) or None, _FACTOR_CACHE[key])
-    except Exception:
-        pass
-    try:
-        with get_connection() as conn:
-            cur = conn.cursor()
-            # Base unit from TGFPRO
-            try:
-                cur.execute("SELECT CODVOL FROM TGFPRO WHERE CODPROD=:p", p=int(codprod))
-                row = cur.fetchone()
-                if row and row[0]:
-                    base = str(row[0]).strip().upper()
-                    _BASE_UNIT_CACHE[int(codprod)] = base
-            except Exception:
-                base = None
-            # If requested unit equals base, factor is 1.0 (no conversion needed)
-            if base and codvol_u and base == codvol_u:
-                return base, 1.0
-            # Alternative volume factor from TGFVOA (Volumes Alternativos)
-            # Try legacy/common column FATOR first; fallback to QUANTIDADE+DIVIDEMULTIPLICA.
-            try:
-                cur.execute(
-                    "SELECT FATOR FROM TGFVOA WHERE CODPROD=:p AND UPPER(CODVOL)=:v",
-                    p=int(codprod), v=codvol_u or ""
-                )
-                row2 = cur.fetchone()
-                if row2 and row2[0] is not None:
-                    try:
-                        fator_val = float(row2[0])
-                        if fator_val > 0:
-                            fator = fator_val
-                    except Exception:
-                        fator = None
-            except Exception:
-                fator = None
-            # Fallback: QUANTIDADE (numeric) + DIVIDEMULTIPLICA ('M' multiplica, 'D' divide)
-            if fator is None:
-                try:
-                    cur.execute(
-                        "SELECT QUANTIDADE, DIVIDEMULTIPLICA FROM TGFVOA WHERE CODPROD=:p AND UPPER(CODVOL)=:v",
-                        p=int(codprod), v=codvol_u or ""
-                    )
-                    row3 = cur.fetchone()
-                    if row3 and row3[0] is not None:
-                        try:
-                            qtd = float(row3[0])
-                        except Exception:
-                            qtd = None
-                        dv = (str(row3[1]).strip().upper() if row3[1] is not None else 'M')
-                        if qtd and qtd > 0:
-                            if dv == 'M':
-                                # 1 alt = qtd base => base = alt * qtd
-                                fator = qtd
-                            elif dv == 'D':
-                                # base = alt / qtd => 1 alt = 1/qtd base
-                                try:
-                                    fator = 1.0 / qtd if qtd != 0 else None
-                                except Exception:
-                                    fator = None
-                except Exception:
-                    pass
-        # Cache factor result (including None to avoid re-querying)
-        try:
-            _FACTOR_CACHE[(int(codprod or 0), codvol_u or '')] = fator
-        except Exception:
-            pass
-    except Exception:
-        # On any connection error, return safe fallbacks
-        return base, fator
-    return base, fator
-
-
-def fetch_tgfvoa_details(codprod: int, codvol: str) -> dict:
-    """Diagnóstico: retorna lista de colunas de TGFVOA e os valores da linha para (CODPROD, CODVOL).
-    Útil para identificar qual coluna armazena o fator de conversão nesta base.
+    sql = """
+        SELECT
+            c.NUNOTA, c.CODEMP, c.CODTIPOPER, c.STATUSNOTA, c.DTNEG, c.CODPARC,
+            p.NOMEPARC,
+            i.SEQUENCIA, i.CODPROD, pr.DESCRPROD,
+            NVL(i.QTDNEG, 0) AS QTDNEG
+        FROM TGFITE i
+        JOIN TGFCAB c       ON c.NUNOTA = i.NUNOTA
+        LEFT JOIN TGFPAR p  ON p.CODPARC = c.CODPARC
+        LEFT JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
+        WHERE i.CODAGREGACAO = :l
+          AND c.CODTIPOPER IN (34, 35, 37)
+          AND c.STATUSNOTA <> 'E'
+        ORDER BY c.DTNEG DESC, c.NUNOTA DESC, i.SEQUENCIA
     """
-    out = {
-        'ok': False,
-        'codprod': codprod,
-        'codvol': codvol,
-        'columns': [],
-        'row': [],
-        'error': None,
-    }
-    try:
-        with get_connection() as conn:
-            cur = conn.cursor()
-            # Get column names ordered by column_id
-            try:
-                cur.execute("""
-                    SELECT column_name FROM user_tab_cols
-                    WHERE table_name='TGFVOA' ORDER BY column_id
-                """)
-                cols = [r[0] for r in cur.fetchall()]
-                out['columns'] = cols
-            except Exception:
-                out['columns'] = []
-            # Fetch a row for the given key
-            try:
-                cur.execute(
-                    "SELECT * FROM TGFVOA WHERE CODPROD=:p AND UPPER(CODVOL)=:v",
-                    p=int(codprod), v=str(codvol or '').upper()
-                )
-                row = cur.fetchone()
-                if row:
-                    out['row'] = list(row)
-                    out['ok'] = True
-                else:
-                    out['ok'] = True
-            except Exception as e:
-                out['error'] = str(e)
-    except Exception as e:
-        out['error'] = str(e)
-    return out
+    cols = [
+        'nunota', 'codemp', 'codtipoper', 'statusnota', 'dtneg', 'codparc',
+        'nomeparc', 'sequencia', 'codprod', 'descrprod', 'qtdneg',
+    ]
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, l=str(codagregacao))
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
-def fetch_tgfite_details(nunota: int, codprods: list[int]) -> dict:
-    """Retorna diagnóstico de TGFITE para uma nota: lista de colunas e linhas para os CODPRODs informados.
-    Saída: { ok, columns:[...], rows:[...], order:['CODPROD','SEQUENCIA',...], error }
+def consultar_fabricantes_disponiveis(termo: str = '', limite: int = 10) -> list[str]:
+    """Lista FABRICANTEs DISTINTOS que têm pelo menos um lote vendável agora.
+
+    Consulta SANKHYA.ANDRE_IRIS_SALDO_LOTE filtrando por QTD_DISPONIVEL > 0
+    — versão original, comprovadamente funcional. O cache cliente-side
+    carrega tudo no boot (1 fetch só), então o custo da view é pago uma vez
+    por sessão e os filtros por keystroke ficam locais.
     """
-    res = { 'ok': False, 'columns': [], 'rows': [], 'error': None }
-    if not nunota or not codprods:
-        res['error'] = 'Parâmetros inválidos'
-        return res
-    try:
-        with get_connection() as conn:
-            cur = conn.cursor()
-            # Descobrir colunas em ordem física
-            cur.execute(
-                "SELECT column_name FROM user_tab_cols WHERE table_name='TGFITE' ORDER BY column_id"
-            )
-            cols = [r[0] for r in cur.fetchall()]
-            res['columns'] = cols
-            # Montar SELECT explícito com todas as colunas, para garantir a ordem
-            col_list = ', '.join(cols)
-            # IN dinâmico com binds
-            binds = { 'n': int(nunota) }
-            in_placeholders = []
-            for idx, cp in enumerate(codprods):
-                key = f'p{idx}'
-                in_placeholders.append(f':{key}')
-                binds[key] = int(cp)
-            in_sql = ', '.join(in_placeholders) if in_placeholders else 'NULL'
-            sql = (
-                f"SELECT {col_list} FROM TGFITE WHERE NUNOTA=:n AND CODPROD IN ({in_sql}) "
-                "ORDER BY CODPROD, SEQUENCIA"
-            )
-            cur.execute(sql, binds)
-            res['rows'] = [tuple(r) for r in cur.fetchall()]
-            res['ok'] = True
-            return res
-    except Exception as e:
-        res['error'] = str(e)
-        return res
+    where = [
+        "FABRICANTE IS NOT NULL",
+        "QTD_DISPONIVEL > 0",
+    ]
+    binds: dict = {}
+    termo = str(termo or '').strip()
+    if termo:
+        where.append("UPPER(FABRICANTE) LIKE :q")
+        binds['q'] = f"%{termo.upper()}%"
 
-
-def buscar_top_operacoes(q: str, limit: int = 10):
-    if not q:
-        return []
-    lim = max(1, int(limit))
-    q = str(q).strip()
-    by_code = q.isdigit()
-    with get_connection() as conn:
-        cur = conn.cursor()
-        if by_code:
-            k = int(q)
-            qprefix = f"{q}%"
-            sql = (
-                "SELECT CODTIPOPER, DESCROPER FROM ("
-                "  SELECT CODTIPOPER, DESCROPER FROM ("
-                "    SELECT DISTINCT CODTIPOPER, UPPER(DESCROPER) DESCROPER, 0 PRIO FROM TGFTOP WHERE CODTIPOPER = :k"
-                "    UNION ALL "
-                "    SELECT DISTINCT CODTIPOPER, UPPER(DESCROPER) DESCROPER, 1 PRIO FROM TGFTOP WHERE TO_CHAR(CODTIPOPER) LIKE :qprefix AND CODTIPOPER <> :k"
-                "  ) t ORDER BY PRIO, CODTIPOPER"
-                ") WHERE ROWNUM <= :lim"
-            )
-            cur.execute(sql, k=k, qprefix=qprefix, lim=lim)
-        else:
-            sql = (
-                "SELECT CODTIPOPER, DESCROPER FROM ("
-                "  SELECT CODTIPOPER, DESCROPER FROM ("
-                "    SELECT DISTINCT CODTIPOPER, UPPER(DESCROPER) DESCROPER FROM TGFTOP WHERE UPPER(DESCROPER) LIKE :q"
-                "  ) ORDER BY DESCROPER"
-                ") WHERE ROWNUM <= :lim"
-            )
-            cur.execute(sql, q=f"%{q.upper()}%", lim=lim)
-        return cur.fetchall()
-
-
-def buscar_naturezas(q: str, limit: int = 10):
-    if not q:
-        return []
-    lim = max(1, int(limit))
-    q = str(q).strip()
-    by_code = q.isdigit()
-    with get_connection() as conn:
-        cur = conn.cursor()
-        if by_code:
-            k = int(q)
-            qprefix = f"{q}%"
-            sql = (
-                "SELECT CODNAT, DESCRNAT FROM ("
-                "  SELECT CODNAT, DESCRNAT FROM ("
-                "    SELECT DISTINCT CODNAT, UPPER(DESCRNAT) DESCRNAT, 0 PRIO FROM TGFNAT WHERE CODNAT = :k"
-                "    UNION ALL "
-                "    SELECT DISTINCT CODNAT, UPPER(DESCRNAT) DESCRNAT, 1 PRIO FROM TGFNAT WHERE TO_CHAR(CODNAT) LIKE :qprefix AND CODNAT <> :k"
-                "  ) t ORDER BY PRIO, CODNAT"
-                ") WHERE ROWNUM <= :lim"
-            )
-            cur.execute(sql, k=k, qprefix=qprefix, lim=lim)
-        else:
-            sql = (
-                "SELECT CODNAT, DESCRNAT FROM ("
-                "  SELECT CODNAT, DESCRNAT FROM ("
-                "    SELECT DISTINCT CODNAT, UPPER(DESCRNAT) DESCRNAT FROM TGFNAT WHERE UPPER(DESCRNAT) LIKE :q"
-                "  ) ORDER BY DESCRNAT"
-                ") WHERE ROWNUM <= :lim"
-            )
-            cur.execute(sql, q=f"%{q.upper()}%", lim=lim)
-        return cur.fetchall()
-
-
-def buscar_centros_resultado(q: str, limit: int = 10):
-    if not q:
-        return []
-    lim = max(1, int(limit))
-    q = str(q).strip()
-    by_code = q.isdigit()
-    with get_connection() as conn:
-        cur = conn.cursor()
-        if by_code:
-            k = int(q)
-            qprefix = f"{q}%"
-            sql = (
-                "SELECT CODCENCUS, DESCRCENCUS FROM ("
-                "  SELECT CODCENCUS, DESCRCENCUS FROM ("
-                "    SELECT DISTINCT CODCENCUS, UPPER(DESCRCENCUS) DESCRCENCUS, 0 PRIO FROM TSICUS WHERE CODCENCUS = :k"
-                "    UNION ALL "
-                "    SELECT DISTINCT CODCENCUS, UPPER(DESCRCENCUS) DESCRCENCUS, 1 PRIO FROM TSICUS WHERE TO_CHAR(CODCENCUS) LIKE :qprefix AND CODCENCUS <> :k"
-                "  ) t ORDER BY PRIO, CODCENCUS"
-                ") WHERE ROWNUM <= :lim"
-            )
-            cur.execute(sql, k=k, qprefix=qprefix, lim=lim)
-        else:
-            sql = (
-                "SELECT CODCENCUS, DESCRCENCUS FROM ("
-                "  SELECT CODCENCUS, DESCRCENCUS FROM ("
-                "    SELECT DISTINCT CODCENCUS, UPPER(DESCRCENCUS) DESCRCENCUS FROM TSICUS WHERE UPPER(DESCRCENCUS) LIKE :q"
-                "  ) ORDER BY DESCRCENCUS"
-                ") WHERE ROWNUM <= :lim"
-            )
-            cur.execute(sql, q=f"%{q.upper()}%", lim=lim)
-        return cur.fetchall()
-
-
-def obter_cabecalho_nota(nunota: int) -> dict | None:
-    """Retorna campos básicos do cabeçalho da nota (somente leitura).
-    Campos: CODEMP, NOMEFANTASIA_EMP, NUMNOTA, DTNEG, CODPARC, NOMEPARC, CODTIPOPER, DESCROPER, CODNAT, DESCRNAT, CODCENCUS, DESCRCENCUS, OBSERVACAO.
-    """
-    sql = (
-        "SELECT c.CODEMP, emp.NOMEFANTASIA, c.NUMNOTA, c.DTNEG, c.CODPARC, p.NOMEPARC, "
-        "       c.CODTIPOPER, top.DESCROPER, c.CODNAT, nat.DESCRNAT, c.CODCENCUS, cus.DESCRCENCUS, c.OBSERVACAO "
-        "  FROM TGFCAB c "
-        "  LEFT JOIN TSIEMP emp ON emp.CODEMP = c.CODEMP "
-        "  LEFT JOIN TGFPAR p   ON p.CODPARC   = c.CODPARC "
-        "  LEFT JOIN TGFTOP top ON top.CODTIPOPER = c.CODTIPOPER "
-        "  LEFT JOIN TGFNAT nat ON nat.CODNAT  = c.CODNAT "
-        "  LEFT JOIN TSICUS cus ON cus.CODCENCUS = c.CODCENCUS "
-        " WHERE c.NUNOTA = :nunota"
-    )
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, nunota=nunota)
-        row = cur.fetchone()
-        if not row:
-            return None
-        return {
-            'CODEMP': row[0],
-            'NOMEFANTASIA_EMP': row[1],
-            'NUMNOTA': row[2],
-            'DTNEG': row[3],
-            'CODPARC': row[4],
-            'NOMEPARC': row[5],
-            'CODTIPOPER': row[6],
-            'DESCROPER': row[7],
-            'CODNAT': row[8],
-            'DESCRNAT': row[9],
-            'CODCENCUS': row[10],
-            'DESCRCENCUS': row[11],
-            'OBSERVACAO': row[12],
-        }
-
-
-def delete_itens(nunota: int, sequencias: list[int], dry_run: bool = True) -> dict:
-    """Apaga itens pelo par (NUNOTA, SEQUENCIA). Respeita triggers de exclusão (AFTER DELETE em TGFITE).
-    Retorna resumo com contagem e mensagens de erro, se houver.
-    """
-    res = {
-        'ok': False,
-        'executed': False,
-        'nunota': nunota,
-        'sequencias': sequencias,
-        'deleted': 0,
-        'errors': [],
-        'warnings': [],
-    }
-    if not isinstance(sequencias, list) or not sequencias:
-        res['errors'].append('Nenhuma sequência informada')
-        return res
-    try:
-        nun = int(nunota)
-        seqs = [int(s) for s in sequencias]
-    except Exception:
-        res['errors'].append('Parâmetros inválidos')
-        return res
-    if dry_run or not is_write_enabled():
-        if not is_write_enabled() and not dry_run:
-            res['warnings'].append('Escrita desabilitada por política — execução em modo simulado')
-        res['ok'] = True
-        return res
-    with get_connection() as conn:
-        try:
-            cur = conn.cursor()
-            count = 0
-            results: list[dict] = []
-            # Deleta em ordem decrescente de SEQUENCIA para reduzir dependências
-            for s in sorted(seqs, reverse=True):
-                try:
-                    cur.execute("DELETE FROM TGFITE WHERE NUNOTA=:n AND SEQUENCIA=:s", n=nun, s=s)
-                    affected = cur.rowcount or 0
-                    count += affected
-                    results.append({'sequencia': s, 'deleted': affected, 'ok': affected > 0})
-                except cx_Oracle.DatabaseError as e:
-                    try:
-                        err, = e.args
-                        msg = getattr(err, 'message', str(e))
-                        res['errors'].append(msg)
-                        results.append({'sequencia': s, 'deleted': 0, 'ok': False, 'error': msg})
-                    except Exception:
-                        m = str(e)
-                        res['errors'].append(m)
-                        results.append({'sequencia': s, 'deleted': 0, 'ok': False, 'error': m})
-                except Exception as e:
-                    m = str(e)
-                    res['errors'].append(m)
-                    results.append({'sequencia': s, 'deleted': 0, 'ok': False, 'error': m})
-            # Single commit at the end - much faster than per-item commits
-            conn.commit()
-            res['deleted'] = count
-            res['results'] = results
-            # Considera executado se houve ao menos uma exclusão
-            res['executed'] = (count > 0)
-            res['partial'] = (count > 0 and len(res['errors']) > 0)
-            res['ok'] = True
-            return res
-        except cx_Oracle.DatabaseError as e:
-            try:
-                err, = e.args
-                res['errors'].append(getattr(err, 'message', str(e)))
-            except Exception:
-                res['errors'].append(str(e))
-            res['executed'] = False
-            return res
-
-
-def duplicate_item(nunota: int, sequencia: int, dry_run: bool = True) -> dict:
-    """Duplica um item da nota: copia campos essenciais e insere novo item com CODAGREGACAO novo.
-    - Copia CODPROD, CODVOL, QTDNEG, VLRUNIT, CODLOCALORIG, OBSERVACAO.
-    - Gera CODAGREGACAO pelo DTNEG do cabeçalho (garantindo unicidade) e SEQUENCIA nova.
-    """
-    res = {
-        'ok': False,
-        'executed': False,
-        'nunota': nunota,
-        'sequencia_origem': sequencia,
-        'sequencia_nova': None,
-        'errors': [],
-        'warnings': [],
-    }
-    try:
-        nun = int(nunota)
-        seq = int(sequencia)
-    except Exception:
-        res['errors'].append('Parâmetros inválidos')
-        return res
-    with get_connection() as conn:
-        cur = conn.cursor()
-        # Carregar item origem e dados do cabeçalho
-        cur.execute(
-            "SELECT i.CODPROD, i.CODVOL, i.QTDNEG, i.VLRUNIT, i.CODLOCALORIG, i.OBSERVACAO, c.DTNEG, c.CODEMP "
-            "  FROM TGFITE i JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA "
-            " WHERE i.NUNOTA = :n AND i.SEQUENCIA = :s",
-            n=nun, s=seq
+    sql = f"""
+        SELECT * FROM (
+            SELECT DISTINCT FABRICANTE
+            FROM SANKHYA.ANDRE_IRIS_SALDO_LOTE
+            WHERE {' AND '.join(where)}
+            ORDER BY FABRICANTE
         )
-        row = cur.fetchone()
-        if not row:
-            res['errors'].append('Item não encontrado')
-            return res
-        codprod, codvol, qtdneg, vlrunit, codlocal, obs, dtneg, codemp = row
-    # Gerar novo codagregacao via gerar_lote(dtneg)
-    try:
-        new_ctrl = gerar_lote(dtneg)
-    except Exception as e:
-        res['errors'].append(f'Falha ao gerar CODAGREGACAO: {e}')
-        return res
-    # Calcular nova sequência
-    try:
-        new_seq = obter_proxima_sequencia(nun)
-    except Exception:
-        new_seq = 1
-        res['warnings'].append('Não foi possível calcular SEQUENCIA; usando 1')
-    vlrtot = None
-    try:
-        vlrtot = round(float(qtdneg) * float(vlrunit), 2)
-    except Exception:
-        pass
-    insert_sql = build_insert_item_sql()
-    binds = {
-        'NUNOTA': nun,
-        'SEQUENCIA': new_seq,
-        'CODEMP': codemp,
-        'CODPROD': int(codprod),
-        'QTDNEG': float(qtdneg),
-        'VLRUNIT': float(vlrunit),
-        'VLRTOT': vlrtot,
-        'CODVOL': (codvol or 'UN'),
-        'CODLOCALORIG': int(codlocal or 101),
-        'CODAGREGACAO': new_ctrl,
-        'OBSERVACAO': obs,
-    }
-    res['plan'] = {'sql': insert_sql, 'binds': binds}
-    if dry_run or not is_write_enabled():
-        if not is_write_enabled() and not dry_run:
-            res['warnings'].append('Escrita desabilitada por política — execução em modo simulado')
-        res['ok'] = True
-        res['sequencia_nova'] = new_seq
-        return res
-    try:
-        with get_connection() as conn2:
-            cur2 = conn2.cursor()
-            cur2.execute(insert_sql, binds)
-            conn2.commit()
-        res['ok'] = True
-        res['executed'] = True
-        res['sequencia_nova'] = new_seq
-        res['lote_novo'] = new_ctrl
-        return res
-    except cx_Oracle.DatabaseError as e:
-        try:
-            err, = e.args
-            res['errors'].append(getattr(err, 'message', str(e)))
-        except Exception:
-            res['errors'].append(str(e))
-        res['executed'] = False
-        return res
-
-
-
-def diagnose_nota_delete(nunota: int) -> dict:
-    """Diagnostica possíveis bloqueios para exclusão de uma nota.
-    - Conta itens em TGFITE
-    - Identifica e conta referências por FK a TGFCAB (por NUNOTA)
-    - Identifica FKs que referenciam TGFITE e estima contagens por NUNOTA
+        WHERE ROWNUM <= :lim
     """
-    out = {
-        'nunota': nunota,
-        'itens_count': 0,
-        'fk_refs_to_cab': [],  # [{table, column, count}]
-        'fk_refs_to_ite_by_nunota': [],  # approx counts per table
-    }
-    try:
-        nun = int(nunota)
-    except Exception:
-        out['error'] = 'NUNOTA inválido'
-        return out
-    with get_connection() as conn:
-        cur = conn.cursor()
-        # Itens da nota
-        try:
-            cur.execute("SELECT COUNT(1) FROM TGFITE WHERE NUNOTA=:n", n=nun)
-            (c_itens,) = cur.fetchone()
-            out['itens_count'] = int(c_itens or 0)
-        except Exception:
-            out['itens_count'] = None
-        # FKs -> TGFCAB (por NUNOTA)
-        try:
-            cur.execute(
-                """
-                SELECT a.table_name, acc.column_name
-                  FROM user_constraints c
-                  JOIN user_constraints a ON a.r_constraint_name = c.constraint_name AND a.constraint_type='R'
-                  JOIN user_cons_columns acc ON acc.constraint_name = a.constraint_name
-                 WHERE c.table_name = 'TGFCAB' AND c.constraint_type = 'P'
-                """
-            )
-            rows = cur.fetchall()
-            seen = set()
-            for tbl, col in rows:
-                key = (str(tbl).upper(), str(col).upper())
-                if key in seen:  # evitar duplicados quando PK tem múltiplas colunas (não é o caso usual aqui)
-                    continue
-                seen.add(key)
-                if str(col).upper() != 'NUNOTA':
-                    continue
-                try:
-                    cur.execute(f"SELECT COUNT(1) FROM {tbl} WHERE {col}=:n", n=nun)
-                    (cnt,) = cur.fetchone()
-                    out['fk_refs_to_cab'].append({'table': str(tbl), 'column': str(col), 'count': int(cnt or 0)})
-                except Exception:
-                    out['fk_refs_to_cab'].append({'table': str(tbl), 'column': str(col), 'count': None})
-        except Exception:
-            pass
-        # FKs -> TGFITE (aproximação por NUNOTA)
-        try:
-            # Descobrir PK de TGFITE (normalmente NUNOTA+SEQUENCIA)
-            cur.execute("SELECT constraint_name FROM user_constraints WHERE table_name='TGFITE' AND constraint_type='P'")
-            row_pk = cur.fetchone()
-            if row_pk and row_pk[0]:
-                pk_name = row_pk[0]
-                cur.execute(
-                    """
-                    SELECT a.table_name, acc.column_name
-                      FROM user_constraints a
-                      JOIN user_cons_columns acc ON acc.constraint_name = a.constraint_name
-                     WHERE a.constraint_type='R' AND a.r_constraint_name = :pk
-                    """,
-                    pk=pk_name
-                )
-                rows2 = cur.fetchall()
-                grouped = {}
-                for tbl, col in rows2:
-                    tblu = str(tbl).upper(); colu = str(col).upper()
-                    if tblu not in grouped:
-                        grouped[tblu] = set()
-                    grouped[tblu].add(colu)
-                for tblu, cols in grouped.items():
-                    if 'NUNOTA' in cols:
-                        try:
-                            cur.execute(f"SELECT COUNT(1) FROM {tblu} WHERE NUNOTA=:n", n=nun)
-                            (cnt2,) = cur.fetchone()
-                            out['fk_refs_to_ite_by_nunota'].append({'table': tblu, 'column': 'NUNOTA', 'count': int(cnt2 or 0)})
-                        except Exception:
-                            out['fk_refs_to_ite_by_nunota'].append({'table': tblu, 'column': 'NUNOTA', 'count': None})
-        except Exception:
-            pass
-    return out
+    binds['lim'] = int(limite)
 
-def _carregar_item_origem(nunota: int, sequencia: int):
-    with get_connection() as conn:
+    with obter_conexao_oracle() as conn:
         cur = conn.cursor()
-        cur.execute(
-                """
-                SELECT i.CODPROD, p.DESCRPROD, i.QTDNEG, i.CODVOL, i.CODAGREGACAO,
-                       c.CODEMP, c.CODPARC, c.DTNEG, c.DTMOV, c.DTENTSAI,
-                       c.CODTIPOPER, c.DHTIPOPER, c.CODNAT, c.CODCENCUS
-                  FROM TGFITE i
-                  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-                  LEFT JOIN TGFPRO p ON p.CODPROD = i.CODPROD
-                 WHERE i.NUNOTA=:n AND i.SEQUENCIA=:s
-                """,
-                n=nunota, s=sequencia
-            )
-        return cur.fetchone()
+        cur.execute(sql, binds)
+        return [str(r[0]) for r in cur.fetchall()]
 
-def plan_classificacao(nunota_origem: int, sequencia_origem: int, saidas: list[dict], nunota_dest: int|None = None) -> dict:
-    """Valida e planeja a classificação/beneficiamento a partir de um item de origem.
-    Returns: { ok, errors[], warnings[], origem:{...}, totals:{origem, saidas, saldo}, plano:{cabecalho?, itens[]} }
+
+def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
+                                              limite: int = 50, offset: int = 0) -> list[dict]:
+    """Lista itens de pedidos TOP 34 em aberto (STATUSNOTA NOT IN 'L','E').
+
+    Cada linha do retorno é um item (TGFITE) com qtd pedida e o lote já
+    atribuído (CODAGREGACAO_ATUAL — None se ainda não atribuído).
+
+    Filtros opcionais:
+        q        busca textual (NUNOTA numérico ou NOMEPARC parcial)
+        codprod  filtra itens de um produto específico
+        nunota   filtra um pedido específico
+
+    Paginação: limite (default 50) e offset (default 0). A paginação é por
+    CABEÇALHO (NUNOTA): trazemos os N pedidos mais recentes e TODOS os itens
+    deles. Isso evita "cortar" um pedido ao meio em scroll infinito.
     """
-    res = { 'ok': False, 'errors': [], 'warnings': [], 'origem': None, 'totals': {}, 'plano': {} }
-    try:
-        n = int(nunota_origem); s = int(sequencia_origem)
-    except Exception:
-        res['errors'].append('Parâmetros de origem inválidos')
-        return res
-    row = _carregar_item_origem(n, s)
-    if not row:
-        res['errors'].append('Item de origem não encontrado')
-        return res
-    (codprod_o, descr_o, qtd_o, codvol_o, codag_o,
-     codemp_o, codparc_o, dtneg_o, dtmov_o, dtentsai_o,
-     codtop_o, dhtop_o, codnat_o, codcencus_o) = row
-    if not codag_o:
-        res['warnings'].append('Item de origem sem CODAGREGACAO — prosseguindo mesmo assim')
-    # Validar saídas
-    out_total = 0.0
-    itens_plan = []
-    if not isinstance(saidas, list) or not saidas:
-        res['errors'].append('Informe ao menos uma saída')
-        return res
-    with get_connection() as conn:
-        cur = conn.cursor()
-        for idx, it in enumerate(saidas, start=1):
-            try:
-                cp = int(it.get('codprod'))
-            except Exception:
-                res['errors'].append(f'Linha {idx}: CODPROD inválido')
-                continue
-            try:
-                qtd = float(it.get('qtd'))
-            except Exception:
-                res['errors'].append(f'Linha {idx}: quantidade inválida')
-                continue
-            if qtd <= 0:
-                res['errors'].append(f'Linha {idx}: quantidade deve ser > 0')
-                continue
-            cv = (it.get('codvol') or codvol_o or 'KG')
-            # Validar produto
-            try:
-                cur.execute("SELECT 1 FROM TGFPRO WHERE CODPROD=:p", p=cp)
-                if cur.fetchone() is None:
-                    res['errors'].append(f'Linha {idx}: produto {cp} inexistente')
-            except Exception:
-                pass
-            # Validar unidade
-            try:
-                cur.execute("SELECT 1 FROM TGFVOL WHERE UPPER(CODVOL)=:v", v=str(cv).upper())
-                if cur.fetchone() is None:
-                    res['errors'].append(f'Linha {idx}: unidade {cv} inexistente')
-            except Exception:
-                pass
-            out_total += qtd
-            itens_plan.append({
-                'CODPROD': cp,
-                'QTDNEG': qtd,
-                'CODVOL': str(cv).upper(),
-                'CODLOCALORIG': 101,
-                'CODAGREGACAO': codag_o,
-                'VLRUNIT': 0.0,
-                'OBSERVACAO': (it.get('obs') or None),
-            })
-    try:
-        origem_val = float(qtd_o)
-    except Exception:
-        origem_val = None
-    # Allow outputs to exceed origin: convert previous hard error into a warning
-    if origem_val is not None and out_total > origem_val + 1e-9:
-        excesso = out_total - origem_val
-        res['warnings'].append(f'Saídas excedem a quantidade de origem (excesso: {excesso})')
-    saldo = None
-    if origem_val is not None:
-        saldo = round(origem_val - out_total, 9)
-        if saldo > 0:
-            res['warnings'].append(f'Perda/Saldo não classificado: {saldo}')
-    # Se não informado nunota_dest, tentar detectar nota 26 existente por item do mesmo lote
-    if nunota_dest is None:
+    filtros = filtros or {}
+    # STATUSNOTA: ignora 'L' (faturado) na listagem para o operador ver tudo;
+    # mantém o filtro de 'E' (excluídos), que sempre são lixo.
+    # A validação de "não pode atribuir a faturado" continua ativa em
+    # atribuir_lote_item_pedido, abaixo.
+    where = ["c.CODTIPOPER = 34", "c.STATUSNOTA <> 'E'"]
+    binds: dict = {}
+
+    if filtros.get('nunota'):
+        where.append("c.NUNOTA = :nunota")
+        binds['nunota'] = int(filtros['nunota'])
+
+    if filtros.get('codprod'):
+        where.append(
+            "EXISTS (SELECT 1 FROM TGFITE i2 WHERE i2.NUNOTA = c.NUNOTA AND i2.CODPROD = :codprod)"
+        )
+        binds['codprod'] = int(filtros['codprod'])
+
+    # Filtro EXISTS IN — pedidos que tenham AO MENOS UM item em qualquer dos
+    # codprods solicitados. Usado pelo filtro cruzado a partir dos lotes.
+    codprods_in = filtros.get('codprods')
+    if codprods_in:
         try:
-            with get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    """
-                    SELECT i.NUNOTA FROM TGFITE i
-                      JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-                     WHERE i.CODAGREGACAO = :ctrl AND c.CODTIPOPER = :top
-                       AND ROWNUM = 1
-                    """,
-                    ctrl=codag_o, top=get_params()['TOP_CLASS']
-                )
-                row_exist = cur.fetchone()
-                if row_exist and row_exist[0]:
-                    nunota_dest = int(row_exist[0])
-        except Exception:
-            pass
-
-    # Preparar plano de cabeçalho (se for criar nova nota)
-    cab_plan = None
-    if nunota_dest is None:
-        def _fmt_date(d):
-            try:
-                return d.strftime('%d/%m/%Y')
-            except Exception:
-                s = str(d)[:10]
-                return f"{s[8:10]}/{s[5:7]}/{s[0:4]}" if len(s) == 10 else None
-        cab_plan = {
-            'CODEMP': int(codemp_o),
-            'CODPARC': int(codparc_o),
-            'CODTIPOPER': int(get_params()['TOP_CLASS']),
-            'CODNAT': int(codnat_o) if codnat_o is not None else None,
-            'CODCENCUS': int(codcencus_o) if codcencus_o is not None else None,
-            'DTNEG': _fmt_date(dtneg_o),
-            'DTMOV': _fmt_date(dtmov_o) or _fmt_date(dtneg_o),
-            'DTENTSAI': _fmt_date(dtentsai_o) or _fmt_date(dtneg_o),
-            'HRMOV': None,
-            'NUMNOTA': None,
-            'OBSERVACAO': None,
-        }
-    res['origem'] = {
-        'NUNOTA': n, 'SEQUENCIA': s, 'CODPROD': int(codprod_o), 'DESCRPROD': descr_o,
-        'QTDNEG': float(qtd_o), 'CODVOL': codvol_o, 'CODAGREGACAO': codag_o,
-        'CODEMP': int(codemp_o), 'CODPARC': int(codparc_o)
-    }
-    res['totals'] = { 'origem': origem_val, 'saidas': out_total, 'saldo': saldo }
-    res['plano'] = { 'cabecalho': cab_plan, 'itens': itens_plan, 'nunota_dest': nunota_dest }
-    # Enriquecer o plano com SQL/binds para exibição (não executa)
-    try:
-        # Cabeçalho
-        if res['plano'].get('cabecalho'):
-            try:
-                cab_plan_preview = plan_insert_cabecalho(res['plano']['cabecalho'])
-                res['plano']['cabecalho_sql'] = cab_plan_preview.get('sql')
-                res['plano']['cabecalho_binds'] = cab_plan_preview.get('binds')
-            except Exception:
-                res['plano']['cabecalho_sql'] = None
-                res['plano']['cabecalho_binds'] = {}
-        # Itens
-        it_sql = build_insert_item_sql()
-        enriched_items = []
-        for it in itens_plan:
-            binds = {
-                'NUNOTA': '<<NUNOTA>>',
-                'SEQUENCIA': '<<SEQUENCIA>>',
-                'CODEMP': int(codemp_o) if 'codemp_o' in locals() else None,
-                'CODPROD': it.get('CODPROD'),
-                'QTDNEG': it.get('QTDNEG'),
-                'VLRUNIT': it.get('VLRUNIT'),
-                'VLRTOT': round((it.get('QTDNEG') or 0) * (it.get('VLRUNIT') or 0), 2),
-                'CODVOL': it.get('CODVOL'),
-                'CODLOCALORIG': it.get('CODLOCALORIG'),
-                'CODAGREGACAO': it.get('CODAGREGACAO'),
-                'OBSERVACAO': it.get('OBSERVACAO'),
-            }
-            itm = it.copy()
-            itm['sql'] = it_sql
-            itm['binds'] = binds
-            enriched_items.append(itm)
-        res['plano']['itens'] = enriched_items
-    except Exception:
-        # If enrichment fails, ignore and return base plan
-        pass
-    res['ok'] = len(res['errors']) == 0
-    return res
-
-
-def _list_columns_like(table: str, like_pattern: str) -> list[str]:
-    """Returns column names for `table` whose name matches LIKE pattern (case-insensitive), ordered by column_id."""
-    try:
-        t = str(table).upper(); p = str(like_pattern).upper()
-        key = (t, p)
-        cached = _LIKE_COLS_CACHE.get(key)
-        if cached is not None:
-            return cached
-        with get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                """
-                SELECT column_name FROM user_tab_cols
-                 WHERE table_name=:t AND UPPER(column_name) LIKE :p
-                 ORDER BY column_id
-                """,
-                t=t, p=p
+            codprods_in = [int(x) for x in codprods_in if str(x).strip()]
+        except (TypeError, ValueError):
+            codprods_in = []
+        if codprods_in:
+            ks = []
+            for i, cp in enumerate(codprods_in):
+                k = f'cp_in_{i}'
+                ks.append(':' + k)
+                binds[k] = int(cp)
+            where.append(
+                "EXISTS (SELECT 1 FROM TGFITE i2 WHERE i2.NUNOTA = c.NUNOTA "
+                f"AND i2.CODPROD IN ({', '.join(ks)}))"
             )
-            cols = [r[0] for r in cur.fetchall()]
-            _LIKE_COLS_CACHE[key] = cols
-            return cols
-    except Exception:
-        return []
 
+    termo = str(filtros.get('q') or '').strip()
+    if termo:
+        if termo.isdigit():
+            where.append("c.NUNOTA = :q_nunota")
+            binds['q_nunota'] = int(termo)
+        else:
+            where.append("UPPER(p.NOMEPARC) LIKE :q_parc")
+            binds['q_parc'] = f"%{termo.upper()}%"
 
-def _fetch_row_dynamic(table: str, columns: list[str], where_sql: str, binds: dict) -> dict:
-    """Safely fetch a single row with selected columns; returns {col:value} for found row or {}."""
-    if not columns:
-        return {}
-    cols_sql = ', '.join(columns)
-    try:
-        with get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(f"SELECT {cols_sql} FROM {table} WHERE {where_sql}", binds)
-            row = cur.fetchone()
-            if not row:
-                return {}
-            return {c: row[i] for i, c in enumerate(columns)}
-    except Exception:
-        return {}
+    # Cross filter vindo do typeahead de Lotes (FABRICANTE selecionado):
+    # mostra apenas pedidos que têm pelo menos um item de produto cujo
+    # FABRICANTE bate com o selecionado. Usa TGFPRO direto (mais rápido
+    # que joinar com a view de saldo).
+    fabricante = str(filtros.get('fabricante') or '').strip()
+    if fabricante:
+        where.append("""
+            EXISTS (
+                SELECT 1
+                FROM TGFITE i_fab
+                JOIN TGFPRO pr_fab ON pr_fab.CODPROD = i_fab.CODPROD
+                WHERE i_fab.NUNOTA = c.NUNOTA
+                  AND UPPER(pr_fab.FABRICANTE) = :fabricante
+            )
+        """)
+        binds['fabricante'] = fabricante.upper()
 
-
-def weight_diagnostics(nunota: int, sequencia: int) -> dict:
-    """Diagnostics for item weight logic: collects raw DB fields and computed estimates.
-
-    - Reads TGFITE(NUNOTA, SEQUENCIA): CODPROD, CODVOL, QTDNEG, PESO (if exists)
-    - Reads TGFPRO(CODPROD): CODVOL base and any columns like 'PESO%'
-    - Reads TGFVOA(CODPROD, CODVOL): any columns like 'PESO%'
-    - Reads TGFCAB(NUNOTA): any columns like 'PESO%'
-    - Computes base unit + factor; estimates net/gross weights from product-level fields when present.
-    """
-    out = {
-        'ok': False,
-        'nunota': nunota,
-        'sequencia': sequencia,
-        'ite': {},
-        'pro': {},
-        'voa': {},
-        'cab': {},
-        'base_unit': None,
-        'factor': None,
-        'computed': {
-            'qtd_base': None,
-            'net_per_base': None,
-            'gross_per_base': None,
-            'net_estimated_total': None,
-            'gross_estimated_total': None,
-        },
-        'notes': [],
-        'error': None,
-    }
-    try:
-        nun = int(nunota); seq = int(sequencia)
-    except Exception:
-        out['error'] = 'Parâmetros inválidos'
-        return out
-
-    # 1) TGFITE essentials
-    ite_cols = ['CODPROD', 'CODVOL', 'QTDNEG']
-    # PESO exists in this base; still guard just in case
-    if 'PESO' in _list_columns_like('TGFITE', 'PESO') or True:
-        if 'PESO' not in ite_cols:
-            ite_cols.append('PESO')
-    out['ite'] = _fetch_row_dynamic('TGFITE', ite_cols, 'NUNOTA=:n AND SEQUENCIA=:s', {'n': nun, 's': seq})
-    if not out['ite']:
-        out['error'] = 'Item não encontrado'
-        return out
-
-    codprod = int(out['ite'].get('CODPROD') or 0)
-    codvol = str(out['ite'].get('CODVOL') or '')
-    qtdneg = float(out['ite'].get('QTDNEG') or 0)
-
-    # 2) Product weights
-    pro_cols_all = ['CODVOL'] + _list_columns_like('TGFPRO', 'PESO%')
-    out['pro'] = _fetch_row_dynamic('TGFPRO', pro_cols_all, 'CODPROD=:p', {'p': codprod})
-
-    # 3) Alternative volume (VOA) weights for the item's CODVOL, if any
-    voa_cols = _list_columns_like('TGFVOA', 'PESO%')
-    if voa_cols:
-        out['voa'] = _fetch_row_dynamic('TGFVOA', voa_cols + ['CODVOL'], 'CODPROD=:p AND UPPER(CODVOL)=:v', {'p': codprod, 'v': codvol.upper()})
+    # Filtro de janela temporal: prioriza data_ini/data_fim (range explícito).
+    # Fallback: desde_dias (legado, retrocompatibilidade dos testes).
+    data_ini = (filtros.get('data_ini') or '').strip() or None
+    data_fim = (filtros.get('data_fim') or '').strip() or None
+    if data_ini or data_fim:
+        if data_ini:
+            where.append("c.DTNEG >= TO_DATE(:data_ini, 'YYYY-MM-DD')")
+            binds['data_ini'] = data_ini
+        if data_fim:
+            where.append("c.DTNEG < TO_DATE(:data_fim, 'YYYY-MM-DD') + 1")
+            binds['data_fim'] = data_fim
     else:
-        out['voa'] = {}
-
-    # 4) Header weights (document level)
-    cab_cols = _list_columns_like('TGFCAB', 'PESO%')
-    out['cab'] = _fetch_row_dynamic('TGFCAB', cab_cols, 'NUNOTA=:n', {'n': nun}) if cab_cols else {}
-
-    # 5) Conversion and estimates
-    base, fator = get_base_unit_and_factor(codprod, codvol)
-    out['base_unit'] = base
-    out['factor'] = fator
-    qtd_base = None
-    try:
-        if base and fator and base != (codvol or '').upper():
-            qtd_base = float(qtdneg) * float(fator)
-        else:
-            qtd_base = float(qtdneg)
-    except Exception:
-        qtd_base = None
-    out['computed']['qtd_base'] = qtd_base
-
-    # Heuristic: search product columns for net/gross per BASE unit
-    def _pick(colnames: list[str], key: str) -> str|None:
-        keyu = key.upper()
-        for c in colnames:
-            cu = c.upper()
-            if cu == keyu:
-                return c
-        # try common variants
-        variants = [
-            keyu,
-            keyu.replace('PESO', 'PESOLIQ') if 'BRUTO' not in keyu else keyu,
-        ]
-        for v in variants:
-            for c in colnames:
-                if c.upper() == v:
-                    return c
-        return None
-
-    pro_keys = list(out['pro'].keys()) if out['pro'] else []
-    col_net = None
-    col_gross = None
-    # Common names in many Sankhya bases
-    for cand in ['PESOLIQ', 'PESOLIQUIDO', 'PESOLIQPROD', 'PESOLIQU']:
-        if cand in pro_keys:
-            col_net = cand; break
-    for cand in ['PESOBRUTO', 'PESOBRU', 'PESOBRUT']:
-        if cand in pro_keys:
-            col_gross = cand; break
-
-    net_per_base = None
-    gross_per_base = None
-    try:
-        if col_net and out['pro'].get(col_net) is not None:
-            net_per_base = float(out['pro'][col_net])
-    except Exception:
-        net_per_base = None
-    try:
-        if col_gross and out['pro'].get(col_gross) is not None:
-            gross_per_base = float(out['pro'][col_gross])
-    except Exception:
-        gross_per_base = None
-
-    out['computed']['net_per_base'] = net_per_base
-    out['computed']['gross_per_base'] = gross_per_base
-    try:
-        if qtd_base is not None and net_per_base is not None:
-            out['computed']['net_estimated_total'] = round(qtd_base * net_per_base, 6)
-        if qtd_base is not None and gross_per_base is not None:
-            out['computed']['gross_estimated_total'] = round(qtd_base * gross_per_base, 6)
-    except Exception:
-        pass
-
-    # Notes to help interpretation
-    if 'PESO' in ite_cols:
-        out['notes'].append('TGFITE.PESO é um campo livre por item (peso medido/informado).')
-    if pro_keys:
-        out['notes'].append('Pesos por unidade podem estar em TGFPRO (ex.: PESOLIQ, PESOBRUTO).')
-    if cab_cols:
-        out['notes'].append('Pesos do documento podem estar consolidados no TGFCAB (ex.: PESOLIQ, PESOBRUTO).')
-
-    out['ok'] = True
-    return out
-
-def execute_classificacao(nunota_origem: int, sequencia_origem: int, saidas: list[dict], nunota_dest: int|None = None, dry_run: bool = True, force: bool = False) -> dict:
-    """Executa a classificação: cria/usa nota de classificação e insere os itens de saída."""
-    plan = plan_classificacao(nunota_origem, sequencia_origem, saidas, nunota_dest)
-    res = { 'ok': False, 'executed': False, 'errors': [], 'warnings': [], 'nunota_dest': nunota_dest, 'itens_inseridos': 0 }
-    if not plan.get('ok'):
-        res['errors'] = plan.get('errors', [])
-        res['warnings'] = plan.get('warnings', [])
-        return res
-    # Respeitar flag de escrita, a menos que 'force' seja solicitado
-    write_ok = is_write_enabled() or force
-    if dry_run or not write_ok:
-        if not write_ok and not dry_run:
-            res['warnings'].append('Escrita desabilitada por política — execução em modo simulado')
-        # informar se o force foi usado
-        res['force_used'] = bool(force)
-        res['ok'] = True
-        return res
-    # 1) Criar cabeçalho se necessário
-    #    Se o plano já detectou uma nota 26 existente por item/lote, reutilize.
-    nun_dest = nunota_dest or plan.get('plano', {}).get('nunota_dest')
-    if nun_dest is None:
-        cab = plan.get('plano', {}).get('cabecalho') or {}
-        # Usar versão OTIMIZADA para alta performance
-        cab_plan = insert_cabecalho_fast(cab, dry_run=False)
-        if not cab_plan.get('executed'):
-            res['errors'].append(cab_plan.get('db_error', {}).get('message') or 'Falha ao criar cabeçalho de classificação')
-            return res
-        nun_dest = cab_plan.get('nunota')
-        res['nunota_dest'] = nun_dest
-    # 2) Inserir itens de saída usando versão OTIMIZADA
-    count = 0
-    for item in plan.get('plano', {}).get('itens', []):
-        d = {
-            'NUNOTA': nun_dest,
-            'CODPROD': item['CODPROD'],
-            'QTDNEG': item['QTDNEG'],
-            'VLRUNIT': item['VLRUNIT'],
-            'CODVOL': item['CODVOL'],
-            'CODLOCALORIG': item['CODLOCALORIG'],
-            # Reutilizar a CODAGREGACAO da origem (não gerar novo lote)
-            'CODAGREGACAO': item.get('CODAGREGACAO') or item.get('CODAGREGACAO'),
-            'OBSERVACAO': item.get('OBSERVACAO'),
-        }
-        ins = insert_item_fast(d, dry_run=False)
-        if not ins.get('executed'):
-            res['errors'].append(ins.get('db_error', {}).get('message') or f"Falha ao inserir item {item['CODPROD']}")
-        else:
-            count += 1
-    res['itens_inseridos'] = count
-    res['ok'] = (count == len(plan.get('plano', {}).get('itens', [])))
-    res['executed'] = res['ok']
-    return res
-
-def delete_nota(nunota: int, dry_run: bool = True) -> dict:
-    """Exclui a nota (TGFCAB) e seus itens (TGFITE).
-    Se for TOP 11 (Entrada), também exclui o VALE (TOP 13) vinculado via NUMPEDIDO.
-    
-    Estratégia otimizada:
-    - Verifica se é TOP 11 e busca VALE vinculado
-    - Deleta VALE (TOP 13) primeiro, se existir
-    - Deleta todos os itens de uma vez, depois o cabeçalho
-    - Usa uma única conexão para tudo
-    - Commit único ao final
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-    
-    res = {
-        'ok': False,
-        'executed': False,
-        'nunota': nunota,
-        'deleted_itens': 0,
-        'deleted_cab': 0,
-        'deleted_vale': False,
-        'nunota_vale': None,
-        'errors': [],
-        'warnings': [],
-    }
-    try:
-        nun = int(nunota)
-    except Exception:
-        res['errors'].append('NUNOTA inválido')
-        return res
-
-    if dry_run or not is_write_enabled():
-        if not is_write_enabled() and not dry_run:
-            res['warnings'].append('Escrita desabilitada por política — execução em modo simulado')
-        res['ok'] = True
-        return res
-
-    # Use single connection and transaction for speed
-    try:
-        with get_connection() as conn:
-            cur = conn.cursor()
-            
-            # 0) Verificar se é TOP 11 e buscar VALE vinculado (TOP 13)
-            cur.execute("""
-                SELECT CODTIPOPER, NUMNOTA
-                FROM TGFCAB
-                WHERE NUNOTA = :n
-            """, n=nun)
-            cab_info = cur.fetchone()
-            
-            if cab_info and cab_info[0] == 11:
-                # É TOP 11 - buscar VALE vinculado
-                numnota_top11 = cab_info[1]
-                logger.info(f'[DELETE] TOP 11 detectado - NUMNOTA={numnota_top11}')
-                
-                cur.execute("""
-                    SELECT NUNOTA
-                    FROM TGFCAB
-                    WHERE CODTIPOPER = 13
-                      AND NUMPEDIDO = :numpedido
-                      AND ROWNUM = 1
-                """, numpedido=numnota_top11)
-                vale_row = cur.fetchone()
-                
-                if vale_row:
-                    nunota_vale = int(vale_row[0])
-                    res['nunota_vale'] = nunota_vale
-                    logger.info(f'[DELETE] VALE encontrado - NUNOTA={nunota_vale}')
-                    
-                    # Deletar itens do VALE
-                    cur.execute("DELETE FROM TGFITE WHERE NUNOTA=:n", n=nunota_vale)
-                    deleted_vale_itens = int(cur.rowcount or 0)
-                    logger.info(f'[DELETE] VALE itens deletados: {deleted_vale_itens}')
-                    
-                    # Deletar cabeçalho do VALE
-                    cur.execute("DELETE FROM TGFCAB WHERE NUNOTA=:n", n=nunota_vale)
-                    deleted_vale_cab = int(cur.rowcount or 0)
-                    res['deleted_vale'] = (deleted_vale_cab > 0)
-                    logger.info(f'[DELETE] VALE cabeçalho deletado: {deleted_vale_cab > 0}')
-                else:
-                    logger.info('[DELETE] VALE não encontrado para este pedido')
-            
-            # 1) Delete all items at once (much faster than one-by-one)
-            cur.execute("DELETE FROM TGFITE WHERE NUNOTA=:n", n=nun)
-            res['deleted_itens'] = int(cur.rowcount or 0)
-            
-            # 2) Delete header
-            cur.execute("DELETE FROM TGFCAB WHERE NUNOTA=:n", n=nun)
-            res['deleted_cab'] = int(cur.rowcount or 0)
-            
-            # 3) Single commit at the end - much faster
-            conn.commit()
-            
-            res['ok'] = True
-            res['executed'] = (res['deleted_cab'] > 0)
-            if res['deleted_cab'] == 0:
-                res['warnings'].append('Nenhum cabeçalho excluído (NUNOTA não encontrado)')
-            if res['deleted_vale']:
-                logger.info(f'[DELETE] ✅ VALE {res["nunota_vale"]} excluído junto com pedido {nunota}')
-            return res
-            
-    except cx_Oracle.DatabaseError as e:
+        desde_dias = filtros.get('desde_dias')
         try:
-            err, = e.args
-            res['errors'].append(getattr(err, 'message', str(e)))
-        except Exception:
-            res['errors'].append(str(e))
-        res['executed'] = False
-        return res
+            desde_dias = int(desde_dias) if desde_dias not in (None, '') else 0
+        except (TypeError, ValueError):
+            desde_dias = 0
+        if desde_dias > 0:
+            where.append("c.DTNEG >= (TRUNC(SYSDATE) - :desde_dias)")
+            binds['desde_dias'] = desde_dias
 
-if __name__ == '__main__':
-    test_oracle_connection()
-    print('\nConsultando tabela tgfpar:')
-    select_all_tgfpar()
+    # Filtro a nível de ITEM (não só de cabeçalho). Quando o cross filter de
+    # FABRICANTE está ativo, queremos que cada pedido apareça SÓ com os itens
+    # daquele fabricante — não com todos os outros produtos do pedido.
+    # O EXISTS no inner WHERE seleciona quais NUNOTAs aparecem; este filtro
+    # de item peneira as linhas da TGFITE retornadas para esse cabeçalho.
+    item_where_parts = []
+    if fabricante:
+        item_where_parts.append("UPPER(pr.FABRICANTE) = :fabricante")
+    # Mesma lógica para codprods do filtro cruzado: quando o usuário clica
+    # num lote (ou em produto-linha), só os itens daquele(s) codprod(s) devem
+    # aparecer dentro de cada pedido. Sem isso, o cabeçalho mostraria todos
+    # os outros produtos junto.
+    codprods_in = filtros.get('codprods')
+    if codprods_in:
+        try:
+            cps = [int(x) for x in codprods_in if str(x).strip()]
+        except (TypeError, ValueError):
+            cps = []
+        if cps:
+            ks_item = []
+            for i, cp in enumerate(cps):
+                k = f'cp_item_{i}'
+                ks_item.append(':' + k)
+                binds[k] = int(cp)
+            item_where_parts.append(f"i.CODPROD IN ({', '.join(ks_item)})")
+    item_filter_sql = ('WHERE ' + ' AND '.join(item_where_parts)) if item_where_parts else ''
 
-    # Exemplo de geração de lote
-    from datetime import date
-    lote = gerar_lote(date.today(), 76, 358)
-    print(f'Exemplo de lote gerado: {lote}')
-
-
-def duplicate_to_classification(nunota_11: int, dry_run: bool = True) -> dict:
-    """Duplica nota TOP 11 para TOP 26 com produtos classificáveis.
-    
-    Fallback manual para quando o trigger automático não funcionar.
-    
-    Args:
-        nunota_11: NUNOTA da nota TOP 11 (origem)
-        dry_run: Se True, apenas simula (não executa)
-    
-    Returns:
-        dict: {ok, nunota_26, errors, warnings, executed}
+    # Paginação por cabeçalho compatível com Oracle 11g (ROW_NUMBER + BETWEEN).
+    # Pega os N NUNOTAs mais recentes e depois traz TODOS os itens deles
+    # (ou só os filtrados, quando há filtro de item ativo).
+    # LEFT JOIN em ANDRE_IRIS_SALDO_LOTE traz dados de ORIGEM do lote
+    # (data, parceiro do fornecedor, NUNOTA da TOP 11) p/ exibir no modal de vínculos.
+    sql = f"""
+        SELECT
+            cp.NUNOTA, cp.CODEMP, cp.CODPARC, cp.NOMEPARC, cp.DTNEG,
+            i.SEQUENCIA, i.CODPROD, pr.DESCRPROD,
+            NVL(i.QTDNEG, 0)   AS QTD_PEDIDA,
+            i.CODAGREGACAO     AS CODAGREGACAO_ATUAL,
+            CASE WHEN i.CODAGREGACAO IS NULL THEN 'PENDENTE' ELSE 'ATRIBUIDO' END AS STATUS_ITEM,
+            sl.NUNOTA_ORIGEM   AS LOTE_NUNOTA,
+            sl.DTNEG_ORIGEM    AS LOTE_DTNEG,
+            sl.CODPARC_ORIGEM  AS LOTE_CODPARC,
+            sl.NOMEPARC_ORIGEM AS LOTE_NOMEPARC
+        FROM (
+            SELECT * FROM (
+                SELECT t.*, ROW_NUMBER() OVER (
+                    ORDER BY t.DTNEG DESC, t.NUNOTA DESC
+                ) AS RN
+                FROM (
+                    SELECT c.NUNOTA, c.CODEMP, c.CODPARC, c.DTNEG, p.NOMEPARC
+                    FROM TGFCAB c
+                    LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC
+                    WHERE {' AND '.join(where)}
+                ) t
+            ) WHERE RN BETWEEN :start_row AND :end_row
+        ) cp
+        JOIN TGFITE i ON i.NUNOTA = cp.NUNOTA
+        LEFT JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
+        LEFT JOIN (
+            SELECT i11.CODAGREGACAO,
+                   MIN(c11.NUNOTA)   AS NUNOTA_ORIGEM,
+                   MIN(c11.DTNEG)    AS DTNEG_ORIGEM,
+                   MIN(c11.CODPARC)  AS CODPARC_ORIGEM,
+                   MIN(p11.NOMEPARC) AS NOMEPARC_ORIGEM
+            FROM TGFITE i11
+            JOIN TGFCAB c11      ON c11.NUNOTA = i11.NUNOTA
+            LEFT JOIN TGFPAR p11 ON p11.CODPARC = c11.CODPARC
+            WHERE c11.CODTIPOPER = 11
+              AND c11.STATUSNOTA <> 'E'
+              AND i11.CODAGREGACAO IS NOT NULL
+            GROUP BY i11.CODAGREGACAO
+        ) sl ON sl.CODAGREGACAO = i.CODAGREGACAO
+        {item_filter_sql}
+        ORDER BY cp.DTNEG DESC, cp.NUNOTA DESC, i.SEQUENCIA
     """
-    res = {
-        'ok': False, 
-        'nunota_26': None, 
-        'errors': [], 
-        'warnings': [],
-        'executed': False,
-        'items_duplicated': 0
-    }
-    
-    try:
-        nunota_11 = int(nunota_11)
-    except (ValueError, TypeError):
-        res['errors'].append('NUNOTA inválido')
-        return res
+    binds['start_row'] = int(offset) + 1
+    binds['end_row']   = int(offset) + int(limite)
 
-    params = get_params()
-    TOP_ENTRADA = params['TOP_ENTRADA']  # 11
-    TOP_CLASS = params['TOP_CLASS']      # 26
-    
+    cols = [
+        'nunota', 'codemp', 'codparc', 'nomeparc', 'dtneg',
+        'sequencia', 'codprod', 'descrprod',
+        'qtd_pedida', 'codagregacao_atual', 'status_item',
+        'lote_nunota', 'lote_dtneg', 'lote_codparc', 'lote_nomeparc',
+    ]
+
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, binds)
+        rows = cur.fetchall()
+
+    return [dict(zip(cols, row)) for row in rows]
+
+
+def desvincular_lote_item_pedido(nunota: int, sequencia: int) -> dict:
+    """Desvincula um lote de um item de pedido TOP 34.
+
+    Comportamento:
+        - Se EXISTE outra linha pendente (CODAGREGACAO IS NULL) do mesmo
+          (NUNOTA, CODPROD): faz MERGE — soma o QTDNEG desta linha na linha
+          pendente mais antiga + recalcula VLRTOT, depois DELETE desta.
+          Evita acumular linhas órfãs após ciclos vincular/desvincular.
+        - Se NÃO existe outra linha pendente do produto: apenas limpa
+          CODAGREGACAO (esta era a única do produto, fica pendente).
+
+    Validações:
+        - Item precisa existir e ter CODAGREGACAO atualmente preenchido.
+        - Pedido precisa ser TOP 34 e não estar faturado/excluído.
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+
     try:
-        with get_connection() as conn:
+        with obter_conexao_oracle() as conn:
             cur = conn.cursor()
-            
-            # 1. Verificar se TOP 11 existe
             cur.execute("""
-                SELECT COUNT(*) FROM TGFCAB 
-                WHERE NUNOTA = :n AND CODTIPOPER = :top
-            """, n=nunota_11, top=TOP_ENTRADA)
-            
-            if cur.fetchone()[0] == 0:
-                res['errors'].append(f'NUNOTA {nunota_11} TOP 11 não encontrada')
-                return res
-            
-            # 2. Obter lote(s) da nota origem
+                SELECT c.CODTIPOPER, c.STATUSNOTA,
+                       i.CODAGREGACAO, i.CODPROD, NVL(i.QTDNEG, 0)
+                FROM TGFCAB c
+                JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+                WHERE c.NUNOTA = :n AND i.SEQUENCIA = :s
+            """, n=int(nunota), s=int(sequencia))
+            row = cur.fetchone()
+
+            if not row:
+                return {'ok': False, 'error': f'Item NUNOTA={nunota} SEQ={sequencia} não encontrado'}
+
+            codtipoper, statusnota, codagregacao_atual, codprod, qtdneg = row
+
+            if int(codtipoper) != 34:
+                return {'ok': False, 'error': f'Operação não é TOP 34 (encontrada: TOP {codtipoper})'}
+            if statusnota == 'L':
+                return {'ok': False, 'error': 'Pedido já foi faturado — não é mais editável'}
+            if statusnota == 'E':
+                return {'ok': False, 'error': 'Pedido excluído'}
+            if not codagregacao_atual:
+                return {'ok': False, 'error': 'Item não tem lote vinculado'}
+
+            qtd_atual = float(qtdneg)
+
+            # Procura outra linha pendente do mesmo (NUNOTA, CODPROD).
+            # ROWNUM=1 + subquery ordenada por SEQUENCIA garante a mais antiga.
             cur.execute("""
-                SELECT DISTINCT i.CODAGREGACAO 
-                FROM TGFITE i 
-                WHERE i.NUNOTA = :n
-                AND i.CODAGREGACAO IS NOT NULL
-            """, n=nunota_11)
-            
-            lotes = [row[0] for row in cur.fetchall()]
-            if not lotes:
-                res['errors'].append('Nenhum lote encontrado nos itens da nota')
-                return res
-            
-            # 3. Verificar se já existe TOP 26 para algum lote (buscar mais recente)
-            nunota_26_existente = None
-            if lotes:
-                lotes_str = ','.join([f"'{c}'" for c in lotes])
-                cur.execute(f"""
-                    SELECT i.NUNOTA FROM TGFITE i
-                    JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-                    WHERE i.CODAGREGACAO IN ({lotes_str}) 
-                    AND c.CODTIPOPER = :top
-                    ORDER BY c.DTMOV DESC, i.NUNOTA DESC
-                """, top=TOP_CLASS)
-                
-                row = cur.fetchone()
-                if row:
-                    nunota_26_existente = int(row[0])
-                    res['warnings'].append(f'TOP 26 já existe: NUNOTA {nunota_26_existente}')
-            
-            # 4. Contar itens classificáveis
-            cur.execute("""
-                SELECT COUNT(*) FROM TGFITE
-                WHERE NUNOTA = :n AND NVL(GERAPRODUCAO, 'N') = 'S'
-            """, n=nunota_11)
-            
-            items_classificaveis = cur.fetchone()[0]
-            if items_classificaveis == 0:
-                res['warnings'].append('Nenhum item classificável encontrado')
-                res['ok'] = True
-                return res
-            
-            if dry_run:
-                res['ok'] = True
-                res['warnings'].append(f'Modo simulação - {items_classificaveis} itens seriam duplicados')
-                return res
-            
-            if not is_write_enabled():
-                res['warnings'].append('Escrita desabilitada - execução simulada')
-                res['ok'] = True
-                return res
-            
-            # 5. Usar TOP 26 existente ou criar nova
-            if nunota_26_existente:
-                # Usar TOP 26 existente
-                nunota_26 = nunota_26_existente
-                res['nunota_26'] = nunota_26
-                res['warnings'].append(f'Usando TOP 26 existente: {nunota_26}')
-            else:
-                # Criar nova TOP 26
-                # Primeiro, obter dados da nota original
+                SELECT SEQUENCIA FROM (
+                    SELECT SEQUENCIA FROM TGFITE
+                    WHERE NUNOTA = :n
+                      AND CODPROD = :p
+                      AND CODAGREGACAO IS NULL
+                      AND SEQUENCIA <> :s
+                    ORDER BY SEQUENCIA
+                )
+                WHERE ROWNUM = 1
+            """, n=int(nunota), p=int(codprod), s=int(sequencia))
+            outra = cur.fetchone()
+
+            if outra and qtd_atual > 0:
+                # MERGE: soma qtd na pendente, recalcula seu VLRTOT, deleta esta.
+                # No mesmo UPDATE, QTDNEG e VLRTOT usam o valor antigo de QTDNEG
+                # (Oracle avalia toda a expressão antes de aplicar). Então
+                # VLRTOT fica = VLRUNIT * (QTDNEG_antigo + :q).
+                outra_seq = int(outra[0])
                 cur.execute("""
-                    SELECT CODEMP, CODPARC, CODNAT, CODCENCUS, DTNEG, DTMOV, DTENTSAI,
-                           CODVEND, CODPARCTRANSP, CODPROJ, NUMNOTA, NUMPEDIDO, OBSERVACAO
-                    FROM TGFCAB WHERE NUNOTA = :n
-                """, n=nunota_11)
-                orig_data = cur.fetchone()
-                
-                if not orig_data:
-                    res['errors'].append('Cabeçalho da nota original não encontrado')
-                    return res
-                
-                # Criar dados para TOP 26
-                # CRÍTICO: Passar NUNOTA_ORIGEM para que insert_cabecalho_fast
-                # copie automaticamente NUMPEDIDO e NUMNOTA do TOP 11
-                cab_data = {
-                    'CODEMP': orig_data[0],
-                    'CODPARC': orig_data[1], 
-                    'CODTIPOPER': TOP_CLASS,  # 26
-                    'CODNAT': orig_data[2],
-                    'CODCENCUS': orig_data[3],
-                    'DTNEG': orig_data[4].strftime('%d/%m/%Y') if orig_data[4] else None,
-                    'DTMOV': orig_data[5].strftime('%d/%m/%Y') if orig_data[5] else None,
-                    'DTENTSAI': orig_data[6].strftime('%d/%m/%Y') if orig_data[6] else None,
-                    'CODVEND': orig_data[7] if orig_data[7] else 0,
-                    'CODPARCTRANSP': orig_data[8] if orig_data[8] else 0,
-                    'CODPROJ': orig_data[9] if orig_data[9] else 0,
-                    'NUNOTA_ORIGEM': nunota_11,  # insert_cabecalho_fast usará isso para copiar NUMPEDIDO e NUMNOTA
-                    'OBSERVACAO': f'Auto-duplicado de TOP 11 NUNOTA {nunota_11}'
-                }
-                
-                # Usar versão OTIMIZADA para criar TOP 26
-                cab_result = insert_cabecalho_fast(cab_data, dry_run=False)
-                if not cab_result.get('executed'):
-                    res['errors'].append('Falha ao criar cabeçalho TOP 26')
-                    res['errors'].extend(cab_result.get('errors', []))
-                    return res
-                    
-                nunota_26 = cab_result.get('nunota')
-                res['nunota_26'] = int(nunota_26)
-                res['warnings'].append(f'Nova TOP 26 criada: {nunota_26}')
-
-            
-            # 6. Duplicar apenas itens que ainda não existem na TOP 26
-            # Verificar próxima sequência disponível
-            cur.execute("""
-                SELECT NVL(MAX(SEQUENCIA), 0) + 1 FROM TGFITE WHERE NUNOTA = :n
-            """, n=nunota_26)
-            next_seq = cur.fetchone()[0]
-            
-            # Inserir apenas itens que não estão duplicados ainda
-            cur.execute("""
-                INSERT INTO TGFITE (
-                    NUNOTA, SEQUENCIA, CODEMP, CODPROD, QTDNEG, VLRUNIT, VLRTOT,
-                    CODVOL, CODLOCALORIG, CODAGREGACAO, GERAPRODUCAO, STATUSNOTA,
-                    OBSERVACAO
-                )
-                SELECT 
-                    :nunota_26, 
-                    :next_seq + ROW_NUMBER() OVER (ORDER BY i11.SEQUENCIA) - 1,
-                    i11.CODEMP, i11.CODPROD, i11.QTDNEG, i11.VLRUNIT, i11.VLRTOT,
-                    i11.CODVOL, i11.CODLOCALORIG, i11.CODAGREGACAO, i11.GERAPRODUCAO, 'A',
-                    'Auto-duplicado de TOP 11'
-                FROM TGFITE i11
-                WHERE i11.NUNOTA = :nunota_11 
-                AND NVL(i11.GERAPRODUCAO, 'N') = 'S'
-                AND NOT EXISTS (
-                    SELECT 1 FROM TGFITE i26
-                    WHERE i26.NUNOTA = :nunota_26
-                    AND i26.CODPROD = i11.CODPROD
-                    AND i26.CODAGREGACAO = i11.CODAGREGACAO
-                )
-            """, {
-                'nunota_26': nunota_26, 
-                'nunota_11': nunota_11,
-                'next_seq': next_seq
-            })
-            
-            items_inserted = cur.rowcount
-            res['items_duplicated'] = items_inserted
-            
-            conn.commit()
-            res['executed'] = True
-            res['ok'] = True
-            
-            if nunota_26_existente:
-                res['warnings'].append(f'Adicionados {items_inserted} itens à TOP 26 existente: NUNOTA {nunota_26}')
+                    UPDATE TGFITE
+                       SET QTDNEG = NVL(QTDNEG, 0) + :q,
+                           VLRTOT = NVL(VLRUNIT, 0) * (NVL(QTDNEG, 0) + :q)
+                     WHERE NUNOTA = :n AND SEQUENCIA = :o
+                """, q=qtd_atual, n=int(nunota), o=outra_seq)
+                cur.execute("""
+                    DELETE FROM TGFITE
+                    WHERE NUNOTA = :n AND SEQUENCIA = :s
+                """, n=int(nunota), s=int(sequencia))
+                operacao = 'MERGE'
             else:
-                res['warnings'].append(f'TOP 26 criada: NUNOTA {nunota_26} com {items_inserted} itens')
-            
-    except Exception as e:
-        res['errors'].append(f'Erro ao duplicar: {str(e)}')
-        
-    return res
+                # Não há outra linha pendente — só limpa o lote desta
+                cur.execute("""
+                    UPDATE TGFITE SET CODAGREGACAO = NULL
+                    WHERE NUNOTA = :n AND SEQUENCIA = :s
+                """, n=int(nunota), s=int(sequencia))
+                operacao = 'CLEAR'
 
+            # Recalcula totais do cabeçalho (VLRNOTA / QTDVOL)
+            recalcular_totais_nota_banco(int(nunota), conexao_existente=conn)
 
-def is_auto_duplicate_enabled() -> bool:
-    """Verifica se a duplicação automática está habilitada."""
-    try:
-        params = get_params()
-        return bool(params.get('AUTO_DUPLICATE_CLASSIFICATION', True))
-    except Exception:
-        return False
-
-
-def is_auto_duplicate_on_save_enabled() -> bool:
-    """Verifica se deve duplicar automaticamente ao salvar item."""
-    try:
-        # Verificar configurações Django
-        from django.conf import settings
-        config = getattr(settings, 'SANKHYA_CONFIG', {})
-        auto_flows = config.get('AUTO_FLOWS', {})
-        
-        # Se não tem configuração, assume True (habilitado por padrão)
-        duplicate_on_save = auto_flows.get('DUPLICATE_ON_SAVE', True)
-        duplicate_method = auto_flows.get('DUPLICATE_METHOD', 'python')
-        
-        # Verificar parâmetros também
-        params = get_params()
-        auto_duplicate_on_save = params.get('AUTO_DUPLICATE_ON_SAVE', True)
-        
-        result = (
-            duplicate_on_save and 
-            duplicate_method == 'python' and
-            auto_duplicate_on_save
-        )
-        
-        return result
-    except Exception:
-        # Em caso de erro, retorna True para não bloquear
-        return True
-
-
-def should_auto_duplicate_item(nunota: int, codprod: int) -> dict:
-    """Verifica se um item deve ser duplicado automaticamente.
-    
-    Returns:
-        dict: {should_duplicate: bool, reason: str, codtipoper: int|None}
-    """
-    result = {'should_duplicate': False, 'reason': '', 'codtipoper': None}
-    
-    if not is_auto_duplicate_on_save_enabled():
-        result['reason'] = 'Duplicação automática desabilitada'
-        return result
-    
-    try:
-        with get_connection() as conn:
-            cur = conn.cursor()
-            
-            # Verificar se é TOP 11
-            cur.execute("SELECT CODTIPOPER FROM TGFCAB WHERE NUNOTA = :n", n=nunota)
-            row = cur.fetchone()
-            if not row:
-                result['reason'] = 'Nota não encontrada'
-                return result
-                
-            codtipoper = row[0]
-            result['codtipoper'] = codtipoper
-            
-            params = get_params()
-            if codtipoper != params['TOP_ENTRADA']:  # 11
-                result['reason'] = f'Nota não é TOP {params["TOP_ENTRADA"]} (é TOP {codtipoper})'
-                return result
-            
-            # Verificar se item é classificável (GERAPRODUCAO na TGFITE)
-            cur.execute("""
-                SELECT NVL(GERAPRODUCAO, 'N') FROM TGFITE 
-                WHERE NUNOTA = :n AND CODPROD = :p
-            """, n=nunota, p=codprod)
-            row = cur.fetchone()
-            if not row or row[0] != 'S':
-                result['reason'] = 'Item não é classificável (GERAPRODUCAO != S na TGFITE)'
-                return result
-            
-            result['should_duplicate'] = True
-            result['reason'] = 'Item classificável em nota TOP 11'
-            return result
-            
-    except Exception as e:
-        result['reason'] = f'Erro ao verificar: {str(e)}'
-        return result
-
-
-def get_duplicate_status(nunota_11: int) -> dict:
-    """Verifica status de duplicação para uma nota TOP 11.
-    
-    Returns:
-        dict: {
-            has_top26: bool,
-            nunota_26: int|None, 
-            controls: list[str],
-            classificable_items: int
-        }
-    """
-    try:
-        nunota_11 = int(nunota_11)
-    except (ValueError, TypeError):
-        return {'error': 'NUNOTA inválido'}
-
-    params = get_params()
-    TOP_CLASS = params['TOP_CLASS']
-    
-    result = {
-        'has_top26': False,
-        'nunota_26': None,
-        'controls': [],
-        'classificable_items': 0
-    }
-    
-    try:
-        with get_connection() as conn:
-            cur = conn.cursor()
-            
-            # Lotes da nota
-            cur.execute("""
-                SELECT DISTINCT i.CODAGREGACAO 
-                FROM TGFITE i 
-                WHERE i.NUNOTA = :n
-                AND i.CODAGREGACAO IS NOT NULL
-            """, n=nunota_11)
-            result['controls'] = [row[0] for row in cur.fetchall()]
-            
-            # Items classificáveis
-            cur.execute("""
-                SELECT COUNT(*) FROM TGFITE
-                WHERE NUNOTA = :n AND NVL(GERAPRODUCAO, 'N') = 'S'
-            """, n=nunota_11)
-            result['classificable_items'] = cur.fetchone()[0]
-            
-            # Verificar se existe TOP 26 para qualquer lote (buscar mais recente)
-            if result['controls']:
-                # Buscar TOP 26 mais recente para qualquer lote da nota
-                lotes_str = ','.join([f"'{c}'" for c in result['controls']])
-                cur.execute(f"""
-                    SELECT i.NUNOTA FROM TGFITE i
-                    JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-                    WHERE i.CODAGREGACAO IN ({lotes_str}) 
-                    AND c.CODTIPOPER = :top
-                    ORDER BY c.DTMOV DESC, i.NUNOTA DESC
-                """, top=TOP_CLASS)
-                
-                row = cur.fetchone()
-                if row:
-                    result['has_top26'] = True
-                    result['nunota_26'] = int(row[0])
-                    
-    except Exception:
-        pass
-        
-    return result
-
-
-def sync_item_to_classification(nunota_11: int, codprod: int, dry_run: bool = False) -> dict:
-    """Sincroniza alterações do item (TOP 11) para o item correspondente na TOP 26 com UPSERT.
-
-    Passos:
-    - Localiza o item origem em TOP 11 (por NUNOTA, CODPROD) e lê campos: CODAGREGACAO (lote),
-      QTDNEG, VLRUNIT, VLRTOT, CODVOL, PESO, CODLOCALORIG, GERAPRODUCAO.
-    - Busca a TOP 26 mais recente para este lote.
-      - Se existir: tenta UPDATE do item (match por CODPROD+CODAGREGACAO).
-      - Se o UPDATE afetar 0 linhas e GERAPRODUCAO='S': faz INSERT (upsert) do item.
-    - Se não existir TOP 26 para o lote e GERAPRODUCAO='S': cria cabeçalho TOP 26 baseado na TOP 11
-      (via insert_cabecalho) e insere o item.
-
-    Observações:
-    - O INSERT considera apenas colunas existentes em TGFITE (detecção dinâmica) e define DTALTER=SYSDATE quando disponível.
-    - Itens não classificáveis (GERAPRODUCAO!='S') não são inseridos na TOP 26.
-
-    Returns:
-        dict: { ok, updated: int, inserted: int, nunota_26: int|None, created_header: bool, warnings: list, errors: list }
-    """
-    out = {
-        'ok': False, 'updated': 0, 'inserted': 0,
-        'nunota_26': None, 'created_header': False,
-        'warnings': [], 'errors': []
-    }
-    try:
-        nun = int(nunota_11)
-        prod = int(codprod)
-    except Exception:
-        out['errors'].append('Parâmetros inválidos (nunota_11, codprod)')
-        return out
-
-    params = get_params()
-    TOP_CLASS = params['TOP_CLASS']
-
-    try:
-        with get_connection() as conn:
-            cur = conn.cursor()
-
-            # 1) Obter dados do item na TOP 11
-            cur.execute(
-                """
-                SELECT /*+ FIRST_ROWS(1) */
-                       CODAGREGACAO,
-                       QTDNEG,
-                       VLRUNIT,
-                       VLRTOT,
-                       CODVOL,
-                       NVL(PESO, 0) AS PESO,
-                       CODLOCALORIG,
-                       NVL(GERAPRODUCAO,'N') AS GP
-                  FROM (
-                        SELECT CODAGREGACAO, QTDNEG, VLRUNIT, VLRTOT, CODVOL, PESO, CODLOCALORIG, GERAPRODUCAO
-                          FROM TGFITE
-                         WHERE NUNOTA = :n AND CODPROD = :p
-                         ORDER BY SEQUENCIA
-                       )
-                 WHERE ROWNUM = 1
-                """,
-                n=nun, p=prod
-            )
-            row = cur.fetchone()
-            if not row:
-                out['warnings'].append('Item não encontrado em TOP 11')
-                out['ok'] = True
-                return out
-
-            ctrl, qtd, vlu, vlt, codvol, peso, codlocal, gp = row
-            if not ctrl:
-                out['warnings'].append('Item sem lote (CODAGREGACAO) — nada a sincronizar')
-                out['ok'] = True
-                return out
-
-            # 2) Localizar NUNOTA da TOP 26 mais recente para o mesmo lote
-            cur.execute(
-                """
-                SELECT /*+ FIRST_ROWS(1) */ x.NUNOTA FROM (
-                    SELECT i.NUNOTA
-                      FROM TGFITE i
-                      JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-                     WHERE i.CODAGREGACAO = :c AND c.CODTIPOPER = :top
-                     ORDER BY c.DTMOV DESC, i.NUNOTA DESC
-                ) x WHERE ROWNUM = 1
-                """,
-                c=ctrl, top=TOP_CLASS
-            )
-            r26 = cur.fetchone()
-            nun26 = int(r26[0]) if r26 and r26[0] is not None else None
-
-            # Se não há TOP 26 para o lote e o item é classificável, criaremos o cabeçalho
-            if nun26 is None and str(gp).strip().upper() == 'S':
-                # Carregar dados do cabeçalho TOP 11 para basear a criação
-                cur.execute(
-                    """
-                    SELECT CODEMP, CODPARC, CODNAT, CODCENCUS, DTNEG, DTMOV, DTENTSAI,
-                           CODVEND, CODPARCTRANSP, CODPROJ, NUMNOTA, NUMPEDIDO, OBSERVACAO
-                      FROM TGFCAB WHERE NUNOTA = :n
-                    """,
-                    n=nun
-                )
-                cab11 = cur.fetchone()
-                if not cab11:
-                    out['errors'].append('Cabeçalho TOP 11 não encontrado para criar TOP 26')
-                    return out
-                cab_data = {
-                    'CODEMP': cab11[0],
-                    'CODPARC': cab11[1],
-                    'CODTIPOPER': TOP_CLASS,
-                    'CODNAT': cab11[2],
-                    'CODCENCUS': cab11[3],
-                    'DTNEG': cab11[4].strftime('%d/%m/%Y') if cab11[4] else None,
-                    'DTMOV': cab11[5].strftime('%d/%m/%Y') if cab11[5] else None,
-                    'DTENTSAI': cab11[6].strftime('%d/%m/%Y') if cab11[6] else None,
-                    'CODVEND': cab11[7] if cab11[7] else 0,
-                    'CODPARCTRANSP': cab11[8] if cab11[8] else 0,
-                    'CODPROJ': cab11[9] if cab11[9] else 0,
-                    'NUMNOTA': cab11[10] if cab11[10] else None,       # Copiado do TOP 11
-                    'NUMPEDIDO': cab11[11] if cab11[11] else None,     # Copiado do TOP 11
-                    'NUNOTA_ORIGEM': nun,  # Para referência na insert_cabecalho
-                    'OBSERVACAO': f'Sync (auto) de TOP 11 NUNOTA {nun}'
-                }
-                if dry_run or not is_write_enabled():
-                    out['warnings'].append('Criaria cabeçalho TOP 26 (dry_run ou write desabilitado)')
-                else:
-                    cab_res = insert_cabecalho(cab_data, dry_run=False)
-                    if not cab_res.get('executed'):
-                        out['errors'].append('Falha ao criar cabeçalho TOP 26 (upsert)')
-                        out['errors'].extend(cab_res.get('errors', []))
-                        return out
-                    nun26 = int(cab_res.get('nunota'))
-                    out['created_header'] = True
-                out['nunota_26'] = nun26
-
-            # Se ainda não há TOP 26 e gp != 'S', nada a inserir
-            if nun26 is None and str(gp).strip().upper() != 'S':
-                out['warnings'].append('TOP 26 inexistente e item não classificável — sem upsert')
-                out['ok'] = True
-                return out
-
-            # Se chegamos aqui e for dry_run/write disabled, apenas reportar
-            if dry_run or not is_write_enabled():
-                out['warnings'].append('Execução em modo simulado (dry_run ou write desabilitado)')
-                out['ok'] = True
-                return out
-
-            # 3) Tentar UPDATE no item correspondente da TOP 26
-            cols = _get_table_columns(conn, 'TGFITE')
-            set_parts = [
-                'QTDNEG=:Q', 'VLRUNIT=:VU', 'VLRTOT=:VT', 'CODVOL=:CV', 'PESO=:PS', 'CODLOCALORIG=:LOC', 'GERAPRODUCAO=:GP'
-            ]
-            if 'DTALTER' in cols:
-                set_parts.append('DTALTER=SYSDATE')
-
-            sql_upd = f"UPDATE TGFITE SET {', '.join(set_parts)} WHERE NUNOTA=:N26 AND CODPROD=:P AND CODAGREGACAO=:CTRL"
-            binds_upd = {
-                'Q': float(qtd or 0),
-                'VU': float(vlu or 0),
-                'VT': float(vlt or 0),
-                'CV': (codvol or None),
-                'PS': float(peso or 0),
-                'LOC': int(codlocal or 0) if codlocal is not None else 0,
-                'GP': (str(gp).strip().upper() if gp is not None else None),
-                'N26': nun26,
-                'P': prod,
-                'CTRL': ctrl,
+            conn.commit()
+            return {
+                'ok': True,
+                'operacao': operacao,
+                'codagregacao_removido': str(codagregacao_atual),
             }
-            cur.execute(sql_upd, binds_upd)
-            out['updated'] = int(cur.rowcount or 0)
-
-            # 4) Se nenhum item foi atualizado e for classificável, realizar INSERT (UPSERT)
-            if out['updated'] == 0 and str(gp).strip().upper() == 'S':
-                # Obter CODEMP do cabeçalho destino e próxima SEQUENCIA
-                cur.execute("SELECT CODEMP FROM TGFCAB WHERE NUNOTA=:n", n=nun26)
-                row_emp = cur.fetchone()
-                dest_emp = int(row_emp[0]) if row_emp and row_emp[0] is not None else None
-                cur.execute("SELECT NVL(MAX(SEQUENCIA),0) + 1 FROM TGFITE WHERE NUNOTA=:n", n=nun26)
-                (next_seq,) = cur.fetchone()
-                try:
-                    next_seq = int(next_seq or 1)
-                except Exception:
-                    next_seq = 1
-
-                # Montar INSERT dinâmico com colunas existentes
-                tcols = _get_table_columns(conn, 'TGFITE')
-                base_cols = [
-                    'NUNOTA','SEQUENCIA','CODEMP','CODPROD','QTDNEG','PESO','VLRUNIT','VLRTOT','CODVOL','CODLOCALORIG','CODAGREGACAO','OBSERVACAO','GERAPRODUCAO'
-                ]
-                cols_present = [c for c in base_cols if c in tcols]
-                col_list = cols_present[:]
-                values_parts = []
-                binds_ins = {}
-                for c in cols_present:
-                    if c == 'NUNOTA':
-                        values_parts.append(':NUNOTA'); binds_ins['NUNOTA'] = nun26
-                    elif c == 'SEQUENCIA':
-                        values_parts.append(':SEQUENCIA'); binds_ins['SEQUENCIA'] = next_seq
-                    elif c == 'CODEMP':
-                        values_parts.append(':CODEMP'); binds_ins['CODEMP'] = dest_emp
-                    elif c == 'CODPROD':
-                        values_parts.append(':CODPROD'); binds_ins['CODPROD'] = prod
-                    elif c == 'QTDNEG':
-                        values_parts.append(':QTDNEG'); binds_ins['QTDNEG'] = float(qtd or 0)
-                    elif c == 'PESO':
-                        values_parts.append(':PESO'); binds_ins['PESO'] = float(peso or 0)
-                    elif c == 'VLRUNIT':
-                        values_parts.append(':VLRUNIT'); binds_ins['VLRUNIT'] = float(vlu or 0)
-                    elif c == 'VLRTOT':
-                        values_parts.append(':VLRTOT'); binds_ins['VLRTOT'] = float(vlt or 0)
-                    elif c == 'CODVOL':
-                        values_parts.append(':CODVOL'); binds_ins['CODVOL'] = (codvol or None)
-                    elif c == 'CODLOCALORIG':
-                        values_parts.append(':CODLOCALORIG'); binds_ins['CODLOCALORIG'] = int(codlocal or 0) if codlocal is not None else 0
-                    elif c == 'CODAGREGACAO':
-                        values_parts.append(':CODAGREGACAO'); binds_ins['CODAGREGACAO'] = ctrl
-                    elif c == 'OBSERVACAO':
-                        values_parts.append(':OBS'); binds_ins['OBS'] = 'Upsert automático (sync portal)'
-                    elif c == 'GERAPRODUCAO':
-                        values_parts.append(':GP'); binds_ins['GP'] = (str(gp).strip().upper() if gp is not None else None)
-                # DTALTER
-                add_dtalter = 'DTALTER' in tcols
-                if add_dtalter:
-                    col_list.append('DTALTER')
-                    values_parts.append('SYSDATE')
-
-                sql_ins = f"INSERT INTO TGFITE ({', '.join(col_list)}) VALUES ({', '.join(values_parts)})"
-                cur.execute(sql_ins, binds_ins)
-                out['inserted'] = int(cur.rowcount or 0)
-
-                # Padronizações pós-gravação
-                try:
-                    std = standardize_item_fields(nun26, next_seq, conn=conn)
-                    out['standardize'] = std
-                except Exception:
-                    pass
-
-            # Commit final e retorno
-            conn.commit()
-            out['nunota_26'] = nun26
-            out['ok'] = True
-            if out['updated'] == 0 and out['inserted'] == 0:
-                out['warnings'].append('Nenhum item correspondente atualizado ou inserido na TOP 26')
-            return out
-
-    except cx_Oracle.DatabaseError as e:
-        try:
-            err, = e.args
-            out['errors'].append(getattr(err, 'message', str(e)))
-        except Exception:
-            out['errors'].append(str(e))
-        out['ok'] = False
-        return out
-
-
-def consolidate_vale_to_pedido(nunota_pedido: int, nunota_vale: int, fabricante: str):
-    """
-    Consolida os valores dos produtos classificados (EXTRA/MÉDIO) do VALE 
-    de volta para o produto IN NATURA no PEDIDO.
-    
-    Lógica:
-    1. Busca todos os produtos do VALE com o mesmo FABRICANTE
-    2. Soma os VLRTOT desses produtos
-    3. Atualiza o produto IN NATURA no PEDIDO:
-       - VLRTOT = soma dos valores classificados
-       - VLRUNIT = VLRTOT / QTDNEG (mantém QTDNEG original)
-    4. Recalcula VLRNOTA do PEDIDO
-    
-    Args:
-        nunota_pedido: NUNOTA do PEDIDO (TOP 11)
-        nunota_vale: NUNOTA do VALE (TOP 13)
-        fabricante: FABRICANTE para filtrar produtos relacionados
-        
-    Returns:
-        dict com resultado da operação
-    """
-    print(f'\n[CONSOLIDATE] Iniciando consolidação:')
-    print(f'[CONSOLIDATE]   PEDIDO (TOP 11): {nunota_pedido}')
-    print(f'[CONSOLIDATE]   VALE (TOP 13): {nunota_vale}')
-    print(f'[CONSOLIDATE]   FABRICANTE: {fabricante}')
-    
-    result = {
-        'success': False,
-        'pedido_updated': False,
-        'vlrnota_updated': False,
-        'items_found': 0,
-        'total_consolidated': 0,
-        'error': None
-    }
-    
-    try:
-        with get_connection() as conn:
-            cur = conn.cursor()
-            
-            # 1. Buscar produtos classificados no VALE pelo FABRICANTE
-            # IMPORTANTE: Buscar TODOS os produtos do FABRICANTE exceto IN NATURA
-            sql_vale_items = """
-                SELECT 
-                    ite.SEQUENCIA,
-                    ite.CODPROD,
-                    ite.QTDNEG,
-                    ite.VLRUNIT,
-                    ite.VLRTOT,
-                    pro.DESCRPROD,
-                    pro.FABRICANTE
-                FROM TGFITE ite
-                INNER JOIN TGFPRO pro ON ite.CODPROD = pro.CODPROD
-                WHERE ite.NUNOTA = :nunota_vale
-                  AND pro.FABRICANTE = :fabricante
-                  AND UPPER(pro.DESCRPROD) NOT LIKE '%IN NATURA%'
-                ORDER BY ite.SEQUENCIA
-            """
-            
-            print(f'[CONSOLIDATE] Buscando produtos classificados no VALE (FABRICANTE={fabricante})...')
-            print(f'[CONSOLIDATE] SQL: {sql_vale_items}')
-            print(f'[CONSOLIDATE] Params: nunota_vale={nunota_vale}, fabricante={fabricante}')
-            
-            cur.execute(sql_vale_items, nunota_vale=nunota_vale, fabricante=fabricante)
-            vale_items = cur.fetchall()
-            
-            print(f'[CONSOLIDATE] 🔍 Query retornou {len(vale_items) if vale_items else 0} linhas')
-            
-            if not vale_items:
-                print(f'[CONSOLIDATE] ⚠️ Nenhum produto classificado encontrado no VALE')
-                # Buscar TODOS os itens do VALE para debug
-                cur.execute("SELECT SEQUENCIA, CODPROD, QTDNEG, VLRTOT FROM TGFITE WHERE NUNOTA = :n", n=nunota_vale)
-                all_items = cur.fetchall()
-                print(f'[CONSOLIDATE] DEBUG - Total de itens no VALE: {len(all_items)}')
-                for seq, cod, qtd, vlt in all_items:
-                    print(f'[CONSOLIDATE] DEBUG - SEQ={seq}, CODPROD={cod}, QTDNEG={qtd}, VLRTOT={vlt}')
-                result['error'] = 'Nenhum produto classificado encontrado no VALE'
-                return result
-            
-            result['items_found'] = len(vale_items)
-            print(f'[CONSOLIDATE] ✅ Encontrados {len(vale_items)} produtos classificados:')
-            
-            # 2. Somar VLRTOT de todos os produtos classificados
-            total_vlrtot = 0.0
-            items_detail = []
-            for sequencia, codprod, qtdneg, vlrunit, vlrtot, descr, fab in vale_items:
-                vlrtot_float = float(vlrtot or 0)
-                total_vlrtot += vlrtot_float
-                items_detail.append({
-                    'sequencia': sequencia,
-                    'codprod': codprod,
-                    'descr': descr,
-                    'vlrtot': vlrtot_float
-                })
-                print(f'[CONSOLIDATE]   - SEQ={sequencia}, {descr} (CODPROD={codprod}): VLRTOT={vlrtot_float:.2f}')
-            
-            result['total_consolidated'] = total_vlrtot
-            result['items_detail'] = items_detail
-            print(f'[CONSOLIDATE] 💰 Total SOMADO: {total_vlrtot:.2f}')
-            print(f'[CONSOLIDATE] 💰 Detalhamento da soma:')
-            for item in items_detail:
-                print(f'[CONSOLIDATE]     + {item["vlrtot"]:.2f} ({item["descr"]})')
-            print(f'[CONSOLIDATE] 💰 = {total_vlrtot:.2f}')
-            
-            # 3. Buscar produto IN NATURA no PEDIDO pelo FABRICANTE
-            sql_pedido_item = """
-                SELECT 
-                    ite.SEQUENCIA,
-                    ite.CODPROD,
-                    ite.QTDNEG,
-                    pro.DESCRPROD
-                FROM TGFITE ite
-                INNER JOIN TGFPRO pro ON ite.CODPROD = pro.CODPROD
-                WHERE ite.NUNOTA = :nunota_pedido
-                  AND pro.FABRICANTE = :fabricante
-                  AND UPPER(pro.DESCRPROD) LIKE '%IN NATURA%'
-            """
-            
-            print(f'[CONSOLIDATE] Buscando produto IN NATURA no PEDIDO...')
-            cur.execute(sql_pedido_item, nunota_pedido=nunota_pedido, fabricante=fabricante)
-            pedido_item = cur.fetchone()
-            
-            if not pedido_item:
-                print(f'[CONSOLIDATE] ⚠️ Produto IN NATURA não encontrado no PEDIDO')
-                result['error'] = 'Produto IN NATURA não encontrado no PEDIDO'
-                return result
-            
-            sequencia, codprod, qtdneg_pedido, descr_pedido = pedido_item
-            print(f'[CONSOLIDATE] ✅ IN NATURA encontrado:')
-            print(f'[CONSOLIDATE]   - {descr_pedido} (CODPROD={codprod}, SEQ={sequencia})')
-            print(f'[CONSOLIDATE]   - QTDNEG original: {qtdneg_pedido}')
-            
-            # 4. Calcular novo VLRUNIT (mantém QTDNEG original)
-            if qtdneg_pedido and qtdneg_pedido > 0:
-                novo_vlrunit = total_vlrtot / float(qtdneg_pedido)
-            else:
-                print(f'[CONSOLIDATE] ⚠️ QTDNEG inválido no PEDIDO: {qtdneg_pedido}')
-                result['error'] = 'QTDNEG inválido no PEDIDO'
-                return result
-            
-            print(f'[CONSOLIDATE] 📊 Novos valores:')
-            print(f'[CONSOLIDATE]   - QTDNEG: {qtdneg_pedido} (mantido)')
-            print(f'[CONSOLIDATE]   - VLRTOT: {total_vlrtot}')
-            print(f'[CONSOLIDATE]   - VLRUNIT: {novo_vlrunit} (calculado)')
-            
-            # 5. Atualizar item IN NATURA no PEDIDO
-            sql_update_pedido = """
-                UPDATE TGFITE
-                SET VLRTOT = :vlrtot,
-                    VLRUNIT = :vlrunit
-                WHERE NUNOTA = :nunota
-                  AND SEQUENCIA = :sequencia
-            """
-            
-            print(f'[CONSOLIDATE] 🔧 Executando UPDATE no PEDIDO:')
-            print(f'[CONSOLIDATE]   SQL: UPDATE TGFITE SET VLRTOT={total_vlrtot:.2f}, VLRUNIT={novo_vlrunit:.6f}')
-            print(f'[CONSOLIDATE]   WHERE NUNOTA={nunota_pedido}, SEQUENCIA={sequencia}')
-            
-            cur.execute(
-                sql_update_pedido,
-                vlrtot=total_vlrtot,
-                vlrunit=novo_vlrunit,
-                nunota=nunota_pedido,
-                sequencia=sequencia
-            )
-            
-            print(f'[CONSOLIDATE] 📝 Linhas afetadas pelo UPDATE: {cur.rowcount}')
-            
-            if cur.rowcount > 0:
-                # Verificar se o valor foi realmente gravado
-                cur.execute(
-                    "SELECT VLRTOT, VLRUNIT FROM TGFITE WHERE NUNOTA = :n AND SEQUENCIA = :s",
-                    n=nunota_pedido, s=sequencia
-                )
-                check_row = cur.fetchone()
-                if check_row:
-                    print(f'[CONSOLIDATE] ✅ Valores gravados no banco:')
-                    print(f'[CONSOLIDATE]   - VLRTOT gravado: {check_row[0]}')
-                    print(f'[CONSOLIDATE]   - VLRUNIT gravado: {check_row[1]}')
-                else:
-                    print(f'[CONSOLIDATE] ⚠️ Não foi possível verificar valores gravados')
-                
-                result['pedido_updated'] = True
-            else:
-                print(f'[CONSOLIDATE] ⚠️ Nenhuma linha atualizada no PEDIDO')
-                result['error'] = 'Falha ao atualizar item no PEDIDO'
-                return result
-            
-            # 6. Recalcular VLRNOTA do PEDIDO
-            sql_recalc_vlrnota = """
-                UPDATE TGFCAB
-                SET VLRNOTA = (
-                    SELECT NVL(SUM(ite.VLRTOT), 0)
-                    FROM TGFITE ite
-                    WHERE ite.NUNOTA = TGFCAB.NUNOTA
-                )
-                WHERE NUNOTA = :nunota
-            """
-            
-            print(f'[CONSOLIDATE] Recalculando VLRNOTA do PEDIDO...')
-            cur.execute(sql_recalc_vlrnota, nunota=nunota_pedido)
-            
-            if cur.rowcount > 0:
-                print(f'[CONSOLIDATE] ✅ VLRNOTA do PEDIDO recalculado')
-                result['vlrnota_updated'] = True
-            else:
-                print(f'[CONSOLIDATE] ⚠️ Falha ao recalcular VLRNOTA')
-            
-            # 7. Commit
-            conn.commit()
-            print(f'[CONSOLIDATE] ✅ Consolidação concluída com sucesso!')
-            
-            result['success'] = True
-            return result
-            
     except Exception as e:
-        print(f'[CONSOLIDATE] ❌ Erro na consolidação: {str(e)}')
-        import traceback
-        traceback.print_exc()
-        result['error'] = str(e)
-        return result
+        logger.exception("Erro em desvincular_lote_item_pedido")
+        return {'ok': False, 'error': str(e)}
 
 
+def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
+                              qtd: float | None = None) -> dict:
+    """Atribui um lote a um item de pedido TOP 34.
 
+    Comportamento:
+        - Se ``qtd`` é None ou igual à QTDNEG do item: UPDATE simples no CODAGREGACAO
+          da linha existente.
+        - Se ``qtd`` < QTDNEG do item: divide a linha — UPDATE reduzindo a qtd da
+          original e INSERT de uma nova linha com a qtd atribuída e o novo lote.
+
+    Validações:
+        - Pedido tem que ser TOP 34 e não estar faturado/excluído.
+        - Lote precisa ter saldo suficiente em ANDRE_IRIS_SALDO_LOTE (VENDAVEL='S').
+
+    UPDATE direto (não usa atualizar_item_nota_banco) para evitar a auto-cura
+    de AD_NUMPEDIDOORIG, que é específica da Entrada/Classificação e poderia
+    bagunçar a origem do pedido de venda.
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 1) Valida o pedido e o item
+            cur.execute("""
+                SELECT c.CODTIPOPER, c.STATUSNOTA, i.CODPROD, NVL(i.QTDNEG, 0), i.CODEMP
+                FROM TGFCAB c
+                JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+                WHERE c.NUNOTA = :n AND i.SEQUENCIA = :s
+            """, n=int(nunota), s=int(sequencia))
+            row = cur.fetchone()
+
+            if not row:
+                return {'ok': False, 'error': f'Item NUNOTA={nunota} SEQ={sequencia} não encontrado'}
+
+            codtipoper, statusnota, codprod, qtd_item, codemp = row
+
+            if int(codtipoper) != 34:
+                return {'ok': False, 'error': f'Operação não é TOP 34 (encontrada: TOP {codtipoper})'}
+            if statusnota == 'L':
+                return {'ok': False, 'error': 'Pedido já foi faturado — não é mais editável'}
+            if statusnota == 'E':
+                return {'ok': False, 'error': 'Pedido excluído'}
+
+            qtd_item_f = float(qtd_item)
+            qtd_atribuir = float(qtd) if qtd is not None else qtd_item_f
+
+            if qtd_atribuir <= 0:
+                return {'ok': False, 'error': 'Qtd a atribuir deve ser > 0'}
+            if qtd_atribuir > qtd_item_f + 1e-6:
+                return {'ok': False, 'error':
+                        f'Qtd a atribuir ({qtd_atribuir}) maior que qtd do item ({qtd_item_f})'}
+
+            # 2) Valida saldo do lote na view (ignora CODEMP — permite vincular
+            #    lote de uma empresa em pedido de outra; soma o saldo do lote
+            #    em todas as empresas onde ele aparece como vendável).
+            cur.execute("""
+                SELECT NVL(SUM(QTD_DISPONIVEL), 0)
+                FROM SANKHYA.ANDRE_IRIS_SALDO_LOTE
+                WHERE CODPROD = :p AND CODAGREGACAO = :l
+                  AND VENDAVEL = 'S'
+            """, p=int(codprod), l=str(codagregacao))
+            res_saldo = cur.fetchone()
+            qtd_disp = float(res_saldo[0]) if res_saldo else 0.0
+
+            if qtd_disp + 1e-6 < qtd_atribuir:
+                return {'ok': False, 'error':
+                        f'Saldo insuficiente no lote {codagregacao}: '
+                        f'disponível={qtd_disp}, solicitado={qtd_atribuir}'}
+
+            # 3) Aplica a atribuição
+            if abs(qtd_atribuir - qtd_item_f) < 1e-6:
+                # 3a) Atribuição total — UPDATE simples
+                cur.execute("""
+                    UPDATE TGFITE SET CODAGREGACAO = :l
+                    WHERE NUNOTA = :n AND SEQUENCIA = :s
+                """, l=str(codagregacao), n=int(nunota), s=int(sequencia))
+                operacao = 'UPDATE'
+                nova_seq = None
+            else:
+                # 3b) Atribuição parcial — divide a linha
+                cur.execute(
+                    "SELECT NVL(MAX(SEQUENCIA), 0) + 1 FROM TGFITE WHERE NUNOTA = :n",
+                    n=int(nunota),
+                )
+                nova_seq = int(cur.fetchone()[0])
+
+                # Reduz qtd da linha original e recalcula seu VLRTOT
+                cur.execute("""
+                    UPDATE TGFITE
+                       SET QTDNEG = QTDNEG - :q,
+                           VLRTOT = NVL(VLRUNIT, 0) * (NVL(QTDNEG, 0) - :q)
+                     WHERE NUNOTA = :n AND SEQUENCIA = :s
+                """, q=qtd_atribuir, n=int(nunota), s=int(sequencia))
+
+                # Cria nova linha com o lote atribuído (espelha campos da original)
+                cur.execute("""
+                    INSERT INTO TGFITE (
+                        NUNOTA, SEQUENCIA, CODEMP, CODPROD, QTDNEG,
+                        VLRUNIT, VLRTOT, CODVOL, CODLOCALORIG, CODAGREGACAO,
+                        AD_NUMPEDIDOORIG
+                    )
+                    SELECT :n_dest, :s_dest, CODEMP, CODPROD, :q,
+                           VLRUNIT, NVL(VLRUNIT, 0) * :q, CODVOL, CODLOCALORIG, :l,
+                           AD_NUMPEDIDOORIG
+                      FROM TGFITE
+                     WHERE NUNOTA = :n_orig AND SEQUENCIA = :s_orig
+                """, n_dest=int(nunota), s_dest=nova_seq, q=qtd_atribuir,
+                     l=str(codagregacao), n_orig=int(nunota), s_orig=int(sequencia))
+                operacao = 'SPLIT'
+
+            # 4) Recalcula totais do cabeçalho
+            recalcular_totais_nota_banco(int(nunota), conexao_existente=conn)
+
+            conn.commit()
+            return {
+                'ok': True,
+                'operacao': operacao,
+                'qtd_atribuida': qtd_atribuir,
+                'nova_sequencia': nova_seq,
+            }
+    except Exception as e:
+        logger.exception("Erro em atribuir_lote_item_pedido")
+        return {'ok': False, 'error': str(e)}

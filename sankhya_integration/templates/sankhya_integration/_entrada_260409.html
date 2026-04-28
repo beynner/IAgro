@@ -1,0 +1,181 @@
+{% extends 'sankhya_integration/base.html' %}
+{% load static %}
+
+{% block title %}Entrada Packing House{% endblock %}
+{% block header_title %}ENTRADA PACKING HOUSE{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}">
+{% endblock %}
+
+{% block content %}
+    <aside class="panel">
+      <header>Filtros</header>
+      <form id="filtersForm" class="filters-grid compras-filters-grid">
+          <div>
+            <label>Data da negociação</label>
+            <div class="filters-range" style="align-items: flex-start;">
+              <div style="display:flex; flex-direction:column; gap:4px;">
+                <input type="date" name="start" value="{{ params.date_start|default:'' }}" />
+                <div style="display:flex; gap:4px;">
+                  <button type="button" id="btnPrevDay" class="btn-mini-nav" title="Dia anterior">&lt;&lt;</button>
+                  <button type="button" id="btnNextDay" class="btn-mini-nav" title="Dia seguinte">&gt;&gt;</button>
+                </div>
+              </div>
+              <div class="sep" style="margin-top:10px;">a</div>
+              <input type="date" name="end" value="{{ params.date_end|default:'' }}" />
+            </div>
+          </div>
+          <div>
+            <label>Pedido/Vale (Crachá)</label>
+            <input type="number" name="nunota_ini" value="{{ params.nunota_ini|default:'' }}" />
+          </div>
+          <div>
+            <label>Produto</label>
+            <div class="pos-rel">
+              <input type="hidden" name="codprod" id="fabricanteHidden" value="{{ params.codprod|default:'' }}" />
+              <input type="text" id="prodSearch" placeholder="Pesquisar produto" autocomplete="off" class="full-width" />
+              <div id="prodDropdown" class="dropdown-abs"></div>
+            </div>
+          </div>
+          <div>
+            <label>Parceiro</label>
+            <div class="pos-rel">
+              <input type="hidden" name="codparc" id="codparc" value="{{ params.codparc|default:'' }}" />
+              <input type="text" id="parcSearch" placeholder="Código ou nome do parceiro" autocomplete="off" class="full-width" value="{% if parc_display %}{{ parc_display }}{% elif params.codparc %}{{ params.codparc }}{% endif %}" />
+              <div id="parcDropdown" class="dropdown-abs"></div>
+            </div>
+          </div>
+          <input type="hidden" name="days" value="{{ params.days|default:'' }}" />
+      </form>
+      <div class="filters-footer">
+        <button type="button" id="btnClear" class="btn btn-clear">Limpar</button>
+      </div>
+    </aside>
+
+    <section class="rightcol" style="flex: 1; min-width: 0;">
+      <div class="toolbar-top">
+        <a class="icon-btn" title="Novo lançamento" href="/sankhya/packing/central/?codtipoper=11" id="btnNew">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </a>
+        <button class="icon-btn" id="btnDeleteNota" type="button" title="Excluir nota selecionada" disabled>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg>
+        </button>
+        <button class="icon-btn" type="button" title="Imprimir" id="btnPrint" disabled>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+        </button>
+      </div>
+
+      <div class="panel panel--results">
+        <header>Notas / Pedidos</header>
+        <div class="list" id="notasList" data-current-page="{{ page|default:1 }}" data-has-next="{% if has_next %}1{% else %}0{% endif %}">
+          <table id="notasTable" class="ph-selectable-table">
+            <colgroup>
+              <col style="width: 80px;">
+              <col style="width: 100px;">
+              <col style="width: auto;">
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Pedido</th>
+                <th>Data</th>
+                <th>Parceiro</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for nunota, nronota, dtneg, codparc, nomeparc, vtotal in notas %}
+              <tr class="row--click" data-nunota="{{ nunota }}" data-central-url="/sankhya/packing/central/?nunota={{ nunota }}">
+                <td>{{ nunota }}</td>
+                <td>{{ dtneg|date:"d/m/Y" }}</td>
+                <td>{{ nomeparc }}</td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="3">Nenhuma nota encontrada.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel panel--items">
+        <header>Itens da Nota {{ sel }}</header>
+        <div class="items">
+          <table id="itensTable" class="ph-selectable-table">
+            <colgroup>
+              <col style="width: 140px;">
+              <col style="width: 50px;">
+              <col style="width: auto;">
+              <col style="width: 45px;">
+              <col style="width: 60px;">
+              <col style="width: 60px;">
+              <col style="width: 75px;">
+              <col style="width: 75px;">
+              <col style="width: 90px;">
+            </colgroup>
+            <thead>
+              <tr><th>Lote</th><th>Cód</th><th>Produto</th><th>Unid</th><th>Qtd</th><th>Peso</th><th>Classifica</th><th>Vlr Unit</th><th>Total kg</th><th>Obs</th></tr>
+            </thead>
+            <tbody id="panelItemsBody">
+              <tr><td colspan="10" class="ph-placeholder">Selecione uma nota para ver os itens</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <div id="cabModal" class="modal-overlay">
+        <div id="cabCard" class="modal-card small offscreen-left z71">
+            <div class="modal-header"><strong>Cabeçalho</strong></div>
+            <div class="modal-body">
+                <input type="hidden" id="cab_codemp" value="10" />
+                <div><label>Nº Único</label><input type="text" id="cab_nunota" disabled readonly /></div>
+                <div>
+                  <label>Parceiro</label>
+                  <div class="pos-rel">
+                    <input type="hidden" id="cab_codparc" /><input type="text" id="cab_parcSearch" placeholder="Código ou nome" autocomplete="off" />
+                    <div id="cab_parcDropdown" class="dropdown-abs"></div>
+                  </div>
+                </div>
+                <div><label>Dt. Neg.</label><input type="date" id="cab_dtneg" /></div>
+                <div><label>Tipo Operação</label><input type="text" id="cab_top" value="11 — Pedido de Compra" disabled readonly /></div>
+                <div class="full-width"><label>Observação</label><textarea id="cab_obs" rows="6" class="full-width modal-textarea"></textarea></div>
+                <div class="flex gap-8 justify-end">
+                    <button class="icon-btn" type="button" id="cabCancel">✖</button>
+                    <button class="icon-btn" type="button" id="cabSave">💾</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="cabItemsModal" class="modal-overlay">
+        <div id="cabItemsCard" class="modal-card large offscreen-right z76">
+            <div class="modal-header"><strong>Itens — Nota</strong></div>
+            <div class="modal-body">
+                <input type="hidden" id="items_nunota" /><input type="hidden" id="item_seq_edit" />
+                <div class="flex-col gap-8">
+                    <div class="flex gap-8 align-end">
+                        <div class="pos-rel flex-3-2"><label>Produto</label><input type="text" id="item_prod_vis" class="full-width" /><input type="hidden" id="item_prod_hidden" /><div id="item_prod_sugg" class="dropdown-abs"></div></div>
+                        <div class="w-88"><label>Qtd</label><input type="number" id="item_qtd" step="0.001" /></div>
+                        <div class="w-120"><label>Total KG</label><input type="text" id="item_total" disabled /></div>
+                        <button id="itemAddBtn" class="icon-btn">+</button>
+                    </div>
+                </div>
+                <div class="scroll-panel">
+                    <table class="ph-selectable-table">
+                        <thead><tr><th>Produto</th><th>Lote</th><th>Qtd</th><th>Peso</th><th>Total kg</th><th></th></tr></thead>
+                        <tbody id="itemsListBody"><tr><td colspan="6">Nenhum item.</td></tr></tbody>
+                    </table>
+                </div>
+                <div class="flex justify-end mt6"><button id="itemsSave" class="btn btn-muted">Fechar</button></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="topModal" class="modal-overlay"></div>
+    <div id="rodapeModal" class="modal-overlay"></div>
+
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'sankhya_integration/entrada.js' %}" defer></script>
+{% endblock %}

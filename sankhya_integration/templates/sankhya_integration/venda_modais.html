@@ -1,0 +1,159 @@
+<div id="cabModal" class="modal-overlay">
+  <div id="cabCard" class="modal-card small offscreen-left z71">
+    <div class="modal-header">
+      <strong>Cabeçalho da Venda / Pedido</strong>
+    </div>
+    <div class="modal-body">
+      <div>
+        <label>Empresa</label>
+        <div class="pos-rel">
+          <input type="hidden" id="cab_codemp" value="10" />
+          <input type="text" id="cab_empSearch" placeholder="Código ou nome da empresa" autocomplete="off" class="full-width" />
+          <div id="cab_empDropdown" class="dropdown-abs"></div>
+        </div>
+      </div>
+
+      <div>
+        <label>Nº Único (NUNOTA)</label>
+        <input type="text" id="cab_nunota" disabled readonly class="input-readonly full-width" />
+      </div>
+
+      <div>
+        <label>Cliente (Parceiro)</label>
+        <div class="pos-rel">
+          <input type="hidden" id="cab_codparc" />
+          <input type="text" id="cab_parcSearch" placeholder="Código ou nome do cliente" autocomplete="off" class="full-width" />
+          <div id="cab_parcDropdown" class="dropdown-abs"></div>
+        </div>
+      </div>
+
+      <div>
+        <label>Data Negociação</label>
+        <input type="date" id="cab_dtneg" />
+      </div>
+
+      <div>
+        <label>Tipo de Negociação <span style="color:#ef4444">*</span></label>
+        <div class="pos-rel">
+          <input type="hidden" id="cab_codtipvenda" />
+          <input type="text" id="cab_tipvendaSearch" placeholder="Código ou descrição" autocomplete="off" class="full-width" />
+          <div id="cab_tipvendaDropdown" class="dropdown-abs"></div>
+        </div>
+      </div>
+
+      <div>
+        <label>Tipo de Operação (TOP)</label>
+        <div class="pos-rel">
+          <input type="hidden" id="cab_top_cod" value="34" />
+          <input type="text" id="cab_top" placeholder="TOP" autocomplete="off" value="34 — Pedido de Venda" disabled readonly />
+        </div>
+      </div>
+
+      <div class="form-row">
+          <div style="flex:1">
+            <label>Natureza</label>
+            <input type="text" id="cab_nat" value="Carregando..." disabled readonly class="full-width" />
+          </div>
+          <div style="flex:1">
+            <label>C. Resultado</label>
+            <input type="text" id="cab_cencus" value="Carregando..." disabled readonly class="full-width" />
+          </div>
+      </div>
+
+      <div class="full-width">
+        <label>Observação Interna</label>
+        <textarea id="cab_obs" rows="4" class="full-width modal-textarea"></textarea>
+      </div>
+
+      <div class="flex gap-8 justify-end">
+        <button class="icon-btn" type="button" id="cabCancel" title="Cancelar">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+        <button class="icon-btn" type="button" id="cabSave" title="Salvar Cabeçalho">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h11l5 5v9a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="cabItemsModal" class="modal-overlay">
+  <div id="cabItemsCard" class="modal-card large offscreen-right z76">
+    <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center;">
+      <strong>Itens do Pedido — <span id="items_nunota_display"></span></strong>
+      <div id="badge_lote_pendente" class="badge badge-danger pulse hidden">PENDENTE DE LOTE</div>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="items_nunota" />
+      <input type="hidden" id="item_seq_edit" />
+
+      <div class="flex-col gap-8">
+        <div class="flex gap-8 align-end">
+          <div class="pos-rel flex-3-2 min-w-320">
+            <label>Produto</label>
+            <input type="text" id="item_prod_vis" placeholder="Buscar produto..." autocomplete="off" class="full-width" />
+            <input type="hidden" id="item_prod_hidden" />
+            <div id="item_prod_sugg" class="dropdown-abs fs-13"></div>
+          </div>
+          <div class="w-120">
+            <label>Lote (Agregação)</label>
+            <input type="text" id="item_lote" placeholder="Opcional" class="full-width" />
+          </div>
+          <div class="w-88">
+            <label>Volume</label>
+            <select id="item_codvol" class="full-width">
+              <option value="CX" selected>CX</option>
+              <option value="KG">KG</option>
+              <option value="UN">UN</option>
+              <option value="MC">MC</option>
+              <option value="SC">SC</option>
+            </select>
+          </div>
+          <div class="w-88">
+            <label>Qtd</label>
+            <input type="number" id="item_qtd" step="0.001" class="full-width" />
+          </div>
+          <div class="w-120">
+            <label>Preço Unit.</label>
+            <input type="number" id="item_preco" step="0.01" class="full-width" />
+          </div>
+          <div class="w-120">
+            <label>Total</label>
+            <input type="text" id="item_total_venda" disabled class="text-right full-width input-readonly" />
+          </div>
+          <button id="itemAddBtn" class="icon-btn" title="Adicionar Item">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+          </button>
+        </div>
+      </div>
+
+      <div style="margin-top: 15px;">
+        <label>Produtos no Pedido</label>
+        <div class="scroll-panel" style="height: 300px;">
+          <table class="ph-selectable-table">
+            <thead>
+              <tr>
+                <th>Produto</th>
+                <th>Lote</th>
+                <th class="text-right">Qtd</th>
+                <th class="text-right">Preço</th>
+                <th class="text-right">Total</th>
+                <th class="col-w-60"></th>
+              </tr>
+            </thead>
+            <tbody id="itemsListBody">
+              <tr><td colspan="6" class="ph-placeholder">Nenhum item inserido.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="flex gap-8 justify-end mt6">
+        <button id="btnEditCab" type="button" class="btn btn-muted" title="Alterar dados do cabeçalho">
+            Editar Cabeçalho
+        </button>
+        <button id="itemsSave" type="button" class="btn btn-muted">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>

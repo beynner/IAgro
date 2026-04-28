@@ -54,7 +54,7 @@ Este arquivo consolida o histórico das conversas e decisões técnicas aplicada
 
 ## Arquivos editados com impacto
 
-- `sankhya_integration/templates/sankhya_integration/compras_portal.html`
+- `sankhya_integration/templates/sankhya_integration/entrada.html`
   - UI do Portal: confirmação de duplicidade, formatações, validações, layout e botões.
 
 - `sankhya_integration/templates/sankhya_integration/compras_classificacao.html`

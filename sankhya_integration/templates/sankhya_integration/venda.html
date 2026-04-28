@@ -1,0 +1,145 @@
+{% extends 'sankhya_integration/base.html' %}
+{% load static %}
+
+{% block title %}Vendas Packing House{% endblock %}
+
+{% block extra_css %}
+  <meta name="app-version" content="{{ APP_VERSION }}">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/venda.css' %}">
+{% endblock %}
+
+{% block header_title %}VENDAS PACKING HOUSE{% endblock %}
+
+{% block content %}
+    <div class="venda-grid">
+    <aside class="panel" id="cardFiltros">
+        <header>Filtros</header>
+        <form id="filtersForm" class="filters-grid">
+            <div>
+                <label>Data da Negociação</label>
+                <div class="filters-range-stack">
+                    <input type="date" name="start" value="{{ params.date_start|default:'' }}" />
+                    <div class="date-nav-buttons">
+                        <button type="button" id="btnPrevDate" title="Voltar 1 Dia">&laquo;</button>
+                        <button type="button" id="btnNextDate" title="Avançar 1 Dia">&raquo;</button>
+                    </div>
+                    <input type="date" name="end" value="{{ params.date_end|default:'' }}" />
+                </div>
+            </div>
+
+            <div>
+                <label>Empresa</label>
+                <input type="number" name="codemp" placeholder="Cód. Empresa" />
+            </div>
+
+            <div class="filters-range-stack">
+                <div>
+                    <label>Pedido / Vale</label>
+                    <input type="number" name="nunota_ini" placeholder="Nº Único" class="full-width" />
+                </div>
+                <div>
+                    <label>Nota Fiscal</label>
+                    <input type="number" name="numnota" placeholder="Nº Nota" class="full-width" />
+                </div>
+            </div>
+
+            <div>
+                <label>Operação (TOP)</label>
+                <select name="top" class="full-width">
+                    <option value="T">TODAS</option>
+                    <option value="34">34 — Pedido</option>
+                    <option value="35">35 — NFe</option>
+                    <option value="37">37 — S/ NFe</option>
+                </select>
+            </div>
+
+            <div>
+                <label>Produto</label>
+                <div class="pos-rel">
+                    <input type="hidden" name="codprod" id="codprod" value="" />
+                    <input type="text" id="prodSearch" placeholder="Cód ou Descrição" autocomplete="off" class="full-width" />
+                    <div id="prodDropdown" class="dropdown-abs"></div>
+                </div>
+            </div>
+
+            <div>
+                <label>Parceiro</label>
+                <div class="pos-rel">
+                    <input type="hidden" name="codparc" id="codparc" value="" />
+                    <input type="text" id="parcSearch" placeholder="Código ou nome" autocomplete="off" class="full-width" />
+                    <div id="parcDropdown" class="dropdown-abs"></div>
+                </div>
+            </div>
+
+            <div>
+                <label>Lote</label>
+                <input type="text" name="lote" placeholder="Descrição do Lote" class="full-width" />
+            </div>
+        </form>
+        
+        <div class="filters-footer">
+            <button type="button" id="btnUpdate" class="btn btn-update">Atualizar</button>
+            <button type="button" id="btnClear" class="btn btn-clear">Limpar</button>
+        </div>
+    </aside>
+
+    <div class="col-wrapper-central">
+        <div class="toolbar-vendas">
+            <button class="icon-btn-venda" type="button" title="Novo Pedido" id="btnNewVenda">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+            <button class="icon-btn-venda" id="btnDeleteVenda" type="button" title="Excluir" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg>
+            </button>
+            <button class="icon-btn-venda" id="btnPrintVenda" type="button" title="Imprimir" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+            </button>
+        </div>
+
+        <div class="panel panel--results" id="cardCabecalho">
+            <header>Cabeçalho da Nota</header>
+            <div class="list" id="vendasList">
+                <table id="vendasTable" class="ph-selectable-table">
+                    <thead>
+                        <tr>
+                            <th class="col-w-70">Pedido</th>
+                            <th class="col-w-70">Nº Nota</th>
+                            <th class="col-w-40">Emp.</th>
+                            <th class="col-w-40">TOP</th>
+                            <th class="col-w-90">Data</th>
+                            <th class="col-w-auto">Parceiro</th>
+                            <th class="text-right">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody id="vendasTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-wrapper-itens">
+        <div class="spacer-vendas"></div> <div class="panel panel--items" id="cardItens">
+            <header>Itens do Pedido <span id="label_sel_nunota">--</span></header>
+            <div class="items">
+                <table class="ph-selectable-table">
+                    <thead>
+                        <tr>
+                            <th>Lote</th>
+                            <th>Produto</th>
+                            <th class="text-right">Qtd</th>
+                            <th class="text-right">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody id="vendaItemsBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    </div>
+
+    {% include 'sankhya_integration/venda_modais.html' %}
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'sankhya_integration/venda.js' %}"></script>
+{% endblock %}

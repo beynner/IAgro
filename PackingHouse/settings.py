@@ -7,12 +7,12 @@ except Exception:
     pass
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SECRET_KEY = 'sua-chave-secreta'
-DEBUG = True
-ALLOWED_HOSTS = ['*']  # dev-friendly; tighten in production
+SECRET_KEY = os.environ['SECRET_KEY']
+DEBUG = os.getenv('DEBUG', 'False') == 'True'
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '127.0.0.1,localhost').split(',')
 CSRF_TRUSTED_ORIGINS = [
-    'http://localhost:8000',
-    'http://127.0.0.1:8000',
+    'http://localhost:8002',
+    'http://127.0.0.1:8002',
 ]
 
 INSTALLED_APPS = [
@@ -33,6 +33,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'sankhya_integration.middleware.ControleInatividadeMiddleware',
 ]
 
 ROOT_URLCONF = 'PackingHouse.urls'
@@ -48,6 +49,8 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'sankhya_integration.context_processors.app_version_processor', 
+                'sankhya_integration.context_processors.environment_badge',
             ],
         },
     },
@@ -102,11 +105,55 @@ SANKHYA_CONFIG = {
         'DUPLICATE_METHOD': 'python',     # Via Python, não trigger
         'CREATE_VALE_COMPRA': False,      # Será implementado na tela Comercial
         'SEPARATE_INTERFACES': True,       # Portal=TOP11, Classificação=TOP26
-    }
+    },
+    # Sobrescreve parâmetros financeiros usados ao faturar vale
+    'PARAMS': {
+        'FINANCEIRO_TIPO_TITULO': 9,
+    },
 }
 
-# apenas em desenvolvimento/DEBUG
+# Headers de segurança — ajustados por ambiente via variáveis de ambiente
 if DEBUG:
-    # desativa os headers COOP/COEP enquanto testa via HTTP na LAN
+    # Em desenvolvimento (HTTP local): desativa headers que bloqueiam requests sem HTTPS
     SECURE_CROSS_ORIGIN_OPENER_POLICY = None
     SECURE_CROSS_ORIGIN_EMBEDDER_POLICY = None
+else:
+    # Em produção: ativa proteções conforme configuração do servidor
+    SECURE_SSL_REDIRECT            = os.getenv('SECURE_SSL_REDIRECT', 'False') == 'True'
+    SECURE_HSTS_SECONDS            = int(os.getenv('SECURE_HSTS_SECONDS', '0'))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = os.getenv('SECURE_HSTS_INCLUDE_SUBDOMAINS', 'False') == 'True'
+    SECURE_HSTS_PRELOAD            = os.getenv('SECURE_HSTS_PRELOAD', 'False') == 'True'
+    SECURE_CONTENT_TYPE_NOSNIFF    = True
+    SESSION_COOKIE_SECURE          = os.getenv('SESSION_COOKIE_SECURE', 'False') == 'True'
+    CSRF_COOKIE_SECURE             = os.getenv('CSRF_COOKIE_SECURE', 'False') == 'True'
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'WARNING',
+    },
+    'loggers': {
+        'sankhya_integration': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    },
+}
+
+# Versão da Aplicação
+APP_VERSION = '1.1.0 beta'  # Atualize conforme necessário

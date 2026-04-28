@@ -1,0 +1,599 @@
+{% extends 'sankhya_integration/base.html' %}
+{% load static %}
+
+{% block title %}Classificação - Packing House{% endblock %}
+
+{% block header_title %}
+  CLASSIFICAÇÃO
+  {% if timings %}
+    <span title="Tempo de servidor (ms)" style="font-size:12px; font-weight:500; color:#fff; background:rgba(0,0,0,0.2); border-radius:9999px; padding:2px 8px; margin-left: 10px; vertical-align: middle;">
+      {{ timings.total_ms }} ms (list {{ timings.list_ms }}, sum {{ timings.sum_ms }})
+    </span>
+  {% endif %}
+  {% if db_error %}
+    <span style="padding:4px 10px; background:#fef2f2; color:#991b1b; border-radius:6px; font-size:12px; border:1px solid #fecaca; margin-left: 10px; vertical-align: middle;">
+      Falha DB: {{ db_error }}
+    </span>
+  {% endif %}
+{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/classificacao.css' %}">
+{% endblock %}
+
+{% block content %}
+  <div id="ph-metadata" style="display: none;"
+      data-version="{{ APP_VERSION }}"
+      data-env="{{ ENV_BADGE_LABEL|default:'PRODUÇÃO' }}"
+      data-initial-lote="{{ initial_lote_ctrl|default:'' }}"
+      data-initial-json='{{ initial_lote_json|safe|default:"{}" }}'>
+  </div>
+
+  <div class="classificacao-grid">
+    <aside class="panel">
+      <header>Filtros</header>
+      
+      <div style="padding:14px 16px 8px 16px; border-bottom:1px dashed var(--border);">
+        <div style="font-size:11px; font-weight:700; color:var(--text-main); margin-bottom:8px; text-transform:uppercase;">STATUS DO LOTE</div>
+        <div id="statusFilters" style="display:grid; grid-template-columns:auto 1fr; gap:6px 8px; align-items:center;">
+          <input type="checkbox" data-filter="green" id="filterGreen" style="cursor:pointer; accent-color:#10b981;" {% if 'green' in status_filters %}checked{% endif %}>
+          <label for="filterGreen" style="cursor:pointer; font-size:12px; color:#10b981; font-weight:600; text-transform:none;">Classificação Finalizada</label>
+          
+          <input type="checkbox" data-filter="yellow" id="filterYellow" style="cursor:pointer; accent-color:#f59e0b;" {% if 'yellow' in status_filters %}checked{% endif %}>
+          <label for="filterYellow" style="cursor:pointer; font-size:12px; color:#f59e0b; font-weight:600; text-transform:none;">Classificando</label>
+          
+          <input type="checkbox" data-filter="red" id="filterRed" style="cursor:pointer; accent-color:#ef4444;" {% if 'red' in status_filters %}checked{% endif %}>
+          <label for="filterRed" style="cursor:pointer; font-size:12px; color:#ef4444; font-weight:600; text-transform:none;">A Classificar</label>
+        </div>
+      </div>
+      
+      <div class="content">
+        <form onsubmit="return false;" id="filtersForm" class="filters-grid">
+          <div>
+            <label>Data da negociação</label>
+            <div class="filters-range" style="align-items: flex-start;">
+              <div style="display:flex; flex-direction:column; gap:4px; flex:1;">
+                <input type="date" name="start" value="{{ params.date_start|default:'' }}" />
+                <div style="display:flex; gap:4px;">
+                  <button type="button" id="btnPrevDay" class="btn-mini-nav" title="Dia anterior">&lt;&lt;</button>
+                  <button type="button" id="btnNextDay" class="btn-mini-nav" title="Dia seguinte">&gt;&gt;</button>
+                </div>
+              </div>
+              <div class="sep" style="margin-top:8px;">a</div>
+              <input type="date" name="end" value="{{ params.date_end|default:'' }}" style="flex:1;" />
+            </div>
+          </div>
+          <div>
+            <label>Pedido</label>
+            <div style="position:relative;">
+              <input type="hidden" id="pedidoHidden" />
+              <input type="text" id="pedidoSearch" name="nunota_ini" placeholder="Nº do pedido" autocomplete="off" value="{{ params.nunota_ini|default:'' }}" />
+              <div id="pedidoDropdown" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:6px; max-height:200px; overflow:auto; display:none; z-index:10;"></div>
+            </div>
+          </div>
+          <div>
+            <label>Produto</label>
+            <div style="position:relative;">
+              <input type="hidden" name="fabricante" id="fabricanteHidden" value="{{ params.fabricante|default:'' }}" />
+              <input type="text" id="fabricanteSearch" placeholder="Nome do produto ou fabricante" autocomplete="off" value="{{ fabricante_display|default:'' }}" />
+              <div id="fabricanteDropdown" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:6px; max-height:200px; overflow:auto; display:none; z-index:10;"></div>
+            </div>
+          </div>
+          <div>
+            <label>Parceiro</label>
+            <div style="position:relative;">
+              <input type="hidden" name="codparc" id="codparc" value="{{ params.codparc|default:'' }}" />
+              <input type="text" id="parcSearch" placeholder="Código ou nome do parceiro" autocomplete="off" value="{% if parc_display %}{{ parc_display }}{% elif params.codparc %}{{ params.codparc }}{% endif %}" />
+              <div id="parcDropdown" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:6px; max-height:200px; overflow:auto; display:none; z-index:10;"></div>
+            </div>
+          </div>
+          <div>
+            <label>Lote</label>
+            <div style="position:relative;">
+              <input type="hidden" id="loteHidden" />
+              <input type="text" id="loteSearch" name="lote" placeholder="Código do lote" autocomplete="off" value="{{ params.lote|default:'' }}" />
+              <div id="loteDropdown" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:6px; max-height:200px; overflow:auto; display:none; z-index:10;"></div>
+            </div>
+          </div>
+        </form>
+        <div style="text-align: right; margin-top: 12px;">
+          <button type="button" id="btnUpdate" class="btn btn-update">Atualizar</button>
+          <button type="button" id="btnClear" class="btn btn-clear">Limpar</button>
+        </div>
+      </div>
+    </aside>
+
+    <section class="rightcol">
+      <div class="panel panel--results" style="padding:0;">
+        <header style="border-bottom: 1px solid var(--border);">
+          <span>Lotes</span>
+          <div class="toolbar-top" style="margin:0;">
+            <button class="icon-btn" title="Adicionar classificação" id="btnAddClassify" disabled>
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+            <button class="icon-btn danger" id="btnDeleteNota" type="button" title="Excluir lote selecionado" disabled>
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                <path d="M10 11v6"></path>
+                <path d="M14 11v6"></path>
+                <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          </div>
+        </header>
+        
+        <div class="content list" id="notasList" style="padding:0;">
+          <table id="notasTable" class="ph-selectable-table">
+            <thead>
+              <tr>
+                <th style="width: 40px; text-align: center;">Status</th>
+                <th style="width: 100px; text-align: left;">Lote</th>
+                <th style="width: 80px; text-align: left;">Data</th>
+                <th style="width: 150px; text-align: left;">Parceiro</th>
+                <th style="width: 250px; text-align: left;">Produto</th>
+                <th style="width: 80px; text-align: right;">Qtde cx</th>
+                <th style="width: 80px; text-align: right;">Peso InNatura</th>
+                <th style="width: 100px; text-align: right;">Qtde Kg</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% if lotes %}
+                {% include "sankhya_integration/_lotes_rows.html" %}
+              {% else %}
+                <tr><td colspan="9" style="text-align:center; padding:20px;">Nenhum lote encontrado.</td></tr>
+              {% endif %}
+            </tbody>
+            <tfoot id="lotesTableFooter">
+              <tr id="loadingIndicator" style="display: {% if has_next %}table-row{% else %}none{% endif %};">
+                <td colspan="9" style="text-align: center; padding: 0; border: none; height: 60px;">
+                  <div class="loading-content" style="display: none; align-items: center; justify-content: center; gap: 8px; color: var(--muted);">
+                    <div class="ph-spinner" style="width: 24px; height: 24px; border-width: 3px;"></div>
+                    <span>Carregando mais lotes...</span>
+                  </div>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <div class="bottom-row">
+        <div class="panel panel--items" id="produtosClassificadosPanel" style="padding:0;">
+          <header style="border-bottom: 1px solid var(--border);">
+            <div>Produtos Classificados <span id="nunotaClassBadge" style="display:none; margin-left:8px; font-weight:600; color:var(--text-main); background:#e2e8f0; padding:2px 8px; border-radius:12px; font-size:10px;"></span></div>
+          </header>
+          
+          <div id="produtosClassificadosWatermark" class="ph-watermark" aria-hidden="true">FINALIZADO</div>
+          
+          <div class="content items" style="padding:0;">
+            <table class="ph-selectable-table">
+              <thead>
+                <tr>
+                  <th>Lote</th>
+                  <th>Seq</th>
+                  <th>Produto</th>
+                  <th style="text-align:right;">Total CX<br>Classificado</th>
+                  <th style="text-align:right;">Peso<br>Classificado</th>
+                  <th style="text-align:right;">Total KG<br>Classificado</th>
+                </tr>
+              </thead>
+              <tbody id="prodClassBody">
+                {% if produtos_classificados %}
+                  {% for it in produtos_classificados %}
+                    <tr>
+                      <td>{{ it.0 }}</td>
+                      <td>{{ it.1 }}</td>
+                      <td>{{ it.2 }}</td>
+                      <td style="text-align:right;">{{ it.5 }}</td>
+                      <td style="text-align:right;">{{ it.4 }}</td>
+                      <td>{{ it.3 }}</td>
+                      <td></td>
+                    </tr>
+                  {% endfor %}
+                {% else %}
+                  <tr><td colspan="7" style="text-align:center; padding:20px;">Carregando...</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel panel--summary">
+          <header>Resumo</header>
+          <div class="content resumo-container">
+              
+              <div class="resumo-item">
+                  <div class="resumo-main">
+                      <span class="resumo-label">IN NATURA<br>(KG)</span>
+                      <span id="resumoInNatura" class="resumo-valor-medio">0,0</span>
+                  </div>
+                  <div class="resumo-footer">
+                      <span class="resumo-pct">100%</span>
+                      <span id="resumoInNaturaCx" class="resumo-cx">0,0 cx</span>
+                  </div>
+              </div>
+
+              <div class="resumo-item">
+                  <div class="resumo-main">
+                      <span class="resumo-label">CLASSIFICADO<br>(KG)</span>
+                      <span id="resumoClassificado" class="resumo-valor-medio">0,0</span>
+                  </div>
+                  <div class="resumo-footer">
+                      <span id="resumoClassificadoPct" class="resumo-pct success">0%</span>
+                      <span id="resumoClassificadoCx" class="resumo-cx">0,0 cx</span>
+                  </div>
+              </div>
+
+              <div class="resumo-item">
+                  <div class="resumo-main">
+                      <span class="resumo-label">DESCARTE<br>(KG)</span>
+                      <span id="resumoDescarte" class="resumo-valor-medio">0,0</span>
+                  </div>
+                  <div class="resumo-footer">
+                      <span id="resumoDescartePct" class="resumo-pct danger">0%</span>
+                  </div>
+              </div>
+
+              <div class="resumo-item">
+                  <div class="resumo-main">
+                      <span class="resumo-label">ESTOQUE<br>(KG)</span>
+                      <span id="resumoEstoque" class="resumo-valor-medio">0,0</span>
+                  </div>
+                  <div class="resumo-footer">
+                      <span id="resumoEstoquePct" class="resumo-pct warning">0%</span>
+                      <span id="resumoEstoqueCx" class="resumo-cx">0,0 cx</span>
+                  </div>
+              </div>
+
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="modalItemEdit" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); align-items:center; justify-content:center; z-index:70;">
+    <div style="background:#fff; border-radius:8px; width:640px; max-width:95%; padding:14px;">
+      <h3 id="itemModalTitle">Editar Item</h3>
+      <div style="display:grid; grid-template-columns: 1fr 120px; gap:8px;">
+        <div style="position:relative;">
+          <label>Produto (código)</label>
+          <input type="hidden" id="itemProdHidden" />
+          <input type="text" id="itemProdCod" placeholder="cod ou descrição" autocomplete="off" />
+          <div id="itemProdSuggest" style="position:absolute; left:0; right:0; background:#fff; border:1px solid #e5e7eb; display:none; max-height:160px; overflow:auto; z-index:90; font-size:13px;"></div>
+        </div>
+        <div style="position:relative;">
+          <label>Vol</label>
+          <input type="hidden" id="itemVolHidden" />
+          <input type="text" id="itemVol" placeholder="KG" autocomplete="off" readonly disabled style="background-color:#f3f4f6; cursor:not-allowed;" />
+          <div id="itemVolSuggest" style="position:absolute; left:0; right:0; background:#fff; border:1px solid #e5e7eb; display:none; max-height:160px; overflow:auto; z-index:90; font-size:13px;"></div>
+        </div>
+        <div><label>Qtd</label><input type="number" id="itemQtd" step="0.001" /></div>
+        <div><label>Peso</label><input type="number" id="itemPeso" step="0.001" readonly /></div>
+        <div><label>Total kg</label><input type="number" id="itemTotalKg" step="0.001" /></div>
+        <div><label>Vlr Unit</label><input type="number" id="itemVlr" step="0.01" value="0" disabled title="Definido na página Comercial (TOP 26 não usa preço)" /></div>
+        <div style="grid-column:1 / -1;"><label>Obs</label><input type="text" id="itemObs" /></div>
+      </div>
+      <div style="display:flex; justify-content:space-between; gap:8px; margin-top:12px;">
+        <div><button id="itemDeleteBtn" class="icon-btn danger" style="padding: 6px 12px; width: auto;">Excluir</button></div>
+        <div style="display:flex; gap:8px;">
+          <button id="itemModalCancel">Cancelar</button>
+          <button id="itemModalSave" style="background:#558b2f; color:#fff;">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="modalClassify" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); align-items:center; justify-content:center; z-index:40;">
+    <div style="background:#fff; border-radius:8px; width:760px; max-width:95%; padding:14px;">
+      <h3>Classificar Lote <span id="modalLote"></span></h3>
+      <div style="display:flex; gap:12px; margin-bottom:8px;">
+        <div style="flex:1;"><label>Parceiro</label><input type="text" id="modalParceiro" readonly /></div>
+        <div style="width:160px;"><label>Qtd InNatura Pedido</label><input type="text" id="modalInnTotal" readonly /></div>
+        <div style="width:220px;"><label>Origem (NUNOTA / SEQ)</label><select id="modalOrigem" style="width:100%;"></select></div>
+      </div>
+      <div><label>Quantidade InNatura Classificada (total pretendido)</label><input type="number" id="modalInnClassTotal" step="0.001" /></div>
+      <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+        <div id="modalMessages" style="min-height:28px; color:#b91c1c; font-size:13px;"></div>
+        <div id="modalWriteStatus" style="font-size:12px; color:#6b7280;">Gravação: —</div>
+      </div>
+      <div id="modalSaldo" style="margin-top:6px; font-size:13px; color:#374151;"></div>
+      <div style="margin-top:8px;">
+        <label>Saídas (Produto, Qtde)</label>
+        <table style="width:100%; margin-top:6px;">
+          <thead><tr><th>Produto</th><th>Quantidade</th><th>Obs</th><th></th></tr></thead>
+          <tbody id="modalSaidasBody">
+            <tr>
+              <td style="position:relative;">
+                <input type="hidden" class="ma-prod-hidden" />
+                <input class="ma-prod-vis" placeholder="cod ou desc" autocomplete="off" style="width:220px;" />
+                <div class="ma-prod-suggest" style="position:absolute; left:0; right:0; background:#fff; border:1px solid #e5e7eb; display:none; max-height:160px; overflow:auto; z-index:60; font-size:13px;"></div>
+                <input type="hidden" class="ma-vol-hidden" />
+                <input class="ma-vol-vis" type="hidden" value="KG" />
+                <div class="ma-vol-suggest" style="display:none; position:absolute; left:0; right:0; background:#fff; border:1px solid #e5e7eb; max-height:160px; overflow:auto; z-index:60; font-size:13px;"></div>
+              </td>
+              <td><input class="ma-qtd" type="number" step="0.001" /></td>
+              <td><input class="ma-obs" /></td>
+              <td><button type="button" class="ma-add">+</button><button type="button" class="ma-remove" style="display:none; margin-left:6px;">-</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+        <button id="modalCancel">Cancelar</button>
+        <button id="modalPlan" title="Verifica e monta um plano de classificação (sem gravar).">Planificar</button>
+        <div style="font-size:12px; color:#6b7280; align-self:center; margin-left:8px;">Planificar: gera um plano de distribuição das saídas a partir da origem (não grava). Use 'Salvar' para aplicar.</div>
+        <button id="modalExecute" style="background:#558b2f; color:#fff;">Salvar</button>
+      </div>
+      <div id="sqlPreviewModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index:80;">
+        <div style="background:#fff; width:80%; max-width:1100px; max-height:80%; overflow:auto; padding:16px; border-radius:8px;">
+          <h4>SQL a ser executado</h4>
+          <div id="sqlPreviewContent" style="font-family:monospace; font-size:13px; color:#111827; white-space:pre-wrap; background:#f8fafc; padding:10px; border:1px solid #e5e7eb; border-radius:6px; max-height:60vh; overflow:auto;"></div>
+          <div style="display:flex; justify-content:space-between; gap:8px; margin-top:10px; align-items:center;">
+            <div style="font-size:13px; color:#374151;"><label><input type="checkbox" id="sqlForceCheck" /> Forçar gravação (se permitido no servidor)</label></div>
+            <div style="display:flex; justify-content:flex-end; gap:8px;">
+              <button id="sqlPreviewCancel">Cancelar</button>
+              <button id="sqlPreviewConfirm" style="background:#558b2f; color:#fff;">Confirmar e Salvar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="sqlPreviewModalGlobal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index:120;">
+    <div style="background:#fff; width:80%; max-width:1100px; max-height:80%; overflow:auto; padding:16px; border-radius:8px;">
+      <h4>SQL a ser executado</h4>
+      <div id="sqlPreviewContentGlobal" style="font-family:monospace; font-size:13px; color:#111827; white-space:pre-wrap; background:#f8fafc; padding:10px; border:1px solid #e5e7eb; border-radius:6px; max-height:60vh; overflow:auto;"></div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px; align-items:center;">
+        <button id="sqlPreviewCancelGlobal">Cancelar</button>
+        <button id="sqlPreviewConfirmGlobal" style="background:#558b2f; color:#fff;">Confirmar e Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="cabModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:70;">
+    <div id="cabCard" style="position:fixed; left:-1200px; top:64px; background:#fff; border:1px solid var(--border); border-radius:8px; width:270px; max-width:95vw; max-height:90vh; overflow:auto; transition:left .28s ease, opacity .18s ease; z-index:71;">
+      <div style="padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
+        <strong>Classificação — Cabeçalho</strong>
+        <button class="icon-btn icon-btn--plain" type="button" id="cabClose" title="Fechar">×</button>
+      </div>
+      <div style="padding:14px; display:grid; gap:12px;">
+        <input type="hidden" id="cab_codemp" value="1" /><input type="hidden" id="cab_prod_cod" /><input type="hidden" id="cab_codparc" /><input type="hidden" id="cab_top_cod" value="26" /><input type="hidden" id="cab_nat_cod" value="20010100" /><input type="hidden" id="cab_cencus_cod" value="10100" />
+        <div>
+          <div style="font-size:14px; color:#6b7280;">Lote</div>
+          <div id="cab_lote_text" style="font-weight:700; color:#111827; font-size:20px; line-height:1.2;">—</div>
+          <div style="margin-top:4px; font-size:12px; color:#6b7280;">Nota</div>
+          <div id="cab_nunota_top11_text" style="color:#374151; background:#DBEAFE; border:1px solid var(--border); border-radius:6px; padding:4px 8px; display:inline-block; font-weight:600;">—</div>
+          <div id="cab_parc_text" style="margin-top:6px; color:#374151; background:#FEF9C3; border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-weight:600;">—</div>
+          <div id="cab_prod_text" style="margin-top:6px; color:#374151; background:#FEF9C3; border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-weight:600;">—</div>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <div style="width:100%; display:grid; gap:10px;">
+            <div style="border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; margin-bottom: 12px; text-align: center;">
+              <div style="font-size:11px; color:#6b7280; margin-top:-4px; margin-bottom: 4px;">Qtde In Natura</div>
+              <div style="display: flex; justify-content: center; align-items: center; gap: 8px; white-space: nowrap;">
+                  <span id="cab_qtd_cx_text" style="font-size: 16px; font-weight: 800; color: #334155;">0 cx</span>
+                  <span style="font-size: 16px; font-weight: 300; color: #94a3b8;">|</span>
+                  <span id="cab_qtd_pedido_text" style="font-size: 16px; font-weight: 800; color: #334155;">0,0 kg</span>
+              </div>
+            </div>
+            <div style="border:1px solid var(--border); border-radius:8px; padding:4px 8px 8px; background:#f9fafb; text-align:center;">
+              <div style="font-size:11px; color:#6b7280; margin-top:-4px;">Qtde kg Classificado</div>
+              <div style="margin-top:8px;"><span id="cab_class_count_text" style="font-weight:700; font-size:18px; line-height:1.1; text-align:center; display:inline-block;">—</span></div>
+            </div>
+            <div style="border:1px solid var(--border); border-radius:8px; padding:4px 8px 8px; background:#f9fafb; text-align:center;">
+              <div style="font-size:11px; color:#6b7280; margin-top:-4px;">Estoque</div>
+              <div id="cab_estoque_text" style="font-weight:700; font-size:18px; line-height:1.1; text-align:center; margin-top:8px;">—</div>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <span id="cab_top_text" style="display:inline-block; background:#eef2ff; color:#1f2937; padding:4px 10px; border-radius:9999px; font-size:12px;">26 — Classificação</span>
+          <span id="cab_dtneg_text" style="display:inline-block; background:#f3f4f6; color:#374151; padding:4px 10px; border-radius:9999px; font-size:12px;">—</span>
+        </div>
+        <div>
+          <div style="font-size:11px; color:#6b7280;">Natureza</div><div id="cab_nat_text" style="color:#4b5563; font-size:12px;">—</div>
+          <div style="font-size:11px; color:#6b7280; margin-top:6px;">Centro de Resultado</div><div id="cab_cencus_text" style="color:#4b5563; font-size:12px;">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="cabItemsModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:75;">
+    <div id="cabItemsCard" style="position:fixed; left:100%; top:64px; background:#fff; border:1px solid var(--border); border-radius:8px; width:820px; max-width:95vw; max-height:90vh; overflow:auto; transition:left .28s ease; z-index:76;">
+      <div style="padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
+        <strong>Itens — Nota</strong>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button id="cabItemsClose" class="icon-btn icon-btn--plain" title="Fechar" style="color:#b91c1c;">×</button>
+        </div>
+      </div>
+      <div style="padding:12px; display:grid; gap:8px;">
+        <input type="hidden" id="items_nunota" />
+        <input type="hidden" id="item_seq_edit" />
+        <div style="display: flex; gap: 12px; align-items: flex-end; width: 100%; margin-bottom: 12px;">
+  
+          <div style="flex: 1; min-width: 250px; position: relative;">
+            <label style="display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 3px;">Produto (cod ou descrição)</label>
+            <input type="text" id="item_prod_vis" placeholder="cod ou descrição" autocomplete="off" style="width: 100%; height: 26px; border: 1px solid #cbd5e1; border-radius: 4px; padding: 0 10px; box-sizing: border-box; font-size: 12px; color: #334155; outline: none;" />
+            <input type="hidden" id="item_prod_hidden" />
+            <div id="item_prod_sugg" style="position: absolute; left: 0; right: 0; top: 100%; margin-top: 4px; background: #fff; border: 1px solid #cbd5e1; border-radius: 4px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); display: none; max-height: 160px; overflow: auto; z-index: 120; font-size: 12px;"></div>
+          </div>
+
+          <div style="width: 110px;">
+            <label style="display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 3px;">Total KG</label>
+            <input type="text" id="item_total" inputmode="numeric" style="width: 100%; height: 26px; border: 1px solid #cbd5e1; border-radius: 4px; padding: 0 10px; box-sizing: border-box; font-size: 12px; color: #334155; outline: none; text-align: right;" />
+          </div>
+
+          <div style="width: 85px;">
+            <label style="display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 3px;">Total CX</label>
+            <input type="text" id="item_qtd" inputmode="numeric" style="width: 100%; height: 26px; border: 1px solid #cbd5e1; border-radius: 4px; padding: 0 10px; box-sizing: border-box; font-size: 12px; color: #334155; outline: none; text-align: right;" />
+          </div>
+
+          <div style="width: 85px;">
+            <label style="display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 3px;">Peso CX</label>
+            <input type="text" id="item_peso" inputmode="numeric" style="width: 100%; height: 26px; border: 1px solid #cbd5e1; border-radius: 4px; padding: 0 10px; box-sizing: border-box; font-size: 12px; color: #334155; outline: none; text-align: right;" />
+          </div>
+
+          <div style="width: 32px; display: flex; align-items: flex-end;">
+            <button id="itemAddBtn" title="Adicionar" style="height: 26px; width: 32px; background: #fff; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+            
+            <input type="hidden" id="item_obs" value="" />
+            <input type="hidden" id="item_vol" value="CX" />
+            <input type="hidden" id="item_vol_hidden" value="" />
+          </div>
+
+        </div>
+
+        <div>
+          <div style="max-height:42vh; overflow:auto;">
+            <table class="ph-selectable-table" style="width:100%;">
+                <thead>
+                    <tr>
+                        <th style="padding:8px">Lote</th>
+                        <th>Produto</th>
+                        <th style="text-align:right">Quantidade</th>
+                        <th style="text-align:right">Peso</th>
+                        <th style="text-align:right"></th>
+                    </tr>
+                </thead>
+                <tbody id="itemsListBody">
+                    <tr><td colspan="5" style="padding:8px; color:var(--muted)">Nenhum item carregado.</td></tr>
+                </tbody>
+            </table>
+          </div>
+        </div>
+        
+        <div style="display:flex; gap:12px; justify-content:space-between; align-items:center; margin-top:6px;">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <label style="font-size:12px; color:#374151; font-weight:500;">Descarte (kg):</label>
+            <input type="text" id="descarteTotal" readonly value="0,0" style="width:80px; padding:4px 6px; border:1px solid var(--border); border-radius:4px; background:#f9fafb; text-align:right; font-size:12px; color:#374151; font-weight:600;" />
+            <div style="display:flex; flex-direction:column; gap:2px;">
+              <button id="btnDescarteAdd" class="icon-btn icon-btn--plain" style="width:28px; height:20px; padding:0; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; color:#10b981; border:1px solid #d1fae5; background:#ecfdf5;" title="Adicionar descarte">+</button>
+              <button id="btnDescarteSub" class="icon-btn icon-btn--plain" style="width:28px; height:20px; padding:0; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; color:#ef4444; border:1px solid #fecaca; background:#fef2f2;" title="Subtrair descarte">−</button>
+            </div>
+          </div>
+          <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:#374151;">
+            Classificação Finalizada
+            <span class="switch">
+              <input type="checkbox" id="toggleStatusNota" />
+              <span class="slider"></span>
+            </span>
+          </label>
+        </div>
+        <div style="display:flex; justify-content:flex-end; margin-top:16px; margin-bottom:4px;">
+          <button id="itemsCancel" type="button" title="Fechar" style="padding: 8px 20px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #475569; cursor: pointer; font-size: 13px; font-weight: 500; transition: background-color 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">Fechar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toastContainer"></div>
+  
+  <div id="modalDescarte" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index:80;">
+    <div style="background:#fff; border-radius:8px; width:340px; max-width:95%; padding:16px; box-shadow:0 10px 25px rgba(0,0,0,0.2);">
+      <h3 style="margin:0 0 12px 0; font-size:16px; color:#1f2937;" id="modalDescarteTitle">Adicionar Descarte</h3>
+      <div style="margin-bottom:12px;">
+        <label style="display:block; font-size:13px; color:#6b7280; margin-bottom:4px;">Quantidade (kg)</label>
+        <input type="number" id="descarteInput" step="0.1" min="0.1" placeholder="Ex: 5.0" autocomplete="off" style="width:100%; padding:8px; border:1px solid var(--border); border-radius:6px; font-size:14px;" />
+        <div id="descarteError" style="display:none; margin-top:4px; font-size:12px; color:#ef4444;"></div>
+      </div>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button id="modalDescarteCancelar" style="padding:6px 14px; border:1px solid var(--border); border-radius:6px; background:#fff; color:#374151; cursor:pointer; font-size:13px;">Cancelar</button>
+        <button id="modalDescarteConfirmar" style="padding:6px 14px; border:none; border-radius:6px; background:#10b981; color:#fff; cursor:pointer; font-size:13px; font-weight:500;">Confirmar</button>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block extra_js %}
+  <script>
+    (function(){
+      try {
+        const tStr = '{{ timings_json|default:"" }}';
+        if (tStr) {
+          try { const t = JSON.parse(tStr); if (t) console.log('[classificacao] perf ms:', t); } catch (_e) {}
+        }
+      } catch (_){ }
+      const ov = document.getElementById('pageOverlay');
+      function hide(){ if(!ov) return; ov.classList.add('hidden'); setTimeout(()=>{ if(ov) ov.style.display='none'; }, 250); }
+      function show(){ if(!ov) return; ov.style.display='flex'; ov.classList.remove('hidden'); }
+      try { window.__PH_INITIAL_LOADING = true; } catch(_) {}
+      document.addEventListener('DOMContentLoaded', function(){
+        if (window.__PH_INITIAL_LOADING) {
+          hide();
+        }
+      });
+      window.addEventListener('load', function(){
+        setTimeout(function(){ if (window.__PH_INITIAL_LOADING) { hide(); } }, 600);
+      });
+      try { window.PHOverlay = { show, hide }; } catch(_) {}
+      window.addEventListener('beforeunload', function(){ try{ show(); }catch(_){} });
+      window.addEventListener('pagehide', function(){ try{ show(); }catch(_){} });
+    })();
+
+    (function(){
+      function ready(fn){ if(document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
+      ready(function(){
+        try{
+          const url = new URL(window.location.href);
+          const openWhat = (url.searchParams.get('open')||'').toLowerCase();
+          const sel = url.searchParams.get('sel') || '';
+          if(!openWhat || !sel) return;
+          const tbl = document.getElementById('notasTable');
+          const row = tbl ? tbl.querySelector(`tbody tr.row--click[data-nunota="${CSS.escape(String(sel))}"]`) : null;
+          if(row){
+            try{ Array.from(tbl.querySelectorAll('tbody tr.row--click')).forEach(r=>r.classList.remove('row--active')); row.classList.add('row--active'); }catch(_){ }
+            try{ if(typeof loadClassifiedFor === 'function') loadClassifiedFor(sel); }catch(_){ }
+          }
+          function tryOpen(){
+            const canCab = (typeof window.showCabModal === 'function');
+            const canItems = (typeof window.showItemsModal === 'function');
+            if(openWhat === 'cab' && canCab){ window.showCabModal(); return true; }
+            if(openWhat === 'items' && canCab && canItems){
+              window.showCabModal();
+              (async function(){
+                try{
+                  const r = await fetch('/sankhya/lote/consultar/?lote=' + encodeURIComponent(sel), { credentials: 'same-origin' });
+                  const j = await r.json();
+                  let nun = null;
+                  if(j && j.ok){ nun = j.nunota_class || (Array.isArray(j.classificacoes) && j.classificacoes[0]?.nunota) || null; }
+                  window.showItemsModal(nun);
+                  if(nun && typeof window.setCabEditingNunota === 'function') window.setCabEditingNunota(nun);
+                }catch(_){ try{ window.showItemsModal(null); }catch(__){} }
+              })();
+              return true;
+            }
+            return false;
+          }
+          if(!tryOpen()){
+            let tries = 0; const h = setInterval(()=>{ tries++; if(tryOpen() || tries>15){ clearInterval(h); } }, 100);
+          }
+        }catch(_){ }
+      });
+    })();
+  </script>
+
+  <script>
+    (function(){
+      try {
+        window.__LOTES_CACHE = window.__LOTES_CACHE || {};
+        const ctrl = '{{ initial_lote_ctrl|default:"" }}';
+        const jstr = '{{ initial_lote_json|default:"" }}';
+        if (ctrl && jstr) {
+          try { const data = JSON.parse(jstr); if (data && typeof data === 'object') { window.__LOTES_CACHE[ctrl] = data; } } catch(_) {}
+        }
+      } catch(_) {}
+    })();
+  </script>
+
+  <script src="{% static 'sankhya_integration/classificacao.js' %}?v=1002" defer></script>
+{% endblock %}

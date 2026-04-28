@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f, encoding='utf-8-sig'\\).read\\(\\)\\) for f in ['sankhya_integration/services/oracle_conn.py', 'sankhya_integration/views.py']]; print\\('Python OK'\\)\")",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f, encoding='utf-8-sig'\\).read\\(\\)\\) for f in ['sankhya_integration/services/oracle_conn.py', 'sankhya_integration/views.py', 'sankhya_integration/urls.py']]; print\\('Python OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('sankhya_integration/services/oracle_conn.py', encoding='utf-8-sig'\\).read\\(\\)\\); print\\('Python OK'\\)\")"
+    ]
+  }
+}
