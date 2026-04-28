@@ -52,7 +52,7 @@ Sistema web para gerenciamento das operações do IAgro (central de beneficiamen
 | 7 | Cabeçalhos de segurança HTTPS (`SECURE_*`) adicionados ao `settings.py`, controlados por variáveis no `.env` | ✅ Concluída |
 | 8 | Mapeamento de grupos Sankhya documentado em comentários no `decorators.py` | ✅ Concluída |
 | 9 | Modelo `Simulation` registrado no Django Admin; audit log via signals Django (`post_save`/`post_delete`) | ✅ Concluída |
-| 10 | Testes unitários criados: `test_views_entrada.py`, `test_views_comercial.py`, `test_faturamento.py` (68 testes no total) | ✅ Concluída |
+| 10 | Testes unitários criados: `test_views_entrada.py`, `test_views_comercial.py`, `test_faturamento.py` (68 testes no total) — posteriormente `test_faturamento.py` foi removido junto com o serviço `faturamento.py` (limpeza de 28/04/2026) | ✅ Concluída |
 | 11 | Arquivos `_BKP` e código morto comentado removidos | ✅ Concluída |
 | 12 | Migração SQLite → PostgreSQL | ❌ Cancelada (projeto usa Oracle; SQLite só para sessões/ORM, não há necessidade de troca) |
 
@@ -393,7 +393,6 @@ Paginação compatível com Oracle 11g (`ROW_NUMBER() OVER ... BETWEEN`) — `OF
 - [ ] **Avaria interna como linha separada na UI** (Opção B) — perna D existe na view; UI hoje mostra só como badge. Trocar é só mudar o filtro do front
 - [ ] **Cobertura de testes para os services novos** — `consultar_vinculos_de_lote`, `consultar_fabricantes_disponiveis`, `desvincular_lote_item_pedido`, `consultar_saldo_lote_disponivel`. Os endpoints estão cobertos via mock (25 testes); os services em si não
 - [ ] **Janela temporal por padrão pode ser mais flexível** — hoje 30d (lotes) e 10d (pedidos) são fixos no HTML. Poderia ser persistido em `localStorage` por usuário
-- [ ] **Migrar `Rastreamento Banco Sankhya.txt` para `docs/`** — usado como referência durante o desenvolvimento desta sessão
 - [ ] **Audit log de atribuir/desvincular lote** — hoje só `logger.info`/`logger.exception`. Considerar tabela própria se compliance pedir
 - [ ] **Documentação operacional** (manual do operador) — fluxo da tela, drag&drop, atribuição parcial, etc.
 
@@ -403,9 +402,6 @@ Paginação compatível com Oracle 11g (`ROW_NUMBER() OVER ... BETWEEN`) — `OF
 - [ ] Configurar `collectstatic` e servidor de arquivos estáticos (nginx ou WhiteNoise) para ambiente de produção
 - [ ] Substituir o middleware `ControleInatividadeMiddleware` por timeout de sessão nativo do Django (`SESSION_COOKIE_AGE`)
 - [ ] Validação CSRF nas views que aceitam POST com JSON (verificar se o token está sendo enviado corretamente pelo frontend)
-- [ ] Remover arquivos temporários da raiz: `test_endpoint.html`, `test_toast_descarte.html`, `tmp_openVale.js`
-- [ ] Remover templates não utilizados: `comercial copy.html`, `entrada 260408.html`, `_entrada_260409.html`
-- [ ] Arquivo `Rastreamento Banco Sankhya.txt` na raiz — avaliar se deve ir para `docs/`
 - [ ] Cobertura de testes para os módulos de Classificação e `oracle_conn.py` (Venda foi coberta na sessão de 24 abr 2026 — 65 testes)
 - [ ] **CSS — avaliar separar `entrada.css` em dois arquivos:** `base-layout.css` (partes genuinamente globais) e `entrada.css` (específico do módulo Entrada), eliminando o carregamento implícito de estilos de Entrada em todos os módulos
 - [ ] **CSS — avaliar unificação futura dos `@keyframes` locais** (`spin`, `iaspin`, `toastSlideIn/Out`) para os nomes globais (`ia-girar`, `ia-toast-entrada/saida`), o que exigirá atualizar as referências nos arquivos JS
@@ -437,10 +433,11 @@ Paginação compatível com Oracle 11g (`ROW_NUMBER() OVER ... BETWEEN`) — `OF
 ### Estrutura de Pastas
 
 ```
-Packing_House/
+IAgro/
 ├── .env                         # Variáveis de ambiente (não versionado)
 ├── .env.example                 # Template de variáveis (versionado, sem valores reais)
 ├── CLAUDE.md                    # Este arquivo
+├── README.md
 ├── manage.py
 ├── requirements.txt
 ├── db.sqlite3                   # Banco Django (sessões + modelo Simulation)
@@ -454,7 +451,7 @@ Packing_House/
 ├── sankhya_integration/         # Único app Django do projeto
 │   ├── apps.py                  # AppConfig com ready() para registrar signals
 │   ├── models.py                # Apenas modelo Simulation (JSONField de simulações comerciais)
-│   ├── views.py                 # Todas as views (~1850 linhas) — entrada, classificação, comercial, venda
+│   ├── views.py                 # Todas as views (~1850 linhas) — entrada, classificação, comercial, venda, rastreio
 │   ├── urls.py                  # Todas as rotas do app (prefixo /sankhya/)
 │   ├── decorators.py            # @exige_grupo, @check_vale_lock + GRUPOS_PERMITIDOS
 │   ├── middleware.py            # ControleInatividadeMiddleware (timeout de sessão)
@@ -463,9 +460,7 @@ Packing_House/
 │   ├── signals.py               # Audit log de Simulation via post_save/post_delete
 │   │
 │   ├── services/
-│   │   ├── oracle_conn.py       # TODAS as queries Oracle (~2420 linhas) — núcleo do sistema
-│   │   ├── faturamento.py       # Lógica de faturamento e geração de vales TOP 13
-│   │   └── produto_mapeamento.py# Mapeamento de categorias de produtos
+│   │   └── oracle_conn.py       # TODAS as queries Oracle (~2420 linhas) — núcleo do sistema
 │   │
 │   ├── templates/sankhya_integration/
 │   │   ├── base.html            # Template base (navbar, scripts globais)
@@ -478,7 +473,7 @@ Packing_House/
 │   │   └── rastreio.html        # Rastreabilidade de lotes
 │   │
 │   ├── static/sankhya_integration/
-│   │   ├── global.css / global.js          # Estilos e scripts compartilhados
+│   │   ├── global.css                       # Tokens de design e componentes globais
 │   │   ├── iagro_helpers.js                # Helpers JS reutilizáveis (getCookie, postJSON, etc.)
 │   │   ├── entrada.css / entrada.js        # Módulo de Entrada
 │   │   ├── classificacao.css / classificacao.js  # Módulo de Classificação
@@ -488,18 +483,20 @@ Packing_House/
 │   │   ├── comercialImpressao.js           # Sub-módulo: impressão de vales
 │   │   ├── home.css / home.js              # Tela inicial
 │   │   ├── venda.css / venda.js            # Módulo de Vendas
-│   │   ├── rastreio.css / rastreio.js      # Rastreabilidade
-│   │   └── scripts.js                      # Scripts legados (avaliar consolidação)
+│   │   └── rastreio.css / rastreio.js      # Rastreabilidade
+│   │
+│   ├── sql/
+│   │   ├── ANDRE_IRIS_SALDO_LOTE.sql       # DDL da view de saldo de lote (Rastreio/WMS)
+│   │   └── ANDRE_IRIS_SALDO_LOTE_teste.sql # Queries de conferência manual da view
 │   │
 │   └── tests/
 │       ├── __init__.py
 │       ├── test_views_entrada.py           # Testes: Entrada, health, conversor de tipos
 │       ├── test_views_comercial.py         # Testes: Comercial, faturamento, vales
-│       └── test_faturamento.py             # Testes: serviço faturamento.py (isolado do Oracle)
+│       ├── test_views_venda.py             # Testes: Venda (TOP 34) — 65 testes
+│       └── test_rastreio.py                # Testes: Rastreio/WMS — 25 testes
 │
-├── docs/                        # Documentação interna
-├── images/                      # Imagens (logo, etc.) — também em STATICFILES_DIRS
-└── scripts/                     # Scripts utilitários (bat, sql, ps1)
+└── images/                      # Imagens (logo, etc.) — também em STATICFILES_DIRS
 ```
 
 ### Responsabilidades por Módulo
@@ -620,20 +617,8 @@ Este arquivo contém **todas as queries SQL ao Oracle** e as funções de conex�
 
 - **Não refatorar sem aprovação explícita** — qualquer mudança pode quebrar queries de produção
 - A função `obter_conexao_oracle()` é um context manager que gerencia commit/rollback
-- A flag `is_write_enabled()` controla se operações de escrita (INSERT/UPDATE) estão habilitadas — verificada em `faturamento.py`
+- A flag `is_write_enabled()` controla se operações de escrita (INSERT/UPDATE) estão habilitadas
 - `perfis_banco` (`local`/`remote`) foi esvaziado; a conexão agora usa exclusivamente as variáveis `SANKHYA_DB_*` do `.env`
-
----
-
-### `faturamento.py` — Imports no nível de módulo
-
-`faturamento.py` faz imports de funções de `oracle_conn.py` **no topo do arquivo** (nível de módulo). Se qualquer uma dessas funções for renomeada ou removida de `oracle_conn.py`, o módulo inteiro de `faturamento.py` falhará ao importar.
-
-Em testes, isso é resolvido injetando um `MagicMock` em `sys.modules` antes do primeiro import:
-```python
-_mock_oracle_conn = MagicMock()
-sys.modules.setdefault('sankhya_integration.services.oracle_conn', _mock_oracle_conn)
-```
 
 ---
 
@@ -693,16 +678,6 @@ Os signals Django (`signals.py`) geram audit log **apenas para o modelo `Simulat
 
 ---
 
-### Arquivos com versões temporárias na raiz do projeto
-
-Os seguintes arquivos na raiz do projeto são temporários e devem ser avaliados para remoção:
-- `test_endpoint.html` — página de teste manual de endpoint
-- `test_toast_descarte.html` — teste de componente de UI
-- `tmp_openVale.js` — script JavaScript temporário
-- `ANALISE_RASTREAMENTO_COMPLETA.md` — análise pontual, avaliar se deve ir para `docs/`
-
----
-
 ## 7. Executando o Projeto
 
 ### Desenvolvimento
@@ -729,9 +704,10 @@ python manage.py runserver
 python manage.py test sankhya_integration.tests
 
 # Módulo específico
-python manage.py test sankhya_integration.tests.test_faturamento
 python manage.py test sankhya_integration.tests.test_views_entrada
 python manage.py test sankhya_integration.tests.test_views_comercial
+python manage.py test sankhya_integration.tests.test_views_venda
+python manage.py test sankhya_integration.tests.test_rastreio
 ```
 
 ### Acesso
