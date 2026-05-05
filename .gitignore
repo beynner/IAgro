@@ -155,3 +155,10 @@ local_settings.py
 # Arquivos de backup
 *.bak
 *.backup
+_CLAUDE_bkp.md
+
+# Claude Code local settings (machine-specific permissions/paths)
+.claude/settings.local.json
+
+# Django media uploads (PDFs do módulo de e-mail, etc.)
+media/
