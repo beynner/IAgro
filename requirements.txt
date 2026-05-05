@@ -11,6 +11,10 @@ reportlab==4.4.3
 requests>=2.31.0
 sqlparse==0.5.3
 tzdata==2025.2
+# Importação de pedidos por e-mail (IMAP + parser PDF + LLM local Ollama)
+imap-tools>=1.6.0
+pdfplumber>=0.11.0
+ollama>=0.3.0
 # Note: cx_Oracle is intentionally not installed on Windows/Python 3.13.
 # The project uses python-oracledb (oracledb) as a fallback in
 # sankhya_integration/services/oracle_conn.py, which is the modern,
