@@ -11,6 +11,14 @@ from .services.oracle_conn import (
     consultar_vinculos_de_lote,
     atribuir_lote_item_pedido,
     desvincular_lote_item_pedido,
+    humanizar_erro_oracle,
+    # Importação por e-mail
+    listar_pedidos_email_pendentes,
+    obter_pedido_email_completo,
+    atualizar_pedido_email_status,
+    atualizar_pedido_email_item,
+    deletar_pedido_email_item,
+    vincular_nunota_pedido_email,
 )
 
 from django.contrib import messages
@@ -87,7 +95,8 @@ try:
         atualizar_preco_inicial_entrada,
         atualizar_peso_comercial_entrada,
         consultar_lista_ultimas_vendas,
-        listar_vendas_paginado
+        listar_vendas_paginado,
+        faturar_pedido_venda_banco,
     )
     ORACLE_DISPONIVEL = True
 except Exception as exc:
@@ -125,6 +134,7 @@ except Exception as exc:
     verificar_permissao_escrita = lambda: False
     obter_conexao_oracle = _ausente('obter_conexao_oracle')
     listar_vendas_paginado = _ausente('listar_vendas_paginado')
+    faturar_pedido_venda_banco = _ausente('faturar_pedido_venda_banco')
 
 # ==============================================================================
 # FUNÇÕES UTILITÁRIAS (Parse e Conversão)
@@ -169,19 +179,55 @@ def home(request: HttpRequest) -> HttpResponse:
     return render(request, "sankhya_integration/home.html")
 
 def health(request: HttpRequest) -> HttpResponse:
-    status = {'oracle_import': ORACLE_DISPONIVEL}
-    if ORACLE_DISPONIVEL:
-        try:
-            with obter_conexao_oracle() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT 1 FROM DUAL")
-                _ = cur.fetchone()
-                status['db_ping'] = True
-        except Exception as e:
-            status['db_ping'] = False
-            status['error'] = str(e)
-    else:
+    """Healthcheck profundo: ping do Oracle + checagem da view de saldo do Rastreio.
+
+    Use ``/sankhya/health/?deep=1`` para incluir checagens mais lentas (view
+    de saldo + contagem da TGFCAB). Sem ``deep``, faz só o ping rápido.
+    """
+    deep = (request.GET.get('deep') or '').lower() in ('1', 'true', 'yes')
+    status = {
+        'oracle_import': ORACLE_DISPONIVEL,
+        'write_enabled': verificar_permissao_escrita() if ORACLE_DISPONIVEL else False,
+    }
+    if not ORACLE_DISPONIVEL:
         status['error'] = 'Driver Oracle inativo.'
+        # 200 propositalmente — driver inativo é estado de configuração,
+        # não falha de runtime; consumidores antigos esperam 200 aqui.
+        return JsonResponse(status)
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            # Ping rápido — sempre roda
+            cur.execute("SELECT 1 FROM DUAL")
+            status['db_ping'] = bool(cur.fetchone())
+
+            if deep:
+                # Verifica que a view do Rastreio existe e responde (essencial pro WMS)
+                try:
+                    cur.execute(
+                        "SELECT COUNT(*) FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE WHERE ROWNUM <= 1"
+                    )
+                    cur.fetchone()
+                    status['rastreio_view'] = 'ok'
+                except Exception as e:
+                    status['rastreio_view'] = 'error'
+                    status['rastreio_view_error'] = humanizar_erro_oracle(e)
+
+                # Conta pedidos abertos (TOP 34) — sanity check da Venda
+                try:
+                    cur.execute(
+                        "SELECT COUNT(*) FROM TGFCAB "
+                        "WHERE CODTIPOPER = 34 AND STATUSNOTA <> 'E'"
+                    )
+                    status['pedidos_abertos'] = int(cur.fetchone()[0] or 0)
+                except Exception as e:
+                    status['pedidos_abertos_error'] = humanizar_erro_oracle(e)
+    except Exception as e:
+        status['db_ping'] = False
+        status['error'] = humanizar_erro_oracle(e)
+        return JsonResponse(status, status=503)
+
     return JsonResponse(status)
 
 # ==============================================================================
@@ -457,7 +503,6 @@ def view_portal_entradas(request: HttpRequest) -> HttpResponse:
         "page": pagina,
         "has_prev": tem_anterior,
         "has_next": tem_proxima,
-        "APP_VERSION": "1.0.0"
     }
     return render(request, "sankhya_integration/entrada.html", contexto)
 
@@ -969,10 +1014,9 @@ def view_classificacao_lotes(request: HttpRequest) -> HttpResponse:
 
     contexto = {
         "params": parametros,
-        "APP_VERSION": "1.0.0",
         "write_enabled": verificar_permissao_escrita(),
     }
-    
+
     return render(request, "sankhya_integration/classificacao.html", contexto)
 
 @require_http_methods(["GET"])
@@ -1715,10 +1759,9 @@ def view_portal_vendas(request: HttpRequest) -> HttpResponse:
     contexto = {
         "nome_usuario": request.session.get('nomeusu', 'Usuário'),
         "params": parametros,
-        "APP_VERSION": "1.0.0",
         "write_enabled": verificar_permissao_escrita(),
     }
-    
+
     return render(request, "sankhya_integration/venda.html", contexto)
 
 @require_http_methods(["GET"])
@@ -1743,7 +1786,7 @@ def api_listar_vendas(request: HttpRequest) -> JsonResponse:
         for r in linhas:
             vendas.append({
                 "nunota": r[0],
-                "top": r[1], 
+                "top": r[1],
                 "data": r[2].strftime('%d/%m/%Y') if r[2] else "",
                 "parceiro": r[3] or "", # NOMEPARC
                 "total": float(r[4] or 0),
@@ -1753,7 +1796,8 @@ def api_listar_vendas(request: HttpRequest) -> JsonResponse:
             })
         return JsonResponse({"ok": True, "vendas": vendas})
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+        logger.exception("Erro em api_listar_vendas")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
 
 @require_http_methods(["POST"])
@@ -1792,16 +1836,21 @@ def api_criar_cabecalho_venda(request: HttpRequest) -> JsonResponse:
 
     try:
         with obter_conexao_oracle() as conn:
-            plano = inserir_cabecalho_nota_banco(
-                payload, simulacao=False, conexao_existente=conn
-            )
-            if plano.get('executed'):
-                conn.commit()
-            else:
-                conn.rollback()
+            try:
+                plano = inserir_cabecalho_nota_banco(
+                    payload, simulacao=False, conexao_existente=conn
+                )
+                if plano.get('executed'):
+                    conn.commit()
+                else:
+                    conn.rollback()
+            except Exception:
+                try: conn.rollback()
+                except Exception: pass
+                raise
     except Exception as e:
         logger.exception("Erro ao criar cabeçalho de venda")
-        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
     if not plano.get('executed'):
         logger.warning(
@@ -1809,7 +1858,7 @@ def api_criar_cabecalho_venda(request: HttpRequest) -> JsonResponse:
             payload, plano,
         )
         return JsonResponse(
-            {"ok": False, "error": plano.get('error') or 'Falha ao criar pedido'},
+            {"ok": False, "error": humanizar_erro_oracle(plano.get('error') or 'Falha ao criar pedido')},
             status=400,
         )
 
@@ -1848,21 +1897,26 @@ def api_salvar_item_venda(request: HttpRequest) -> JsonResponse:
     recalculo = {}
     try:
         with obter_conexao_oracle() as conn:
-            plano = inserir_item_nota_banco(
-                payload, simulacao=False, conexao_existente=conn,
-                codusu_logado=codusu, gerar_lote_auto=False,
-            )
-            if not plano.get('executed'):
-                conn.rollback()
-                return JsonResponse(
-                    {"ok": False, "error": plano.get('error') or 'Falha ao salvar item'},
-                    status=400,
+            try:
+                plano = inserir_item_nota_banco(
+                    payload, simulacao=False, conexao_existente=conn,
+                    codusu_logado=codusu, gerar_lote_auto=False,
                 )
-            recalculo = recalcular_totais_nota_banco(nunota, conexao_existente=conn) or {}
-            conn.commit()
+                if not plano.get('executed'):
+                    conn.rollback()
+                    return JsonResponse(
+                        {"ok": False, "error": humanizar_erro_oracle(plano.get('error') or 'Falha ao salvar item')},
+                        status=400,
+                    )
+                recalculo = recalcular_totais_nota_banco(nunota, conexao_existente=conn) or {}
+                conn.commit()
+            except Exception:
+                try: conn.rollback()
+                except Exception: pass
+                raise
     except Exception as e:
         logger.exception("Erro ao salvar item de venda")
-        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
     resposta = {"ok": True, "sequencia": plano.get('sequencia')}
     if 'vlrnota' in recalculo: resposta['vlrnota'] = recalculo['vlrnota']
@@ -1887,7 +1941,7 @@ def api_excluir_pedido_venda(request: HttpRequest) -> JsonResponse:
             row = cur.fetchone()
     except Exception as e:
         logger.exception("Erro ao consultar TOP do pedido para exclusão")
-        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
     if not row:
         return JsonResponse({"ok": False, "error": "Pedido não encontrado"}, status=404)
@@ -1898,6 +1952,8 @@ def api_excluir_pedido_venda(request: HttpRequest) -> JsonResponse:
         )
 
     resposta = excluir_nota_completa_banco(nunota, simulacao=False)
+    if not resposta.get('ok') and resposta.get('errors'):
+        resposta['error'] = humanizar_erro_oracle('; '.join(resposta['errors']))
     return JsonResponse(resposta, status=200 if resposta.get('ok') else 400)
 
 
@@ -1933,7 +1989,7 @@ def api_atualizar_cabecalho_venda(request: HttpRequest) -> JsonResponse:
             row = cur.fetchone()
     except Exception as e:
         logger.exception("Erro ao consultar TOP para edição")
-        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
     if not row:
         return JsonResponse({"ok": False, "error": "Pedido não encontrado"}, status=404)
@@ -1956,7 +2012,7 @@ def api_atualizar_cabecalho_venda(request: HttpRequest) -> JsonResponse:
         plano = atualizar_cabecalho_venda_banco(payload, simulacao=False)
     except Exception as e:
         logger.exception("Erro ao atualizar cabeçalho de venda")
-        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
     if not plano.get('executed'):
         logger.warning(
@@ -1964,7 +2020,7 @@ def api_atualizar_cabecalho_venda(request: HttpRequest) -> JsonResponse:
             payload, plano,
         )
         return JsonResponse(
-            {"ok": False, "error": plano.get('error') or 'Falha ao atualizar pedido'},
+            {"ok": False, "error": humanizar_erro_oracle(plano.get('error') or 'Falha ao atualizar pedido')},
             status=400,
         )
 
@@ -1983,7 +2039,7 @@ def api_obter_cabecalho_pedido(request: HttpRequest) -> JsonResponse:
         linha = consultar_cabecalho_venda_oracle(nunota)
     except Exception as e:
         logger.exception("Erro ao consultar cabeçalho do pedido")
-        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
     if not linha:
         return JsonResponse({"ok": False, "error": "Pedido não encontrado"}, status=404)
@@ -2002,13 +2058,230 @@ def api_obter_cabecalho_pedido(request: HttpRequest) -> JsonResponse:
     })
 
 
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_atualizar_item_venda(request: HttpRequest) -> JsonResponse:
+    """Atualiza um item de pedido TOP 34 (qtd, preço, lote, volume).
+
+    Reutiliza ``atualizar_item_nota_banco``. Trava: pedido tem que ser TOP 34
+    e não estar faturado (STATUSNOTA != 'L'). Recalcula totais ao final na
+    mesma transação.
+    """
+    dados_json = _get_json_payload(request)
+    if not dados_json:
+        return JsonResponse({"ok": False, "error": "JSON inválido"}, status=400)
+
+    nunota    = _converter_para_inteiro(dados_json.get('nunota'))
+    sequencia = _converter_para_inteiro(dados_json.get('sequencia'))
+    if not nunota or not sequencia:
+        return JsonResponse(
+            {"ok": False, "error": "NUNOTA e SEQUENCIA são obrigatórios"},
+            status=400,
+        )
+
+    if not verificar_permissao_escrita():
+        return JsonResponse({"ok": False, "error": "Escrita desabilitada"}, status=403)
+
+    # Trava — só pedido TOP 34 não-faturado
+    try:
+        with obter_conexao_oracle() as conn_check:
+            cur = conn_check.cursor()
+            cur.execute("""
+                SELECT CODTIPOPER, STATUSNOTA FROM TGFCAB WHERE NUNOTA = :n
+            """, n=nunota)
+            row = cur.fetchone()
+    except Exception as e:
+        logger.exception("Erro ao validar TOP/STATUSNOTA do pedido para edição de item")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+    if not row:
+        return JsonResponse({"ok": False, "error": "Pedido não encontrado"}, status=404)
+    if int(row[0]) != 34:
+        return JsonResponse(
+            {"ok": False, "error": f"Edição permitida apenas para TOP 34 (esta é {int(row[0])})"},
+            status=403,
+        )
+    if row[1] == 'L':
+        return JsonResponse(
+            {"ok": False, "error": "Pedido já foi faturado — não é mais editável"},
+            status=403,
+        )
+
+    # Monta payload aceitando só os campos editáveis pela tela
+    payload = {'NUNOTA': nunota, 'SEQUENCIA': sequencia}
+    for chave_in, chave_out, conv in (
+        ('codprod',     'CODPROD',     _converter_para_inteiro),
+        ('qtdneg',      'QTDNEG',      _converter_para_float),
+        ('vlrunit',     'VLRUNIT',     _converter_para_float),
+    ):
+        v = conv(dados_json.get(chave_in))
+        if v is not None:
+            payload[chave_out] = v
+    for chave_in, chave_out in (
+        ('codvol',       'CODVOL'),
+        ('codvolparc',   'CODVOLPARC'),
+        ('codagregacao', 'CODAGREGACAO'),
+        ('observacao',   'OBSERVACAO'),
+    ):
+        v = dados_json.get(chave_in)
+        if v not in (None, ''):
+            payload[chave_out] = v
+    # CODVOLPARC sempre acompanha CODVOL quando informado
+    if 'CODVOL' in payload and 'CODVOLPARC' not in payload:
+        payload['CODVOLPARC'] = payload['CODVOL']
+
+    try:
+        with obter_conexao_oracle() as conn:
+            try:
+                plano = atualizar_item_nota_banco(
+                    payload, simulacao=False, conexao_existente=conn,
+                )
+                if not plano.get('executed'):
+                    conn.rollback()
+                    return JsonResponse(
+                        {"ok": False, "error": humanizar_erro_oracle(
+                            (plano.get('errors') and '; '.join(plano['errors']))
+                            or (plano.get('db_error') or {}).get('message')
+                            or 'Falha ao atualizar item'
+                        )},
+                        status=400,
+                    )
+                recalculo = recalcular_totais_nota_banco(nunota, conexao_existente=conn) or {}
+                conn.commit()
+            except Exception:
+                try: conn.rollback()
+                except Exception: pass
+                raise
+    except Exception as e:
+        logger.exception("Erro ao atualizar item de venda")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+    resposta = {"ok": True, "sequencia": sequencia}
+    if 'vlrnota' in recalculo: resposta['vlrnota'] = recalculo['vlrnota']
+    if 'qtdvol'  in recalculo: resposta['qtdvol']  = recalculo['qtdvol']
+    return JsonResponse(resposta, status=200)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_remover_item_venda(request: HttpRequest) -> JsonResponse:
+    """Remove um item de pedido TOP 34 e recalcula totais.
+
+    Se for o último item do pedido, ``recalcular_totais_nota_banco`` deleta
+    o cabeçalho automaticamente — comportamento já existente do helper.
+    """
+    dados_json = _get_json_payload(request)
+    if not dados_json:
+        return JsonResponse({"ok": False, "error": "JSON inválido"}, status=400)
+
+    nunota    = _converter_para_inteiro(dados_json.get('nunota'))
+    sequencia = _converter_para_inteiro(dados_json.get('sequencia'))
+    if not nunota or not sequencia:
+        return JsonResponse(
+            {"ok": False, "error": "NUNOTA e SEQUENCIA são obrigatórios"},
+            status=400,
+        )
+    if not verificar_permissao_escrita():
+        return JsonResponse({"ok": False, "error": "Escrita desabilitada"}, status=403)
+
+    # Trava — só pedido TOP 34 não-faturado
+    try:
+        with obter_conexao_oracle() as conn:
+            try:
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT CODTIPOPER, STATUSNOTA FROM TGFCAB WHERE NUNOTA = :n FOR UPDATE
+                """, n=nunota)
+                row = cur.fetchone()
+                if not row:
+                    return JsonResponse({"ok": False, "error": "Pedido não encontrado"}, status=404)
+                if int(row[0]) != 34:
+                    return JsonResponse(
+                        {"ok": False, "error": f"Remoção permitida apenas para TOP 34 (esta é {int(row[0])})"},
+                        status=403,
+                    )
+                if row[1] == 'L':
+                    return JsonResponse(
+                        {"ok": False, "error": "Pedido já foi faturado — não é mais editável"},
+                        status=403,
+                    )
+                cur.execute("""
+                    DELETE FROM TGFITE WHERE NUNOTA = :n AND SEQUENCIA = :s
+                """, n=nunota, s=sequencia)
+                deletados = int(cur.rowcount or 0)
+                if deletados == 0:
+                    conn.rollback()
+                    return JsonResponse(
+                        {"ok": False, "error": f"Item SEQ={sequencia} não encontrado"},
+                        status=404,
+                    )
+                recalculo = recalcular_totais_nota_banco(nunota, conexao_existente=conn) or {}
+                conn.commit()
+            except Exception:
+                try: conn.rollback()
+                except Exception: pass
+                raise
+    except Exception as e:
+        logger.exception("Erro ao remover item de venda")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+    resposta = {"ok": True, "sequencia": sequencia,
+                "cab_deleted": bool(recalculo.get('cab_deleted'))}
+    if 'vlrnota' in recalculo: resposta['vlrnota'] = recalculo['vlrnota']
+    if 'qtdvol'  in recalculo: resposta['qtdvol']  = recalculo['qtdvol']
+    return JsonResponse(resposta, status=200)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_faturar_pedido_venda(request: HttpRequest) -> JsonResponse:
+    """Fatura um pedido TOP 34 transformando-o em TOP 35 (NFe) ou TOP 37 (s/ NFe).
+
+    Validações no service: pedido existe, é TOP 34, não-faturado, tem itens,
+    todos os itens têm lote vinculado.
+    """
+    dados_json = _get_json_payload(request)
+    if not dados_json:
+        return JsonResponse({"ok": False, "error": "JSON inválido"}, status=400)
+
+    nunota   = _converter_para_inteiro(dados_json.get('nunota'))
+    nova_top = _converter_para_inteiro(dados_json.get('top'))
+    if not nunota:
+        return JsonResponse({"ok": False, "error": "NUNOTA obrigatório"}, status=400)
+    if nova_top not in (35, 37):
+        return JsonResponse(
+            {"ok": False, "error": "TOP de faturamento inválido (use 35 para NFe ou 37 para sem NFe)"},
+            status=400,
+        )
+    if not verificar_permissao_escrita():
+        return JsonResponse({"ok": False, "error": "Escrita desabilitada"}, status=403)
+
+    try:
+        res = faturar_pedido_venda_banco(
+            nunota=nunota, nova_top=nova_top,
+            codusu_logado=request.session.get('codusu'),
+        )
+    except Exception as e:
+        logger.exception("Erro em api_faturar_pedido_venda")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+    if not res.get('ok'):
+        res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao faturar pedido')
+        return JsonResponse(res, status=400)
+    return JsonResponse(res, status=200)
+
+
 # ==============================================================================
 # 💰 MÓDULO DE RASTREABILIDADE
 # Interface de consulta e rastreio de lotes, desde a origem até o destino final, incluindo histórico de classificações e vendas.
 # ==============================================================================
 
 @exige_grupo('rastreio')
+@ensure_csrf_cookie
 def api_rastreio_view(request):
+    """Renderiza a página do Rastreio. ``ensure_csrf_cookie`` garante que o
+    cookie csrftoken já vai no primeiro response — sem ele, o primeiro POST
+    da página (atribuir/desvincular lote) falharia com 403 do middleware CSRF."""
     return render(request, 'sankhya_integration/rastreio.html')
 
 
@@ -2044,7 +2317,7 @@ def api_rastreio_lote_vinculos(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"ok": True, "vinculos": rows})
     except Exception as e:
         logger.exception("Erro em api_rastreio_lote_vinculos")
-        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
 
 @require_http_methods(["GET"])
@@ -2065,12 +2338,38 @@ def api_rastreio_fabricantes(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"ok": True, "fabricantes": nomes})
     except Exception as e:
         logger.exception("Erro em api_rastreio_fabricantes")
-        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
 
 def _parse_codprods(raw: str | None) -> list[int]:
     if not raw: return []
     return [int(x) for x in str(raw).split(',') if x.strip().isdigit()]
+
+
+def _registrar_audit_rastreio(request, *, acao, nunota, sequencia,
+                              codagregacao=None, qtd=None, extra=None):
+    """Grava uma linha em RastreioAudit. Falhas no audit não derrubam a operação.
+
+    Captura usuário da sessão (codusu/nomeusu). Se algo falhar (DB local
+    indisponível, etc), só loga warning — a vinculação/desvinculação no
+    Oracle já foi feita e não pode ser desfeita por causa de um audit.
+    """
+    try:
+        from .models import RastreioAudit
+        RastreioAudit.objects.create(
+            acao=acao,
+            nunota=int(nunota),
+            sequencia=int(sequencia),
+            codagregacao=str(codagregacao) if codagregacao else None,
+            qtd=qtd,
+            codusu=request.session.get('codusu'),
+            nomeusu=(request.session.get('nomeusu')
+                     or request.session.get('nome') or '')[:80],
+            detalhe=extra or {},
+        )
+    except Exception:
+        logger.warning("Falha ao gravar RastreioAudit (acao=%s nunota=%s seq=%s)",
+                       acao, nunota, sequencia, exc_info=True)
 
 
 @require_http_methods(["GET"])
@@ -2106,7 +2405,7 @@ def api_rastreio_lotes_disponiveis(request: HttpRequest) -> JsonResponse:
         })
     except Exception as e:
         logger.exception("Erro em api_rastreio_lotes_disponiveis")
-        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
 
 @require_http_methods(["GET"])
@@ -2146,7 +2445,7 @@ def api_rastreio_pedidos_abertos(request: HttpRequest) -> JsonResponse:
         })
     except Exception as e:
         logger.exception("Erro em api_rastreio_pedidos_abertos")
-        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
 
 @require_http_methods(["POST"])
@@ -2169,11 +2468,20 @@ def api_rastreio_desvincular_lote(request: HttpRequest) -> JsonResponse:
     try:
         res = desvincular_lote_item_pedido(nunota=nunota, sequencia=sequencia)
         if not res.get('ok'):
+            res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao desvincular lote')
             return JsonResponse(res, status=400)
+        # Audit log: usuário/quando/o quê
+        _registrar_audit_rastreio(
+            request, acao='DESVINCULAR',
+            nunota=nunota, sequencia=sequencia,
+            codagregacao=res.get('codagregacao_removido'),
+            qtd=None,
+            extra={'operacao': res.get('operacao')},
+        )
         return JsonResponse(res)
     except Exception as e:
         logger.exception("Erro em api_rastreio_desvincular_lote")
-        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
 
 @require_http_methods(["POST"])
@@ -2207,10 +2515,339 @@ def api_rastreio_atribuir_lote(request: HttpRequest) -> JsonResponse:
             qtd=qtd,
         )
         if not res.get('ok'):
+            res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao atribuir lote')
             return JsonResponse(res, status=400)
+        # Audit log — registra qual lote foi atribuído a qual item por quem
+        _registrar_audit_rastreio(
+            request, acao='ATRIBUIR',
+            nunota=nunota, sequencia=sequencia,
+            codagregacao=codagregacao,
+            qtd=res.get('qtd_atribuida') or qtd,
+            extra={
+                'operacao':       res.get('operacao'),
+                'nova_sequencia': res.get('nova_sequencia'),
+            },
+        )
         return JsonResponse(res)
     except Exception as e:
         logger.exception("Erro em api_rastreio_atribuir_lote")
-        return JsonResponse({"ok": False, "error": str(e)}, status=500)
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+
+# ==============================================================================
+# 📧 IMPORTAÇÃO DE PEDIDOS POR E-MAIL
+# Endpoints para a fila de revisão (E5). Confirmação fica em E7.
+# ==============================================================================
+
+@exige_grupo('venda')
+@ensure_csrf_cookie
+def view_email_importar(request: HttpRequest) -> HttpResponse:
+    """Renderiza a página de revisão de pré-pedidos vindos de e-mail.
+
+    `ensure_csrf_cookie` é necessário porque a tela faz POSTs (descartar,
+    reparser, confirmar) sem prévia de form HTML.
+    """
+    return render(request, 'sankhya_integration/email_importar.html')
+
+
+@require_http_methods(["GET"])
+@exige_grupo('venda')
+def api_email_listar(request: HttpRequest) -> JsonResponse:
+    """Lista pré-pedidos por status (default PENDENTE_REVISAO).
+
+    Querystring: ?status=PENDENTE_REVISAO|... &dias=N &limit=&offset=
+    """
+    try:
+        status_param = request.GET.get('status') or 'PENDENTE_REVISAO'
+        # aceita múltiplos: ?status=PENDENTE_REVISAO,ERRO_PARSER
+        if ',' in status_param:
+            status: str | list = [s.strip() for s in status_param.split(',') if s.strip()]
+        else:
+            status = status_param
+
+        dias = request.GET.get('dias')
+        try: dias_n = int(dias) if dias else None
+        except (TypeError, ValueError): dias_n = None
+
+        lim, off = _paginacao_do_request(request, default_limit=50)
+
+        rows = listar_pedidos_email_pendentes(
+            filtros={'status': status, 'dias': dias_n},
+            limite=lim, offset=off,
+        )
+        return JsonResponse({'ok': True, 'rows': rows, 'limit': lim, 'offset': off})
+    except Exception as exc:
+        logger.exception("Erro em api_email_listar")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('venda')
+def api_email_obter(request: HttpRequest, recebido_id: int) -> JsonResponse:
+    """Detalhes de um pré-pedido (cabeçalho + itens + sugestões)."""
+    try:
+        rec = obter_pedido_email_completo(int(recebido_id))
+        if not rec:
+            return JsonResponse({'ok': False, 'error': 'Pré-pedido não encontrado.'}, status=404)
+        # Serializa datas/timestamps de forma amigável para JSON
+        for k in ('recebido_em', 'processado_em', 'confirmado_em', 'criado_em', 'dtneg_sugerida'):
+            v = rec.get(k)
+            if hasattr(v, 'isoformat'): rec[k] = v.isoformat()
+        for it in rec.get('itens', []):
+            v = it.get('criado_em')
+            if hasattr(v, 'isoformat'): it['criado_em'] = v.isoformat()
+        return JsonResponse({'ok': True, 'pedido': rec})
+    except Exception as exc:
+        logger.exception("Erro em api_email_obter")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('venda')
+def api_email_pdf(request: HttpRequest, recebido_id: int) -> HttpResponse:
+    """Serve o PDF original arquivado, autenticado por sessão.
+
+    O PDF_PATH guardado é absoluto. Validamos que existe e está dentro do
+    PEDIDO_EMAIL_PDF_DIR antes de servir (defesa contra path traversal).
+    """
+    import os
+    from pathlib import Path
+
+    try:
+        rec = obter_pedido_email_completo(int(recebido_id))
+        if not rec:
+            return HttpResponse('Pré-pedido não encontrado', status=404)
+        pdf_path = rec.get('pdf_path') or ''
+        if not pdf_path:
+            return HttpResponse('PDF não disponível', status=404)
+
+        base_dir = os.getenv('PEDIDO_EMAIL_PDF_DIR', '').strip()
+        try:
+            base_resolved = Path(base_dir).resolve()
+            file_resolved = Path(pdf_path).resolve()
+            file_resolved.relative_to(base_resolved)  # raises se não for filho
+        except (ValueError, OSError):
+            logger.warning(f"Tentativa de acessar PDF fora de PEDIDO_EMAIL_PDF_DIR: {pdf_path}")
+            return HttpResponse('Acesso negado', status=403)
+
+        if not file_resolved.exists():
+            return HttpResponse('PDF não encontrado no disco', status=404)
+
+        with open(file_resolved, 'rb') as fh:
+            data = fh.read()
+        resp = HttpResponse(data, content_type='application/pdf')
+        resp['Content-Disposition'] = f'inline; filename="{file_resolved.name}"'
+        return resp
+    except Exception:
+        logger.exception("Erro em api_email_pdf")
+        return HttpResponse('Erro ao servir PDF', status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_email_descartar(request: HttpRequest, recebido_id: int) -> JsonResponse:
+    """Marca pré-pedido como DESCARTADO. Aceita motivo opcional no body."""
+    try:
+        payload = _get_json_payload(request) or {}
+        motivo = (payload.get('motivo') or '').strip()[:500] or 'Descartado pelo operador'
+        res = atualizar_pedido_email_status(int(recebido_id), 'DESCARTADO',
+                                              motivo_descarte=motivo)
+        if not res.get('ok'):
+            return JsonResponse({'ok': False, 'error': res.get('error')}, status=400)
+        return JsonResponse({'ok': True, 'rows': res.get('rows', 0)})
+    except Exception as exc:
+        logger.exception("Erro em api_email_descartar")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_email_reparser(request: HttpRequest, recebido_id: int) -> JsonResponse:
+    """Força re-execução do parser LLM em um pré-pedido específico.
+
+    Útil quando o operador melhorou o prompt ou quando o registro está em
+    ERRO_PARSER. Apenas troca o STATUS de volta para AGUARDANDO_PARSER e remove
+    os itens existentes; o worker pega na próxima rodada.
+    """
+    try:
+        rec = obter_pedido_email_completo(int(recebido_id))
+        if not rec:
+            return JsonResponse({'ok': False, 'error': 'Pré-pedido não encontrado.'}, status=404)
+        if rec.get('status') == 'CONFIRMADO':
+            return JsonResponse({'ok': False, 'error': 'Pedido já confirmado — não pode ser reparseado.'}, status=400)
+
+        # Remove itens existentes para o parser recriar
+        for it in rec.get('itens', []):
+            deletar_pedido_email_item(it['id'])
+
+        res = atualizar_pedido_email_status(int(recebido_id), 'AGUARDANDO_PARSER',
+                                              motivo_descarte=None)
+        if not res.get('ok'):
+            return JsonResponse({'ok': False, 'error': res.get('error')}, status=400)
+        return JsonResponse({'ok': True, 'mensagem': 'Reparser agendado para próxima rodada do worker.'})
+    except Exception as exc:
+        logger.exception("Erro em api_email_reparser")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_email_atualizar_item(request: HttpRequest, item_id: int) -> JsonResponse:
+    """Operador editou um item na tela de revisão.
+
+    Body JSON aceita: CODPROD_FINAL, QTD, CODVOL, PRECO_UNIT, OBSERVACAO,
+    DESCRICAO_PDF.
+    """
+    try:
+        payload = _get_json_payload(request) or {}
+        if not payload:
+            return JsonResponse({'ok': False, 'error': 'Body vazio.'}, status=400)
+        res = atualizar_pedido_email_item(int(item_id), payload)
+        if not res.get('ok'):
+            return JsonResponse({'ok': False, 'error': res.get('error')}, status=400)
+        return JsonResponse({'ok': True, 'rows': res.get('rows', 0)})
+    except Exception as exc:
+        logger.exception("Erro em api_email_atualizar_item")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_email_remover_item(request: HttpRequest, item_id: int) -> JsonResponse:
+    """Operador clicou lixeira em um item da tela de revisão."""
+    try:
+        res = deletar_pedido_email_item(int(item_id))
+        if not res.get('ok'):
+            return JsonResponse({'ok': False, 'error': res.get('error')}, status=400)
+        return JsonResponse({'ok': True, 'rows': res.get('rows', 0)})
+    except Exception as exc:
+        logger.exception("Erro em api_email_remover_item")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_email_confirmar(request: HttpRequest, recebido_id: int) -> JsonResponse:
+    """Promove pré-pedido vindo de e-mail para TGFCAB TOP 34.
+
+    Reusa as mesmas funções que `api_criar_cabecalho_venda` e
+    `api_salvar_item_venda` usam — comportamento idêntico ao fluxo manual.
+
+    Validações antes de tocar TGFCAB:
+        - Pré-pedido existe e está em PENDENTE_REVISAO ou ERRO_PARSER.
+        - JSON tem CODPARC, CODEMP, CODTIPVENDA, DTNEG.
+        - Todos os itens têm CODPROD_FINAL (operador confirmou na tela).
+    Em caso de qualquer falha durante o INSERT, faz rollback. AD_PEDIDO_EMAIL_*
+    só é atualizada para CONFIRMADO se TUDO deu certo.
+    """
+    if not verificar_permissao_escrita():
+        return JsonResponse({"ok": False, "error": "Escrita desabilitada"}, status=403)
+
+    payload = _get_json_payload(request) or {}
+    codparc = _converter_para_inteiro(payload.get('codparc'))
+    codemp = _converter_para_inteiro(payload.get('codemp'))
+    codtipvenda = _converter_para_inteiro(payload.get('codtipvenda'))
+    dtneg_raw = payload.get('dtneg')
+    observacao = (payload.get('observacao') or '').strip() or None
+    codusu = request.session.get('codusu')
+
+    if not codparc:     return JsonResponse({"ok": False, "error": "CODPARC obrigatório"}, status=400)
+    if not codemp:      return JsonResponse({"ok": False, "error": "CODEMP obrigatório"}, status=400)
+    if not codtipvenda: return JsonResponse({"ok": False, "error": "CODTIPVENDA obrigatório"}, status=400)
+    if not dtneg_raw:   return JsonResponse({"ok": False, "error": "DTNEG obrigatória"}, status=400)
+    if not codusu:      return JsonResponse({"ok": False, "error": "Sessão sem CODUSU"}, status=403)
+
+    # Carrega o pré-pedido + itens
+    rec = obter_pedido_email_completo(int(recebido_id))
+    if not rec:
+        return JsonResponse({"ok": False, "error": "Pré-pedido não encontrado"}, status=404)
+    if rec.get('status') == 'CONFIRMADO':
+        return JsonResponse({"ok": False, "error": "Pré-pedido já confirmado"}, status=400)
+    if rec.get('status') == 'DESCARTADO':
+        return JsonResponse({"ok": False, "error": "Pré-pedido descartado"}, status=400)
+
+    itens_pre = rec.get('itens') or []
+    if not itens_pre:
+        return JsonResponse({"ok": False, "error": "Pré-pedido sem itens"}, status=400)
+
+    sem_codprod = [i for i in itens_pre if not i.get('codprod_final')]
+    if sem_codprod:
+        return JsonResponse(
+            {"ok": False, "error": f"{len(sem_codprod)} item(ns) sem CODPROD definido"},
+            status=400,
+        )
+
+    # Cabeçalho — mesmos defaults da api_criar_cabecalho_venda
+    cabecalho_payload = {
+        'CODEMP':      codemp,
+        'CODPARC':     codparc,
+        'CODTIPOPER':  34,
+        'CODNAT':      10010100,
+        'CODCENCUS':   10100,
+        'CODTIPVENDA': codtipvenda,
+        'DTNEG':       _data_br_para_iso(dtneg_raw),
+        'OBSERVACAO':  observacao,
+    }
+
+    try:
+        with obter_conexao_oracle() as conn:
+            try:
+                # 1) INSERT TGFCAB (TOP 34)
+                plano_cab = inserir_cabecalho_nota_banco(
+                    cabecalho_payload, simulacao=False, conexao_existente=conn,
+                )
+                if not plano_cab.get('executed'):
+                    conn.rollback()
+                    return JsonResponse(
+                        {"ok": False,
+                         "error": humanizar_erro_oracle(plano_cab.get('error') or 'Falha ao criar pedido')},
+                        status=400,
+                    )
+                nunota = plano_cab['nunota']
+
+                # 2) INSERT TGFITE para cada item (gerar_lote_auto=False — venda não gera lote)
+                for it in itens_pre:
+                    item_payload = {
+                        'NUNOTA':       nunota,
+                        'CODPROD':      int(it['codprod_final']),
+                        'QTDNEG':       float(it.get('qtd') or 0),
+                        'VLRUNIT':      float(it.get('preco_unit') or 0),
+                        'CODVOL':       (it.get('codvol') or 'CX').upper(),
+                        'CODVOLPARC':   (it.get('codvol') or 'CX').upper(),
+                        'CODAGREGACAO': None,  # vínculo de lote fica para o Rastreio
+                    }
+                    plano_it = inserir_item_nota_banco(
+                        item_payload, simulacao=False, conexao_existente=conn,
+                        codusu_logado=codusu, gerar_lote_auto=False,
+                    )
+                    if not plano_it.get('executed'):
+                        conn.rollback()
+                        return JsonResponse(
+                            {"ok": False,
+                             "error": humanizar_erro_oracle(
+                                 plano_it.get('error') or f"Falha ao salvar item: {it.get('descricao_pdf')}"),
+                             "item_falhou": it.get('descricao_pdf')},
+                            status=400,
+                        )
+
+                # 3) Recalcula totais
+                recalcular_totais_nota_banco(nunota, conexao_existente=conn)
+
+                # 4) Marca pré-pedido como CONFIRMADO + grava NUNOTA + CODUSU
+                vincular_nunota_pedido_email(
+                    recebido_id=int(recebido_id), nunota=int(nunota), codusu=int(codusu),
+                    conexao_existente=conn,
+                )
+
+                conn.commit()
+            except Exception:
+                try: conn.rollback()
+                except Exception: pass
+                raise
+    except Exception as e:
+        logger.exception("Erro em api_email_confirmar")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+    return JsonResponse({"ok": True, "nunota": nunota}, status=200)
 
 

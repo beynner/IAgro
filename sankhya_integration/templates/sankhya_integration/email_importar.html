@@ -1,0 +1,154 @@
+{% extends 'sankhya_integration/base.html' %}
+{% load static %}
+
+{% block title %}Importação por E-mail · IAgro{% endblock %}
+
+{% block extra_css %}
+  <meta name="app-version" content="{{ APP_VERSION }}">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/email_importar.css' %}">
+{% endblock %}
+
+{% block header_title %}IMPORTAÇÃO POR E-MAIL{% endblock %}
+
+{% block content %}
+  <div class="email-grid">
+
+    <!-- ───────────────── Coluna esquerda: fila de pré-pedidos ───────────────── -->
+    <aside class="panel" id="emailFilaPanel">
+      <header>
+        <span>Fila de revisão</span>
+        <div class="email-fila-actions">
+          <select id="emailStatusFiltro" class="email-select" title="Filtrar por status">
+            <option value="PENDENTE_REVISAO" selected>Pendentes</option>
+            <option value="ERRO_PARSER">Erro do parser</option>
+            <option value="AGUARDANDO_PARSER">Aguardando parser</option>
+            <option value="CONFIRMADO">Confirmados</option>
+            <option value="DESCARTADO">Descartados</option>
+          </select>
+          <button type="button" id="emailRefreshBtn" class="email-icon-btn" title="Atualizar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+      <div class="email-fila-lista" id="emailFilaLista">
+        <div class="email-empty">Carregando...</div>
+      </div>
+    </aside>
+
+    <!-- ───────────────── Coluna direita: detalhe do pré-pedido ─────────────── -->
+    <section class="panel" id="emailDetalhePanel">
+      <header>
+        <span>Detalhe do pré-pedido <strong id="emailDetalheId">—</strong></span>
+        <span id="emailConfiancaBadge" class="email-confianca-badge"></span>
+      </header>
+
+      <div class="email-detalhe-body" id="emailDetalheBody">
+        <div class="email-empty-detail">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+            <polyline points="22,6 12,13 2,6"/>
+          </svg>
+          <p>Selecione um pré-pedido na fila à esquerda para revisar.</p>
+        </div>
+
+        <!-- Conteúdo carregado por JS quando há pedido selecionado -->
+        <div class="email-detalhe-conteudo hidden" id="emailDetalheConteudo">
+          <div class="email-split">
+            <!-- PDF embutido -->
+            <div class="email-pdf-wrap">
+              <iframe id="emailPdfFrame" src="" title="PDF original"></iframe>
+            </div>
+
+            <!-- Form de revisão -->
+            <div class="email-form-wrap">
+              <div class="email-form-secao">
+                <h4>Cabeçalho</h4>
+
+                <div class="email-row">
+                  <label>Cliente (Parceiro)</label>
+                  <div class="pos-rel">
+                    <input type="hidden" id="emailCodparc" />
+                    <input type="text" id="emailParcSearch" placeholder="Buscar parceiro..." autocomplete="off" />
+                    <div id="emailParcDropdown" class="dropdown-abs"></div>
+                  </div>
+                  <span class="email-confianca-mini" id="emailConfiancaParc"></span>
+                </div>
+
+                <div class="email-row email-row-3">
+                  <div>
+                    <label>Empresa</label>
+                    <div class="pos-rel">
+                      <input type="hidden" id="emailCodemp" />
+                      <input type="text" id="emailEmpSearch" placeholder="Cód. ou nome" autocomplete="off" />
+                      <div id="emailEmpDropdown" class="dropdown-abs"></div>
+                    </div>
+                  </div>
+                  <div>
+                    <label>Tipo Negociação</label>
+                    <div class="pos-rel">
+                      <input type="hidden" id="emailCodtipvenda" />
+                      <input type="text" id="emailTipvendaSearch" placeholder="Cód. ou descr." autocomplete="off" />
+                      <div id="emailTipvendaDropdown" class="dropdown-abs"></div>
+                    </div>
+                    <span class="email-badge-sugerido hidden" id="emailBadgeTipvenda" title="Sugerido pelo histórico — confirme">
+                      Sugerido — confirme
+                    </span>
+                  </div>
+                  <div>
+                    <label>Data Negociação</label>
+                    <input type="date" id="emailDtneg" />
+                  </div>
+                </div>
+
+                <div class="email-row">
+                  <label>Observação</label>
+                  <textarea id="emailObservacao" rows="2"></textarea>
+                </div>
+              </div>
+
+              <div class="email-form-secao">
+                <h4>Itens <span class="email-mute" id="emailItensCount">(0)</span></h4>
+                <div class="email-itens-tabela-wrap">
+                  <table class="email-itens-tabela ia-selectable-table">
+                    <thead>
+                      <tr>
+                        <th class="col-w-pdf">Texto do PDF</th>
+                        <th class="col-w-prod">Produto</th>
+                        <th class="text-right col-w-num">Qtd</th>
+                        <th class="col-w-vol">Vol</th>
+                        <th class="text-right col-w-num">Preço</th>
+                        <th class="col-w-acoes"></th>
+                      </tr>
+                    </thead>
+                    <tbody id="emailItensBody">
+                      <tr><td colspan="6" class="ia-placeholder">Sem itens.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="email-actions">
+                <button type="button" class="btn btn-clear" id="emailDescartarBtn">Descartar</button>
+                <button type="button" class="btn btn-muted" id="emailReparserBtn" title="Re-rodar parser LLM nesse pré-pedido">Reparser</button>
+                <button type="button" class="btn btn-success" id="emailConfirmarBtn">Confirmar e criar pedido</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Resposta crua do LLM (collapsible — debug) -->
+          <details class="email-llm-debug">
+            <summary>Resposta crua do LLM (debug)</summary>
+            <pre id="emailLlmDebug"></pre>
+          </details>
+        </div>
+      </div>
+    </section>
+
+  </div>
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'sankhya_integration/email_importar.js' %}"></script>
+{% endblock %}

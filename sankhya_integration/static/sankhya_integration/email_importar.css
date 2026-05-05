@@ -1,0 +1,412 @@
+/* =============================================================================
+   Tela: Importação de Pedidos por E-mail
+   Layout: 2 colunas — fila à esquerda + detalhe à direita (PDF + form)
+   ============================================================================= */
+
+/* ---------- Variáveis locais (aliasadas dos tokens globais) ---------- */
+:root {
+    --eml-borda:           var(--cor-borda);
+    --eml-fundo-painel:    var(--cor-fundo-painel);
+    --eml-fundo-secao:     var(--cor-fundo-secundario-claro, #f8fafc);
+    --eml-texto:           var(--cor-texto-primario-escuro, #0f172a);
+    --eml-texto-fraco:     var(--cor-texto-secundario-cinza, #64748b);
+    --eml-success:         #16a34a;
+    --eml-warning:         #f59e0b;
+    --eml-danger:          var(--cor-erro, #dc2626);
+    --eml-info:            #1e40af;
+}
+
+/* ---------- Container externo ---------- */
+.email-grid {
+    flex: 1;
+    display: flex;
+    gap: 12px;
+    min-width: 0;
+    min-height: 0;
+}
+
+#emailFilaPanel {
+    flex: 0 0 320px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#emailDetalhePanel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+}
+
+/* Headers */
+#emailFilaPanel > header,
+#emailDetalhePanel > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--eml-borda);
+    background: var(--eml-fundo-secao);
+    font-weight: 700;
+    font-size: 13px;
+    text-transform: uppercase;
+    color: var(--eml-texto);
+    flex-wrap: wrap;
+}
+
+/* ---------- Coluna esquerda: fila ---------- */
+.email-fila-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.email-select {
+    height: 28px;
+    padding: 4px 8px;
+    border: 1px solid var(--eml-borda);
+    border-radius: 4px;
+    font-size: 12px;
+    background: var(--eml-fundo-painel);
+    color: var(--eml-texto);
+}
+.email-select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6; }
+
+.email-icon-btn {
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--eml-borda);
+    background: var(--eml-fundo-painel);
+    color: var(--eml-texto-fraco);
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 150ms ease;
+}
+.email-icon-btn svg { width: 14px; height: 14px; }
+.email-icon-btn:hover { background: var(--eml-fundo-secao); color: var(--eml-texto); border-color: #94a3b8; }
+
+.email-fila-lista {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+/* Card de cada pré-pedido na fila */
+.email-fila-card {
+    border: 1px solid var(--eml-borda);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 150ms ease;
+    background: var(--eml-fundo-painel);
+    position: relative;
+}
+.email-fila-card:hover {
+    border-color: #94a3b8;
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+.email-fila-card.selected {
+    border-color: var(--eml-info);
+    box-shadow: 0 0 0 1px var(--eml-info);
+    background: #eff6ff;
+}
+
+.email-fila-titulo {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--eml-texto);
+    line-height: 1.3;
+    margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.email-fila-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--eml-texto-fraco);
+}
+.email-fila-data { white-space: nowrap; }
+
+/* Confiança em forma de pílula no canto */
+.email-confianca-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+}
+.email-confianca-pill.alta   { background: #d1fae5; color: var(--eml-success); }
+.email-confianca-pill.media  { background: #fef3c7; color: var(--eml-warning); }
+.email-confianca-pill.baixa  { background: #fee2e2; color: var(--eml-danger); }
+
+/* Mensagem de fila vazia */
+.email-empty {
+    text-align: center;
+    color: var(--eml-texto-fraco);
+    padding: 24px 16px;
+    font-size: 12px;
+    font-style: italic;
+}
+
+/* ---------- Coluna direita: detalhe ---------- */
+.email-detalhe-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.email-empty-detail {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--eml-texto-fraco);
+    gap: 12px;
+    padding: 40px;
+    text-align: center;
+}
+.email-empty-detail svg { width: 56px; height: 56px; color: #cbd5e1; }
+.email-empty-detail p { font-size: 13px; max-width: 320px; line-height: 1.5; }
+
+.hidden { display: none !important; }
+
+.email-detalhe-conteudo { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+.email-split {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* PDF embutido */
+.email-pdf-wrap {
+    border-right: 1px solid var(--eml-borda);
+    background: #f1f5f9;
+    overflow: hidden;
+    min-height: 0;
+}
+.email-pdf-wrap iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: white;
+}
+
+/* Form de revisão */
+.email-form-wrap {
+    overflow-y: auto;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+}
+
+.email-form-secao { display: flex; flex-direction: column; gap: 8px; }
+.email-form-secao h4 {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--eml-texto-fraco);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--eml-borda);
+}
+
+.email-row { display: flex; flex-direction: column; gap: 4px; position: relative; }
+.email-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+.email-row label,
+.email-row-3 > div > label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--eml-texto-fraco);
+    text-transform: uppercase;
+}
+.email-row input,
+.email-row textarea,
+.email-row select,
+.email-row-3 input,
+.email-row-3 select {
+    width: 100%;
+    height: 30px;
+    padding: 4px 8px;
+    border: 1px solid var(--eml-borda);
+    border-radius: 4px;
+    font-size: 12px;
+    background: var(--eml-fundo-painel);
+    color: var(--eml-texto);
+    box-sizing: border-box;
+}
+.email-row textarea { height: auto; min-height: 50px; resize: vertical; }
+.email-row input:focus,
+.email-row textarea:focus,
+.email-row-3 input:focus,
+.email-row-3 select:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 1px #3b82f6;
+}
+
+/* Confiança inline ao lado do campo */
+.email-confianca-mini {
+    position: absolute;
+    right: 6px;
+    top: 26px;
+    font-size: 10px;
+    color: var(--eml-texto-fraco);
+}
+
+/* Badge "Sugerido pelo histórico — confirme" */
+.email-badge-sugerido {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 2px 8px;
+    background: #fef3c7;
+    color: var(--eml-warning);
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+/* Badge geral de confiança no header do detalhe */
+.email-confianca-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 10px;
+}
+.email-confianca-badge.alta   { background: #d1fae5; color: var(--eml-success); }
+.email-confianca-badge.media  { background: #fef3c7; color: var(--eml-warning); }
+.email-confianca-badge.baixa  { background: #fee2e2; color: var(--eml-danger); }
+
+/* Itens do pedido */
+.email-itens-tabela-wrap {
+    border: 1px solid var(--eml-borda);
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--eml-fundo-painel);
+}
+.email-itens-tabela {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.email-itens-tabela th, .email-itens-tabela td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--eml-borda);
+    text-align: left;
+}
+.email-itens-tabela th.text-right, .email-itens-tabela td.text-right { text-align: right; }
+.email-itens-tabela thead th {
+    background: var(--eml-fundo-secao);
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--eml-texto-fraco);
+}
+.email-itens-tabela tbody tr.alerta { background: #fef9c3; }
+.email-itens-tabela input,
+.email-itens-tabela select {
+    width: 100%;
+    height: 26px;
+    padding: 2px 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    font-size: 12px;
+    color: var(--eml-texto);
+}
+.email-itens-tabela input:hover, .email-itens-tabela select:hover { border-color: var(--eml-borda); }
+.email-itens-tabela input:focus, .email-itens-tabela select:focus {
+    outline: none;
+    border-color: #3b82f6;
+    background: var(--eml-fundo-painel);
+}
+.email-itens-tabela td.text-right input { text-align: right; }
+.col-w-pdf   { width: 28%; }
+.col-w-prod  { width: 30%; }
+.col-w-num   { width: 70px; }
+.col-w-vol   { width: 60px; }
+.col-w-acoes { width: 32px; }
+
+.email-trash-btn {
+    background: transparent;
+    border: none;
+    color: var(--eml-texto-fraco);
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 3px;
+    transition: all 150ms ease;
+}
+.email-trash-btn:hover { background: #fee2e2; color: var(--eml-danger); }
+.email-trash-btn svg { width: 14px; height: 14px; }
+
+.email-mute { color: var(--eml-texto-fraco); font-weight: 400; font-size: 11px; }
+
+/* Botões inferiores */
+.email-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    padding-top: 8px;
+    border-top: 1px solid var(--eml-borda);
+    margin-top: 4px;
+}
+
+/* Reusa estilos globais .btn .btn-success .btn-clear .btn-muted; aqui só customizamos
+   espaçamento se necessário */
+.email-actions .btn { padding: 6px 14px; }
+
+/* Debug — resposta crua do LLM */
+.email-llm-debug {
+    margin: 14px;
+    padding: 8px 14px;
+    border: 1px solid var(--eml-borda);
+    border-radius: 4px;
+    background: var(--eml-fundo-secao);
+    font-size: 11px;
+}
+.email-llm-debug summary {
+    cursor: pointer;
+    color: var(--eml-texto-fraco);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 10px;
+}
+.email-llm-debug pre {
+    max-height: 200px;
+    overflow: auto;
+    background: white;
+    padding: 8px;
+    border-radius: 3px;
+    margin: 8px 0 0 0;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Override do .main-layout para essa tela ocupar tudo */
+.main-layout {
+    padding: 10px 14px;
+    gap: 12px;
+}

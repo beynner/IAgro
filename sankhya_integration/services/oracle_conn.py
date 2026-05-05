@@ -90,6 +90,56 @@ def verificar_permissao_escrita() -> bool:
     except Exception: pass
     return os.getenv('IAGRO_WRITE_ENABLED', 'false').lower() in ('1', 'true', 'yes', 'on')
 
+
+# ==============================================================================
+# 🌐 HUMANIZADOR DE ERROS ORACLE
+# Traduz códigos ORA-XXXXX e mensagens técnicas em frases compreensíveis
+# para o operador. Mantém a mensagem original ao final entre parênteses
+# para suporte/debug. Usado em todas as APIs de escrita de Venda e Rastreio.
+# ==============================================================================
+_MAPA_ORA_HUMANIZADO = (
+    # (substring buscada, mensagem amigável)
+    ('ORA-20101',  'Tipo de negociação inativo ou inválido. Selecione outro tipo.'),
+    ('ORA-00001',  'Já existe um registro com esses dados (chave duplicada).'),
+    ('ORA-02291',  'Referência inválida — algum código informado não existe no banco.'),
+    ('ORA-02292',  'Não é possível remover este registro porque ele tem dependências.'),
+    ('ORA-01400',  'Há um campo obrigatório sem valor. Preencha todos os campos marcados.'),
+    ('ORA-01438',  'Valor numérico maior do que o permitido para este campo.'),
+    ('ORA-01722',  'Número inválido — verifique campos numéricos.'),
+    ('ORA-01861',  'Data com formato inválido. Use o seletor de data.'),
+    ('ORA-12899',  'Texto digitado é maior do que o permitido para este campo.'),
+    ('ORA-00054',  'Registro está sendo editado por outro usuário. Aguarde um instante e tente novamente.'),
+    ('ORA-08177',  'Conflito ao salvar — outro usuário alterou os dados ao mesmo tempo. Recarregue e tente novamente.'),
+    ('DPY-1001',   'Conexão com o banco caiu durante a operação. Tente novamente.'),
+    ('DPY-4011',   'Conexão com o banco caiu durante a operação. Tente novamente.'),
+)
+
+
+def humanizar_erro_oracle(exc_or_msg) -> str:
+    """Converte exceção/mensagem do Oracle em texto amigável ao usuário.
+
+    Aceita ``Exception`` ou ``str``. Faz match por substring (case-sensitive)
+    nos códigos ORA-* mais comuns. Se não encontrar correspondência, devolve
+    a primeira linha da mensagem original (sanitizada para evitar vazar
+    stack traces ou paths internos).
+
+    A intenção é mostrar isso ao operador no toast — não substitui o
+    ``logger.exception`` que continua registrando o erro completo.
+    """
+    if exc_or_msg is None:
+        return 'Falha desconhecida.'
+    msg = str(exc_or_msg)
+    if not msg:
+        return 'Falha desconhecida.'
+    for chave, amigavel in _MAPA_ORA_HUMANIZADO:
+        if chave in msg:
+            return amigavel
+    # Fallback: pega a primeira linha não vazia, limita tamanho.
+    primeira = next((l.strip() for l in msg.splitlines() if l.strip()), msg.strip())
+    if len(primeira) > 200:
+        primeira = primeira[:197] + '...'
+    return primeira
+
 def _montar_string_conexao(host: str, port: int, service_name: str | None, sid: str | None, full_dsn: str | None) -> str:
     """Monta a string DSN exigida pelo driver do Oracle."""
     try:
@@ -2474,6 +2524,156 @@ def desfaturar_comercial_banco(nunota_13: int) -> dict:
 # 💰 4. MÓDULO EXCLUSIVO: VENDAS
 # ==============================================================================
 
+# ------------------------------------------------------------------
+# CODNAT por TOP — usado em criar/atualizar pedido e em faturar
+# (ver tabela de referência no CLAUDE.md §2 — módulo Venda).
+# Centralizado aqui para uma única fonte da verdade.
+# ------------------------------------------------------------------
+CODNAT_POR_TOP = {
+    34: 10010100,  # Pedido de Venda
+    35: 10010100,  # Venda com NFe
+    37: 10010200,  # Venda sem NFe
+}
+
+
+def faturar_pedido_venda_banco(nunota: int, nova_top: int,
+                               codusu_logado: int | None = None) -> dict:
+    """Fatura um Pedido TOP 34 transformando-o em TOP 35 (NFe) ou 37 (s/ NFe).
+
+    Operações dentro de UMA transação:
+      1) Lock SELECT FOR UPDATE da TGFCAB (NUNOTA).
+      2) Validações: pedido existe, é TOP 34 (não-faturado), não está excluído,
+         tem ao menos 1 item, e (importante!) **todos os itens têm CODAGREGACAO**.
+         Pedido sem lote em algum item NÃO pode ser faturado.
+      3) UPDATE TGFCAB SET CODTIPOPER=:nova_top, CODNAT=:nova_codnat,
+                         STATUSNOTA='L', DTFATUR=SYSDATE, NUMNOTA=...
+         (NUMNOTA é incremental por CODEMP+série; aqui usamos sequence simples
+          baseada em NVL(MAX(NUMNOTA),0)+1 dentro da própria CODEMP — aceitável
+          até a integração formal de numeração de NFe.)
+
+    Não dispara emissão de NFe via webservice — isso é tarefa do Sankhya
+    (TOP 35 marcada para emissão fica visível no painel do ERP).
+
+    Parâmetros:
+        nunota: NUNOTA do pedido TOP 34 a faturar.
+        nova_top: 35 (com NFe) ou 37 (sem NFe).
+        codusu_logado: codusu do usuário (informativo, não-bloqueante).
+
+    Retorno:
+        {ok: bool, executed: bool, error?: str, nunota: int, top: int,
+         numnota: int|None, codnat: int}
+    """
+    resultado = {'ok': False, 'executed': False, 'nunota': nunota}
+
+    if not verificar_permissao_escrita():
+        resultado['error'] = 'Escrita desabilitada'
+        return resultado
+
+    if int(nova_top) not in (35, 37):
+        resultado['error'] = f'TOP de faturamento inválido: {nova_top} (esperado 35 ou 37)'
+        return resultado
+
+    nova_codnat = CODNAT_POR_TOP.get(int(nova_top))
+    if nova_codnat is None:
+        resultado['error'] = f'CODNAT não mapeado para TOP {nova_top}'
+        return resultado
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            try:
+                # 1) Lock pessimista do cabeçalho — evita faturamento duplicado
+                cur.execute("""
+                    SELECT CODTIPOPER, STATUSNOTA, CODEMP, NVL(VLRNOTA, 0)
+                    FROM TGFCAB
+                    WHERE NUNOTA = :n
+                    FOR UPDATE
+                """, n=int(nunota))
+                row = cur.fetchone()
+                if not row:
+                    resultado['error'] = 'Pedido não encontrado'
+                    return resultado
+
+                codtipoper, statusnota, codemp, vlrnota = row
+                if int(codtipoper) != 34:
+                    resultado['error'] = (
+                        f'Pedido já foi faturado ou é de outra operação '
+                        f'(TOP atual: {codtipoper}).'
+                    )
+                    return resultado
+                if statusnota == 'L':
+                    resultado['error'] = 'Pedido já consta como faturado.'
+                    return resultado
+                if statusnota == 'E':
+                    resultado['error'] = 'Pedido foi excluído — não pode ser faturado.'
+                    return resultado
+
+                # 2) Valida itens — precisa ter ao menos 1, e nenhum com lote pendente
+                cur.execute("""
+                    SELECT COUNT(*),
+                           SUM(CASE WHEN CODAGREGACAO IS NULL THEN 1 ELSE 0 END)
+                    FROM TGFITE WHERE NUNOTA = :n
+                """, n=int(nunota))
+                total_itens, itens_sem_lote = cur.fetchone()
+                if int(total_itens or 0) == 0:
+                    resultado['error'] = 'Pedido sem itens — não pode ser faturado.'
+                    return resultado
+                if int(itens_sem_lote or 0) > 0:
+                    resultado['error'] = (
+                        f'Pedido tem {int(itens_sem_lote)} item(ns) sem lote vinculado. '
+                        f'Vincule todos os lotes no Rastreio antes de faturar.'
+                    )
+                    return resultado
+
+                # 3) Próximo NUMNOTA dentro do CODEMP — simples e suficiente para
+                #    o MVP. Numeração formal de NFe é responsabilidade do Sankhya.
+                cur.execute("""
+                    SELECT NVL(MAX(NUMNOTA), 0) + 1
+                    FROM TGFCAB
+                    WHERE CODEMP = :e
+                      AND CODTIPOPER IN (35, 37)
+                """, e=int(codemp))
+                proximo_numnota = int(cur.fetchone()[0])
+
+                # 4) Atualiza o cabeçalho — só colunas conhecidas. Se DTFATUR
+                #    não existir nesta versão da TGFCAB, ignora silenciosamente.
+                colunas = _obter_colunas_da_tabela(conn, 'TGFCAB')
+                set_parts = ["CODTIPOPER = :top", "CODNAT = :nat",
+                             "STATUSNOTA = 'L'", "NUMNOTA = :num"]
+                binds = {
+                    'top': int(nova_top),
+                    'nat': int(nova_codnat),
+                    'num': proximo_numnota,
+                    'n': int(nunota),
+                }
+                if 'DTFATUR' in colunas:
+                    set_parts.append("DTFATUR = SYSDATE")
+                if 'DTMOV' in colunas:
+                    set_parts.append("DTMOV = SYSDATE")
+                if 'CODUSU' in colunas and codusu_logado:
+                    set_parts.append("CODUSU = :u")
+                    binds['u'] = int(codusu_logado)
+
+                sql = f"UPDATE TGFCAB SET {', '.join(set_parts)} WHERE NUNOTA = :n"
+                cur.execute(sql, binds)
+
+                conn.commit()
+                resultado.update({
+                    'ok': True, 'executed': True,
+                    'top': int(nova_top), 'numnota': proximo_numnota,
+                    'codnat': int(nova_codnat), 'vlrnota': float(vlrnota or 0),
+                })
+                return resultado
+            except Exception:
+                try: conn.rollback()
+                except Exception: pass
+                raise
+    except Exception as e:
+        logger.exception("Erro em faturar_pedido_venda_banco")
+        resultado['error'] = str(e)
+        return resultado
+
+
 def listar_vendas_paginado(limite: int = 50, offset: int = 0, **kwargs):
     where = ["c.CODTIPOPER IN (34, 35, 37)", "c.STATUSNOTA <> 'E'"]
     binds = {}
@@ -2560,12 +2760,12 @@ def listar_vendas_paginado(limite: int = 50, offset: int = 0, **kwargs):
 
 # ==============================================================================
 # 📦 RASTREABILIDADE — saldo por lote e atribuição em pedido de venda
-# Lê da view SANKHYA.ANDRE_IRIS_SALDO_LOTE (TGFEST não é tocada).
+# Lê da view SANKHYA.ANDRE_IAGRO_SALDO_LOTE (TGFEST não é tocada).
 # ==============================================================================
 
 def consultar_saldo_lote_disponivel(filtros: dict | None = None,
                                     limite: int = 50, offset: int = 0) -> list[dict]:
-    """Saldo por (CODEMP, CODPROD, CODAGREGACAO) lendo da ANDRE_IRIS_SALDO_LOTE.
+    """Saldo por (CODEMP, CODPROD, CODAGREGACAO) lendo da ANDRE_IAGRO_SALDO_LOTE.
 
     Retorna SOMENTE linhas vendáveis com saldo > 0
     (status CLASSIFICADO e NAO_CLASSIFICAVEL).
@@ -2623,7 +2823,7 @@ def consultar_saldo_lote_disponivel(filtros: dict | None = None,
                 FROM TGFITE i_cli
                 JOIN TGFCAB c_cli       ON c_cli.NUNOTA = i_cli.NUNOTA
                 LEFT JOIN TGFPAR p_cli  ON p_cli.CODPARC = c_cli.CODPARC
-                WHERE i_cli.CODPROD       = ANDRE_IRIS_SALDO_LOTE.CODPROD
+                WHERE i_cli.CODPROD       = ANDRE_IAGRO_SALDO_LOTE.CODPROD
                   AND c_cli.CODTIPOPER   IN (34, 35, 37)
                   AND c_cli.STATUSNOTA  <> 'E'
                   AND UPPER(p_cli.NOMEPARC) LIKE :cliente_q
@@ -2677,13 +2877,19 @@ def consultar_saldo_lote_disponivel(filtros: dict | None = None,
             QTD_RESERVADA, QTD_DISPONIVEL, QTD_PENDENTE, QTD_AVARIA_INTERNA,
             VENDAVEL,
             NUNOTA_ORIGEM, DTNEG_ORIGEM, CODPARC_ORIGEM, NOMEPARC_ORIGEM
-        FROM SANKHYA.ANDRE_IRIS_SALDO_LOTE
+        FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE
         WHERE {' AND '.join(where)}
     """
+    # Ordenação pedida pelo usuário: data DESC (mais recente primeiro)
+    # → produto (alfabético) → status → lote como tiebreaker.
+    # NULLs em DTNEG_ORIGEM vão pro fim da lista (NULLS LAST).
     sql = f"""
         SELECT * FROM (
             SELECT t.*, ROW_NUMBER() OVER (
-                ORDER BY t.DESCRPROD, t.STATUS_LINHA, t.CODAGREGACAO
+                ORDER BY t.DTNEG_ORIGEM DESC NULLS LAST,
+                         t.DESCRPROD,
+                         t.STATUS_LINHA,
+                         t.CODAGREGACAO
             ) AS RN
             FROM ({sql_base}) t
         ) WHERE RN BETWEEN :start_row AND :end_row
@@ -2743,7 +2949,7 @@ def consultar_vinculos_de_lote(codagregacao: str) -> list[dict]:
 def consultar_fabricantes_disponiveis(termo: str = '', limite: int = 10) -> list[str]:
     """Lista FABRICANTEs DISTINTOS que têm pelo menos um lote vendável agora.
 
-    Consulta SANKHYA.ANDRE_IRIS_SALDO_LOTE filtrando por QTD_DISPONIVEL > 0
+    Consulta SANKHYA.ANDRE_IAGRO_SALDO_LOTE filtrando por QTD_DISPONIVEL > 0
     — versão original, comprovadamente funcional. O cache cliente-side
     carrega tudo no boot (1 fetch só), então o custo da view é pago uma vez
     por sessão e os filtros por keystroke ficam locais.
@@ -2761,7 +2967,7 @@ def consultar_fabricantes_disponiveis(termo: str = '', limite: int = 10) -> list
     sql = f"""
         SELECT * FROM (
             SELECT DISTINCT FABRICANTE
-            FROM SANKHYA.ANDRE_IRIS_SALDO_LOTE
+            FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE
             WHERE {' AND '.join(where)}
             ORDER BY FABRICANTE
         )
@@ -2905,7 +3111,7 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
     # Paginação por cabeçalho compatível com Oracle 11g (ROW_NUMBER + BETWEEN).
     # Pega os N NUNOTAs mais recentes e depois traz TODOS os itens deles
     # (ou só os filtrados, quando há filtro de item ativo).
-    # LEFT JOIN em ANDRE_IRIS_SALDO_LOTE traz dados de ORIGEM do lote
+    # LEFT JOIN em ANDRE_IAGRO_SALDO_LOTE traz dados de ORIGEM do lote
     # (data, parceiro do fornecedor, NUNOTA da TOP 11) p/ exibir no modal de vínculos.
     sql = f"""
         SELECT
@@ -3080,7 +3286,7 @@ def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
 
     Validações:
         - Pedido tem que ser TOP 34 e não estar faturado/excluído.
-        - Lote precisa ter saldo suficiente em ANDRE_IRIS_SALDO_LOTE (VENDAVEL='S').
+        - Lote precisa ter saldo suficiente em ANDRE_IAGRO_SALDO_LOTE (VENDAVEL='S').
 
     UPDATE direto (não usa atualizar_item_nota_banco) para evitar a auto-cura
     de AD_NUMPEDIDOORIG, que é específica da Entrada/Classificação e poderia
@@ -3093,19 +3299,32 @@ def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
 
-            # 1) Valida o pedido e o item
+            # 1) Lock pessimista da linha do item — evita race condition com
+            #    outra atribuição/desvinculação concorrente do mesmo NUNOTA+SEQ.
+            #    SELECT ... FOR UPDATE bloqueia a linha até commit/rollback.
             cur.execute("""
-                SELECT c.CODTIPOPER, c.STATUSNOTA, i.CODPROD, NVL(i.QTDNEG, 0), i.CODEMP
-                FROM TGFCAB c
-                JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
-                WHERE c.NUNOTA = :n AND i.SEQUENCIA = :s
+                SELECT i.CODAGREGACAO, NVL(i.QTDNEG, 0), i.CODPROD
+                FROM TGFITE i
+                WHERE i.NUNOTA = :n AND i.SEQUENCIA = :s
+                FOR UPDATE
             """, n=int(nunota), s=int(sequencia))
+            row_lock = cur.fetchone()
+            if not row_lock:
+                return {'ok': False, 'error': f'Item NUNOTA={nunota} SEQ={sequencia} não encontrado'}
+
+            # 2) Valida pedido (TOP/STATUSNOTA) — leitura simples, sem lock no cabeçalho
+            cur.execute("""
+                SELECT c.CODTIPOPER, c.STATUSNOTA
+                FROM TGFCAB c
+                WHERE c.NUNOTA = :n
+            """, n=int(nunota))
             row = cur.fetchone()
 
             if not row:
-                return {'ok': False, 'error': f'Item NUNOTA={nunota} SEQ={sequencia} não encontrado'}
+                return {'ok': False, 'error': f'Pedido NUNOTA={nunota} não encontrado'}
 
-            codtipoper, statusnota, codprod, qtd_item, codemp = row
+            codtipoper, statusnota = row
+            codagregacao_atual_lock, qtd_item, codprod = row_lock
 
             if int(codtipoper) != 34:
                 return {'ok': False, 'error': f'Operação não é TOP 34 (encontrada: TOP {codtipoper})'}
@@ -3113,6 +3332,14 @@ def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
                 return {'ok': False, 'error': 'Pedido já foi faturado — não é mais editável'}
             if statusnota == 'E':
                 return {'ok': False, 'error': 'Pedido excluído'}
+
+            # Defesa contra double-binding: se o item já tem lote, recusa atribuir
+            # de novo (operador deve desvincular antes). Sem isso, dois operadores
+            # concorrentes poderiam tentar atribuir lotes diferentes na mesma linha.
+            if codagregacao_atual_lock and str(codagregacao_atual_lock) != str(codagregacao):
+                return {'ok': False, 'error':
+                        f'Item já tem lote {codagregacao_atual_lock} vinculado. '
+                        f'Desvincule antes de atribuir outro lote.'}
 
             qtd_item_f = float(qtd_item)
             qtd_atribuir = float(qtd) if qtd is not None else qtd_item_f
@@ -3123,12 +3350,14 @@ def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
                 return {'ok': False, 'error':
                         f'Qtd a atribuir ({qtd_atribuir}) maior que qtd do item ({qtd_item_f})'}
 
-            # 2) Valida saldo do lote na view (ignora CODEMP — permite vincular
+            # 3) Valida saldo do lote na view (ignora CODEMP — permite vincular
             #    lote de uma empresa em pedido de outra; soma o saldo do lote
             #    em todas as empresas onde ele aparece como vendável).
+            #    A view já desconta as TOP 34 abertas, então o saldo aqui já
+            #    reflete reservas concorrentes que tenham commitado antes do nosso lock.
             cur.execute("""
                 SELECT NVL(SUM(QTD_DISPONIVEL), 0)
-                FROM SANKHYA.ANDRE_IRIS_SALDO_LOTE
+                FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE
                 WHERE CODPROD = :p AND CODAGREGACAO = :l
                   AND VENDAVEL = 'S'
             """, p=int(codprod), l=str(codagregacao))
@@ -3194,3 +3423,488 @@ def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
     except Exception as e:
         logger.exception("Erro em atribuir_lote_item_pedido")
         return {'ok': False, 'error': str(e)}
+
+
+# ==============================================================================
+# 📧 12. IMPORTAÇÃO DE PEDIDOS POR E-MAIL (AD_PEDIDO_EMAIL_*)
+# Funções aditivas — não alteram queries existentes. Operam sobre as tabelas
+# auxiliares AD_PEDIDO_EMAIL_RECEBIDO e AD_PEDIDO_EMAIL_ITEM.
+# DDL versionada em sankhya_integration/sql/AD_PEDIDO_EMAIL.sql
+# ==============================================================================
+
+# Estados válidos da coluna STATUS (espelham o CHECK CONSTRAINT da DDL)
+EMAIL_STATUS_VALIDOS = (
+    'AGUARDANDO_PARSER',
+    'PENDENTE_REVISAO',
+    'CONFIRMADO',
+    'DESCARTADO',
+    'ERRO_PARSER',
+    'ERRO_PDF',
+)
+
+
+def _proximo_id_sequence(cur, nome_sequence: str) -> int:
+    """Retorna o próximo valor de uma SEQUENCE Oracle (compatível 11g+)."""
+    cur.execute(f"SELECT {nome_sequence}.NEXTVAL FROM DUAL")
+    return int(cur.fetchone()[0])
+
+
+def inserir_pedido_email_recebido(dados: dict, conexao_existente=None) -> dict:
+    """Insere um registro de e-mail recebido em AD_PEDIDO_EMAIL_RECEBIDO.
+
+    Campos esperados em `dados`:
+      MESSAGE_ID (obrigatório), REMETENTE, ASSUNTO, RECEBIDO_EM (datetime),
+      PROCESSADO_EM (datetime), PDF_PATH, PDF_TEXTO (CLOB), STATUS (default
+      'AGUARDANDO_PARSER').
+
+    Retorna {'ok': True, 'id': <novo_id>} ou {'ok': False, 'error': msg}.
+    Falha com UNIQUE em MESSAGE_ID significa duplicado — caller deve ignorar.
+    """
+    def _operar(conn):
+        cur = conn.cursor()
+        novo_id = _proximo_id_sequence(cur, 'SEQ_AD_PEDIDO_EMAIL_RECEBIDO')
+        status = dados.get('STATUS') or 'AGUARDANDO_PARSER'
+        if status not in EMAIL_STATUS_VALIDOS:
+            return {'ok': False, 'error': f"STATUS inválido: {status}"}
+
+        cur.execute(
+            """
+            INSERT INTO AD_PEDIDO_EMAIL_RECEBIDO (
+                ID, MESSAGE_ID, REMETENTE, ASSUNTO,
+                RECEBIDO_EM, PROCESSADO_EM,
+                PDF_PATH, PDF_TEXTO,
+                STATUS
+            ) VALUES (
+                :id, :message_id, :remetente, :assunto,
+                :recebido_em, :processado_em,
+                :pdf_path, :pdf_texto,
+                :status
+            )
+            """,
+            {
+                'id': novo_id,
+                'message_id': dados['MESSAGE_ID'],
+                'remetente': dados.get('REMETENTE'),
+                'assunto': dados.get('ASSUNTO'),
+                'recebido_em': dados.get('RECEBIDO_EM'),
+                'processado_em': dados.get('PROCESSADO_EM'),
+                'pdf_path': dados.get('PDF_PATH'),
+                'pdf_texto': dados.get('PDF_TEXTO'),
+                'status': status,
+            },
+        )
+        return {'ok': True, 'id': novo_id}
+
+    try:
+        if conexao_existente is not None:
+            return _operar(conexao_existente)
+        with obter_conexao_oracle() as conn:
+            res = _operar(conn)
+            if res.get('ok'): conn.commit()
+            return res
+    except Exception as exc:
+        logger.exception("Erro em inserir_pedido_email_recebido")
+        return {'ok': False, 'error': str(exc)}
+
+
+def inserir_pedido_email_item(dados: dict, conexao_existente=None) -> dict:
+    """Insere um item extraído em AD_PEDIDO_EMAIL_ITEM.
+
+    Campos esperados em `dados`:
+      RECEBIDO_ID (obrigatório), SEQUENCIA, DESCRICAO_PDF,
+      CODPROD_SUGERIDO, CODPROD_CONFIANCA, QTD, CODVOL, PRECO_UNIT, OBSERVACAO.
+    """
+    def _operar(conn):
+        cur = conn.cursor()
+        novo_id = _proximo_id_sequence(cur, 'SEQ_AD_PEDIDO_EMAIL_ITEM')
+        cur.execute(
+            """
+            INSERT INTO AD_PEDIDO_EMAIL_ITEM (
+                ID, RECEBIDO_ID, SEQUENCIA, DESCRICAO_PDF,
+                CODPROD_SUGERIDO, CODPROD_CONFIANCA, CODPROD_FINAL,
+                QTD, CODVOL, PRECO_UNIT, OBSERVACAO
+            ) VALUES (
+                :id, :recebido_id, :sequencia, :descricao_pdf,
+                :codprod_sugerido, :codprod_confianca, :codprod_final,
+                :qtd, :codvol, :preco_unit, :observacao
+            )
+            """,
+            {
+                'id': novo_id,
+                'recebido_id': dados['RECEBIDO_ID'],
+                'sequencia': dados.get('SEQUENCIA', 1),
+                'descricao_pdf': dados.get('DESCRICAO_PDF'),
+                'codprod_sugerido': dados.get('CODPROD_SUGERIDO'),
+                'codprod_confianca': dados.get('CODPROD_CONFIANCA'),
+                'codprod_final': dados.get('CODPROD_FINAL'),
+                'qtd': dados.get('QTD'),
+                'codvol': dados.get('CODVOL'),
+                'preco_unit': dados.get('PRECO_UNIT'),
+                'observacao': dados.get('OBSERVACAO'),
+            },
+        )
+        return {'ok': True, 'id': novo_id}
+
+    try:
+        if conexao_existente is not None:
+            return _operar(conexao_existente)
+        with obter_conexao_oracle() as conn:
+            res = _operar(conn)
+            if res.get('ok'): conn.commit()
+            return res
+    except Exception as exc:
+        logger.exception("Erro em inserir_pedido_email_item")
+        return {'ok': False, 'error': str(exc)}
+
+
+def listar_pedidos_email_pendentes(filtros: dict | None = None,
+                                    limite: int = 50, offset: int = 0) -> list[dict]:
+    """Lista pré-pedidos por status (default PENDENTE_REVISAO) ordenados por RECEBIDO_EM DESC.
+
+    Filtros aceitos: `status` (str ou list), `dias` (int — recebidos nos últimos N dias).
+    Retorna lista de dicts com campos resumidos para a fila da tela.
+    """
+    filtros = filtros or {}
+    where = ['1=1']
+    binds: dict = {}
+
+    status = filtros.get('status') or 'PENDENTE_REVISAO'
+    if isinstance(status, (list, tuple)):
+        placeholders = ','.join(f":st{i}" for i in range(len(status)))
+        where.append(f"STATUS IN ({placeholders})")
+        for i, s in enumerate(status):
+            binds[f'st{i}'] = s
+    else:
+        where.append("STATUS = :status")
+        binds['status'] = status
+
+    dias = filtros.get('dias')
+    if dias:
+        where.append("RECEBIDO_EM >= SYSTIMESTAMP - NUMTODSINTERVAL(:dias, 'DAY')")
+        binds['dias'] = int(dias)
+
+    sql = f"""
+    SELECT * FROM (
+        SELECT t.*, ROW_NUMBER() OVER (ORDER BY RECEBIDO_EM DESC NULLS LAST, ID DESC) AS rn
+        FROM (
+            SELECT
+                ID, MESSAGE_ID, REMETENTE, ASSUNTO,
+                RECEBIDO_EM, PROCESSADO_EM,
+                LLM_CONFIANCA_GERAL, CODPARC_SUGERIDO,
+                STATUS, NUNOTA_GERADO, CRIADO_EM
+            FROM AD_PEDIDO_EMAIL_RECEBIDO
+            WHERE {' AND '.join(where)}
+        ) t
+    ) WHERE rn BETWEEN :ini AND :fim
+    """
+    binds['ini'] = offset + 1
+    binds['fim'] = offset + limite
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, binds)
+            cols = [d[0].lower() for d in cur.description]
+            linhas = []
+            for row in cur.fetchall():
+                d = dict(zip(cols, row))
+                d.pop('rn', None)
+                linhas.append(d)
+            return linhas
+    except Exception:
+        logger.exception("Erro em listar_pedidos_email_pendentes")
+        return []
+
+
+def obter_pedido_email_completo(recebido_id: int) -> dict | None:
+    """Retorna o pré-pedido com cabeçalho + itens. None se não existir."""
+    sql_cab = """
+        SELECT ID, MESSAGE_ID, REMETENTE, ASSUNTO,
+               RECEBIDO_EM, PROCESSADO_EM,
+               PDF_PATH, PDF_TEXTO,
+               LLM_RESPOSTA, LLM_MODELO,
+               LLM_TOKENS_IN, LLM_TOKENS_OUT, LLM_CONFIANCA_GERAL,
+               CODPARC_SUGERIDO, CODEMP_SUGERIDO,
+               DTNEG_SUGERIDA, CODTIPVENDA_SUGERIDO,
+               OBSERVACAO_EXTRAIDA,
+               STATUS, MOTIVO_DESCARTE,
+               NUNOTA_GERADO, CONFIRMADO_POR, CONFIRMADO_EM, CRIADO_EM
+        FROM AD_PEDIDO_EMAIL_RECEBIDO
+        WHERE ID = :id
+    """
+    sql_itens = """
+        SELECT ID, RECEBIDO_ID, SEQUENCIA, DESCRICAO_PDF,
+               CODPROD_SUGERIDO, CODPROD_CONFIANCA, CODPROD_FINAL,
+               QTD, CODVOL, PRECO_UNIT, OBSERVACAO, CRIADO_EM
+        FROM AD_PEDIDO_EMAIL_ITEM
+        WHERE RECEBIDO_ID = :id
+        ORDER BY SEQUENCIA
+    """
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql_cab, id=recebido_id)
+            row = cur.fetchone()
+            if not row: return None
+            cols_cab = [d[0].lower() for d in cur.description]
+            cab = dict(zip(cols_cab, row))
+            # CLOBs vêm como objeto LOB — convertemos para string
+            for k in ('pdf_texto', 'llm_resposta'):
+                v = cab.get(k)
+                if v is not None and hasattr(v, 'read'):
+                    cab[k] = v.read()
+            cur.execute(sql_itens, id=recebido_id)
+            cols_it = [d[0].lower() for d in cur.description]
+            itens = [dict(zip(cols_it, r)) for r in cur.fetchall()]
+            cab['itens'] = itens
+            return cab
+    except Exception:
+        logger.exception("Erro em obter_pedido_email_completo")
+        return None
+
+
+def listar_pedidos_email_aguardando_parser(limite: int = 20) -> list[dict]:
+    """Lista IDs+texto+remetente dos registros AGUARDANDO_PARSER (uso do worker LLM)."""
+    sql = """
+    SELECT * FROM (
+        SELECT ID, MESSAGE_ID, REMETENTE, PDF_PATH, PDF_TEXTO
+        FROM AD_PEDIDO_EMAIL_RECEBIDO
+        WHERE STATUS = 'AGUARDANDO_PARSER'
+        ORDER BY RECEBIDO_EM ASC NULLS LAST, ID ASC
+    ) WHERE ROWNUM <= :lim
+    """
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, lim=int(limite))
+            cols = [d[0].lower() for d in cur.description]
+            linhas = []
+            for row in cur.fetchall():
+                d = dict(zip(cols, row))
+                v = d.get('pdf_texto')
+                if v is not None and hasattr(v, 'read'):
+                    d['pdf_texto'] = v.read()
+                linhas.append(d)
+            return linhas
+    except Exception:
+        logger.exception("Erro em listar_pedidos_email_aguardando_parser")
+        return []
+
+
+def atualizar_pedido_email_parser_resultado(recebido_id: int, resultado: dict,
+                                              conexao_existente=None) -> dict:
+    """Após parser LLM rodar, grava sugestões e troca STATUS para PENDENTE_REVISAO.
+
+    `resultado` deve conter:
+      LLM_RESPOSTA (str JSON cru), LLM_MODELO, LLM_TOKENS_IN, LLM_TOKENS_OUT,
+      LLM_CONFIANCA_GERAL, CODPARC_SUGERIDO, CODEMP_SUGERIDO,
+      DTNEG_SUGERIDA, CODTIPVENDA_SUGERIDO, OBSERVACAO_EXTRAIDA.
+    """
+    def _operar(conn):
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE AD_PEDIDO_EMAIL_RECEBIDO
+               SET LLM_RESPOSTA         = :llm_resposta,
+                   LLM_MODELO           = :llm_modelo,
+                   LLM_TOKENS_IN        = :tok_in,
+                   LLM_TOKENS_OUT       = :tok_out,
+                   LLM_CONFIANCA_GERAL  = :conf,
+                   CODPARC_SUGERIDO     = :codparc,
+                   CODEMP_SUGERIDO      = :codemp,
+                   DTNEG_SUGERIDA       = :dtneg,
+                   CODTIPVENDA_SUGERIDO = :codtv,
+                   OBSERVACAO_EXTRAIDA  = :obs,
+                   STATUS               = 'PENDENTE_REVISAO'
+             WHERE ID = :id
+            """,
+            {
+                'id': recebido_id,
+                'llm_resposta': resultado.get('LLM_RESPOSTA'),
+                'llm_modelo': resultado.get('LLM_MODELO'),
+                'tok_in': resultado.get('LLM_TOKENS_IN'),
+                'tok_out': resultado.get('LLM_TOKENS_OUT'),
+                'conf': resultado.get('LLM_CONFIANCA_GERAL'),
+                'codparc': resultado.get('CODPARC_SUGERIDO'),
+                'codemp': resultado.get('CODEMP_SUGERIDO'),
+                'dtneg': resultado.get('DTNEG_SUGERIDA'),
+                'codtv': resultado.get('CODTIPVENDA_SUGERIDO'),
+                'obs': resultado.get('OBSERVACAO_EXTRAIDA'),
+            },
+        )
+        return {'ok': True, 'rows': cur.rowcount}
+
+    try:
+        if conexao_existente is not None:
+            return _operar(conexao_existente)
+        with obter_conexao_oracle() as conn:
+            res = _operar(conn)
+            if res.get('ok'): conn.commit()
+            return res
+    except Exception as exc:
+        logger.exception("Erro em atualizar_pedido_email_parser_resultado")
+        return {'ok': False, 'error': str(exc)}
+
+
+def atualizar_pedido_email_status(recebido_id: int, novo_status: str,
+                                    motivo_descarte: str | None = None,
+                                    conexao_existente=None) -> dict:
+    """Atualiza STATUS de um pré-pedido. Para DESCARTADO, grava motivo."""
+    if novo_status not in EMAIL_STATUS_VALIDOS:
+        return {'ok': False, 'error': f"STATUS inválido: {novo_status}"}
+
+    def _operar(conn):
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE AD_PEDIDO_EMAIL_RECEBIDO
+               SET STATUS = :st,
+                   MOTIVO_DESCARTE = COALESCE(:motivo, MOTIVO_DESCARTE)
+             WHERE ID = :id
+            """,
+            {'st': novo_status, 'motivo': motivo_descarte, 'id': recebido_id},
+        )
+        return {'ok': True, 'rows': cur.rowcount}
+
+    try:
+        if conexao_existente is not None:
+            return _operar(conexao_existente)
+        with obter_conexao_oracle() as conn:
+            res = _operar(conn)
+            if res.get('ok'): conn.commit()
+            return res
+    except Exception as exc:
+        logger.exception("Erro em atualizar_pedido_email_status")
+        return {'ok': False, 'error': str(exc)}
+
+
+def atualizar_pedido_email_item(item_id: int, dados: dict,
+                                  conexao_existente=None) -> dict:
+    """Operador editou um item na tela de revisão. Aceita campos parciais."""
+    campos_permitidos = {
+        'DESCRICAO_PDF', 'CODPROD_FINAL', 'QTD', 'CODVOL', 'PRECO_UNIT', 'OBSERVACAO',
+    }
+    sets = []
+    binds: dict = {'id': item_id}
+    for k, v in dados.items():
+        ku = k.upper()
+        if ku in campos_permitidos:
+            sets.append(f"{ku} = :{ku.lower()}")
+            binds[ku.lower()] = v
+    if not sets:
+        return {'ok': False, 'error': 'Nenhum campo válido para atualizar.'}
+
+    def _operar(conn):
+        cur = conn.cursor()
+        cur.execute(
+            f"UPDATE AD_PEDIDO_EMAIL_ITEM SET {', '.join(sets)} WHERE ID = :id",
+            binds,
+        )
+        return {'ok': True, 'rows': cur.rowcount}
+
+    try:
+        if conexao_existente is not None:
+            return _operar(conexao_existente)
+        with obter_conexao_oracle() as conn:
+            res = _operar(conn)
+            if res.get('ok'): conn.commit()
+            return res
+    except Exception as exc:
+        logger.exception("Erro em atualizar_pedido_email_item")
+        return {'ok': False, 'error': str(exc)}
+
+
+def deletar_pedido_email_item(item_id: int, conexao_existente=None) -> dict:
+    """Remove um item da revisão (operador clicou lixeira na tela)."""
+    def _operar(conn):
+        cur = conn.cursor()
+        cur.execute("DELETE FROM AD_PEDIDO_EMAIL_ITEM WHERE ID = :id", id=item_id)
+        return {'ok': True, 'rows': cur.rowcount}
+
+    try:
+        if conexao_existente is not None:
+            return _operar(conexao_existente)
+        with obter_conexao_oracle() as conn:
+            res = _operar(conn)
+            if res.get('ok'): conn.commit()
+            return res
+    except Exception as exc:
+        logger.exception("Erro em deletar_pedido_email_item")
+        return {'ok': False, 'error': str(exc)}
+
+
+def vincular_nunota_pedido_email(recebido_id: int, nunota: int, codusu: int,
+                                   conexao_existente=None) -> dict:
+    """Após confirmação que cria TGFCAB, marca pré-pedido como CONFIRMADO."""
+    def _operar(conn):
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE AD_PEDIDO_EMAIL_RECEBIDO
+               SET STATUS         = 'CONFIRMADO',
+                   NUNOTA_GERADO  = :nunota,
+                   CONFIRMADO_POR = :codusu,
+                   CONFIRMADO_EM  = SYSTIMESTAMP
+             WHERE ID = :id
+            """,
+            {'nunota': nunota, 'codusu': codusu, 'id': recebido_id},
+        )
+        return {'ok': True, 'rows': cur.rowcount}
+
+    try:
+        if conexao_existente is not None:
+            return _operar(conexao_existente)
+        with obter_conexao_oracle() as conn:
+            res = _operar(conn)
+            if res.get('ok'): conn.commit()
+            return res
+    except Exception as exc:
+        logger.exception("Erro em vincular_nunota_pedido_email")
+        return {'ok': False, 'error': str(exc)}
+
+
+def consultar_ultimo_pedido_codparc(codparc: int) -> dict | None:
+    """Retorna CODEMP/CODTIPVENDA do último pedido (TOP 34/35/37) deste parceiro.
+
+    Usado para pré-popular sugestões na tela de revisão. None se nunca comprou.
+    """
+    if not codparc:
+        return None
+    sql = """
+    SELECT * FROM (
+        SELECT CODEMP, CODTIPVENDA, DTNEG
+          FROM TGFCAB
+         WHERE CODPARC = :p
+           AND CODTIPOPER IN (34, 35, 37)
+           AND NVL(STATUSNOTA, 'A') <> 'E'
+         ORDER BY DTNEG DESC NULLS LAST, NUNOTA DESC
+    ) WHERE ROWNUM = 1
+    """
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, p=int(codparc))
+            row = cur.fetchone()
+            if not row: return None
+            return {'codemp': row[0], 'codtipvenda': row[1], 'dtneg': row[2]}
+    except Exception:
+        logger.exception("Erro em consultar_ultimo_pedido_codparc")
+        return None
+
+
+def consultar_pedido_email_por_message_id(message_id: str) -> dict | None:
+    """Retorna o registro pelo MESSAGE_ID (anti-duplicação no worker IMAP)."""
+    if not message_id: return None
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT ID, STATUS FROM AD_PEDIDO_EMAIL_RECEBIDO WHERE MESSAGE_ID = :m",
+                m=message_id,
+            )
+            row = cur.fetchone()
+            if not row: return None
+            return {'id': row[0], 'status': row[1]}
+    except Exception:
+        logger.exception("Erro em consultar_pedido_email_por_message_id")
+        return None

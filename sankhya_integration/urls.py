@@ -108,9 +108,12 @@ urlpatterns = [
     path("venda/api/listar/", views.api_listar_vendas, name="api_listar_vendas"),
     path("venda/api/cabecalho/", views.api_criar_cabecalho_venda, name="api_criar_cabecalho_venda"),
     path("venda/api/item/", views.api_salvar_item_venda, name="api_salvar_item_venda"),
+    path("venda/api/item/editar/", views.api_atualizar_item_venda, name="api_atualizar_item_venda"),
+    path("venda/api/item/remover/", views.api_remover_item_venda, name="api_remover_item_venda"),
     path("venda/api/excluir/", views.api_excluir_pedido_venda, name="api_excluir_pedido_venda"),
     path("venda/api/cabecalho/obter/", views.api_obter_cabecalho_pedido, name="api_obter_cabecalho_pedido"),
     path("venda/api/cabecalho/editar/", views.api_atualizar_cabecalho_venda, name="api_atualizar_cabecalho_venda"),
+    path("venda/api/faturar/", views.api_faturar_pedido_venda, name="api_faturar_pedido_venda"),
 
 # ==============================================================================
 # 💰 MÓDULO DE RASTREABILIDADE
@@ -123,4 +126,17 @@ urlpatterns = [
     path('rastreio/api/pedidos-abertos/',   views.api_rastreio_pedidos_abertos,   name='api_rastreio_pedidos_abertos'),
     path('rastreio/api/atribuir-lote/',     views.api_rastreio_atribuir_lote,     name='api_rastreio_atribuir_lote'),
     path('rastreio/api/desvincular-lote/',  views.api_rastreio_desvincular_lote,  name='api_rastreio_desvincular_lote'),
+
+# ==============================================================================
+# 📧 MÓDULO IMPORTAÇÃO POR E-MAIL (PEDIDOS COM PDF + LLM LOCAL)
+# ==============================================================================
+    path('venda/email-importar/',                       views.view_email_importar,        name='email_importar'),
+    path('venda/api/email/listar/',                     views.api_email_listar,           name='api_email_listar'),
+    path('venda/api/email/<int:recebido_id>/',          views.api_email_obter,            name='api_email_obter'),
+    path('venda/api/email/<int:recebido_id>/pdf/',      views.api_email_pdf,              name='api_email_pdf'),
+    path('venda/api/email/<int:recebido_id>/descartar/',views.api_email_descartar,        name='api_email_descartar'),
+    path('venda/api/email/<int:recebido_id>/reparser/', views.api_email_reparser,         name='api_email_reparser'),
+    path('venda/api/email/<int:recebido_id>/confirmar/',views.api_email_confirmar,        name='api_email_confirmar'),
+    path('venda/api/email/item/<int:item_id>/editar/',  views.api_email_atualizar_item,   name='api_email_atualizar_item'),
+    path('venda/api/email/item/<int:item_id>/remover/', views.api_email_remover_item,     name='api_email_remover_item'),
 ]
