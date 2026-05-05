@@ -364,14 +364,19 @@ class CriarCabecalhoVendaTest(TestCase):
     @patch('sankhya_integration.views.obter_conexao_oracle')
     @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=True)
     def test_excecao_do_servico_retorna_500(self, _mock_perm, mock_ctx, _mock_fn):
-        _mock_oracle_conn(mock_ctx)
+        """Erro Oracle deve ser humanizado (não vazar 'ORA-XXXXX' ao usuário)."""
+        mock_conn = _mock_oracle_conn(mock_ctx)
         response = self._post({
             'codparc': 1, 'dtneg': '2026-04-23', 'codtipvenda': 1,
         })
         self.assertEqual(response.status_code, 500)
         data = json.loads(response.content)
         self.assertFalse(data['ok'])
-        self.assertIn('ORA-02291', data['error'])
+        # Mensagem amigável, sem expor o código ORA ao operador.
+        self.assertNotIn('ORA-02291', data['error'])
+        self.assertIn('Referência', data['error'])
+        # Rollback explícito chamado quando a exceção sobe na view.
+        mock_conn.rollback.assert_called()
 
 
 # ---------------------------------------------------------------------------
@@ -775,3 +780,277 @@ class AtualizarCabecalhoVendaTest(TestCase):
         response = self._post(self._payload_valido())
         self.assertEqual(response.status_code, 500)
         self.assertIn('ORA-01234', json.loads(response.content)['error'])
+
+
+# ---------------------------------------------------------------------------
+# api_atualizar_item_venda — Fase 2.1 (editar item individual)
+# ---------------------------------------------------------------------------
+
+class AtualizarItemVendaTest(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+        _login_session(self.client, grupos=['10'])
+        self.url = reverse('api_atualizar_item_venda')
+
+    def _post(self, payload):
+        return self.client.post(self.url, data=json.dumps(payload),
+                                content_type='application/json')
+
+    def test_sem_sessao_redireciona(self):
+        self.client.session.flush()
+        response = self._post({'nunota': 1, 'sequencia': 1})
+        self.assertRedirects(response, reverse('home'), fetch_redirect_response=False)
+
+    def test_metodo_get_nao_permitido(self):
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+
+    def test_payload_vazio_400(self):
+        response = self.client.post(self.url, data='', content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_sem_nunota_ou_sequencia_400(self):
+        self.assertEqual(self._post({'sequencia': 1}).status_code, 400)
+        self.assertEqual(self._post({'nunota': 1}).status_code, 400)
+
+    @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=False)
+    def test_escrita_desabilitada_403(self, _mp):
+        response = self._post({'nunota': 1, 'sequencia': 1, 'qtdneg': 5})
+        self.assertEqual(response.status_code, 403)
+
+    @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=True)
+    @patch('sankhya_integration.views.obter_conexao_oracle')
+    def test_pedido_nao_encontrado_404(self, mock_ctx, _mp):
+        mock_conn = _mock_oracle_conn(mock_ctx)
+        cursor = MagicMock()
+        cursor.fetchone.return_value = None
+        mock_conn.cursor.return_value = cursor
+        response = self._post({'nunota': 999, 'sequencia': 1, 'qtdneg': 5})
+        self.assertEqual(response.status_code, 404)
+
+    @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=True)
+    @patch('sankhya_integration.views.obter_conexao_oracle')
+    def test_pedido_top_diferente_de_34_403(self, mock_ctx, _mp):
+        mock_conn = _mock_oracle_conn(mock_ctx)
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (35, 'L')   # TOP 35, faturado
+        mock_conn.cursor.return_value = cursor
+        response = self._post({'nunota': 1, 'sequencia': 1, 'qtdneg': 5})
+        self.assertEqual(response.status_code, 403)
+        self.assertIn('TOP 34', json.loads(response.content)['error'])
+
+    @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=True)
+    @patch('sankhya_integration.views.obter_conexao_oracle')
+    def test_pedido_faturado_403(self, mock_ctx, _mp):
+        mock_conn = _mock_oracle_conn(mock_ctx)
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (34, 'L')   # TOP 34 mas STATUSNOTA L
+        mock_conn.cursor.return_value = cursor
+        response = self._post({'nunota': 1, 'sequencia': 1, 'qtdneg': 5})
+        self.assertEqual(response.status_code, 403)
+        self.assertIn('faturado', json.loads(response.content)['error'].lower())
+
+    @patch('sankhya_integration.views.recalcular_totais_nota_banco',
+           return_value={'ok': True, 'vlrnota': 200.0, 'qtdvol': 8.0})
+    @patch('sankhya_integration.views.atualizar_item_nota_banco',
+           return_value={'ok': True, 'executed': True})
+    @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=True)
+    @patch('sankhya_integration.views.obter_conexao_oracle')
+    def test_atualizacao_sucesso_dispara_recalculo_e_commit(
+        self, mock_ctx, _mp, mock_upd, mock_recalc
+    ):
+        # Primeiro cursor (validação) retorna TOP 34 + STATUSNOTA != L;
+        # segundo cursor (escrita) é o mesmo conn, sem retorno relevante.
+        mock_conn = _mock_oracle_conn(mock_ctx)
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (34, '0')
+        mock_conn.cursor.return_value = cursor
+        response = self._post({
+            'nunota': 100, 'sequencia': 2, 'qtdneg': 8, 'vlrunit': 25, 'codvol': 'KG',
+        })
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.content)
+        self.assertTrue(body['ok'])
+        self.assertEqual(body['sequencia'], 2)
+        self.assertAlmostEqual(body['vlrnota'], 200.0)
+        # Service chamado com payload correto + conexão da view
+        payload = mock_upd.call_args[0][0]
+        self.assertEqual(payload['NUNOTA'], 100)
+        self.assertEqual(payload['SEQUENCIA'], 2)
+        self.assertAlmostEqual(payload['QTDNEG'], 8.0)
+        self.assertEqual(payload['CODVOL'], 'KG')
+        self.assertEqual(payload['CODVOLPARC'], 'KG')   # auto-mirror
+        # commit foi chamado uma vez (atomicidade — Fase 1.3)
+        mock_conn.commit.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# api_remover_item_venda — Fase 2.1 (remover item individual)
+# ---------------------------------------------------------------------------
+
+class RemoverItemVendaTest(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+        _login_session(self.client, grupos=['10'])
+        self.url = reverse('api_remover_item_venda')
+
+    def _post(self, payload):
+        return self.client.post(self.url, data=json.dumps(payload),
+                                content_type='application/json')
+
+    def test_sem_sessao_redireciona(self):
+        self.client.session.flush()
+        response = self._post({'nunota': 1, 'sequencia': 1})
+        self.assertRedirects(response, reverse('home'), fetch_redirect_response=False)
+
+    def test_metodo_get_nao_permitido(self):
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+
+    def test_sem_nunota_ou_sequencia_400(self):
+        self.assertEqual(self._post({'sequencia': 1}).status_code, 400)
+
+    @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=True)
+    @patch('sankhya_integration.views.obter_conexao_oracle')
+    def test_pedido_top_diferente_403(self, mock_ctx, _mp):
+        mock_conn = _mock_oracle_conn(mock_ctx)
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (35, 'L')
+        mock_conn.cursor.return_value = cursor
+        response = self._post({'nunota': 1, 'sequencia': 1})
+        self.assertEqual(response.status_code, 403)
+        # Rollback não chamado pois a trava bloqueou antes do DELETE,
+        # mas commit também não — a transação ficou intacta.
+        mock_conn.commit.assert_not_called()
+
+    @patch('sankhya_integration.views.recalcular_totais_nota_banco',
+           return_value={'ok': True, 'vlrnota': 50.0, 'qtdvol': 2.0,
+                         'cab_deleted': False})
+    @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=True)
+    @patch('sankhya_integration.views.obter_conexao_oracle')
+    def test_remocao_sucesso(self, mock_ctx, _mp, mock_recalc):
+        mock_conn = _mock_oracle_conn(mock_ctx)
+        cursor = MagicMock()
+        # 1ª chamada: validação TOP/STATUS; 2ª: DELETE com rowcount=1
+        cursor.fetchone.return_value = (34, '0')
+        cursor.rowcount = 1
+        mock_conn.cursor.return_value = cursor
+        response = self._post({'nunota': 100, 'sequencia': 3})
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.content)
+        self.assertTrue(body['ok'])
+        self.assertEqual(body['sequencia'], 3)
+        self.assertFalse(body['cab_deleted'])
+        mock_conn.commit.assert_called_once()
+
+    @patch('sankhya_integration.views.recalcular_totais_nota_banco',
+           return_value={'ok': True, 'cab_deleted': True})
+    @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=True)
+    @patch('sankhya_integration.views.obter_conexao_oracle')
+    def test_ultimo_item_remove_cabecalho(self, mock_ctx, _mp, mock_recalc):
+        """Quando recalcular_totais informa cab_deleted=True, view propaga essa
+        flag — JS usa isso para fechar o modal e atualizar a lista."""
+        mock_conn = _mock_oracle_conn(mock_ctx)
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (34, '0')
+        cursor.rowcount = 1
+        mock_conn.cursor.return_value = cursor
+        response = self._post({'nunota': 100, 'sequencia': 1})
+        body = json.loads(response.content)
+        self.assertTrue(body['cab_deleted'])
+
+    @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=True)
+    @patch('sankhya_integration.views.obter_conexao_oracle')
+    def test_item_inexistente_404(self, mock_ctx, _mp):
+        mock_conn = _mock_oracle_conn(mock_ctx)
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (34, '0')
+        cursor.rowcount = 0
+        mock_conn.cursor.return_value = cursor
+        response = self._post({'nunota': 100, 'sequencia': 999})
+        self.assertEqual(response.status_code, 404)
+        mock_conn.rollback.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# api_faturar_pedido_venda — Fase 4.1+4.2 (Faturar Pedido)
+# ---------------------------------------------------------------------------
+
+class FaturarPedidoVendaTest(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+        _login_session(self.client, grupos=['10'])
+        self.url = reverse('api_faturar_pedido_venda')
+
+    def _post(self, payload):
+        return self.client.post(self.url, data=json.dumps(payload),
+                                content_type='application/json')
+
+    def test_sem_sessao_redireciona(self):
+        self.client.session.flush()
+        response = self._post({'nunota': 1, 'top': 35})
+        self.assertRedirects(response, reverse('home'), fetch_redirect_response=False)
+
+    def test_grupo_operacao_nao_autorizado(self):
+        _login_session(self.client, grupos=['8'])
+        response = self._post({'nunota': 1, 'top': 35})
+        self.assertRedirects(response, reverse('home'), fetch_redirect_response=False)
+
+    def test_metodo_get_nao_permitido(self):
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+
+    def test_sem_nunota_400(self):
+        response = self._post({'top': 35})
+        self.assertEqual(response.status_code, 400)
+
+    def test_top_invalido_400(self):
+        """TOP de faturamento só pode ser 35 ou 37."""
+        response = self._post({'nunota': 1, 'top': 99})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('inválido', json.loads(response.content)['error'].lower())
+
+    @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=False)
+    def test_escrita_desabilitada_403(self, _mp):
+        response = self._post({'nunota': 1, 'top': 35})
+        self.assertEqual(response.status_code, 403)
+
+    @patch('sankhya_integration.views.faturar_pedido_venda_banco',
+           return_value={'ok': True, 'executed': True, 'top': 35,
+                         'numnota': 42, 'codnat': 10010100, 'vlrnota': 1500.0})
+    @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=True)
+    def test_faturar_top_35_sucesso(self, _mp, mock_fat):
+        response = self._post({'nunota': 100, 'top': 35})
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.content)
+        self.assertTrue(body['ok'])
+        self.assertEqual(body['top'], 35)
+        self.assertEqual(body['numnota'], 42)
+        # Service chamado com nova_top correto
+        kwargs = mock_fat.call_args.kwargs
+        self.assertEqual(kwargs['nunota'], 100)
+        self.assertEqual(kwargs['nova_top'], 35)
+
+    @patch('sankhya_integration.views.faturar_pedido_venda_banco',
+           return_value={'ok': False, 'error': 'Pedido sem itens — não pode ser faturado.'})
+    @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=True)
+    def test_faturar_pedido_sem_itens_400(self, _mp, _mock_fat):
+        response = self._post({'nunota': 100, 'top': 37})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('sem itens', json.loads(response.content)['error'])
+
+    @patch('sankhya_integration.views.faturar_pedido_venda_banco',
+           side_effect=Exception('ORA-00054 lock timeout'))
+    @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=True)
+    def test_excecao_retorna_500_humanizada(self, _mp, _mock_fat):
+        """Erro de lock concorrente deve virar mensagem amigável (sem ORA)."""
+        response = self._post({'nunota': 100, 'top': 35})
+        self.assertEqual(response.status_code, 500)
+        body = json.loads(response.content)
+        self.assertNotIn('ORA-00054', body['error'])
+        self.assertIn('outro usuário', body['error'].lower())
+
+
+# ---------------------------------------------------------------------------
+# Helper compartilhado adicional
+# ---------------------------------------------------------------------------

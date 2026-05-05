@@ -14,39 +14,23 @@
     <div class="venda-grid">
     <aside class="panel" id="cardFiltros">
         <header>Filtros</header>
-        <form id="filtersForm" class="filters-grid">
+        <form id="filtersForm" autocomplete="off" onsubmit="return false;">
             <div>
-                <label>Data da Negociação</label>
+                <label>Período (Negociação)</label>
                 <div class="filters-range-stack">
-                    <input type="date" name="start" value="{{ params.date_start|default:'' }}" />
+                    <input type="date" name="start" id="dataInicio" value="{{ params.date_start|default:'' }}" />
                     <div class="date-nav-buttons">
-                        <button type="button" id="btnPrevDate" title="Voltar 1 Dia">&laquo;</button>
-                        <button type="button" id="btnNextDate" title="Avançar 1 Dia">&raquo;</button>
+                        <button type="button" id="btnPrevDate" title="Voltar 1 dia">&laquo;</button>
+                        <button type="button" id="btnNextDate" title="Avançar 1 dia">&raquo;</button>
                     </div>
-                    <input type="date" name="end" value="{{ params.date_end|default:'' }}" />
-                </div>
-            </div>
-
-            <div>
-                <label>Empresa</label>
-                <input type="number" name="codemp" placeholder="Cód. Empresa" />
-            </div>
-
-            <div class="filters-range-stack">
-                <div>
-                    <label>Pedido / Vale</label>
-                    <input type="number" name="nunota_ini" placeholder="Nº Único" class="full-width" />
-                </div>
-                <div>
-                    <label>Nota Fiscal</label>
-                    <input type="number" name="numnota" placeholder="Nº Nota" class="full-width" />
+                    <input type="date" name="end" id="dataFim" value="{{ params.date_end|default:'' }}" />
                 </div>
             </div>
 
             <div>
                 <label>Operação (TOP)</label>
-                <select name="top" class="full-width">
-                    <option value="T">TODAS</option>
+                <select name="top" id="filtroTop" class="full-width">
+                    <option value="T">Todos os TOPs</option>
                     <option value="34">34 — Pedido</option>
                     <option value="35">35 — NFe</option>
                     <option value="37">37 — S/ NFe</option>
@@ -54,11 +38,11 @@
             </div>
 
             <div>
-                <label>Produto</label>
+                <label>Empresa</label>
                 <div class="pos-rel">
-                    <input type="hidden" name="codprod" id="codprod" value="" />
-                    <input type="text" id="prodSearch" placeholder="Cód ou Descrição" autocomplete="off" class="full-width" />
-                    <div id="prodDropdown" class="dropdown-abs"></div>
+                    <input type="hidden" name="codemp" id="filtroEmpresa" value="" />
+                    <input type="text" id="filtroEmpresaSearch" placeholder="Código ou nome" autocomplete="off" class="full-width" />
+                    <div id="filtroEmpresaDropdown" class="dropdown-abs"></div>
                 </div>
             </div>
 
@@ -72,14 +56,37 @@
             </div>
 
             <div>
+                <label>Produto</label>
+                <div class="pos-rel">
+                    <input type="hidden" name="codprod" id="codprod" value="" />
+                    <input type="text" id="prodSearch" placeholder="Código ou descrição" autocomplete="off" class="full-width" />
+                    <div id="prodDropdown" class="dropdown-abs"></div>
+                </div>
+            </div>
+
+            <div>
+                <label>Pedido / Nota Fiscal</label>
+                <div class="filters-range-stack">
+                    <input type="number" name="nunota_ini" id="filtroPedido" placeholder="Nº Único do Pedido" class="full-width" />
+                    <input type="number" name="numnota" id="filtroNF" placeholder="Nº Nota Fiscal" class="full-width" />
+                </div>
+            </div>
+
+            <div>
                 <label>Lote</label>
-                <input type="text" name="lote" placeholder="Descrição do Lote" class="full-width" />
+                <input type="text" name="lote" id="filtroLote" placeholder="Código do lote" title="Busca por CODAGREGACAO (formato NUNOTAS{SEQ}D{YYMMDD})" class="full-width" />
             </div>
         </form>
-        
+
+        <!-- Chips de filtros ativos -->
+        <div id="filtrosAtivos" class="vda-filtros-ativos">
+            <div id="filtrosAtivosChips" class="vda-filtros-ativos-chips"></div>
+        </div>
+
+        <!-- Botões -->
         <div class="filters-footer">
-            <button type="button" id="btnUpdate" class="btn btn-update">Atualizar</button>
-            <button type="button" id="btnClear" class="btn btn-clear">Limpar</button>
+            <button type="button" id="btnUpdate" class="btn btn-update" title="Atualizar listagem">Atualizar</button>
+            <button type="button" id="btnClear" class="btn btn-clear" title="Limpar todos os filtros">Limpar</button>
         </div>
     </aside>
 
@@ -97,7 +104,10 @@
         </div>
 
         <div class="panel panel--results" id="cardCabecalho">
-            <header>Cabeçalho da Nota</header>
+            <header>
+                <span class="vda-painel-titulo">Pedidos de Venda</span>
+                <span id="vendasResumoHeader" class="vendas-resumo-header"></span>
+            </header>
             <div class="list" id="vendasList">
                 <table id="vendasTable" class="ia-selectable-table">
                     <thead>
@@ -119,7 +129,10 @@
 
     <div class="col-wrapper-itens">
         <div class="spacer-vendas"></div> <div class="panel panel--items" id="cardItens">
-            <header>Itens do Pedido <span id="label_sel_nunota">--</span></header>
+            <header>
+                <span>Itens do pedido <strong id="label_sel_nunota">—</strong></span>
+                <span id="itensCardSubheader" class="itens-card-subheader"></span>
+            </header>
             <div class="items">
                 <table class="ia-selectable-table">
                     <thead>

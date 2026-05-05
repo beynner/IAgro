@@ -46,9 +46,62 @@
 }
 
 /* Tamanhos das Colunas (Wrappers) */
-#cardFiltros { flex: 0 0 200px; }
-.col-wrapper-central { flex: 2.2; display: flex; flex-direction: column; gap: 10px; }
-.col-wrapper-itens   { flex: 1.2; display: flex; flex-direction: column; gap: 10px; }
+#cardFiltros          { flex: 0 0 220px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.col-wrapper-central  { flex: 2.2; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.col-wrapper-itens    { flex: 1.2; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+/* Form de filtros: ocupa o miolo do card e rola se passar */
+#cardFiltros > #filtersForm {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+#cardFiltros > #filtersForm > div { display: flex; flex-direction: column; gap: 4px; }
+#cardFiltros > #filtersForm label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--cor-texto-secundario-cinza);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+#cardFiltros > #filtersForm input[type="text"],
+#cardFiltros > #filtersForm input[type="number"],
+#cardFiltros > #filtersForm input[type="date"],
+#cardFiltros > #filtersForm select {
+    width: 100%;
+    height: 30px;
+    padding: 4px 8px;
+    border: 1px solid var(--cor-borda);
+    border-radius: 4px;
+    font-size: 12px;
+    background: var(--cor-fundo-painel);
+    color: var(--cor-texto-primario-escuro);
+    box-sizing: border-box;
+}
+
+/* Pílula de período empilhada + navegação << >> */
+.filters-range-stack { display: flex; flex-direction: column; gap: 6px; }
+.date-nav-buttons    { display: flex; gap: 5px; justify-content: space-between; }
+.date-nav-buttons button {
+    flex: 1;
+    background: var(--cor-fundo-secundario-claro);
+    border: 1px solid var(--cor-borda);
+    color: var(--cor-texto-secundario-cinza);
+    border-radius: 4px;
+    padding: 2px 0;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 12px;
+    line-height: 1.2;
+    transition: all var(--transicao-rapida, 150ms ease);
+}
+.date-nav-buttons button:hover {
+    background: var(--cor-fundo-terciario-cinza);
+    color: var(--cor-texto-primario-escuro);
+}
 
 /* Comportamento de Expansão dos Cards de Dados */
 #cardCabecalho, #cardItens {
@@ -59,38 +112,266 @@
     height: auto !important;
 }
 
-/* ==========================================================================
-   MÓDULO 2: GRUPO DE FILTROS (Lateral Esquerda)
-   ========================================================================== */
-
-.filters-range-stack {
+/* Header dos cards: título à esquerda + resumo à direita na mesma linha */
+#cardCabecalho > header,
+#cardItens > header {
     display: flex;
-    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+/* Resumo agregado dos pedidos visíveis (no header de Pedidos de Venda) */
+.vendas-resumo-header {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--cor-texto-secundario-cinza);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+.vendas-resumo-header .vrh-count    { color: var(--cor-texto-primario-escuro); font-weight: 600; }
+.vendas-resumo-header .vrh-total    { color: #16a34a; font-weight: 700; }
+.vendas-resumo-header .vrh-abertos  { color: #1e40af; }
+.vendas-resumo-header .vrh-faturados{ color: #065f46; }
+.vendas-resumo-header .vrh-pendentes{ color: #b45309; font-weight: 600; }
+.vendas-resumo-header .vrh-sep      { color: var(--cor-borda); }
+
+/* Subheader do card de itens (TOP / data / status do pedido selecionado) */
+.itens-card-subheader {
+    font-size: 11px;
+    color: var(--cor-texto-secundario-cinza);
+    display: inline-flex;
+    align-items: center;
     gap: 6px;
 }
 
-/* Botões de navegação de Datas (<< e >>) */
-.date-nav-buttons {
+/* ==========================================================================
+   MÓDULO 2: CHIPS DE FILTROS ATIVOS (dentro do card lateral)
+   ========================================================================== */
+
+/* Card de chips de filtros ativos — vive no rodapé do #cardFiltros, antes dos botões */
+.vda-filtros-ativos {
+    flex: 0 0 auto;
     display: flex;
-    gap: 5px;
-    justify-content: space-between;
+    align-items: flex-start;
+    gap: 6px;
+    background: var(--cor-fundo-secundario-claro);
+    border-top: 1px solid var(--cor-borda);
+    padding: 8px 12px;
+    min-height: 38px;
+}
+.vda-filtros-ativos-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    flex: 1;
+    min-height: 22px;
+    align-items: center;
+}
+.vda-filtros-ativos-chips:empty::before {
+    content: 'Nenhum filtro ativo';
+    color: var(--cor-texto-secundario-cinza);
+    font-size: 11px;
+    font-style: italic;
 }
 
-.date-nav-buttons button {
-    flex: 1;
+/* Chip de filtro ativo individual (parceiro=X, top=34, ...) */
+.vda-filtro-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     background: var(--cor-fundo-secundario-claro);
-    border: 1px solid var(--cor-borda-padrao-clara);
+    border: 1px solid var(--cor-borda);
+    border-radius: 12px;
+    padding: 3px 4px 3px 10px;
+    font-size: 11px;
+    color: var(--cor-texto-primario-escuro);
+    line-height: 1;
+}
+.vda-filtro-chip .chip-rotulo  { font-weight: 600; color: var(--cor-texto-secundario-cinza); }
+.vda-filtro-chip .chip-valor   { max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: help; }
+.vda-filtro-chip .chip-remover {
+    background: transparent;
+    border: none;
     color: var(--cor-texto-secundario-cinza);
-    border-radius: var(--borda-raio-sm);
-    padding: 2px 0;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: all var(--transicao-rapida, 150ms ease);
+}
+.vda-filtro-chip .chip-remover:hover {
+    background: var(--cor-erro);
+    color: #fff;
+}
+
+/* Botões de ação Atualizar/Limpar (estilo igual ras-icon-btn) */
+.vda-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--cor-fundo-painel);
+    border: 1px solid var(--cor-borda);
+    color: var(--cor-texto-secundario-cinza);
+    border-radius: 4px;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all var(--transicao-rapida, 150ms ease);
+}
+.vda-icon-btn svg { width: 14px; height: 14px; }
+.vda-icon-btn:hover {
+    background: var(--cor-fundo-secundario-claro);
+    color: var(--cor-texto-primario-escuro);
+    border-color: #94a3b8;
+}
+.vda-icon-btn.primary {
+    background: #1e40af;
+    border-color: #1e40af;
+    color: #fff;
+}
+.vda-icon-btn.primary:hover { background: #1e3a8a; border-color: #1e3a8a; }
+
+/* Header do card #cardCabecalho com filtros inline em 2 linhas */
+.vda-header {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--cor-fundo-secundario-claro);
+    border-bottom: 1px solid var(--cor-borda);
+}
+.vda-header-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.vda-painel-titulo {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--cor-texto-primario-escuro);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    flex-shrink: 0;
+}
+
+/* Pílula de busca inline (parceiro / produto) com lupa embutida */
+.vda-search {
+    position: relative;
+    flex: 1;
+    min-width: 180px;
+    max-width: 280px;
+}
+.vda-search-icone {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 14px;
+    color: var(--cor-texto-secundario-cinza);
+    pointer-events: none;
+}
+.vda-search-input {
+    width: 100%;
+    padding: 5px 10px 5px 30px;
+    border: 1px solid var(--cor-borda);
+    border-radius: 4px;
+    font-size: 12px;
+    background: var(--cor-fundo-painel);
+}
+.vda-search-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 1px #3b82f6;
+}
+
+/* Linha de controles secundários (datas, TOP, empresa, pedido, NF, lote) */
+.vda-controls {
+    gap: 6px;
+}
+
+/* Pílula de período: data + << >> + data + × */
+.vda-range-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--cor-fundo-painel);
+    border: 1px solid var(--cor-borda);
+    border-radius: 4px;
+    padding: 2px 6px;
+}
+.vda-range-icone {
+    width: 14px;
+    height: 14px;
+    color: var(--cor-texto-secundario-cinza);
+    flex-shrink: 0;
+}
+.vda-range-input {
+    border: none;
+    background: transparent;
+    font-size: 12px;
+    color: var(--cor-texto-primario-escuro);
+    padding: 3px 0;
+    width: 110px;
+}
+.vda-range-input:focus { outline: none; }
+.vda-range-sep { color: var(--cor-texto-secundario-cinza); font-size: 13px; padding: 0 2px; }
+.vda-range-nav {
+    border: 1px solid var(--cor-borda);
+    background: var(--cor-fundo-secundario-claro);
+    color: var(--cor-texto-secundario-cinza);
+    border-radius: 3px;
+    padding: 1px 6px;
     cursor: pointer;
     font-weight: bold;
-    transition: all var(--transicao-base);
+    font-size: 11px;
+    line-height: 1.4;
+    transition: all var(--transicao-rapida, 150ms ease);
 }
-
-.date-nav-buttons button:hover {
+.vda-range-nav:hover {
     background: var(--cor-fundo-terciario-cinza);
     color: var(--cor-texto-primario-escuro);
+}
+
+/* Inputs e select dos filtros secundários */
+.vda-select,
+.vda-input {
+    border: 1px solid var(--cor-borda);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 12px;
+    background: var(--cor-fundo-painel);
+    color: var(--cor-texto-primario-escuro);
+    height: 28px;
+    box-sizing: border-box;
+}
+.vda-select { padding-right: 22px; }
+.vda-input-num     { width: 80px; }
+.vda-input-empresa { width: 130px; }
+.vda-input-lote    { width: 130px; }
+
+/* Wrapper de typeahead na linha de controles secundários */
+.vda-typeahead {
+    position: relative;
+    display: inline-block;
+}
+.vda-typeahead .dropdown-abs {
+    min-width: 240px;
+}
+.vda-select:focus,
+.vda-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 1px #3b82f6;
 }
 
 /* ==========================================================================
@@ -168,8 +449,210 @@
 /* Destaque Visual (Alerta) para Itens Sem Lote */
 .item-sem-lote td {
     color: var(--cor-texto-alerta-vermelho) !important;
-    font-weight: 600; 
+    font-weight: 600;
 }
+
+/* ==========================================================================
+   MÓDULO 4b: STATUS VISUAL DE PEDIDO (PENDENTE/FATURADO/ABERTO) + TOP BADGE
+   ========================================================================== */
+.pedido-faturado td { color: #94a3b8; }
+.pedido-faturado.selected td { color: #475569; }
+
+/* Borda lateral colorida indicando status do pedido. Cores não conflitam com o top-badge. */
+.venda-row td:first-child {
+    position: relative;
+    padding-left: 14px;
+}
+.venda-row td:first-child::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: transparent;
+}
+.venda-status-aberto   td:first-child::before { background: #1e40af; } /* azul (pronto p/ faturar) */
+.venda-status-pendente td:first-child::before { background: #f59e0b; } /* laranja (sem lote)       */
+.venda-status-faturado td:first-child::before { background: #94a3b8; } /* cinza (já liberado)      */
+
+/* Bolinha de status dentro da coluna PEDIDO (mais sutil que badge inteiro) */
+.venda-status-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+.venda-status-dot--aberto   { background: #1e40af; }
+.venda-status-dot--pendente { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18); }
+.venda-status-dot--faturado { background: #94a3b8; }
+.top-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    background: #e5e7eb;
+    color: #374151;
+    white-space: nowrap;
+}
+.top-badge.top-34 { background: #dbeafe; color: #1e40af; }
+.top-badge.top-35 { background: #d1fae5; color: #065f46; }
+.top-badge.top-37 { background: #fef3c7; color: #92400e; }
+
+/* ==========================================================================
+   MÓDULO 7: BOTÕES DE AÇÃO POR LINHA NOS ITENS DO MODAL (edit/remove)
+   ========================================================================== */
+.col-w-80 { width: 80px; }
+.icon-btn-mini {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    padding: 3px 5px;
+    cursor: pointer;
+    color: var(--cor-texto-secundario-cinza);
+    transition: all var(--transicao-rapida);
+    margin: 0 1px;
+    vertical-align: middle;
+}
+.icon-btn-mini:hover {
+    background: var(--cor-fundo-secundario-claro);
+    color: var(--cor-texto-primario-escuro);
+}
+.icon-btn-mini.btn-rm-item:hover {
+    color: var(--cor-erro);
+    background: #fee2e2;
+}
+.icon-btn-mini.btn-edit-item:hover {
+    color: #1e40af;
+    background: #dbeafe;
+}
+
+/* Botão "+" do form de item vira "salvar" (verde) durante edição */
+.icon-btn.btn-edit-mode {
+    background: #16a34a !important;
+    color: #fff !important;
+    border-color: #16a34a !important;
+}
+.icon-btn.btn-edit-mode:hover { filter: brightness(0.92); }
+
+/* Linha selecionada (item em edição) */
+#itemsListBody tr.selected {
+    background: #fef9c3 !important;
+    box-shadow: inset 3px 0 0 #ca8a04;
+}
+
+/* ==========================================================================
+   MÓDULO 8: RESUMO DO PEDIDO NO HEADER DO MODAL DE ITENS
+   ========================================================================== */
+.items-resumo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--cor-texto-secundario-cinza);
+    flex-wrap: wrap;
+}
+.items-resumo-cliente {
+    font-weight: 600;
+    color: var(--cor-texto-primario-escuro);
+    max-width: 220px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.items-resumo-tipo {
+    max-width: 180px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.items-resumo-total {
+    font-weight: 700;
+    color: #16a34a;
+}
+.items-resumo-count { color: var(--cor-texto-secundario-cinza); }
+.items-resumo-sep { color: var(--cor-borda); }
+
+/* ==========================================================================
+   MÓDULO 9: EMPTY STATE (lista de pedidos vazia)
+   ========================================================================== */
+.ia-empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--cor-texto-secundario-cinza);
+}
+.ia-empty-titulo {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--cor-texto-primario-escuro);
+    margin-bottom: 6px;
+}
+.ia-empty-msg {
+    font-size: 12px;
+    margin-bottom: 16px;
+}
+.ia-empty-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+}
+
+/* ==========================================================================
+   MÓDULO 10: MODAL FATURAR (escolha TOP 35 vs 37)
+   ========================================================================== */
+.faturar-opts {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 12px 0;
+}
+.faturar-opt {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--cor-borda);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all var(--transicao-rapida);
+}
+.faturar-opt:hover {
+    background: var(--cor-fundo-secundario-claro);
+    border-color: #2563eb;
+}
+.faturar-opt input[type="radio"] { margin-top: 4px; }
+.faturar-opt strong {
+    display: block;
+    font-size: 13px;
+    color: var(--cor-texto-primario-escuro);
+    margin-bottom: 3px;
+}
+.faturar-opt small {
+    display: block;
+    font-size: 11px;
+    color: var(--cor-texto-secundario-cinza);
+}
+.faturar-opt input[type="radio"]:checked + div strong { color: #16a34a; }
+.faturar-validacao {
+    background: #fef3c7;
+    border: 1px solid #f59e0b;
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #92400e;
+    margin: 8px 0;
+}
+
+/* Marca asterisco vermelho para campo obrigatório */
+.required-mark { color: var(--cor-erro); }
+.icon-btn.hidden { display: none; }
 
 /* ==========================================================================
    MÓDULO 5: CLASSES UTILITÁRIAS
