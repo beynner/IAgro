@@ -1,0 +1,206 @@
+# Arquitetura
+
+## Estrutura de Pastas
+
+```
+IAgro/
+├── .env                         # Variáveis de ambiente (NÃO versionado)
+├── .env.example                 # Template (versionado, sem valores reais)
+├── CLAUDE.md                    # Documento raiz (lê .claude/*)
+├── .claude/                     # Documentação modular para o Claude
+├── README.md
+├── manage.py
+├── requirements.txt
+├── db.sqlite3                   # Banco Django (sessões + Simulation + RastreioAudit)
+│
+├── IAgro/                       # Configuração Django
+│   ├── settings.py
+│   ├── urls.py                  # Raiz: /admin/, /sankhya/ → sankhya_integration.urls
+│   ├── wsgi.py
+│   └── asgi.py
+│
+├── sankhya_integration/         # Único app Django do projeto
+│   ├── apps.py                  # AppConfig com ready() para registrar signals
+│   ├── models.py                # Simulation + RastreioAudit
+│   ├── views.py                 # ~2400 linhas — todas as views de todos os módulos
+│   ├── urls.py                  # Todas as rotas do app (prefixo /sankhya/)
+│   ├── decorators.py            # @exige_grupo, @check_vale_lock, GRUPOS_PERMITIDOS
+│   ├── middleware.py            # ControleInatividadeMiddleware (timeout de sessão)
+│   ├── context_processors.py    # app_version_processor, environment_badge
+│   ├── admin.py                 # SimulationAdmin + RastreioAuditAdmin
+│   ├── signals.py               # Audit log de Simulation via post_save/post_delete
+│   ├── migrations/0001_initial.py
+│   │
+│   ├── services/
+│   │   └── oracle_conn.py       # NÚCLEO CRÍTICO (~3350 linhas) — todas as queries SQL
+│   │
+│   ├── templates/sankhya_integration/
+│   │   ├── base.html            # Template base (appbar, rodapé, scripts globais)
+│   │   ├── home.html            # Tela inicial / login
+│   │   ├── entrada.html
+│   │   ├── classificacao.html
+│   │   ├── comercial.html
+│   │   ├── venda.html
+│   │   ├── venda_modais.html    # Modais do portal de Venda
+│   │   └── rastreio.html
+│   │
+│   ├── static/sankhya_integration/
+│   │   ├── global.css                       # Tokens de design + componentes globais
+│   │   ├── iagro_helpers.js                 # window.IAgro (helpers reutilizáveis)
+│   │   ├── home.css / home.js
+│   │   ├── entrada.css / entrada.js
+│   │   ├── classificacao.css / classificacao.js
+│   │   ├── comercial.css / comercial.js
+│   │   ├── comercialDistribuicao.js         # Sub-módulo Comercial
+│   │   ├── comercialFinanceiro.js           # Sub-módulo Comercial
+│   │   ├── comercialImpressao.js            # Sub-módulo Comercial
+│   │   ├── venda.css / venda.js
+│   │   └── rastreio.css / rastreio.js
+│   │
+│   ├── sql/
+│   │   ├── ANDRE_IAGRO_SALDO_LOTE.sql        # DDL da view do WMS (versionado)
+│   │   └── ANDRE_IAGRO_SALDO_LOTE_teste.sql  # Queries de conferência manual
+│   │
+│   └── tests/
+│       ├── __init__.py
+│       ├── test_views_entrada.py
+│       ├── test_views_comercial.py
+│       ├── test_views_venda.py              # 90 testes
+│       └── test_rastreio.py                 # 53 testes
+│
+└── images/                      # Imagens (logo, etc.) — também em STATICFILES_DIRS
+```
+
+**Total de testes:** 174, todos passando, todos sem dependência de Oracle.
+
+---
+
+## Mapa de URLs
+
+```
+/                                       → redireciona para /sankhya/
+/admin/                                 → Django Admin
+/sankhya/                               → home (login)
+/sankhya/health/                        → health check público (?deep=1 para checagem profunda)
+
+# Módulos
+/sankhya/compras/portal/                → Entrada (TOP 11)
+/sankhya/compras/classificacao/         → Classificação (TOP 26)
+/sankhya/comercial/                     → Comercial (TOP 13)
+/sankhya/venda/portal/                  → Venda (TOP 34/35/37)
+/sankhya/rastreio/                      → Rastreio / WMS
+
+# APIs de Venda (POST, exige grupo 'venda')
+/sankhya/venda/api/cabecalho/           → criar pedido TOP 34
+/sankhya/venda/api/cabecalho/editar/    → atualizar cabeçalho (TOP 34, não-faturado)
+/sankhya/venda/api/cabecalho/obter/     → obter cabeçalho (GET)
+/sankhya/venda/api/item/                → adicionar item
+/sankhya/venda/api/item/editar/         → editar item
+/sankhya/venda/api/item/remover/        → remover item
+/sankhya/venda/api/excluir/             → excluir pedido completo
+/sankhya/venda/api/faturar/             → faturar TOP 34 → 35 (NFe) ou 37 (s/ NFe)
+
+# APIs de Rastreio (POST, exige grupo 'rastreio')
+/sankhya/rastreio/api/lotes-disponiveis/  → GET, paginado
+/sankhya/rastreio/api/pedidos-abertos/    → GET, paginado por cabeçalho
+/sankhya/rastreio/api/atribuir-lote/      → POST (lock pessimista, audit)
+/sankhya/rastreio/api/desvincular-lote/   → POST (audit)
+/sankhya/rastreio/api/fabricantes/        → GET typeahead
+/sankhya/rastreio/api/lote-vinculos/      → GET pedidos/vendas que usam um lote
+```
+
+---
+
+## Autenticação
+
+O sistema **não usa** `django.contrib.auth`. O login é feito via API HTTP do Sankhya (`hfsemear.ddns.net:8180`).
+
+### Sessão Django
+
+Após login bem-sucedido, ficam armazenados em `request.session`:
+
+| Chave | Tipo | Descrição |
+|---|---|---|
+| `codusu` | int | ID do usuário no Sankhya |
+| `nomeusu` | string | Nome de usuário (login) |
+| `nome` | string | Nome completo |
+| `grupos` | list[str] | IDs de grupo Sankhya: `['1']`, `['8', '9']`, etc. |
+
+### Decorator `@exige_grupo`
+
+Em `decorators.py`. Valida acesso por grupo antes de cada view protegida.
+
+```python
+@exige_grupo('venda')
+def api_criar_cabecalho_venda(request):
+    ...
+```
+
+### Mapeamento de grupos Sankhya
+
+| Grupo | Nome | Acesso |
+|---|---|---|
+| `1` | Diretoria | Irrestrito a todos os módulos |
+| `6` | Suporte TI | Irrestrito (manutenção e suporte) |
+| `8` | Operação | Entrada e Classificação |
+| `9` | Comercial | Comercial |
+| `10` | Vendas | Vendas |
+
+Consulta no Sankhya: `SELECT CODGRU, DESCRGRU FROM TSIGRU ORDER BY CODGRU`.
+
+### Permissões por módulo
+
+| Módulo | Grupos com acesso |
+|---|---|
+| Entrada | 1, 6, 8 |
+| Classificação | 1, 6, 8 |
+| Comercial | 1, 6, 9 |
+| Venda | 1, 6, 10 |
+| Rastreio | 1, 6, 8, 9, 10 |
+
+---
+
+## Padrão de Resposta de API
+
+Todas as APIs JSON retornam:
+
+```json
+{ "ok": true, "...dados..." }       // sucesso
+{ "ok": false, "error": "..." }     // falha (HTTP 400 ou 500)
+```
+
+Mensagens de erro **sempre passam por `humanizar_erro_oracle()`** antes de chegar ao cliente.
+
+---
+
+## Arquitetura "Moldura Fixa + Miolo do Módulo"
+
+A `base.html` define a **moldura visual completa** (appbar, rodapé, margens). Cada módulo apenas preenche `{% block content %}` com seus cards.
+
+### Carregamento de CSS (ordem para todas as páginas)
+
+1. `global.css` — tokens de design (cores, espaçamentos, bordas, sombras, transições)
+2. `entrada.css` — base de layout e componentes (carregado em todas as páginas pelo `base.html`, por legado)
+3. CSS do módulo via `{% block extra_css %}`
+
+### Regra permanente — base/módulo
+
+**Nenhum módulo deve redefinir** `body`, `.wrap`, `.appbar`, `.home-btn`, `.env-badge`, `.ia-footer`, nem adicionar `<main>` dentro do `{% block content %}`. Essas peças vivem em `base.html` + `global.css`.
+
+Para layouts específicos, criar classe própria no `{% block content %}`:
+
+| Módulo | Container interno |
+|---|---|
+| Entrada | `.entrada-grid` (flex, aside 320px + rightcol) |
+| Classificação | `.classificacao-grid` (flex, aside 320px + rightcol) |
+| Comercial | `.layout` (grid 360px + 1fr — nome legado) |
+| Venda | `.venda-grid` (flex, 3 colunas) |
+| Rastreio | `.rastreio-layout` (grid 2 colunas iguais) |
+
+Para mudar appbar/rodapé globalmente, alterar tokens `--cor-appbar-*` / `--cor-rodape-*` em `global.css`.
+
+### Regra do `.appbar h1`
+
+Usa `line-height: var(--altura-appbar)` (44px) em vez de `display: flex + align-items: center`. Isso elimina interação do line-box do `<h1>` com métricas de fontes filhas.
+
+**Para elementos auxiliares ao lado do título** (ex: nome do fornecedor), usar `{% block header_extras %}{% endblock %}` da `base.html` — fica como **irmão** do `<h1>`, dentro do `.header-left`. **NUNCA colocar spans com fontes alternativas dentro do `<h1>`.**
