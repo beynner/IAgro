@@ -11,9 +11,20 @@
 
     /* Específicos do módulo Rastreio */
     --bg-fundo:           #f8fafc;
-    --cor-borda-drag:     #3b82f6;   /* legado: usada como cor azul de destaque (não mais drag) */
-    --texto-principal:    #0f172a;
-    --status-verde-claro: #d1fae5;
+    --cor-borda-drag:     #5e7e4a;   /* destaque: verde oliva da paleta home */
+    --texto-principal:    #38292c;   /* marrom escuro (accent) — ao invés de quase-preto */
+    --status-verde-claro: #eef3e7;   /* verde claro pálido */
+
+    /* Paleta alinhada com home.html (visual sóbrio do produto) */
+    --ras-primary:      #5e7e4a;     /* Verde Agromil */
+    --ras-primary-dk:   #4a633a;     /* Verde escuro */
+    --ras-primary-soft: #eef3e7;     /* Fundo verde claro */
+    --ras-secondary:    #825e38;     /* Marrom/Bronze */
+    --ras-secondary-soft: #f5efe8;   /* Marrom muito claro */
+    --ras-accent:       #38292c;     /* Marrom escuro (texto principal) */
+    --ras-text-muted:   #646b6c;     /* Texto secundário */
+    --ras-border:       #d1d5db;     /* Bordas neutras */
+    --ras-surface:      #f8f9fa;     /* Fundo neutro de superfícies */
 }
 
 /* ==========================================================================
@@ -196,8 +207,8 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.bar-armado-texto strong { color: #fde68a; font-weight: 700; }
-.bar-armado-texto em     { color: #cbd5e1; font-style: normal; font-weight: 500; }
+.bar-armado-texto strong { color: #d6c2a8; font-weight: 700; }
+.bar-armado-texto em     { color: #b8b3a8; font-style: normal; font-weight: 500; }
 .bar-armado-btn {
     border:         1px solid #fff;
     background:     transparent;
@@ -219,17 +230,40 @@
    Cada pill tem o nome do filtro, o valor e um × pra remover só aquele. */
 .filtros-ativos {
     display:        flex;
-    flex-wrap:      wrap;
     align-items:    center;
-    gap:            6px;
+    gap:            10px;
     padding:        6px 10px;
-    margin-bottom:  6px;
+    margin-bottom:  8px;
     background:     var(--cor-fundo-painel, #fff);
     border:         1px solid var(--cor-borda, #e2e8f0);
     border-radius:  6px;
-    box-shadow:     0 1px 3px rgba(0,0,0,0.05);
+    box-shadow:     0 1px 3px rgba(0,0,0,0.04);
 }
 .filtros-ativos.hidden { display: none; }
+.filtros-ativos.vazio { background: var(--ras-surface, #f8f9fa); }
+
+/* Lado esquerdo: chips ou mensagem "sem filtros" */
+.filtros-ativos-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+}
+.filtros-ativos-vazio {
+    font-size: 11.5px;
+    color: var(--ras-text-muted, #646b6c);
+    font-style: italic;
+}
+
+/* Lado direito: botões Limpar + Atualizar (sempre visíveis) */
+.filtros-ativos-actions {
+    display: inline-flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
 .filtros-ativos-label {
     font-size:     11px;
     font-weight:   700;
@@ -245,21 +279,21 @@
     align-items:    center;
     gap:            6px;
     padding:        3px 4px 3px 10px;
-    background:     #eff6ff;
-    border:         1px solid #bfdbfe;
+    background:     var(--ras-surface, #f8f9fa);
+    border:         1px solid var(--ras-border, #d1d5db);
     border-radius:  999px;
     font-size:      11.5px;
     line-height:    1;
-    color:          #1e3a8a;
+    color:          var(--ras-accent, #38292c);
     transition:     background 0.12s ease, border-color 0.12s ease;
 }
 .filtro-chip:hover {
-    background:   #dbeafe;
-    border-color: var(--cor-borda-drag, #3b82f6);
+    background:   #f1f3f5;
+    border-color: var(--ras-text-muted, #646b6c);
 }
 .filtro-chip .chip-tipo {
     font-weight: 700;
-    color:       #1e40af;
+    color:       var(--ras-text-muted, #646b6c);
 }
 .filtro-chip .chip-valor {
     font-weight: 600;
@@ -286,21 +320,33 @@
     color:      #991b1b;
 }
 
-/* Variantes de cor por origem (opcional, ajuda a distinguir lotes ↔ pedidos) */
-.filtro-chip.lotes   { background: #ecfdf5; border-color: #86efac; color: #14532d; }
+/* Variantes de cor por origem — tons sóbrios alinhados à paleta home */
+.filtro-chip.lotes   {
+    background: var(--ras-primary-soft, #eef3e7);
+    border-color: #c5d2b3;
+    color: var(--ras-primary-dk, #4a633a);
+}
 .filtro-chip.lotes .chip-tipo,
-.filtro-chip.lotes .chip-fechar { color: #166534; }
-.filtro-chip.lotes:hover { background: #d1fae5; border-color: #4ade80; }
+.filtro-chip.lotes .chip-fechar { color: var(--ras-primary-dk, #4a633a); }
+.filtro-chip.lotes:hover { background: #e1ead4; border-color: var(--ras-primary, #5e7e4a); }
 
-.filtro-chip.pedidos { background: #eff6ff; border-color: #93c5fd; color: #1e3a8a; }
+.filtro-chip.pedidos {
+    background: var(--ras-surface, #f8f9fa);
+    border-color: var(--ras-border, #d1d5db);
+    color: var(--ras-accent, #38292c);
+}
 .filtro-chip.pedidos .chip-tipo,
-.filtro-chip.pedidos .chip-fechar { color: #1e40af; }
-.filtro-chip.pedidos:hover { background: #dbeafe; border-color: #3b82f6; }
+.filtro-chip.pedidos .chip-fechar { color: var(--ras-accent, #38292c); }
+.filtro-chip.pedidos:hover { background: #f1f3f5; border-color: var(--ras-text-muted, #646b6c); }
 
-.filtro-chip.cruzado { background: #fef3c7; border-color: #fcd34d; color: #78350f; }
+.filtro-chip.cruzado {
+    background: var(--ras-secondary-soft, #f5efe8);
+    border-color: #d6c2a8;
+    color: var(--ras-secondary, #825e38);
+}
 .filtro-chip.cruzado .chip-tipo,
-.filtro-chip.cruzado .chip-fechar { color: #92400e; }
-.filtro-chip.cruzado:hover { background: #fde68a; border-color: #f59e0b; }
+.filtro-chip.cruzado .chip-fechar { color: var(--ras-secondary, #825e38); }
+.filtro-chip.cruzado:hover { background: #ede4d6; border-color: var(--ras-secondary, #825e38); }
 
 /* ==========================================================================
    MÓDULO 5: BARRAS DE PROGRESSO
@@ -1038,4 +1084,1301 @@
 .produto-linha .col-progresso .qtd-vinculada {
     color:        var(--cor-borda-drag, #3b82f6);
     font-weight:  700;
+}
+
+/* ==========================================================================
+   MÓDULO 11: BADGES NOVAS (Fase 2.10/2.13/4.6) — FATURADO, idade lote, status
+   ========================================================================== */
+
+/* Badge de idade do lote (DTNEG_ORIGEM > 60 dias) — alerta laranja inline */
+.badge-idade-lote {
+    display: inline-block;
+    background: #fb923c;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 10px;
+    margin-left: 4px;
+    vertical-align: middle;
+    cursor: help;
+}
+.rastreio-card.lote-envelhecido {
+    border-left: 3px solid #fb923c;
+}
+
+/* Badge de status FATURADO/ATRIBUIDO no modal de vínculos do lote */
+.vinc-status {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+.vinc-status-faturado {
+    background: #e5e7eb;
+    color: #6b7280;
+}
+.vinc-status-atribuido {
+    background: #d1fae5;
+    color: #065f46;
+}
+.vinculos-tabela tr.linha-faturada td { color: #94a3b8; }
+
+/* Tooltip aprimorado para chips de filtro — torna o valor completo visível
+   ao passar o mouse, mesmo quando truncado. */
+.filtro-chip .chip-valor {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    vertical-align: middle;
+    cursor: help;
+}
+
+/* Switch "SÓ PENDENTES" segue o mesmo visual do TRAVAR FILTRO já existente */
+#checkSomentePendente:checked + .slider { background-color: #16a34a; }   /* verde */
+#checkSomentePendente:checked + .slider:before { transform: translateX(14px); }
+
+/* ==========================================================================
+   MÓDULO 12: REFRESH VISUAL — quick stats, avatares, progress bars,
+   empty state ilustrado, lote armado destacado, hierarquia de pedido
+   (28 abr 2026 — sessão de design).
+   ========================================================================== */
+
+/* ----- Quick stats inline no topo de cada painel — tom neutro --------- */
+.ras-quickstats {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    background: var(--ras-surface, #f8f9fa);
+    border: 1px solid var(--ras-border, #d1d5db);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--ras-text-muted, #646b6c);
+    position: sticky;
+    top: 0;
+    z-index: 12;
+}
+.ras-quickstats-pedidos {
+    background: var(--ras-surface, #f8f9fa);
+}
+.ras-quickstats .qs-num {
+    font-weight: 700;
+    color: var(--texto-principal);
+    font-size: 13px;
+}
+.ras-quickstats .qs-num.qs-falta { color: #a94442; }
+.ras-quickstats .qs-num.qs-destaque {
+    color: var(--ras-primary-dk, #4a633a);
+    font-size: 14px;
+}
+.ras-quickstats .qs-lab {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: #64748b;
+    margin-right: 2px;
+}
+.ras-quickstats .qs-sep {
+    color: #cbd5e1;
+    font-weight: 700;
+}
+.ras-quickstats .qs-spacer { flex: 1; }
+.ras-pct-mini {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 130px;
+}
+.ras-pct-mini .qs-pct {
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--texto-principal);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ----- Avatar circular do fornecedor ---------------------------------- */
+.ras-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,0.18),
+                0 1px 2px rgba(0,0,0,0.15);
+    flex-shrink: 0;
+}
+
+/* Texto do parceiro ao lado do avatar nos cards de lote */
+.card-lote.compacto .col-parc .parc-name-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+/* ----- Progress bar compacta usada em produto-linhas + quick stats ----- */
+.ras-pbar {
+    display: inline-block;
+    height: 6px;
+    width: 60px;
+    background: #e5e7eb;
+    border-radius: 3px;
+    overflow: hidden;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+.ras-pbar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.35s ease, background 0.2s ease;
+}
+.ras-pct-mini .ras-pbar { width: 80px; }
+
+/* ----- Card de lote — refinamento visual ------------------------------- */
+.rastreio-card.card-lote.compacto {
+    border-radius: 8px;
+    padding: 8px 12px;
+    transition: transform 0.08s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.rastreio-card.card-lote.compacto:hover {
+    transform: translateX(2px);
+    box-shadow: -3px 0 0 var(--cor-borda-drag, #3b82f6),
+                0 2px 6px rgba(0,0,0,0.08);
+}
+.rastreio-card.card-lote .col-prod strong {
+    font-size: 12.5px;
+    color: var(--texto-principal);
+}
+.rastreio-card.card-lote .col-qtd {
+    font-variant-numeric: tabular-nums;
+}
+
+/* ----- Header do bloco de pedido — visual sóbrio (paleta home) -------- */
+.pedido-bloco-header {
+    padding: 8px 12px;
+    margin: 12px 0 4px;
+    border-radius: 6px;
+    background: var(--ras-surface, #f8f9fa);
+    border: 1px solid var(--ras-border, #d1d5db);
+    border-left: 3px solid var(--ras-primary, #5e7e4a);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.15s ease, transform 0.08s ease, border-color 0.15s ease;
+}
+.pedido-bloco-header:hover {
+    background: #f1f3f5;
+    transform: translateX(2px);
+}
+.pedido-bloco-header.pedido-completo {
+    background: var(--ras-primary-soft, #eef3e7);
+    border-left-color: var(--ras-primary, #5e7e4a);
+}
+.pedido-bloco-header .pb-spacer { flex: 1; }
+.pedido-bloco-header .pb-progresso {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--texto-secundario);
+    flex-shrink: 0;
+}
+.pedido-bloco-header .pb-progresso strong {
+    color: var(--texto-principal);
+    font-weight: 700;
+    min-width: 30px;
+    text-align: right;
+}
+.pedido-bloco-header.pedido-completo .pb-progresso strong { color: var(--ras-primary-dk, #4a633a); }
+.pedido-bloco-header .pb-check {
+    color: var(--ras-primary, #5e7e4a);
+    font-size: 13px;
+    font-weight: 800;
+    background: var(--ras-primary-soft, #eef3e7);
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.pedido-bloco-header .pb-parc {
+    font-weight: 700;
+    color: var(--texto-principal);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 220px;
+}
+.pedido-bloco-header .pb-data {
+    font-size: 11px;
+    color: var(--texto-secundario);
+    flex-shrink: 0;
+    padding-left: 8px;
+    border-left: 1px solid #cbd5e1;
+}
+.pedido-bloco-header .pb-nunota {
+    margin-left: 0;
+    background: #fff;
+    border: 1px solid var(--cor-borda);
+    padding: 2px 8px;
+    border-radius: 999px;
+    color: var(--texto-secundario);
+    font-size: 11px;
+    flex-shrink: 0;
+}
+
+/* ----- Produto-linha — progress bar inline + alvo armado mais óbvio --- */
+.produto-linha .col-progresso {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 160px !important;
+}
+.produto-linha .col-progresso-num {
+    font-variant-numeric: tabular-nums;
+    min-width: 70px;
+    text-align: right;
+    font-size: 11px;
+}
+.produto-linha .col-tag {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    justify-content: flex-end;
+}
+
+/* Linha alvo armado — tom marrom-claro discreto, ainda assim pulsante */
+.produto-linha.alvo-armado:not(.completo) {
+    background: var(--ras-secondary-soft, #f5efe8);
+    border-color: #d6c2a8;
+    box-shadow: 0 0 0 2px rgba(130, 94, 56, 0.25),
+                inset 4px 0 0 var(--ras-secondary, #825e38);
+    cursor: copy;
+    animation: ras-pulse-alvo 1.8s ease-in-out infinite;
+}
+@keyframes ras-pulse-alvo {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(130, 94, 56, 0.25), inset 4px 0 0 #825e38; }
+    50%      { box-shadow: 0 0 0 4px rgba(130, 94, 56, 0.18), inset 4px 0 0 #825e38; }
+}
+.ras-arrow-alvo {
+    display: inline-block;
+    color: var(--ras-secondary, #825e38);
+    font-weight: 900;
+    font-size: 14px;
+    margin-right: 6px;
+    animation: ras-arrow-shake 0.9s ease-in-out infinite;
+}
+@keyframes ras-arrow-shake {
+    0%, 100% { transform: translateX(0); }
+    50%      { transform: translateX(-4px); }
+}
+
+/* ----- Lote armado — barra discreta no RODAPÉ (position: fixed) -------
+   Aparece no fundo da tela quando há lote armado, fica visível mesmo
+   durante scroll dos painéis. Posicionada acima do .ia-footer global. */
+.bar-armado {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    bottom: 36px;   /* acima do .ia-footer (rodapé global) */
+    padding: 10px 16px;
+    background: var(--ras-accent, #38292c);
+    border-radius: 6px;
+    box-shadow: 0 -2px 12px rgba(0,0,0,0.18);
+    font-size: 13px;
+    z-index: 80;
+    animation: ras-bar-aparece 0.3s ease-out;
+}
+@keyframes ras-bar-aparece {
+    from { transform: translateY(8px); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
+}
+.bar-armado-icone {
+    font-size: 18px;
+    background: rgba(255,255,255,0.18);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.bar-armado-texto {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+}
+.bar-armado .bar-armado-prod {
+    font-weight: 800;
+    color: #fff;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 1;
+    min-width: 0;
+}
+.bar-armado .bar-armado-codigo {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 11.5px;
+    color: #d6c2a8;   /* tom claro do secondary, harmoniza com o accent escuro */
+    background: rgba(255,255,255,0.08);
+    padding: 2px 8px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+.bar-armado-btn {
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 11.5px;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.4);
+    transition: all 0.15s ease;
+}
+.bar-armado-btn:hover {
+    background: #fff;
+    color: #1e3a8a;
+    border-color: #fff;
+}
+
+/* ----- Empty state ilustrado ----------------------------------------- */
+.ras-empty {
+    text-align: center;
+    padding: 40px 24px;
+    color: var(--texto-secundario);
+    background: var(--cor-fundo-painel);
+    border: 2px dashed var(--cor-borda);
+    border-radius: 12px;
+    margin: 12px;
+}
+.ras-empty-icone {
+    font-size: 48px;
+    line-height: 1;
+    margin-bottom: 12px;
+    opacity: 0.6;
+}
+.ras-empty-titulo {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--texto-principal);
+    margin-bottom: 8px;
+}
+.ras-empty-msg {
+    font-size: 12.5px;
+    line-height: 1.55;
+    max-width: 420px;
+    margin: 0 auto;
+}
+.ras-empty-msg strong {
+    color: var(--texto-principal);
+    background: #fef3c7;
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid #fde68a;
+    font-size: 11.5px;
+}
+
+/* ----- Tag OK + linha completa: tom primary discreto ------------------ */
+.produto-linha.completo {
+    background: var(--ras-primary-soft, #eef3e7);
+    opacity: 1;
+}
+.tag-atribuido-mini {
+    background: var(--ras-primary, #5e7e4a);
+    color: #fff;
+    border: 1px solid var(--ras-primary-dk, #4a633a);
+    padding: 3px 10px;
+}
+
+/* ----- List panel: mais respiração entre cards ------------------------ */
+.list-panel .card-list { gap: 4px; padding: 12px; }
+
+/* ==========================================================================
+   MÓDULO 13: BARRA DE FILTROS REDESENHADA (28 abr 2026)
+   Substitui o panel-header-complex antigo por um bloco em 2 linhas:
+   1) Título do painel + busca larga
+   2) Segmented control + range pill + toggles + ações
+   Tudo com altura uniforme (28px) e divisores discretos entre grupos.
+   ========================================================================== */
+
+/* Override: o panel-header-complex antigo perde o padding/borda velhos */
+.panel-header-complex { padding: 0; background: transparent; border-bottom: none; }
+.list-panel .ras-header {
+    padding: 12px 14px 10px;
+    background: var(--cor-fundo-painel, #fff);
+    border-bottom: 2px solid var(--bg-fundo, #f8fafc);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Linha 1: título + busca */
+.ras-header-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+.ras-painel-titulo {
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--texto-principal);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+    padding-right: 4px;
+    border-right: 2px solid var(--cor-borda, #e2e8f0);
+    margin-right: 4px;
+}
+
+/* Search com ícone — input full-width na linha do título.
+   `.ras-search-input` precisa vencer o `.search-input` legado (mesma
+   especificidade); por isso `padding`/`width` recebem `!important`. */
+.ras-search {
+    position: relative;
+    flex: 1;
+    min-width: 200px;
+}
+.ras-search-icone {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 15px !important;
+    height: 15px !important;
+    color: var(--texto-secundario, #64748b);
+    pointer-events: none;
+    z-index: 1;
+}
+.ras-search-input.search-input,   /* específica que vence a regra antiga .search-input */
+.ras-search-input {
+    width: 100% !important;
+    height: 32px !important;
+    padding: 0 12px 0 38px !important;
+    font-size: 12.5px !important;
+    border: 1px solid var(--cor-borda, #e2e8f0) !important;
+    border-radius: 6px !important;
+    background: var(--cor-fundo-painel, #fff);
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+    box-sizing: border-box;
+}
+.ras-search-input:focus {
+    outline: none;
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12) !important;
+}
+
+/* Linha 2: controles agrupados — todos com altura 28px */
+.ras-controls {
+    gap: 8px;
+}
+.ras-controls > * { height: 28px; }
+
+/* ----- Segmented control (Todos/Class/N-Class | Parceiro/Produto) ----- */
+.ras-segmented {
+    display: inline-flex;
+    background: var(--cor-fundo-secao, #f1f5f9);
+    border: 1px solid var(--cor-borda, #e2e8f0);
+    border-radius: 7px;
+    padding: 2px;
+    flex-shrink: 0;
+}
+.ras-segmented input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.ras-segmented label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #64748b;
+    padding: 0 12px;
+    height: 22px;
+    line-height: 22px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+    letter-spacing: 0.2px;
+}
+.ras-segmented label:hover { color: var(--texto-principal); }
+.ras-segmented input[type="radio"]:checked + label {
+    background: #fff;
+    color: var(--texto-principal);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+
+/* ----- Range pill: data inicial → data final + botão limpar ----------- */
+.ras-range-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 4px 0 8px;
+    background: var(--cor-fundo-painel, #fff);
+    border: 1px solid var(--cor-borda, #e2e8f0);
+    border-radius: 7px;
+    transition: border-color 0.12s ease;
+    flex-shrink: 0;
+}
+.ras-range-pill:hover,
+.ras-range-pill:focus-within { border-color: #3b82f6; }
+.ras-range-icone {
+    width: 13px;
+    height: 13px;
+    color: var(--texto-secundario, #64748b);
+    flex-shrink: 0;
+}
+.ras-range-input {
+    border: none !important;
+    background: transparent !important;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--texto-principal);
+    height: 24px;
+    padding: 0 2px !important;
+    width: 105px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.ras-range-input:focus { outline: none; }
+.ras-range-input::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 0.5;
+    margin: 0;
+    padding: 0 2px;
+    width: 14px;
+}
+.ras-range-input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+.ras-range-sep {
+    color: var(--texto-secundario, #64748b);
+    font-size: 11px;
+    user-select: none;
+    flex-shrink: 0;
+}
+.ras-range-clear {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--texto-secundario, #94a3b8);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.12s ease;
+    flex-shrink: 0;
+}
+.ras-range-clear:hover {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+/* ----- Toggle pill (Travar / Só pendentes) ---------------------------- */
+.ras-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 12px;
+    background: var(--cor-fundo-painel, #fff);
+    border: 1px solid var(--cor-borda, #e2e8f0);
+    border-radius: 7px;
+    color: var(--texto-secundario, #64748b);
+    font-size: 11.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+    letter-spacing: 0.2px;
+    user-select: none;
+}
+.ras-toggle svg {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+}
+.ras-toggle:hover {
+    border-color: #3b82f6;
+    color: var(--texto-principal);
+}
+.ras-toggle.is-on {
+    background: var(--ras-accent, #38292c);
+    color: #fff;
+    border-color: var(--ras-accent, #38292c);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.2);
+}
+/* Travar quando ativo: tom danger discreto (sinaliza bloqueio) */
+#checkTrava.is-on {
+    background: #a94442;
+    border-color: #a94442;
+}
+/* Só pendentes quando ativo: secondary (marrom — filtro de atenção) */
+#checkSomentePendente.is-on {
+    background: var(--ras-secondary, #825e38);
+    border-color: var(--ras-secondary, #825e38);
+}
+
+/* ----- Botões de ação (LIMPAR / ATUALIZAR) — ícone + label ------------ */
+.ras-actions-group {
+    display: inline-flex;
+    gap: 6px;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+.ras-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 28px;
+    padding: 0 12px;
+    background: var(--cor-fundo-painel, #fff);
+    border: 1px solid var(--cor-borda, #e2e8f0);
+    border-radius: 7px;
+    color: var(--texto-secundario, #64748b);
+    font-size: 11.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    letter-spacing: 0.2px;
+}
+.ras-icon-btn svg {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+}
+.ras-icon-btn:hover {
+    border-color: var(--texto-secundario, #64748b);
+    color: var(--texto-principal);
+    background: var(--cor-fundo-secao, #f8fafc);
+}
+.ras-icon-btn.primary {
+    background: var(--ras-primary, #5e7e4a);
+    border-color: var(--ras-primary-dk, #4a633a);
+    color: #fff;
+}
+.ras-icon-btn.primary:hover {
+    background: var(--ras-primary-dk, #4a633a);
+    border-color: var(--ras-primary-dk, #4a633a);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+}
+.ras-icon-btn:active { transform: translateY(1px); }
+
+/* Em telas estreitas: empilha controles e some labels longos */
+@media (max-width: 1280px) {
+    .ras-controls { flex-wrap: wrap; }
+    .ras-actions-group { margin-left: 0; }
+}
+
+/* ----- Botões mini "+" e "−" para agrupar/desagrupar tudo ------------- */
+.ras-grupo-actions {
+    display: inline-flex;
+    gap: 2px;
+    padding: 0 2px;
+    background: var(--ras-surface, #f8f9fa);
+    border: 1px solid var(--ras-border, #d1d5db);
+    border-radius: 7px;
+    height: 28px;
+    align-items: center;
+    flex-shrink: 0;
+}
+.ras-icon-btn-tiny {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--ras-text-muted, #646b6c);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.12s ease, color 0.12s ease;
+}
+.ras-icon-btn-tiny svg {
+    width: 14px;
+    height: 14px;
+}
+.ras-icon-btn-tiny:hover {
+    background: #fff;
+    color: var(--ras-accent, #38292c);
+}
+.ras-icon-btn-tiny:active { transform: translateY(1px); }
+
+/* ==========================================================================
+   MÓDULO 14: CHECKBOX POR LINHA — opt-in do filtro cruzado (28 abr 2026)
+   Substitui o "click no card filtra automático". Agora o usuário marca
+   explicitamente quais produtos quer cruzar entre Lotes e Pedidos.
+   ========================================================================== */
+
+.ras-row-check-wrap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    cursor: pointer;
+    margin-right: 2px;
+    position: relative;
+}
+.ras-row-check {
+    /* Esconde o checkbox nativo mas mantém acessibilidade — usa o span estilizado */
+    position: absolute;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    cursor: pointer;
+    z-index: 1;
+}
+.ras-row-check-box {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 4px;
+    background: var(--cor-fundo-painel, #fff);
+    transition: all 0.12s ease;
+    position: relative;
+}
+.ras-row-check-wrap:hover .ras-row-check-box {
+    border-color: var(--ras-primary, #5e7e4a);
+    background: var(--ras-primary-soft, #eef3e7);
+}
+.ras-row-check:checked + .ras-row-check-box {
+    background: var(--ras-primary, #5e7e4a);
+    border-color: var(--ras-primary-dk, #4a633a);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+}
+/* Checkmark via pseudo ::after — economiza markup */
+.ras-row-check:checked + .ras-row-check-box::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 0px;
+    width: 5px;
+    height: 10px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+.ras-row-check:focus-visible + .ras-row-check-box {
+    outline: 2px solid rgba(59, 130, 246, 0.45);
+    outline-offset: 1px;
+}
+
+/* Linha (card de lote ou produto-linha) com filtro cruzado ATIVO ganha
+   uma faixa azul à esquerda + fundo levemente azul. Não confunde com
+   "selected" do click antigo (que era hover/active state). */
+.rastreio-card.compacto:has(.ras-row-check:checked),
+.produto-linha:has(.ras-row-check:checked) {
+    background: var(--ras-primary-soft, #eef3e7);
+    box-shadow: inset 4px 0 0 var(--ras-primary, #5e7e4a);
+}
+/* Fallback para browsers sem :has() (raros agora) — usa classe .checked
+   adicionada via JS quando necessário; deixamos preparado mas inerte. */
+
+/* Cursor padrão no card — click seleciona a linha (revela botões de ação) */
+.rastreio-card.compacto { cursor: pointer; }
+.rastreio-card.compacto:hover .ras-row-check-box {
+    border-color: #3b82f6;
+}
+.produto-linha.clicavel:hover .ras-row-check-box {
+    border-color: #3b82f6;
+}
+
+/* ==========================================================================
+   MÓDULO 15: SELEÇÃO DE LINHA REVELA BOTÕES DE AÇÃO (28 abr 2026)
+   Botões 🔗 (armar lote) e 👁 (ver vínculos) ficam ocultos por padrão e
+   só aparecem quando o usuário clica na linha. Reduz ruído visual quando
+   há muitas linhas listadas.
+   ========================================================================== */
+
+/* Default: botões ocultos mas com slot reservado (evita layout shift).
+   `pointer-events: none` impede clicks acidentais quando invisíveis. */
+.rastreio-card.compacto .btn-armar,
+.rastreio-card.compacto .btn-olho,
+.produto-linha .btn-olho {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+}
+
+/* Linha selecionada → botões aparecem */
+.rastreio-card.compacto.linha-ativa .btn-armar,
+.rastreio-card.compacto.linha-ativa .btn-olho,
+.produto-linha.linha-ativa .btn-olho {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Lote armado mantém o 🔗 visível mesmo sem seleção (sinaliza estado) */
+.rastreio-card.compacto.lote-armado .btn-armar {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Hover na linha (sem estar selecionada) revela os botões com fade sutil —
+   convida a clicar sem precisar selecionar de fato. */
+.rastreio-card.compacto:hover .btn-armar,
+.rastreio-card.compacto:hover .btn-olho,
+.produto-linha.clicavel:hover .btn-olho {
+    opacity: 0.55;
+    pointer-events: auto;
+}
+.rastreio-card.compacto.linha-ativa:hover .btn-armar,
+.rastreio-card.compacto.linha-ativa:hover .btn-olho,
+.produto-linha.linha-ativa:hover .btn-olho {
+    opacity: 1;
+}
+
+/* Destaque visual da linha selecionada — outline em tom primary discreto */
+.rastreio-card.compacto.linha-ativa {
+    box-shadow: 0 0 0 2px rgba(94, 126, 74, 0.35),
+                0 2px 4px rgba(0,0,0,0.05);
+    z-index: 1;
+}
+.produto-linha.linha-ativa {
+    box-shadow: 0 0 0 2px rgba(94, 126, 74, 0.35),
+                0 2px 4px rgba(0,0,0,0.05);
+    z-index: 1;
+}
+
+/* Linha simultaneamente selecionada e com check marcado */
+.rastreio-card.compacto.linha-ativa:has(.ras-row-check:checked),
+.produto-linha.linha-ativa:has(.ras-row-check:checked) {
+    box-shadow: inset 4px 0 0 var(--ras-primary, #5e7e4a),
+                0 0 0 2px rgba(94, 126, 74, 0.35);
+}
+
+/* ==========================================================================
+   MÓDULO 16: BOTÕES DE AÇÃO BONITOS — armar lote + olho (28 abr 2026)
+   Substituem os botões antigos com emojis. SVG inline + transições suaves.
+   Tamanho cresce e cor preenche quando a linha é selecionada.
+   ========================================================================== */
+
+/* Reset visual dos botões — remove estilos legados (border/font do emoji).
+   `.btn-acao-linha` é a classe nova; `.btn-armar` e `.btn-olho` continuam
+   sendo usadas pra hooks de evento e estilos específicos.
+   USA TRANSITION (não animation) — assim o crescimento/encolhimento ocorre
+   suavemente nas duas direções (linha selecionada ↔ desmarcada). */
+.btn-acao-linha {
+    width: 26px;
+    height: 26px;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    border-radius: 7px !important;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--texto-secundario, #64748b) !important;
+    transform: scale(0.85);
+    transition: width 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+                height 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+                transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+                opacity 0.18s ease,
+                background 0.18s ease, color 0.18s ease,
+                border-color 0.18s ease, box-shadow 0.18s ease;
+    flex-shrink: 0;
+    font-size: 0;   /* zera fontesize do emoji legado caso permaneça */
+}
+.btn-acao-linha svg {
+    width: 14px;
+    height: 14px;
+    transition: width 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+                height 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Hover discreto — convida a clicar */
+.btn-acao-linha:hover {
+    background: var(--cor-fundo-secao, #f8fafc) !important;
+    color: var(--texto-principal) !important;
+    border-color: var(--cor-borda, #e2e8f0) !important;
+}
+
+/* Linha-ativa → botões CRESCEM, ganham cor sólida e sombra sutil.
+   Mesma regra para LOTE e PRODUTO-LINHA, garantindo paridade visual. */
+.rastreio-card.compacto.linha-ativa .btn-acao-linha,
+.produto-linha.linha-ativa .btn-acao-linha {
+    width: 32px;
+    height: 32px;
+    transform: scale(1);
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+.rastreio-card.compacto.linha-ativa .btn-acao-linha svg,
+.produto-linha.linha-ativa .btn-acao-linha svg {
+    width: 17px;
+    height: 17px;
+}
+
+/* Cores quando linha-ativa — sólidas/sóbrias, sem gradientes saturados.
+   Botão armar usa primary (verde Agromil); botão olho usa secondary (marrom). */
+.rastreio-card.compacto.linha-ativa .btn-armar {
+    background: var(--ras-primary, #5e7e4a) !important;
+    color: #fff !important;
+    border-color: var(--ras-primary-dk, #4a633a) !important;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.12);
+}
+.rastreio-card.compacto.linha-ativa .btn-armar:hover {
+    background: var(--ras-primary-dk, #4a633a) !important;
+    transform: translateY(-1px) scale(1.05);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+}
+
+.rastreio-card.compacto.linha-ativa .btn-olho,
+.produto-linha.linha-ativa .btn-olho {
+    background: var(--ras-secondary, #825e38) !important;
+    color: #fff !important;
+    border-color: #6b4d2e !important;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.12);
+}
+.rastreio-card.compacto.linha-ativa .btn-olho:hover,
+.produto-linha.linha-ativa .btn-olho:hover {
+    background: #6b4d2e !important;
+    transform: translateY(-1px) scale(1.05);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+}
+
+/* Lote armado: btn-armar com sombra "anel" sutil em primary */
+.rastreio-card.compacto.lote-armado .btn-armar {
+    background: var(--ras-primary, #5e7e4a) !important;
+    color: #fff !important;
+    border-color: var(--ras-primary-dk, #4a633a) !important;
+    box-shadow: 0 0 0 3px rgba(94, 126, 74, 0.25),
+                0 2px 6px rgba(0,0,0,0.12);
+    animation: ras-armado-pulse 2.2s ease-in-out infinite;
+    width: 32px;
+    height: 32px;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+.rastreio-card.compacto.lote-armado .btn-armar svg {
+    width: 17px;
+    height: 17px;
+}
+@keyframes ras-armado-pulse {
+    0%, 100% { box-shadow: 0 0 0 3px rgba(94, 126, 74, 0.25), 0 2px 6px rgba(0,0,0,0.12); }
+    50%      { box-shadow: 0 0 0 6px rgba(94, 126, 74, 0.12), 0 3px 10px rgba(0,0,0,0.18); }
+}
+
+@keyframes ras-botao-aparece {
+    0%   { transform: scale(0.6); opacity: 0; }
+    60%  { transform: scale(1.08); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+/* ==========================================================================
+   MÓDULO 17: HEADER DE PEDIDO — checkbox + chevron expand/collapse
+   ========================================================================== */
+
+/* Checkbox no header do pedido — mesmo estilo dos checkboxes de linha,
+   mas marcado com cor diferente (verde) pra sinalizar "ação em massa".
+   Estado "indeterminate" mostra meio traço (parcialmente marcado). */
+.pedido-bloco-header .pb-check-wrap {
+    margin-right: 4px;
+}
+.pedido-bloco-header .pb-check-input:checked + .ras-row-check-box {
+    background: var(--ras-primary, #5e7e4a);
+    border-color: var(--ras-primary-dk, #4a633a);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+}
+.pedido-bloco-header .pb-check-input:indeterminate + .ras-row-check-box {
+    background: var(--ras-primary, #5e7e4a);
+    border-color: var(--ras-primary-dk, #4a633a);
+}
+.pedido-bloco-header .pb-check-input:indeterminate + .ras-row-check-box::after {
+    content: '';
+    position: absolute;
+    left: 3px;
+    right: 3px;
+    top: 50%;
+    height: 2px;
+    background: #fff;
+    border-radius: 1px;
+    transform: translateY(-50%);
+    border: none;   /* sobrescreve o checkmark do :checked */
+}
+
+/* Chevron de expand/collapse — pequeno, animado */
+.pb-chevron {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--texto-secundario, #64748b);
+    border-radius: 5px;
+    transition: background 0.12s ease, transform 0.2s ease, color 0.12s ease;
+    flex-shrink: 0;
+}
+.pb-chevron svg {
+    width: 14px;
+    height: 14px;
+    transition: transform 0.2s ease;
+}
+.pb-chevron:hover {
+    background: rgba(0,0,0,0.06);
+    color: var(--texto-principal);
+}
+/* Quando colapsado, gira a setinha para apontar pra direita */
+.pedido-bloco-header.colapsado .pb-chevron svg {
+    transform: rotate(-90deg);
+}
+
+/* Header colapsado: visual diferente — gradiente mais discreto, sem destaque
+   forte (fica claro que está "fechado" e não tem produtos visíveis). */
+.pedido-bloco-header.colapsado {
+    background: var(--ras-surface, #f8f9fa);
+    border-left-color: var(--ras-text-muted, #646b6c);
+}
+.pedido-bloco-header.colapsado.pedido-completo {
+    background: var(--ras-primary-soft, #eef3e7);
+    border-left-color: var(--ras-primary, #5e7e4a);
+}
+
+/* Espaçamento extra entre headers de pedido quando colapsados — facilita
+   identificar visualmente o "agrupamento por pedido" mesmo sem produtos */
+.pedido-bloco-header + .pedido-bloco-header { margin-top: 4px; }
+
+/* ==========================================================================
+   MÓDULO 18: AGRUPAMENTO POR PRODUTO — header rico do produto + linha
+   compacta de pedido dentro (28 abr 2026).
+   ========================================================================== */
+
+/* Header do grupo POR PRODUTO — herda .pedido-bloco-header com border-left
+   marrom (--ras-secondary) pra distinguir do header de parceiro (verde).
+   Cursor pointer porque o click expande/recolhe o grupo. */
+.pedido-bloco-header.tipo-produto {
+    background: var(--ras-secondary-soft, #f5efe8);
+    border-left-color: var(--ras-secondary, #825e38);
+    cursor: pointer;
+    margin-top: 14px;
+}
+.pedido-bloco-header.tipo-produto:hover {
+    background: #ede4d6;
+    transform: translateX(2px);
+}
+.pedido-bloco-header.tipo-produto .pb-parc {
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-weight: 700;
+    color: var(--ras-accent, #38292c);
+    max-width: none;
+}
+.pedido-bloco-header.tipo-produto .pb-progresso strong {
+    color: var(--ras-accent, #38292c);
+}
+.pedido-bloco-header.tipo-produto .pb-nunota {
+    background: #fff;
+    color: var(--ras-secondary, #825e38);
+    border-color: #d6c2a8;
+    font-weight: 700;
+}
+.pedido-bloco-header.tipo-produto.pedido-completo {
+    background: var(--ras-primary-soft, #eef3e7);
+    border-left-color: var(--ras-primary, #5e7e4a);
+}
+.pedido-bloco-header.tipo-produto.pedido-completo .pb-parc,
+.pedido-bloco-header.tipo-produto.pedido-completo .pb-progresso strong {
+    color: var(--ras-primary-dk, #4a633a);
+}
+
+/* Chevron de expand/collapse no header de produto */
+.pedido-bloco-header.tipo-produto .grupo-chevron {
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ras-text-muted, #646b6c);
+    flex-shrink: 0;
+    transition: transform 0.2s ease, color 0.15s ease;
+}
+.pedido-bloco-header.tipo-produto:hover .grupo-chevron {
+    color: var(--ras-accent, #38292c);
+}
+.pedido-bloco-header.tipo-produto.colapsado .grupo-chevron {
+    transform: rotate(-90deg);
+}
+.pedido-bloco-header.tipo-produto .grupo-chevron svg {
+    width: 13px;
+    height: 13px;
+}
+
+/* Tira espaço entre o primeiro header e o topo da lista */
+.list-panel .card-list > .pedido-bloco-header.tipo-produto:first-child,
+.list-panel .card-list > .ras-quickstats + .pedido-bloco-header.tipo-produto {
+    margin-top: 0;
+}
+
+/* Linha compacta de pedido dentro do grupo POR PRODUTO ------------------- */
+.linha-pedido-compacta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px 6px 14px;
+    margin-left: 16px;
+    background: var(--cor-fundo-painel, #fff);
+    border: 1px solid var(--cor-borda, #e2e8f0);
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.3;
+    transition: transform 0.08s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+    position: relative;
+}
+.linha-pedido-compacta.clicavel { cursor: pointer; }
+.linha-pedido-compacta.clicavel:hover {
+    border-color: var(--cor-texto-desativado);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    transform: translateX(2px);
+}
+
+.linha-pedido-compacta .lpc-parc {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+    color: var(--texto-principal);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.linha-pedido-compacta .lpc-data {
+    font-size: 11px;
+    color: var(--texto-secundario);
+    flex-shrink: 0;
+    padding-left: 8px;
+    border-left: 1px solid #cbd5e1;
+}
+.linha-pedido-compacta .lpc-spacer { flex: 1; min-width: 12px; }
+.linha-pedido-compacta .lpc-progresso {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+.linha-pedido-compacta .lpc-progresso-num {
+    font-variant-numeric: tabular-nums;
+    min-width: 70px;
+    text-align: right;
+    font-size: 11px;
+}
+.linha-pedido-compacta .lpc-tag {
+    flex-shrink: 0;
+    min-width: 90px;
+    text-align: right;
+}
+.linha-pedido-compacta .lpc-nunota {
+    background: var(--cor-fundo-secao, #f8fafc);
+    border: 1px solid var(--cor-borda, #e2e8f0);
+    padding: 2px 8px;
+    border-radius: 999px;
+    color: var(--texto-secundario);
+    font-size: 11px;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Estados visuais — espelham os da produto-linha (paleta sutil) */
+.linha-pedido-compacta.completo {
+    background: var(--ras-primary-soft, #eef3e7);
+    border-color: #c5d2b3;
+}
+.linha-pedido-compacta.selected {
+    background: var(--ras-primary-soft, #eef3e7);
+    border-color: var(--ras-primary, #5e7e4a);
+    box-shadow: 0 0 0 1px var(--ras-primary, #5e7e4a);
+}
+.linha-pedido-compacta.linha-ativa {
+    box-shadow: 0 0 0 2px rgba(94, 126, 74, 0.35),
+                0 2px 4px rgba(0,0,0,0.05);
+    z-index: 1;
+}
+.linha-pedido-compacta.alvo-armado:not(.completo) {
+    background: var(--ras-secondary-soft, #f5efe8);
+    border-color: #d6c2a8;
+    box-shadow: 0 0 0 2px rgba(130, 94, 56, 0.25),
+                inset 4px 0 0 var(--ras-secondary, #825e38);
+    cursor: copy;
+    animation: ras-pulse-alvo 1.8s ease-in-out infinite;
+}
+
+/* Botões de ação (olho) — herdam o efeito do .btn-acao-linha global,
+   incluindo crescimento quando linha-ativa. */
+.linha-pedido-compacta:hover .btn-acao-linha,
+.linha-pedido-compacta.linha-ativa .btn-acao-linha {
+    opacity: 1;
+    pointer-events: auto;
+}
+.linha-pedido-compacta .btn-acao-linha {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease, width 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+                height 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+                transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+                background 0.18s ease, color 0.18s ease,
+                border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.linha-pedido-compacta:hover .btn-acao-linha { opacity: 0.55; }
+.linha-pedido-compacta.linha-ativa .btn-acao-linha {
+    width: 32px;
+    height: 32px;
+    transform: scale(1);
+}
+.linha-pedido-compacta.linha-ativa .btn-acao-linha svg {
+    width: 17px;
+    height: 17px;
+}
+.linha-pedido-compacta.linha-ativa .btn-olho {
+    background: var(--ras-secondary, #825e38) !important;
+    color: #fff !important;
+    border-color: #6b4d2e !important;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.12);
+}
+.linha-pedido-compacta.linha-ativa .btn-olho:hover {
+    background: #6b4d2e !important;
+    transform: translateY(-1px) scale(1.05);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+}
+
+/* Combinação selected + linha-ativa */
+.linha-pedido-compacta.linha-ativa.selected {
+    box-shadow: inset 4px 0 0 var(--ras-primary, #5e7e4a),
+                0 0 0 2px rgba(94, 126, 74, 0.35);
+}
+.linha-pedido-compacta:has(.ras-row-check:checked) {
+    background: var(--ras-primary-soft, #eef3e7);
+    box-shadow: inset 4px 0 0 var(--ras-primary, #5e7e4a);
 }

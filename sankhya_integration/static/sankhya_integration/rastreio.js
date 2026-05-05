@@ -31,7 +31,16 @@ document.addEventListener('DOMContentLoaded', function () {
     let pedidosCarregando = false;
 
     // Filtros / agrupamento / interação
-    let produtosFiltrados   = new Set();    // Set<codprod>; vazio = sem filtro
+    // CHECKS DE FILTRO CRUZADO — separados em dois eixos pra que marcar
+    // o produto X num pedido NÃO marque automaticamente os checks de produto X
+    // em outros pedidos (que era o comportamento confuso anterior).
+    //   - checksLotes: produtos marcados via checkbox dos cards de LOTE
+    //   - checksPorPedido: produtos marcados via checkbox de cada PRODUTO-LINHA,
+    //                      mantidos separados por NUNOTA (Map<nunota, Set<codprod>>)
+    // O filtro cruzado (lotes ↔ pedidos) usa a UNIÃO dos dois para enviar
+    // codprods ao backend e para esconder/mostrar lotes/pedidos.
+    const checksLotes       = new Set();
+    const checksPorPedido   = new Map();
     let pedidoIsolado       = null;         // NUNOTA quando o usuário clica no header de um pedido específico
     let agrupamentoAtual    = 'parceiro';   // 'parceiro' | 'produto' (header agrupador)
     let tipoLote            = 'todos';      // 'todos' | 'classificavel' | 'nao_classificavel'
@@ -44,45 +53,166 @@ document.addEventListener('DOMContentLoaded', function () {
     let dataIniPedidos      = '';
     let dataFimPedidos      = '';
     let loteArmado          = null;         // lote selecionado para vincular (click-to-select)
+    // Fase 4.6 — toggle "só pendentes" (esconde produto-linhas já 100% atribuídas)
+    let somentePendentes    = false;
+    // Set<NUNOTA> — pedidos atualmente colapsados (produtos escondidos).
+    // Default: TODOS os pedidos vêm colapsados; o usuário expande clicando
+    // no header. Click no nome do parceiro/chevron alterna o estado.
+    const pedidosColapsados = new Set();
+    // Set<nomeProduto> — grupos de produto atualmente colapsados (no modo
+    // POR PRODUTO). Click no header do grupo expande/recolhe.
+    const gruposProdutoColapsados = new Set();
+    // Set<nomeProduto> — grupos de produto já inicializados ao menos uma vez.
+    // Mesmo padrão de pedidosJaVistos: novos grupos vêm colapsados por
+    // padrão; estado escolhido pelo usuário se mantém após scroll/refresh.
+    const gruposProdutoJaVistos    = new Set();
+    // Set<NUNOTA> — pedidos já inicializados pelo menos uma vez. Garante que
+    // o "default colapsado" só aplica na PRIMEIRA aparição do pedido na tela
+    // (subsequente scroll infinito ou refresh preserva o estado escolhido
+    // pelo usuário). Reset acontece em limparTudo().
+    const pedidosJaVistos   = new Set();
+    // Fase 2.13 — alerta visual em lote envelhecido (DTNEG_ORIGEM > N dias)
+    const DIAS_ALERTA_LOTE  = 60;
 
-    function temFiltroProdutos()         { return produtosFiltrados.size > 0; }
-    function produtoEstaFiltrado(codprod){ return produtosFiltrados.has(Number(codprod)); }
+    // ----- Persistência de preferências em localStorage (Fase 2.12) ---------
+    // Restaura/grava: agrupamento, tipoLote, datas (ini/fim) lotes e pedidos,
+    // checkTrava, somentePendentes. Outros estados (filtros cruzados, lote
+    // armado) NÃO são persistidos — eles são efêmeros por ciclo de uso.
+    const LS_KEY = 'iagro:rastreio:prefs:v1';
+    function _salvarPrefs() {
+        try {
+            localStorage.setItem(LS_KEY, JSON.stringify({
+                agrupamento: agrupamentoAtual,
+                tipoLote,
+                dataIniLotes, dataFimLotes,
+                dataIniPedidos, dataFimPedidos,
+                travado: !!(checkTrava && checkTrava.classList.contains('is-on')),
+                somentePendentes,
+            }));
+        } catch (_) {}
+    }
+    function _carregarPrefs() {
+        try {
+            const raw = localStorage.getItem(LS_KEY);
+            if (!raw) return null;
+            return JSON.parse(raw);
+        } catch (_) { return null; }
+    }
+
+    /** União de todos os produtos marcados em checksLotes + checksPorPedido. */
+    function _uniaoFiltrosProdutos() {
+        const u = new Set(checksLotes);
+        for (const cps of checksPorPedido.values()) {
+            for (const cp of cps) u.add(cp);
+        }
+        return u;
+    }
+    function temFiltroProdutos() {
+        if (checksLotes.size > 0) return true;
+        for (const cps of checksPorPedido.values()) if (cps.size > 0) return true;
+        return false;
+    }
+    /** Para cards de LOTE: o lote está "selecionado" se foi marcado direto
+     *  (checksLotes) OU se algum pedido tem o produto marcado (cross filter). */
+    function loteEstaCheckado(codprod) {
+        const cp = Number(codprod);
+        if (checksLotes.has(cp)) return true;
+        for (const cps of checksPorPedido.values()) if (cps.has(cp)) return true;
+        return false;
+    }
+    /** Para PRODUTO-LINHA: marcado SOMENTE se o usuário marcou
+     *  esta linha específica naquele pedido. Não cascateia entre pedidos. */
+    function produtoLinhaEstaCheckada(codprod, nunota) {
+        const cps = checksPorPedido.get(Number(nunota));
+        return cps ? cps.has(Number(codprod)) : false;
+    }
+    /** Compatibilidade — usado quando NÃO há nunota disponível (lotes,
+     *  filtragem genérica). Equivale ao "tem em qualquer eixo". */
+    function produtoEstaFiltrado(codprod, nunota) {
+        if (nunota !== undefined) return produtoLinhaEstaCheckada(codprod, nunota);
+        return loteEstaCheckado(codprod);
+    }
     function setsIguais(a, b) {
         if (a.size !== b.size) return false;
         for (const v of a) if (!b.has(v)) return false;
         return true;
     }
-    /** Aplica filtro de produto vindo de um clique em card de lote ou produto-linha.
-     *  Substitui o set inteiro (replace). Click no mesmo conjunto limpa o filtro.
-     *  TRAVAR FILTRO bloqueia este caminho — usuário pode alterar o filtro só pelos
-     *  campos do topo (typeahead/datas/radios) e pelos × dos chips. */
-    function aplicarFiltroProdutos(codprods) {
-        if (checkTrava && checkTrava.checked) return;   // travado: clique não filtra
+    /** Limpa todos os checks dos dois eixos. Usado em LIMPAR e isolamento. */
+    function _limparTodosChecks() {
+        checksLotes.clear();
+        checksPorPedido.clear();
+    }
 
+    /** [LEGACY] Mantido pra retro-compat — não chamado por nada de UI.
+     *  Click em card/linha não filtra mais (substituído por checkboxes). */
+    function aplicarFiltroProdutos(codprods) {
+        if (checkTrava && checkTrava.classList.contains('is-on')) return;
         const lista = Array.isArray(codprods) ? codprods : [codprods];
-        const novo  = new Set(lista.map(Number));
-        const igual = setsIguais(novo, produtosFiltrados) && pedidoIsolado === null;
-        if (igual) produtosFiltrados = new Set();
-        else       produtosFiltrados = novo;
+        _limparTodosChecks();
+        lista.forEach(cp => checksLotes.add(Number(cp)));
         pedidoIsolado = null;
         carregarLotes(true);
         carregarPedidos(true);
     }
 
+    /** Toggle do checkbox dentro de um CARD de LOTE — atua em checksLotes. */
+    function toggleCheckLote(codprod, marcado) {
+        const cp = Number(codprod);
+        if (!Number.isFinite(cp)) return;
+        if (marcado) checksLotes.add(cp);
+        else         checksLotes.delete(cp);
+        if (marcado) pedidoIsolado = null;
+        carregarLotes(true);
+        carregarPedidos(true);
+    }
+
+    /** Toggle do checkbox dentro de uma PRODUTO-LINHA — atua em
+     *  checksPorPedido[nunota], sem afetar checks dos mesmos codprods em
+     *  outros pedidos (foi o que o usuário pediu para corrigir). */
+    function toggleCheckProdutoPedido(codprod, nunota, marcado) {
+        const cp = Number(codprod);
+        const nu = Number(nunota);
+        if (!Number.isFinite(cp) || !Number.isFinite(nu)) return;
+        let set = checksPorPedido.get(nu);
+        if (!set) {
+            if (!marcado) return;
+            set = new Set();
+            checksPorPedido.set(nu, set);
+        }
+        if (marcado) set.add(cp);
+        else         set.delete(cp);
+        // Limpa entradas vazias para o Map não acumular
+        if (set.size === 0) checksPorPedido.delete(nu);
+        if (marcado) pedidoIsolado = null;
+        carregarLotes(true);
+        carregarPedidos(true);
+    }
+
+    /** Versão antiga `toggleFiltroProduto` mantida só pra não quebrar callers
+     *  que ainda existam — defaultando ao comportamento antigo de cards de lote. */
+    function toggleFiltroProduto(codprod, marcado) {
+        toggleCheckLote(codprod, marcado);
+    }
+
     /** Aplica isolamento ao clicar no header do pedido (replace + isolamento).
      *  Click no mesmo pedido limpa tudo. TRAVAR FILTRO bloqueia este caminho. */
     function aplicarFiltroPedidoIsolado(nunota, codprods) {
-        if (checkTrava && checkTrava.checked) return;   // travado: clique não filtra
+        if (checkTrava && checkTrava.classList.contains('is-on')) return;
 
         const novoSet = new Set((codprods || []).map(Number));
+        // Compara a representação atual de filtros de pedido isolado (todos os
+        // codprods desse pedido em checksPorPedido[nunota] e checksLotes vazio)
+        const cpsAtuais = checksPorPedido.get(Number(nunota)) || new Set();
         const jaIsolado = pedidoIsolado === Number(nunota) &&
-                          setsIguais(novoSet, produtosFiltrados);
+                          checksLotes.size === 0 &&
+                          checksPorPedido.size === 1 &&
+                          setsIguais(novoSet, cpsAtuais);
+        _limparTodosChecks();
         if (jaIsolado) {
             pedidoIsolado = null;
-            produtosFiltrados = new Set();
         } else {
             pedidoIsolado = Number(nunota);
-            produtosFiltrados = novoSet;
+            checksPorPedido.set(Number(nunota), novoSet);
         }
         carregarLotes(true);
         carregarPedidos(true);
@@ -105,6 +235,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const btnLimparPerLotes   = document.getElementById('btnLimparPeriodoLotes');
     const btnLimparPerPedidos = document.getElementById('btnLimparPeriodoPedidos');
     const filtrosAtivosEl     = document.getElementById('filtrosAtivos');
+    const filtrosAtivosChipsEl = document.getElementById('filtrosAtivosChips');
     // Modal de vínculos (lote→pedidos ou pedido→lotes)
     const modalVinculos       = document.getElementById('modalVinculos');
     const vinculosTitulo      = document.getElementById('vinculosTitulo');
@@ -157,6 +288,91 @@ document.addEventListener('DOMContentLoaded', function () {
         if (PH.showToast) PH.showToast(msg, type || 'info');
         else console.log('[' + (type || 'info') + ']', msg);
     }
+
+    // Modal de confirmação (Fase 1.5) — fallback pra window.confirm se helper indisponível
+    const phConfirmar = PH.confirmarAcao || (async (o) =>
+        Promise.resolve(window.confirm(o.mensagem || 'Confirmar?'))
+    );
+
+    /** Gera avatar circular do fornecedor com 2 letras + cor estável por hash do nome.
+     *  Retorna string HTML. Cor é determinística — mesmo nome sempre mesma cor,
+     *  ajuda a escanear lotes do mesmo fornecedor visualmente. */
+    function _avatarFornecedor(nome) {
+        const txt = String(nome || '—').trim();
+        // 2 iniciais (primeiras letras de até 2 palavras)
+        const partes = txt.split(/\s+/).filter(Boolean);
+        const iniciais = (
+            (partes[0] || '?').charAt(0) +
+            ((partes[1] || partes[0] || '').charAt(0) || '')
+        ).toUpperCase();
+        // Hash simples do nome → índice de paleta de 12 cores
+        let h = 0;
+        for (let i = 0; i < txt.length; i++) {
+            h = ((h << 5) - h + txt.charCodeAt(i)) | 0;
+        }
+        const cores = [
+            '#0ea5e9', '#8b5cf6', '#ec4899', '#f43f5e',
+            '#f59e0b', '#84cc16', '#10b981', '#06b6d4',
+            '#6366f1', '#a855f7', '#ef4444', '#14b8a6',
+        ];
+        const cor = cores[Math.abs(h) % cores.length];
+        return `<span class="ras-avatar" style="background:${cor}" title="${escapeHtml(txt)}">${escapeHtml(iniciais)}</span>`;
+    }
+
+    /** Renderiza barra de progresso compacta com cor adaptativa.
+     *  pct < 50% vermelho, < 100% azul, 100% verde. Se pct=0, mostra a barra
+     *  vazia mas presente (não some) — dá referência visual da ausência. */
+    function _renderProgressBar(atribuida, total) {
+        const a = Number(atribuida) || 0;
+        const t = Number(total) || 0;
+        const pct = t > 0 ? Math.min(100, Math.round((a / t) * 100)) : 0;
+        let cor = '#ef4444';   // vermelho
+        if (pct >= 100)      cor = '#10b981';  // verde
+        else if (pct >= 50)  cor = '#3b82f6';  // azul
+        else if (pct >= 25)  cor = '#f59e0b';  // laranja
+        return `<span class="ras-pbar" title="${pct}% vinculado">
+            <span class="ras-pbar-fill" style="width:${pct}%;background:${cor}"></span>
+        </span>`;
+    }
+
+    /** Converte data BR "DD/MM/YYYY" em timestamp (ms). Vazio/inválido → 0,
+     *  o que faz pedidos sem data caírem para o fim quando ordenamos DESC. */
+    function _timestampFromBR(dataBR) {
+        if (!dataBR) return 0;
+        const m = String(dataBR).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+        if (!m) return 0;
+        return new Date(parseInt(m[3], 10),
+                        parseInt(m[2], 10) - 1,
+                        parseInt(m[1], 10)).getTime();
+    }
+
+    /** Comparator: data DESC, depois parceiro ASC. Usado pra POR PRODUTO. */
+    function _comparePedidosPadrao(a, b) {
+        const ta = _timestampFromBR(a.dtneg);
+        const tb = _timestampFromBR(b.dtneg);
+        if (tb !== ta) return tb - ta;   // mais recente primeiro
+        return String(a.nomeparc || '').localeCompare(String(b.nomeparc || ''));
+    }
+    /** Comparator: data ASC (mais antigo primeiro), depois parceiro ASC.
+     *  Usado pra POR PARCEIRO conforme pedido do usuário. */
+    function _comparePedidosPorParceiro(a, b) {
+        const ta = _timestampFromBR(a.dtneg);
+        const tb = _timestampFromBR(b.dtneg);
+        if (ta !== tb) return ta - tb;   // mais antigo primeiro
+        return String(a.nomeparc || '').localeCompare(String(b.nomeparc || ''));
+    }
+
+    /** Calcula idade em dias entre uma data dd/mm/yyyy (vem assim do backend) e hoje. */
+    function _idadeDiasFromBR(dataBR) {
+        if (!dataBR) return 0;
+        const m = String(dataBR).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+        if (!m) return 0;
+        const [, dd, mm, yyyy] = m;
+        const data = new Date(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10));
+        const hoje = new Date();
+        const diff = hoje.getTime() - data.getTime();
+        return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
+    }
     function debounce(fn, wait) {
         if (PH.debounce) return PH.debounce(fn, wait);
         let t;
@@ -205,7 +421,11 @@ document.addEventListener('DOMContentLoaded', function () {
      *  Cada chip tem data-filtro identificando o tipo, e o handler de × chama
      *  removerFiltro(tipo). O container some quando não há filtro ativo. */
     function renderFiltrosAtivos() {
-        if (!filtrosAtivosEl) return;
+        // O container externo (#filtrosAtivos) fica SEMPRE visível agora —
+        // contém os botões fixos Limpar/Atualizar à direita. Aqui só
+        // populamos a parte dos chips à esquerda (#filtrosAtivosChips).
+        const alvo = filtrosAtivosChipsEl || filtrosAtivosEl;
+        if (!alvo) return;
         const chips = [];
 
         function chip(grupo, tipo, label, valor) {
@@ -244,8 +464,9 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         // ---- Filtro cruzado de produtos ----
-        if (produtosFiltrados.size > 0) {
-            const lista = [...produtosFiltrados];
+        const uniao = _uniaoFiltrosProdutos();
+        if (uniao.size > 0) {
+            const lista = [...uniao];
             const valor = lista.length === 1
                 ? _descricaoProduto(lista[0])
                 : `${lista.length} produtos`;
@@ -253,12 +474,14 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         if (chips.length === 0) {
-            filtrosAtivosEl.classList.add('hidden');
-            filtrosAtivosEl.innerHTML = '';
+            // Sem filtros: deixa só uma mensagem leve à esquerda
+            alvo.innerHTML =
+                '<span class="filtros-ativos-vazio">Sem filtros aplicados</span>';
+            filtrosAtivosEl?.classList.add('vazio');
             return;
         }
-        filtrosAtivosEl.classList.remove('hidden');
-        filtrosAtivosEl.innerHTML =
+        filtrosAtivosEl?.classList.remove('vazio');
+        alvo.innerHTML =
             '<span class="filtros-ativos-label">Filtros:</span>' + chips.join('');
     }
 
@@ -308,7 +531,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 carregarPedidos(true);
                 break;
             case 'produtos':
-                produtosFiltrados = new Set();
+                _limparTodosChecks();
                 pedidoIsolado = null;
                 carregarLotes(true);
                 carregarPedidos(true);
@@ -360,8 +583,9 @@ document.addEventListener('DOMContentLoaded', function () {
             if (textoFiltroPedidos && !/^\d+$/.test(textoFiltroPedidos)) {
                 params.set('cliente_q', textoFiltroPedidos);
             }
-            if (produtosFiltrados.size > 0) {
-                params.set('codprods', [...produtosFiltrados].join(','));
+            const uniaoLotes = _uniaoFiltrosProdutos();
+            if (uniaoLotes.size > 0) {
+                params.set('codprods', [...uniaoLotes].join(','));
             }
 
             const r = await fetch(URLS.lotes + '?' + params.toString(), {
@@ -421,8 +645,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 // selecionado, filtra os pedidos para mostrar apenas os que têm
                 // produtos desse fabricante.
                 if (fabricanteAtivo) params.set('fabricante', fabricanteAtivo);
-                if (produtosFiltrados.size > 0) {
-                    params.set('codprods', [...produtosFiltrados].join(','));
+                const uniaoPed = _uniaoFiltrosProdutos();
+                if (uniaoPed.size > 0) {
+                    params.set('codprods', [...uniaoPed].join(','));
                 }
             }
 
@@ -455,11 +680,42 @@ document.addEventListener('DOMContentLoaded', function () {
     function renderLotes() {
         containerLotes.innerHTML = '';
 
+        // Filtra lotes pela união (checksLotes + qualquer codprod marcado em
+        // qualquer pedido). Garante que se você marca um produto num pedido,
+        // os lotes daquele produto também aparecem destacados aqui.
         const visiveis = lotesData
-            .filter(l => !temFiltroProdutos() || produtoEstaFiltrado(l.codprod));
+            .filter(l => !temFiltroProdutos() || loteEstaCheckado(l.codprod));
+
+        // Quick stats — mostra só quando há ao menos 1 lote (não polui empty state)
+        if (visiveis.length > 0) {
+            const totalKg = visiveis.reduce((s, l) => s + (Number(l.qtd_disponivel) || 0), 0);
+            const produtosUnicos = new Set(visiveis.map(l => l.codprod)).size;
+            const fornecedoresUnicos = new Set(visiveis.map(l => l.nomeparc_origem || '—')).size;
+            const stats = document.createElement('div');
+            stats.className = 'ras-quickstats ras-quickstats-lotes';
+            stats.innerHTML = `
+                <span class="qs-num">${fmtInt(visiveis.length)}</span><span class="qs-lab">lotes</span>
+                <span class="qs-sep">·</span>
+                <span class="qs-num">${fmtInt(produtosUnicos)}</span><span class="qs-lab">produtos</span>
+                <span class="qs-sep">·</span>
+                <span class="qs-num">${fmtInt(fornecedoresUnicos)}</span><span class="qs-lab">fornecedores</span>
+                <span class="qs-spacer"></span>
+                <span class="qs-num qs-destaque">${fmtQtd(totalKg)}</span><span class="qs-lab">kg disponíveis</span>
+            `;
+            containerLotes.appendChild(stats);
+        }
 
         if (visiveis.length === 0 && !lotesCarregando) {
-            containerLotes.innerHTML = '<div class="empty-state">Nenhum lote encontrado.</div>';
+            containerLotes.innerHTML = `
+                <div class="ras-empty">
+                    <div class="ras-empty-icone">📦</div>
+                    <div class="ras-empty-titulo">Nenhum lote encontrado</div>
+                    <div class="ras-empty-msg">
+                        ${(textoFiltroLotes || fabricanteAtivo || tipoLote !== 'todos' || temFiltroProdutos())
+                            ? 'Tente ajustar os filtros do topo ou clicar em <strong>LIMPAR</strong>.'
+                            : 'Sem lotes disponíveis para o período selecionado.'}
+                    </div>
+                </div>`;
             return;
         }
 
@@ -469,7 +725,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
             const card = document.createElement('div');
             card.className = 'rastreio-card card-lote compacto';
-            if (produtoEstaFiltrado(l.codprod)) card.classList.add('selected');
+            if (loteEstaCheckado(l.codprod)) card.classList.add('selected');
             if (loteArmado && loteArmado.codagregacao === l.codagregacao) {
                 card.classList.add('lote-armado');
             }
@@ -484,27 +740,57 @@ document.addEventListener('DOMContentLoaded', function () {
                 ? '<span class="tag-naoclass" title="Sem classificação">N/C</span>'
                 : '';
 
+            // Fase 2.13 — alerta de lote envelhecido (DTNEG_ORIGEM > 60 dias)
+            const idadeDias = _idadeDiasFromBR(l.dtneg_origem);
+            const badgeIdade = idadeDias > DIAS_ALERTA_LOTE
+                ? `<span class="badge-idade-lote" title="Lote com ${idadeDias} dias desde a entrada">⚠ ${idadeDias}d</span>`
+                : '';
+            if (idadeDias > DIAS_ALERTA_LOTE) card.classList.add('lote-envelhecido');
+
             // Lotes listados aqui já são vendáveis (qtd_disponivel > 0).
             const podeArmar = Number(l.qtd_disponivel) > 0;
+            // Ícones SVG inline — substituem os emojis 🔗 e 👁 e permitem
+            // animação/cor consistentes via CSS quando a linha é selecionada.
             const armarBtn = podeArmar
-                ? '<button class="btn-armar" title="Armar este lote para vincular a um pedido" type="button">🔗</button>'
+                ? `<button class="btn-armar btn-acao-linha" title="Armar este lote" type="button">
+                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                           <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                           <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                       </svg>
+                   </button>`
                 : '';
 
-            // Layout em 1 linha: produto · parceiro · lote · data · qtd · armar · olho
+            // Estado do checkbox de filtro cruzado dessa linha — só marca se
+            // o usuário marcou diretamente no card de lote (checksLotes), não
+            // por reflexo de marcação em pedidos.
+            const cpFiltrado = checksLotes.has(Number(l.codprod));
+            const checkAttr  = cpFiltrado ? 'checked' : '';
+
+            // Layout em 1 linha: [check] avatar · produto · parceiro · lote · data · qtd · armar · olho
             card.innerHTML = `
+                <label class="ras-row-check-wrap" title="Cruzar lotes e pedidos deste produto">
+                    <input type="checkbox" class="ras-row-check" ${checkAttr}>
+                    <span class="ras-row-check-box"></span>
+                </label>
                 <span class="col-prod"  title="${escapeHtml(l.descrprod)}">
                     <strong>${escapeHtml(l.descrprod)}</strong>${tagStatus}
                 </span>
                 <span class="col-parc"  title="${escapeHtml(l.nomeparc_origem || '')}">
-                    ${escapeHtml(l.nomeparc_origem || '—')}
+                    ${_avatarFornecedor(l.nomeparc_origem || '—')}
+                    <span class="parc-name-text">${escapeHtml(l.nomeparc_origem || '—')}</span>
                 </span>
                 <span class="col-lote"  title="Lote ${escapeHtml(l.codagregacao)}">
                     ${escapeHtml(l.codagregacao)}
                 </span>
-                <span class="col-data">${escapeHtml(l.dtneg_origem || '')}</span>
+                <span class="col-data">${escapeHtml(l.dtneg_origem || '')} ${badgeIdade}</span>
                 <span class="col-qtd">${fmtQtd(qtd)} ${badgeAvaria}</span>
                 ${armarBtn}
-                <button class="btn-olho" title="Ver pedidos/vendas que usam este lote" type="button">👁</button>
+                <button class="btn-olho btn-acao-linha" title="Ver pedidos/vendas que usam este lote" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                </button>
             `;
 
             // Click no olho → modal com pedidos/vendas que usam este lote
@@ -529,8 +815,25 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
             }
 
-            // Click no resto do card mantém o filtro cruzado
-            card.addEventListener('click', () => aplicarFiltroProdutos(l.codprod));
+            // Checkbox dispara o filtro cruzado — independente de selecionar a linha
+            const checkEl = card.querySelector('.ras-row-check');
+            if (checkEl) {
+                checkEl.addEventListener('click', (e) => e.stopPropagation());
+                checkEl.addEventListener('change', (e) => {
+                    toggleCheckLote(l.codprod, e.target.checked);
+                });
+            }
+            card.querySelector('.ras-row-check-wrap')
+                ?.addEventListener('click', (e) => e.stopPropagation());
+            // Click na linha (fora do check e dos botões) → SELECIONA a linha
+            // (revela os botões olho/armar). Click novamente desmarca.
+            card.addEventListener('click', (e) => {
+                // Ignora cliques em botões internos e no checkbox (já tratados)
+                if (e.target.closest('.btn-armar') ||
+                    e.target.closest('.btn-olho') ||
+                    e.target.closest('.ras-row-check-wrap')) return;
+                _selecionarLinha(card, '#lotesContainer');
+            });
 
             containerLotes.appendChild(card);
         });
@@ -606,16 +909,78 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function pedidoCasaFiltro(pedido) {
         if (!temFiltroProdutos()) return true;
-        return pedido.produtos.some(p => produtoEstaFiltrado(p.codprod));
+        // Pedido aparece se: (a) algum produto seu está no checksLotes
+        // (cross-filter vindo dos lotes), OU (b) algum produto está marcado
+        // EM ALGUM PEDIDO (igual em qualquer pedido — basta ter intersecção).
+        const uniao = _uniaoFiltrosProdutos();
+        return pedido.produtos.some(p => uniao.has(Number(p.codprod)));
     }
 
     function renderPedidos() {
         containerPedidos.innerHTML = '';
 
-        const pedidos = agruparPedidos(pedidosData)
-            .filter(pedidoCasaFiltro);
+        let pedidos = agruparPedidos(pedidosData).filter(pedidoCasaFiltro);
+
+        // Fase 4.6 — toggle "só pendentes": esconde produtos já 100% atribuídos
+        // e remove pedidos cujos produtos visíveis ficaram todos completos.
+        if (somentePendentes) {
+            pedidos = pedidos
+                .map(p => ({ ...p, produtos: p.produtos.filter(pr => pr.qtd_falta > 0.000001) }))
+                .filter(p => p.produtos.length > 0);
+        }
+
+        // Quick stats do painel direito — sempre acima da lista quando há pedidos
+        if (pedidos.length > 0) {
+            let qtdTotal = 0, qtdAtribuida = 0, itensPendentes = 0;
+            pedidos.forEach(p => {
+                p.produtos.forEach(pr => {
+                    qtdTotal     += Number(pr.qtd_total) || 0;
+                    qtdAtribuida += Number(pr.qtd_atribuida) || 0;
+                    if (pr.qtd_falta > 0.000001) itensPendentes++;
+                });
+            });
+            const pct = qtdTotal > 0 ? Math.round((qtdAtribuida / qtdTotal) * 100) : 0;
+            const stats = document.createElement('div');
+            stats.className = 'ras-quickstats ras-quickstats-pedidos';
+            stats.innerHTML = `
+                <span class="qs-num">${fmtInt(pedidos.length)}</span><span class="qs-lab">pedidos</span>
+                <span class="qs-sep">·</span>
+                <span class="qs-num qs-falta">${fmtInt(itensPendentes)}</span><span class="qs-lab">pendentes</span>
+                <span class="qs-spacer"></span>
+                <span class="ras-pct-mini">
+                    ${_renderProgressBar(qtdAtribuida, qtdTotal)}
+                    <strong class="qs-pct">${pct}%</strong>
+                </span>
+            `;
+            containerPedidos.appendChild(stats);
+        }
+
+        // Default colapsado — todo pedido NOVO entra como colapsado.
+        // pedidosJaVistos garante que isso só acontece na primeira renderização
+        // de cada NUNOTA (não sobrescreve estado escolhido pelo usuário).
+        pedidos.forEach(p => {
+            const nun = Number(p.nunota);
+            if (!pedidosJaVistos.has(nun)) {
+                pedidosJaVistos.add(nun);
+                pedidosColapsados.add(nun);
+            }
+        });
+
         if (pedidos.length === 0 && !pedidosCarregando) {
-            containerPedidos.innerHTML = '<div class="empty-state">Nenhum pedido em aberto.</div>';
+            const filtrando = somentePendentes || textoFiltroPedidos || pedidoIsolado != null
+                            || dataIniPedidos || dataFimPedidos || temFiltroProdutos();
+            const titulo = somentePendentes ? '✓ Tudo vinculado!' : 'Nenhum pedido em aberto';
+            const msg = somentePendentes
+                ? 'Não há itens pendentes nos pedidos visíveis. Para ver pedidos completos, desligue <strong>SÓ PENDENTES</strong>.'
+                : (filtrando
+                    ? 'Tente ajustar os filtros do topo ou clicar em <strong>LIMPAR</strong>.'
+                    : 'Sem pedidos no período selecionado.');
+            containerPedidos.innerHTML = `
+                <div class="ras-empty">
+                    <div class="ras-empty-icone">${somentePendentes ? '🎉' : '📋'}</div>
+                    <div class="ras-empty-titulo">${titulo}</div>
+                    <div class="ras-empty-msg">${msg}</div>
+                </div>`;
             return;
         }
 
@@ -630,24 +995,50 @@ document.addEventListener('DOMContentLoaded', function () {
             // por produto: cada produto vira um grupo, e cada pedido aparece dentro
             pedidos.forEach(p => {
                 p.produtos.forEach(pr => {
-                    if (temFiltroProdutos() && !produtoEstaFiltrado(pr.codprod)) return;
+                    if (temFiltroProdutos() && !_uniaoFiltrosProdutos().has(Number(pr.codprod))) return;
                     const key = pr.descrprod || '—';
                     (grupos[key] = grupos[key] || []).push({ pedido: p, produto: pr });
                 });
             });
         }
 
-        Object.keys(grupos).sort().forEach(nomeGrupo => {
-            const groupHeader = document.createElement('div');
-            groupHeader.className = 'group-header-major';
-            groupHeader.textContent = nomeGrupo;
-            containerPedidos.appendChild(groupHeader);
+        // POR PRODUTO: novos grupos vêm colapsados por padrão. gruposProdutoJaVistos
+        // garante que isso só ocorre na primeira vez que o nome do produto aparece —
+        // nas renderizações seguintes o estado escolhido pelo usuário é preservado.
+        if (agrupamentoAtual === 'produto') {
+            Object.keys(grupos).forEach(nomeGrupo => {
+                if (!gruposProdutoJaVistos.has(nomeGrupo)) {
+                    gruposProdutoJaVistos.add(nomeGrupo);
+                    gruposProdutoColapsados.add(nomeGrupo);
+                }
+            });
+        }
 
+        Object.keys(grupos).sort().forEach(nomeGrupo => {
             if (agrupamentoAtual === 'parceiro') {
-                grupos[nomeGrupo].forEach(p => renderPedidoBloco(p));
+                // POR PARCEIRO: sem header de grupo (cada pedido tem o seu próprio
+                // pedido-bloco-header com avatar+nome do parceiro). Ordena os
+                // pedidos do grupo por data ASC (mais antigo primeiro), depois
+                // parceiro ASC — conforme regra explícita do usuário.
+                grupos[nomeGrupo]
+                    .slice()
+                    .sort(_comparePedidosPorParceiro)
+                    .forEach(p => renderPedidoBloco(p));
             } else {
-                grupos[nomeGrupo].forEach(({ pedido, produto }) =>
-                    renderProdutoBlocoSolitario(pedido, produto));
+                // POR PRODUTO: header rico do produto (mesmo estilo do header de
+                // parceiro) + linhas compactas de pedido dentro. Ordena os items
+                // por data DESC, depois parceiro ASC. Se o grupo está colapsado,
+                // só renderiza o header (linhas internas escondidas).
+                const items = grupos[nomeGrupo].slice().sort((a, b) =>
+                    _comparePedidosPadrao(a.pedido, b.pedido)
+                );
+                containerPedidos.appendChild(_criarHeaderGrupoProduto(nomeGrupo, items));
+                if (gruposProdutoColapsados.has(nomeGrupo)) return;
+                items.forEach(({ pedido, produto }) => {
+                    containerPedidos.appendChild(
+                        renderLinhaCompactaPedidoProduto(pedido, produto)
+                    );
+                });
             }
         });
 
@@ -663,30 +1054,109 @@ document.addEventListener('DOMContentLoaded', function () {
         const header = document.createElement('div');
         header.className = 'pedido-bloco-header clicavel' + (sub ? ' sub' : '');
         const codprodsPedido = pedido.produtos.map(p => Number(p.codprod));
-        // Selected quando este pedido específico está isolado
-        if (pedidoIsolado === Number(pedido.nunota)) header.classList.add('selected');
+        // Calcula totais agregados do pedido (soma de todos os produtos)
+        let qtdTotal = 0, qtdAtribuida = 0, prodCompletos = 0;
+        pedido.produtos.forEach(pr => {
+            qtdTotal     += Number(pr.qtd_total) || 0;
+            qtdAtribuida += Number(pr.qtd_atribuida) || 0;
+            if (pr.qtd_falta <= 0.000001) prodCompletos++;
+        });
+        const pct = qtdTotal > 0 ? Math.round((qtdAtribuida / qtdTotal) * 100) : 0;
+        const completo = prodCompletos === pedido.produtos.length;
+        if (completo) header.classList.add('pedido-completo');
+
+        // Estado do colapso — ao clicar no nome, esconde/mostra os produtos
+        const colapsado = pedidosColapsados.has(Number(pedido.nunota));
+        if (colapsado) header.classList.add('colapsado');
+
+        // Estado do checkbox do pedido — count quantos produtos estão marcados
+        // ESPECIFICAMENTE neste pedido (Map<nunota, Set<codprod>>). Não cascata
+        // para outros pedidos.
+        const totalProdutos    = codprodsPedido.length;
+        const cpsDoPedido      = checksPorPedido.get(Number(pedido.nunota)) || new Set();
+        const filtradosNoSet   = codprodsPedido.filter(cp => cpsDoPedido.has(Number(cp))).length;
+        let estadoCheck = 'none';
+        if (filtradosNoSet === totalProdutos && totalProdutos > 0) estadoCheck = 'all';
+        else if (filtradosNoSet > 0) estadoCheck = 'some';
+        const checkAttr = estadoCheck === 'all' ? 'checked' : '';
+
+        const checkOk = completo
+            ? '<span class="pb-check" title="Todos os produtos vinculados">✓</span>'
+            : '';
+
+        // Layout: [check] [chevron] avatar  parceiro · data ··· progresso · NUNOTA
+        // O check fica antes do chevron para alinhar com os checks das produto-linhas.
         header.innerHTML = `
+            <label class="ras-row-check-wrap pb-check-wrap" title="Selecionar todos os produtos deste pedido">
+                <input type="checkbox" class="ras-row-check pb-check-input" ${checkAttr}>
+                <span class="ras-row-check-box"></span>
+            </label>
+            <button type="button" class="pb-chevron" aria-label="${colapsado ? 'Expandir' : 'Colapsar'} produtos" title="${colapsado ? 'Expandir' : 'Colapsar'} produtos do pedido">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="6 9 12 15 18 9"/>
+                </svg>
+            </button>
+            ${_avatarFornecedor(pedido.nomeparc || '—')}
             <span class="pb-parc">${escapeHtml(pedido.nomeparc || '—')}</span>
-            <span class="pb-sep">|</span>
             <span class="pb-data">${escapeHtml(pedido.dtneg || '')}</span>
+            <span class="pb-spacer"></span>
+            <span class="pb-progresso" title="${pct}% vinculado (${fmtInt(prodCompletos)}/${fmtInt(pedido.produtos.length)} produtos completos)">
+                ${_renderProgressBar(qtdAtribuida, qtdTotal)}
+                <strong>${pct}%</strong>
+            </span>
             <span class="pb-nunota">Pedido ${escapeHtml(pedido.nunota)}</span>
+            ${checkOk}
         `;
-        // Click no header → ISOLA esse pedido específico nos pedidos +
-        // filtra lotes pelos N produtos dele.
-        header.addEventListener('click', () => {
-            aplicarFiltroPedidoIsolado(pedido.nunota, codprodsPedido);
+
+        // Indeterminate visualmente — após inserir no DOM, marca a propriedade
+        // (não dá pra fazer via atributo HTML; é só JS).
+        const inputCheck = header.querySelector('.pb-check-input');
+        if (inputCheck) inputCheck.indeterminate = (estadoCheck === 'some');
+
+        // ----- Listeners -----
+        // (a) Checkbox do header: marca/desmarca TODOS os produtos APENAS DESTE
+        // pedido (não afeta outros pedidos com os mesmos codprods, conforme
+        // pedido do usuário). Atua em checksPorPedido[nunota].
+        if (inputCheck) {
+            inputCheck.addEventListener('click', (e) => e.stopPropagation());
+            inputCheck.addEventListener('change', (e) => {
+                const marcar = e.target.checked;
+                const nu = Number(pedido.nunota);
+                if (marcar) {
+                    const set = new Set(codprodsPedido);
+                    checksPorPedido.set(nu, set);
+                    pedidoIsolado = null;
+                } else {
+                    checksPorPedido.delete(nu);
+                }
+                carregarLotes(true);
+                carregarPedidos(true);
+            });
+        }
+        header.querySelector('.pb-check-wrap')
+              ?.addEventListener('click', (e) => e.stopPropagation());
+
+        // (b) Click no header (no nome do parceiro / chevron / espaço) → expand/collapse
+        header.addEventListener('click', (e) => {
+            // Click direto no checkbox/wrap já foi tratado (stopPropagation)
+            if (e.target.closest('.pb-check-wrap')) return;
+            const nun = Number(pedido.nunota);
+            if (pedidosColapsados.has(nun)) pedidosColapsados.delete(nun);
+            else                            pedidosColapsados.add(nun);
+            renderPedidos();
         });
         return header;
     }
 
     function renderPedidoBloco(pedido) {
         containerPedidos.appendChild(_criarPedidoHeader(pedido, false));
-        // Quando há filtro de produtos ativo, mostra apenas os produtos filtrados
-        // dentro do pedido (esconde os outros produtos do mesmo pedido).
-        // No isolamento (click no header), todos os codprods do pedido estão
-        // no Set, então todos aparecem normalmente.
+        // Pedido colapsado → esconde produtos (header continua mostrando o resumo)
+        if (pedidosColapsados.has(Number(pedido.nunota))) return;
+        // Quando há filtro de produtos ativo, mostra apenas os produtos cuja
+        // intersecção bate (qualquer eixo: lotes ou pedidos).
+        const uniao = _uniaoFiltrosProdutos();
         const produtos = temFiltroProdutos()
-            ? pedido.produtos.filter(p => produtoEstaFiltrado(p.codprod))
+            ? pedido.produtos.filter(p => uniao.has(Number(p.codprod)))
             : pedido.produtos;
         produtos.forEach(prod => {
             containerPedidos.appendChild(renderProdutoLinha(pedido, prod));
@@ -694,50 +1164,147 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function renderProdutoBlocoSolitario(pedido, prod) {
-        // Modo "agrupado por produto": mostra o pedido como sub-header
+        // [LEGADO] não é mais usado pelo modo POR PRODUTO — substituído por
+        // _criarHeaderGrupoProduto + renderLinhaCompactaPedidoProduto.
+        // Mantido apenas como fallback caso algum chamador externo use.
         containerPedidos.appendChild(_criarPedidoHeader(pedido, true));
         containerPedidos.appendChild(renderProdutoLinha(pedido, prod));
     }
 
-    function renderProdutoLinha(pedido, prod) {
+    /** Cria o cabeçalho de grupo no modo POR PRODUTO. Mesmo estilo visual do
+     *  pedido-bloco-header mas com NOME do PRODUTO e contagem de pedidos.
+     *  Click no header alterna expand/collapse do grupo (gruposProdutoColapsados).
+     *  `items` é o array já agrupado (`{pedido, produto}`). */
+    function _criarHeaderGrupoProduto(nomeProduto, items) {
+        const header = document.createElement('div');
+        header.className = 'pedido-bloco-header tipo-produto';
+        const colapsado = gruposProdutoColapsados.has(nomeProduto);
+        if (colapsado) header.classList.add('colapsado');
+        // Soma agregada de todos os pedidos com esse produto
+        let qtdTotal = 0, qtdAtribuida = 0;
+        const pedidosUnicos = new Set();
+        items.forEach(({ pedido, produto }) => {
+            pedidosUnicos.add(pedido.nunota);
+            qtdTotal     += Number(produto.qtd_total) || 0;
+            qtdAtribuida += Number(produto.qtd_atribuida) || 0;
+        });
+        const numPedidos = pedidosUnicos.size;
+        const pct = qtdTotal > 0 ? Math.round((qtdAtribuida / qtdTotal) * 100) : 0;
+        const completo = pct >= 100 && qtdTotal > 0;
+        if (completo) header.classList.add('pedido-completo');
+
+        // Codprod do grupo (todos os items têm o mesmo). Usado pelo checkbox
+        // do header — marca/desmarca o filtro cruzado por aquele produto via
+        // checksLotes (afeta lotes globalmente + reflete em todos os pedidos
+        // que contêm o produto).
+        const codprodGrupo = items[0]?.produto?.codprod;
+        const checkAttr    = (codprodGrupo != null && checksLotes.has(Number(codprodGrupo)))
+                             ? 'checked' : '';
+
+        header.innerHTML = `
+            <label class="ras-row-check-wrap pb-check-wrap" title="Filtrar cruzado por este produto">
+                <input type="checkbox" class="ras-row-check" ${checkAttr}>
+                <span class="ras-row-check-box"></span>
+            </label>
+            <span class="grupo-chevron" aria-label="${colapsado ? 'Expandir' : 'Recolher'} grupo">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="6 9 12 15 18 9"/>
+                </svg>
+            </span>
+            ${_avatarFornecedor(nomeProduto)}
+            <span class="pb-parc">${escapeHtml(nomeProduto)}</span>
+            <span class="pb-spacer"></span>
+            <span class="pb-progresso" title="${pct}% vinculado · ${fmtQtd(qtdAtribuida)} de ${fmtQtd(qtdTotal)}">
+                ${_renderProgressBar(qtdAtribuida, qtdTotal)}
+                <strong>${pct}%</strong>
+            </span>
+            <span class="pb-nunota">${fmtInt(numPedidos)} ${numPedidos === 1 ? 'pedido' : 'pedidos'}</span>
+        `;
+
+        // Checkbox: filtra cruzado por este produto (atua em checksLotes).
+        // stopPropagation no wrap impede que o click chegue ao header.
+        const inputCheck = header.querySelector('.ras-row-check');
+        if (inputCheck && codprodGrupo != null) {
+            inputCheck.addEventListener('click', (e) => e.stopPropagation());
+            inputCheck.addEventListener('change', (e) => {
+                toggleCheckLote(codprodGrupo, e.target.checked);
+            });
+        }
+        header.querySelector('.pb-check-wrap')
+              ?.addEventListener('click', (e) => e.stopPropagation());
+
+        // Click no header (fora do checkbox) → toggle do colapso + re-render
+        header.addEventListener('click', (e) => {
+            if (e.target.closest('.pb-check-wrap')) return;
+            if (gruposProdutoColapsados.has(nomeProduto))
+                gruposProdutoColapsados.delete(nomeProduto);
+            else
+                gruposProdutoColapsados.add(nomeProduto);
+            renderPedidos();
+        });
+        return header;
+    }
+
+    /** Linha compacta de pedido dentro do grupo POR PRODUTO. Mostra o parceiro
+     *  com avatar (porque o produto já é o agrupador) + data + progresso + qtd
+     *  faltante + NUNOTA. Mesma lógica de seleção/check/lote-armado da
+     *  produto-linha — só o layout muda. */
+    function renderLinhaCompactaPedidoProduto(pedido, prod) {
         const completo = prod.qtd_falta <= 0.000001;
-        const faded    = temFiltroProdutos() && !produtoEstaFiltrado(prod.codprod);
-        const selected = produtoEstaFiltrado(prod.codprod);
-        // Quando há lote armado e esta linha tem o mesmo CODPROD, ela vira "alvo"
-        const ehAlvo = !!loteArmado &&
-                       Number(loteArmado.codprod) === Number(prod.codprod) &&
-                       !completo;
+        const selected = produtoLinhaEstaCheckada(prod.codprod, pedido.nunota);
+        const ehAlvo   = !!loteArmado &&
+                         Number(loteArmado.codprod) === Number(prod.codprod) &&
+                         !completo;
 
         const linha = document.createElement('div');
-        linha.className = 'rastreio-card card-pedido compacto produto-linha clicavel';
+        linha.className = 'linha-pedido-compacta clicavel';
         if (completo) linha.classList.add('completo');
-        if (faded)    linha.classList.add('faded');
         if (selected) linha.classList.add('selected');
         if (ehAlvo)   linha.classList.add('alvo-armado');
-
         linha.dataset.nunota  = pedido.nunota;
         linha.dataset.codprod = prod.codprod;
 
+        const checkAttr = selected ? 'checked' : '';
         const tagFalta = completo
-            ? '<span class="tag-atribuido-mini">OK</span>'
+            ? '<span class="tag-atribuido-mini">✓ OK</span>'
             : `<span class="tag-falta">falta ${fmtInt(prod.qtd_falta)}</span>`;
 
         const temVinculos = prod.lotes_vinculados && prod.lotes_vinculados.length > 0;
         const olhoBtn = temVinculos
-            ? '<button class="btn-olho" title="Ver lotes vinculados" type="button">👁</button>'
+            ? `<button class="btn-olho btn-acao-linha" title="Ver lotes vinculados" type="button">
+                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                       <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+                       <circle cx="12" cy="12" r="3"/>
+                   </svg>
+               </button>`
+            : '';
+        const setaAlvo = ehAlvo
+            ? '<span class="ras-arrow-alvo" title="Solte aqui para vincular">←</span>'
             : '';
 
         linha.innerHTML = `
-            <span class="col-prod" title="${escapeHtml(prod.descrprod)}">
-                ${escapeHtml(prod.descrprod)}
+            <label class="ras-row-check-wrap" title="Cruzar este produto neste pedido">
+                <input type="checkbox" class="ras-row-check" ${checkAttr}>
+                <span class="ras-row-check-box"></span>
+            </label>
+            ${_avatarFornecedor(pedido.nomeparc || '—')}
+            <span class="lpc-parc" title="${escapeHtml(pedido.nomeparc || '—')}">
+                ${setaAlvo}${escapeHtml(pedido.nomeparc || '—')}
             </span>
-            <span class="col-progresso" title="Vinculada / Total">
-                <span class="qtd-vinculada">${fmtInt(prod.qtd_atribuida)}</span>/<span class="qtd-total">${fmtInt(prod.qtd_total)}</span>
+            <span class="lpc-data">${escapeHtml(pedido.dtneg || '')}</span>
+            <span class="lpc-spacer"></span>
+            <span class="lpc-progresso" title="${fmtInt(prod.qtd_atribuida)} de ${fmtInt(prod.qtd_total)} vinculado">
+                ${_renderProgressBar(prod.qtd_atribuida, prod.qtd_total)}
+                <span class="lpc-progresso-num">
+                    <span class="qtd-vinculada">${fmtInt(prod.qtd_atribuida)}</span>/<span class="qtd-total">${fmtInt(prod.qtd_total)}</span>
+                </span>
             </span>
-            <span class="col-tag">${tagFalta}${olhoBtn}</span>
+            <span class="lpc-tag">${tagFalta}</span>
+            ${olhoBtn}
+            <span class="lpc-nunota">Pedido ${escapeHtml(pedido.nunota)}</span>
         `;
 
-        // Click no olho → modal com lotes vinculados (sem fetch — usa o que já temos)
+        // Listeners (mesmos da produto-linha — replicados pra linha compacta) -----
         const olhoEl = linha.querySelector('.btn-olho');
         if (olhoEl) {
             olhoEl.addEventListener('click', (e) => {
@@ -745,11 +1312,22 @@ document.addEventListener('DOMContentLoaded', function () {
                 abrirModalVinculosDeProduto(pedido, prod);
             });
         }
+        const checkEl = linha.querySelector('.ras-row-check');
+        if (checkEl) {
+            checkEl.addEventListener('click', (e) => e.stopPropagation());
+            checkEl.addEventListener('change', (e) => {
+                toggleCheckProdutoPedido(prod.codprod, pedido.nunota, e.target.checked);
+            });
+        }
+        linha.querySelector('.ras-row-check-wrap')
+             ?.addEventListener('click', (e) => e.stopPropagation());
 
-        // Click na linha (fora do olho)
-        // - Se há lote armado E o CODPROD bate E a linha tem falta → abre modal de vínculo
-        // - Caso contrário → filtra lotes pelo CODPROD desse produto (comportamento antigo)
-        linha.addEventListener('click', () => {
+        // Click na linha:
+        // - Se há lote armado compatível e tem falta → modal de transferência
+        // - Senão → seleciona a linha (revela botão olho)
+        linha.addEventListener('click', (e) => {
+            if (e.target.closest('.btn-olho') ||
+                e.target.closest('.ras-row-check-wrap')) return;
             if (loteArmado && !completo &&
                 Number(loteArmado.codprod) === Number(prod.codprod)) {
                 if (!prod.linhas_pendentes.length) {
@@ -766,9 +1344,135 @@ document.addEventListener('DOMContentLoaded', function () {
                 );
                 return;
             }
-            aplicarFiltroProdutos(prod.codprod);
+            _selecionarLinha(linha, '#pedidosContainer');
         });
         return linha;
+    }
+
+    function renderProdutoLinha(pedido, prod) {
+        const completo = prod.qtd_falta <= 0.000001;
+        // "selected" só fica marcado se ESTE produto-linha (pedido+codprod)
+        // foi marcado especificamente. Outros pedidos com mesmo codprod NÃO
+        // ficam selected, conforme pedido do usuário.
+        const selected = produtoLinhaEstaCheckada(prod.codprod, pedido.nunota);
+        const faded    = temFiltroProdutos() &&
+                         !_uniaoFiltrosProdutos().has(Number(prod.codprod));
+        // Quando há lote armado e esta linha tem o mesmo CODPROD, ela vira "alvo"
+        const ehAlvo = !!loteArmado &&
+                       Number(loteArmado.codprod) === Number(prod.codprod) &&
+                       !completo;
+
+        const linha = document.createElement('div');
+        linha.className = 'rastreio-card card-pedido compacto produto-linha clicavel';
+        if (completo) linha.classList.add('completo');
+        if (faded)    linha.classList.add('faded');
+        if (selected) linha.classList.add('selected');
+        if (ehAlvo)   linha.classList.add('alvo-armado');
+
+        linha.dataset.nunota  = pedido.nunota;
+        linha.dataset.codprod = prod.codprod;
+
+        const tagFalta = completo
+            ? '<span class="tag-atribuido-mini">✓ OK</span>'
+            : `<span class="tag-falta">falta ${fmtInt(prod.qtd_falta)}</span>`;
+
+        const temVinculos = prod.lotes_vinculados && prod.lotes_vinculados.length > 0;
+        const olhoBtn = temVinculos
+            ? `<button class="btn-olho btn-acao-linha" title="Ver lotes vinculados" type="button">
+                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                       <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+                       <circle cx="12" cy="12" r="3"/>
+                   </svg>
+               </button>`
+            : '';
+
+        // Indicador de "linha-alvo" quando há lote armado compatível
+        const setaAlvo = ehAlvo
+            ? '<span class="ras-arrow-alvo" title="Solte aqui para vincular o lote armado">←</span>'
+            : '';
+
+        // Estado do checkbox dessa linha — específico ao pedido (não cruza)
+        const cpFiltrado = produtoLinhaEstaCheckada(prod.codprod, pedido.nunota);
+        const checkAttr  = cpFiltrado ? 'checked' : '';
+
+        linha.innerHTML = `
+            <label class="ras-row-check-wrap" title="Cruzar lotes deste produto">
+                <input type="checkbox" class="ras-row-check" ${checkAttr}>
+                <span class="ras-row-check-box"></span>
+            </label>
+            <span class="col-prod" title="${escapeHtml(prod.descrprod)}">
+                ${setaAlvo}${escapeHtml(prod.descrprod)}
+            </span>
+            <span class="col-progresso" title="${fmtInt(prod.qtd_atribuida)} de ${fmtInt(prod.qtd_total)} vinculado">
+                ${_renderProgressBar(prod.qtd_atribuida, prod.qtd_total)}
+                <span class="col-progresso-num">
+                    <span class="qtd-vinculada">${fmtInt(prod.qtd_atribuida)}</span>/<span class="qtd-total">${fmtInt(prod.qtd_total)}</span>
+                </span>
+            </span>
+            <span class="col-tag">${tagFalta}${olhoBtn}</span>
+        `;
+
+        // Click no olho → modal com lotes vinculados (sem fetch — usa o que já temos)
+        const olhoEl = linha.querySelector('.btn-olho');
+        if (olhoEl) {
+            olhoEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+                abrirModalVinculosDeProduto(pedido, prod);
+            });
+        }
+
+        // Checkbox: opt-in explícito do filtro cruzado, por PEDIDO+CODPROD.
+        // Marcar este produto NÃO afeta produtos iguais em outros pedidos.
+        const checkEl = linha.querySelector('.ras-row-check');
+        if (checkEl) {
+            checkEl.addEventListener('click', (e) => e.stopPropagation());
+            checkEl.addEventListener('change', (e) => {
+                toggleCheckProdutoPedido(prod.codprod, pedido.nunota, e.target.checked);
+            });
+        }
+        linha.querySelector('.ras-row-check-wrap')
+             ?.addEventListener('click', (e) => e.stopPropagation());
+
+        // Click na linha (fora do checkbox e do olho):
+        // - Se há lote armado compatível e tem falta → modal de transferência
+        // - Lote armado incompatível → toast
+        // - Sem lote armado → SELECIONA a linha (revela botão olho)
+        linha.addEventListener('click', (e) => {
+            if (e.target.closest('.btn-olho') ||
+                e.target.closest('.ras-row-check-wrap')) return;
+            if (loteArmado && !completo &&
+                Number(loteArmado.codprod) === Number(prod.codprod)) {
+                if (!prod.linhas_pendentes.length) {
+                    showToast('Não há item pendente nesse produto do pedido.', 'warning');
+                    return;
+                }
+                abrirModalTransferencia(loteArmado, pedido, prod);
+                return;
+            }
+            if (loteArmado && Number(loteArmado.codprod) !== Number(prod.codprod)) {
+                showToast(
+                    `Lote armado é de "${loteArmado.descrprod}". Esta linha é de "${prod.descrprod}".`,
+                    'warning'
+                );
+                return;
+            }
+            // Sem lote armado: seleciona a linha pra revelar botões de ação
+            _selecionarLinha(linha, '#pedidosContainer');
+        });
+        return linha;
+    }
+
+    /** Seleciona uma linha (lote ou produto-linha) no painel — desmarca outras
+     *  do mesmo painel e marca esta. Click novamente desmarca (toggle).
+     *  A classe `.linha-ativa` é o gatilho CSS que revela os botões de ação. */
+    function _selecionarLinha(elementoLinha, seletorContainer) {
+        const ja = elementoLinha.classList.contains('linha-ativa');
+        const container = document.querySelector(seletorContainer);
+        if (container) {
+            container.querySelectorAll('.linha-ativa')
+                     .forEach(el => el.classList.remove('linha-ativa'));
+        }
+        if (!ja) elementoLinha.classList.add('linha-ativa');
     }
 
     // ==========================================================================
@@ -796,9 +1500,12 @@ document.addEventListener('DOMContentLoaded', function () {
     function atualizarBarArmado() {
         if (!barArmado) return;
         if (loteArmado) {
+            // Inclui avatar + produto + parceiro origem para escaneabilidade
             if (barArmadoLote) {
-                barArmadoLote.textContent =
-                    `${loteArmado.descrprod} — ${loteArmado.codagregacao}`;
+                barArmadoLote.innerHTML =
+                    `${_avatarFornecedor(loteArmado.nomeparc_origem || '—')}` +
+                    `<span class="bar-armado-prod">${escapeHtml(loteArmado.descrprod)}</span>` +
+                    `<span class="bar-armado-codigo">${escapeHtml(loteArmado.codagregacao)}</span>`;
             }
             if (barArmadoDisp) {
                 barArmadoDisp.textContent = fmtQtd(loteArmado.qtd_disponivel);
@@ -1020,9 +1727,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 const nunota       = tr.dataset.nunota;
                 const sequencia    = tr.dataset.sequencia;
                 const codagregacao = tr.dataset.codagregacao;
-                const ok = window.confirm(
-                    `Desvincular lote ${codagregacao} do pedido ${nunota} (item ${sequencia})?`
-                );
+                const ok = await phConfirmar({
+                    titulo:   'Desvincular lote?',
+                    mensagem: `Remover o vínculo do lote <strong>${escapeHtml(codagregacao)}</strong> ` +
+                              `do pedido <strong>${escapeHtml(nunota)}</strong> (item ${escapeHtml(sequencia)})?`,
+                    confirmarLabel: 'Desvincular',
+                    tipo: 'perigo',
+                });
                 if (!ok) return;
 
                 const btn = e.target.closest('.btn-desvincular');
@@ -1112,13 +1823,19 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
             const linhas = itens.map(v => {
-                // Só pedidos TOP 34 podem desvincular (35/37 já faturado, sem operação reversível aqui)
-                const podeDesvincular = Number(v.codtipoper) === 34 && v.statusnota !== 'L';
+                const top = Number(v.codtipoper);
+                const faturado = top === 35 || top === 37 || v.statusnota === 'L';
+                // Só pedidos TOP 34 não-faturados podem ser desvinculados
+                const podeDesvincular = top === 34 && v.statusnota !== 'L';
                 const acaoHtml = podeDesvincular
                     ? '<button class="btn-desvincular" type="button" title="Desvincular este lote do pedido">🗑</button>'
                     : '';
+                // Fase 2.10 — badge FATURADO vs ATRIBUIDO
+                const statusLabel = faturado
+                    ? `<span class="vinc-status vinc-status-faturado" title="Pedido já faturado (TOP ${top})">FATURADO</span>`
+                    : `<span class="vinc-status vinc-status-atribuido" title="Pedido em aberto">ATRIBUÍDO</span>`;
                 return `
-                    <tr class="vinc-linha"
+                    <tr class="vinc-linha ${faturado ? 'linha-faturada' : ''}"
                         data-nunota="${escapeHtml(v.nunota)}"
                         data-sequencia="${escapeHtml(v.sequencia)}"
                         data-codagregacao="${escapeHtml(lote.codagregacao)}"
@@ -1128,6 +1845,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         <td>${escapeHtml(v.nomeparc || '—')}</td>
                         <td>${escapeHtml(v.descrprod || '')}</td>
                         <td class="vnum">${fmtQtd(v.qtdneg)}</td>
+                        <td>${statusLabel}</td>
                         <td class="vacao">${acaoHtml}</td>
                     </tr>
                 `;
@@ -1137,7 +1855,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     <thead>
                         <tr>
                             <th>Data</th><th>NUNOTA</th><th>Parceiro (pedido)</th>
-                            <th>Produto</th><th>Qtd</th><th></th>
+                            <th>Produto</th><th>Qtd</th><th>Status</th><th></th>
                         </tr>
                     </thead>
                     <tbody>${linhas}</tbody>
@@ -1169,6 +1887,7 @@ document.addEventListener('DOMContentLoaded', function () {
         radio.addEventListener('change', (e) => {
             agrupamentoAtual = e.target.value;
             renderPedidos();
+            _salvarPrefs();
         });
     });
 
@@ -1176,8 +1895,44 @@ document.addEventListener('DOMContentLoaded', function () {
         radio.addEventListener('change', (e) => {
             tipoLote = e.target.value;
             carregarLotes(true);   // refaz busca server-side
+            _salvarPrefs();
         });
     });
+
+    // Helper: liga toggle de botão (aria-pressed + classe is-on) a uma callback.
+    // Substituímos os <input type=checkbox> por <button> pra ter aparência de
+    // pílula consistente com os outros controles. O JS gerencia o estado.
+    function _bindToggleBtn(btn, getValor, setValor, aoMudar) {
+        if (!btn) return;
+        // Estado inicial reflete o estado da variável JS
+        const aplicar = (v) => {
+            btn.classList.toggle('is-on', !!v);
+            btn.setAttribute('aria-pressed', !!v);
+        };
+        aplicar(getValor());
+        btn.addEventListener('click', () => {
+            const novo = !getValor();
+            setValor(novo);
+            aplicar(novo);
+            if (aoMudar) aoMudar(novo);
+            _salvarPrefs();
+        });
+        // Permite forçar refresh visual quando o estado muda externamente
+        btn._aplicarToggle = aplicar;
+    }
+    const checkSomentePendente = document.getElementById('checkSomentePendente');
+    _bindToggleBtn(
+        checkSomentePendente,
+        () => somentePendentes,
+        (v) => { somentePendentes = v; },
+        () => renderPedidos(),
+    );
+    _bindToggleBtn(
+        checkTrava,
+        () => checkTrava && checkTrava.classList.contains('is-on'),
+        () => {},   // estado vive na própria classe; setValor é no-op
+        null,
+    );
 
     // ----- FILTRO DE PERÍODO (data inicial → data final) ------------------
     /** Formata um Date como ISO YYYY-MM-DD (sem fuso). */
@@ -1209,6 +1964,54 @@ document.addEventListener('DOMContentLoaded', function () {
 
     _inicializarPeriodos();
 
+    // Fase 2.12 — restaura preferências persistidas (sobrescreve defaults se houver)
+    (function _aplicarPrefs() {
+        const prefs = _carregarPrefs();
+        if (!prefs) return;
+        if (prefs.agrupamento === 'parceiro' || prefs.agrupamento === 'produto') {
+            agrupamentoAtual = prefs.agrupamento;
+            const r = document.getElementById(prefs.agrupamento === 'parceiro' ? 'grpParceiro' : 'grpProduto');
+            if (r) r.checked = true;
+        }
+        if (['todos', 'classificavel', 'nao_classificavel'].includes(prefs.tipoLote)) {
+            tipoLote = prefs.tipoLote;
+            const id = prefs.tipoLote === 'todos' ? 'tipoTodos'
+                     : prefs.tipoLote === 'classificavel' ? 'tipoClass' : 'tipoNclass';
+            const r = document.getElementById(id);
+            if (r) r.checked = true;
+        }
+        // Datas: aplica só se string ISO válida (ou string vazia explícita)
+        const isISO = (s) => s === '' || /^\d{4}-\d{2}-\d{2}$/.test(s);
+        if (typeof prefs.dataIniLotes === 'string' && isISO(prefs.dataIniLotes)) {
+            dataIniLotes = prefs.dataIniLotes;
+            if (inputDataIniLotes) inputDataIniLotes.value = prefs.dataIniLotes;
+        }
+        if (typeof prefs.dataFimLotes === 'string' && isISO(prefs.dataFimLotes)) {
+            dataFimLotes = prefs.dataFimLotes;
+            if (inputDataFimLotes) inputDataFimLotes.value = prefs.dataFimLotes;
+        }
+        if (typeof prefs.dataIniPedidos === 'string' && isISO(prefs.dataIniPedidos)) {
+            dataIniPedidos = prefs.dataIniPedidos;
+            if (inputDataIniPedidos) inputDataIniPedidos.value = prefs.dataIniPedidos;
+        }
+        if (typeof prefs.dataFimPedidos === 'string' && isISO(prefs.dataFimPedidos)) {
+            dataFimPedidos = prefs.dataFimPedidos;
+            if (inputDataFimPedidos) inputDataFimPedidos.value = prefs.dataFimPedidos;
+        }
+        if (typeof prefs.travado === 'boolean' && checkTrava) {
+            checkTrava.classList.toggle('is-on', prefs.travado);
+            checkTrava.setAttribute('aria-pressed', prefs.travado);
+        }
+        if (typeof prefs.somentePendentes === 'boolean') {
+            somentePendentes = prefs.somentePendentes;
+            const c = document.getElementById('checkSomentePendente');
+            if (c) {
+                c.classList.toggle('is-on', somentePendentes);
+                c.setAttribute('aria-pressed', somentePendentes);
+            }
+        }
+    })();
+
     if (inputDataIniLotes) {
         inputDataIniLotes.addEventListener('change', (e) => {
             const v = e.target.value || '';
@@ -1218,6 +2021,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             dataIniLotes = v;
             carregarLotes(true);
+            _salvarPrefs();
         });
     }
     if (inputDataFimLotes) {
@@ -1229,6 +2033,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             dataFimLotes = v;
             carregarLotes(true);
+            _salvarPrefs();
         });
     }
     if (inputDataIniPedidos) {
@@ -1241,6 +2046,7 @@ document.addEventListener('DOMContentLoaded', function () {
             dataIniPedidos = v;
             pedidoIsolado  = null;   // mudar período sai de qualquer isolamento
             carregarPedidos(true);
+            _salvarPrefs();
         });
     }
     if (inputDataFimPedidos) {
@@ -1253,6 +2059,7 @@ document.addEventListener('DOMContentLoaded', function () {
             dataFimPedidos = v;
             pedidoIsolado  = null;
             carregarPedidos(true);
+            _salvarPrefs();
         });
     }
     if (btnLimparPerLotes) {
@@ -1572,7 +2379,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (typeaheadPedidos) typeaheadPedidos.fechar();
 
         // Filtro cruzado e isolamento
-        produtosFiltrados = new Set();
+        _limparTodosChecks();
         pedidoIsolado     = null;
 
         // Lote armado
@@ -1589,16 +2396,63 @@ document.addEventListener('DOMContentLoaded', function () {
         if (radioParc) radioParc.checked = true;
 
         // TRAVAR FILTRO desativado
-        if (checkTrava) checkTrava.checked = false;
+        if (checkTrava) {
+            checkTrava.classList.remove('is-on');
+            checkTrava.setAttribute('aria-pressed', 'false');
+        }
 
         // Datas → defaults (hoje−7 → hoje)
         _inicializarPeriodos();
+
+        // "Só pendentes" desligado
+        somentePendentes = false;
+        const checkSP = document.getElementById('checkSomentePendente');
+        if (checkSP) {
+            checkSP.classList.remove('is-on');
+            checkSP.setAttribute('aria-pressed', 'false');
+        }
+
+        // Reset do estado de colapso — todos os pedidos voltam a ser
+        // tratados como "novos" e serão colapsados na próxima renderização.
+        pedidosColapsados.clear();
+        pedidosJaVistos.clear();
+        gruposProdutoColapsados.clear();
+
+        // Persiste o reset (limpa preferências antigas)
+        _salvarPrefs();
 
         recarregarTudo();
     }
 
     if (btnLimparTudo) btnLimparTudo.addEventListener('click', limparTudo);
     if (btnAtualizar)  btnAtualizar.addEventListener('click', recarregarTudo);
+
+    // Botões "+" e "−" — agrupam/desagrupam todos os grupos visíveis,
+    // respeitando o agrupamento ativo (POR PARCEIRO ou POR PRODUTO).
+    function agruparTudoVisivel() {
+        if (agrupamentoAtual === 'parceiro') {
+            agruparPedidos(pedidosData).forEach(p => {
+                pedidosColapsados.add(Number(p.nunota));
+            });
+        } else {
+            // POR PRODUTO: pega cada nome de produto único da lista atual
+            agruparPedidos(pedidosData).forEach(p => {
+                p.produtos.forEach(pr => {
+                    gruposProdutoColapsados.add(pr.descrprod || '—');
+                });
+            });
+        }
+        renderPedidos();
+    }
+    function desagruparTudoVisivel() {
+        if (agrupamentoAtual === 'parceiro') pedidosColapsados.clear();
+        else                                 gruposProdutoColapsados.clear();
+        renderPedidos();
+    }
+    document.getElementById('btnAgruparTudo')
+            ?.addEventListener('click', agruparTudoVisivel);
+    document.getElementById('btnDesagruparTudo')
+            ?.addEventListener('click', desagruparTudoVisivel);
 
     // ==========================================================================
     // 14. BOOTSTRAP

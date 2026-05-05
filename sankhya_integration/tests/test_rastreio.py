@@ -4,13 +4,13 @@ Testes do módulo de Rastreabilidade (Rastreio / WMS).
 Todas as chamadas ao Oracle são mockadas via unittest.mock.patch.
 Os testes documentam o contrato dos endpoints novos:
     - api_rastreio_view                   → render protegido por grupo
-    - api_rastreio_lotes_disponiveis      → GET, lê SANKHYA.ANDRE_IRIS_SALDO_LOTE
+    - api_rastreio_lotes_disponiveis      → GET, lê SANKHYA.ANDRE_IAGRO_SALDO_LOTE
     - api_rastreio_pedidos_abertos        → GET, lista TOP 34 em aberto
     - api_rastreio_atribuir_lote          → POST, atribui CODAGREGACAO ao item
 """
 import json
 from datetime import date
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from django.test import TestCase, Client
 from django.urls import reverse
@@ -394,3 +394,336 @@ class ApiAtribuirLoteTest(TestCase):
             self.url, data=json.dumps(payload), content_type='application/json'
         )
         self.assertEqual(response.status_code, 500)
+
+
+# ---------------------------------------------------------------------------
+# Audit log de Rastreio (Fase 1.6) — RastreioAudit grava em SQLite
+# ---------------------------------------------------------------------------
+
+class RastreioAuditLogTest(TestCase):
+    """Cada atribuição/desvinculação bem-sucedida gera uma linha em RastreioAudit."""
+
+    def setUp(self):
+        self.client = Client()
+        _login_session(self.client, grupos=['10'])
+
+    @patch('sankhya_integration.views.atribuir_lote_item_pedido',
+           return_value={'ok': True, 'operacao': 'UPDATE',
+                         'qtd_atribuida': 5.0, 'nova_sequencia': None})
+    def test_atribuir_bem_sucedido_grava_audit(self, _mock):
+        from sankhya_integration.models import RastreioAudit
+        n0 = RastreioAudit.objects.filter(acao='ATRIBUIR').count()
+        url = reverse('api_rastreio_atribuir_lote')
+        response = self.client.post(
+            url,
+            data=json.dumps({'nunota': 100, 'sequencia': 1, 'codagregacao': 'L1', 'qtd': 5}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        registros = RastreioAudit.objects.filter(acao='ATRIBUIR')
+        self.assertEqual(registros.count(), n0 + 1)
+        ultimo = registros.order_by('-created_at').first()
+        self.assertEqual(ultimo.nunota, 100)
+        self.assertEqual(ultimo.sequencia, 1)
+        self.assertEqual(ultimo.codagregacao, 'L1')
+        self.assertEqual(ultimo.codusu, 1)
+
+    @patch('sankhya_integration.views.atribuir_lote_item_pedido',
+           return_value={'ok': False, 'error': 'Saldo insuficiente'})
+    def test_atribuir_falha_NAO_grava_audit(self, _mock):
+        """Audit só registra operações que efetivamente modificaram o banco."""
+        from sankhya_integration.models import RastreioAudit
+        n0 = RastreioAudit.objects.filter(acao='ATRIBUIR').count()
+        url = reverse('api_rastreio_atribuir_lote')
+        response = self.client.post(
+            url,
+            data=json.dumps({'nunota': 100, 'sequencia': 1, 'codagregacao': 'L1'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(RastreioAudit.objects.filter(acao='ATRIBUIR').count(), n0)
+
+    @patch('sankhya_integration.views.desvincular_lote_item_pedido',
+           return_value={'ok': True, 'operacao': 'CLEAR',
+                         'codagregacao_removido': 'L9'})
+    def test_desvincular_bem_sucedido_grava_audit(self, _mock):
+        from sankhya_integration.models import RastreioAudit
+        n0 = RastreioAudit.objects.filter(acao='DESVINCULAR').count()
+        url = reverse('api_rastreio_desvincular_lote')
+        response = self.client.post(
+            url,
+            data=json.dumps({'nunota': 200, 'sequencia': 7}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        registros = RastreioAudit.objects.filter(acao='DESVINCULAR')
+        self.assertEqual(registros.count(), n0 + 1)
+        ultimo = registros.order_by('-created_at').first()
+        self.assertEqual(ultimo.nunota, 200)
+        self.assertEqual(ultimo.sequencia, 7)
+        self.assertEqual(ultimo.codagregacao, 'L9')
+
+
+# ---------------------------------------------------------------------------
+# Erros Oracle humanizados (Fase 1.1) — não vazam ORA-XXXXX para o usuário
+# ---------------------------------------------------------------------------
+
+class HumanizarErroOracleTest(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+        _login_session(self.client, grupos=['10'])
+
+    @patch('sankhya_integration.views.atribuir_lote_item_pedido',
+           side_effect=Exception('ORA-00054 resource busy'))
+    def test_excecao_ora_00054_humanizada(self, _mock):
+        url = reverse('api_rastreio_atribuir_lote')
+        response = self.client.post(
+            url,
+            data=json.dumps({'nunota': 1, 'sequencia': 1, 'codagregacao': 'L1'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 500)
+        body = json.loads(response.content)
+        self.assertNotIn('ORA-00054', body['error'])
+        self.assertIn('outro usuário', body['error'].lower())
+
+    @patch('sankhya_integration.views.consultar_saldo_lote_disponivel',
+           side_effect=Exception('ORA-12899 value too large'))
+    def test_excecao_em_lotes_disponiveis_humanizada(self, _mock):
+        response = self.client.get(reverse('api_rastreio_lotes_disponiveis'))
+        self.assertEqual(response.status_code, 500)
+        body = json.loads(response.content)
+        self.assertNotIn('ORA-12899', body['error'])
+
+
+# ---------------------------------------------------------------------------
+# Service atribuir_lote_item_pedido — Fase 1.2 (lock pessimista FOR UPDATE)
+# ---------------------------------------------------------------------------
+
+class AtribuirLoteServiceTest(TestCase):
+    """Cobre o service direto (sem passar por view): valida que o SELECT FOR
+    UPDATE foi emitido antes da escrita e que os erros de validação acontecem
+    na ordem certa (lock → existência → top → status → saldo)."""
+
+    def _mock_conn_ctx(self, mock_obter, cursor):
+        """Helper: encapsula o context manager do Oracle com um cursor mockado."""
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        mock_obter.return_value.__enter__.return_value = conn
+        mock_obter.return_value.__exit__.return_value = None
+        return conn
+
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=False)
+    def test_escrita_desabilitada_retorna_erro(self, _mp):
+        from sankhya_integration.services.oracle_conn import atribuir_lote_item_pedido
+        res = atribuir_lote_item_pedido(nunota=1, sequencia=1, codagregacao='L1')
+        self.assertFalse(res['ok'])
+        self.assertIn('desabilitada', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_emite_select_for_update_no_item(self, _mp, mock_obter):
+        """O primeiro execute do service deve usar SELECT ... FOR UPDATE."""
+        cursor = MagicMock()
+        # 1ª chamada (FOR UPDATE no item) retorna None → item não encontrado
+        cursor.fetchone.side_effect = [None]
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import atribuir_lote_item_pedido
+        res = atribuir_lote_item_pedido(nunota=99, sequencia=1, codagregacao='L1')
+        self.assertFalse(res['ok'])
+        self.assertIn('não encontrado', res['error'])
+        # Verifica que o primeiro SQL contém "FOR UPDATE"
+        primeira_sql = cursor.execute.call_args_list[0][0][0]
+        self.assertIn('FOR UPDATE', primeira_sql)
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_item_ja_tem_lote_diferente_recusa(self, _mp, mock_obter):
+        """Defesa contra double-binding — Fase 1.2."""
+        cursor = MagicMock()
+        # 1ª: lock retorna (CODAGREGACAO_ATUAL, QTDNEG, CODPROD)
+        # 2ª: cabeçalho retorna (CODTIPOPER, STATUSNOTA)
+        cursor.fetchone.side_effect = [
+            ('LOTE_EXISTENTE', 10.0, 100),
+            (34, '0'),
+        ]
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import atribuir_lote_item_pedido
+        res = atribuir_lote_item_pedido(nunota=1, sequencia=1, codagregacao='LOTE_NOVO')
+        self.assertFalse(res['ok'])
+        self.assertIn('Desvincule antes', res['error'])
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_pedido_faturado_recusa(self, _mp, mock_obter):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (None, 10.0, 100),    # item sem lote ainda
+            (34, 'L'),            # mas o pedido está faturado
+        ]
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import atribuir_lote_item_pedido
+        res = atribuir_lote_item_pedido(nunota=1, sequencia=1, codagregacao='L1')
+        self.assertFalse(res['ok'])
+        self.assertIn('faturado', res['error'].lower())
+
+
+# ---------------------------------------------------------------------------
+# Service faturar_pedido_venda_banco — Fase 4 (Faturar pedido)
+# ---------------------------------------------------------------------------
+
+class FaturarPedidoServiceTest(TestCase):
+
+    def _mock_conn_ctx(self, mock_obter, cursor):
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        mock_obter.return_value.__enter__.return_value = conn
+        mock_obter.return_value.__exit__.return_value = None
+        return conn
+
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=False)
+    def test_escrita_desabilitada(self, _mp):
+        from sankhya_integration.services.oracle_conn import faturar_pedido_venda_banco
+        res = faturar_pedido_venda_banco(nunota=1, nova_top=35)
+        self.assertFalse(res['ok'])
+
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_top_invalida_recusa(self, _mp):
+        from sankhya_integration.services.oracle_conn import faturar_pedido_venda_banco
+        res = faturar_pedido_venda_banco(nunota=1, nova_top=99)
+        self.assertFalse(res['ok'])
+        self.assertIn('inválido', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_pedido_top_diferente_de_34_recusa(self, _mp, mock_obter):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (35, 'L', 10, 1500.0)   # já faturado
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import faturar_pedido_venda_banco
+        res = faturar_pedido_venda_banco(nunota=1, nova_top=35)
+        self.assertFalse(res['ok'])
+        self.assertIn('outra operação', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_pedido_sem_itens_recusa(self, _mp, mock_obter):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (34, '0', 10, 0.0),    # FOR UPDATE — TOP 34, status livre
+            (0, None),             # contagem de itens = 0
+        ]
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import faturar_pedido_venda_banco
+        res = faturar_pedido_venda_banco(nunota=1, nova_top=35)
+        self.assertFalse(res['ok'])
+        self.assertIn('sem itens', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_pedido_com_item_sem_lote_recusa(self, _mp, mock_obter):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (34, '0', 10, 1500.0),
+            (5, 2),    # 5 itens, 2 sem lote
+        ]
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import faturar_pedido_venda_banco
+        res = faturar_pedido_venda_banco(nunota=1, nova_top=35)
+        self.assertFalse(res['ok'])
+        self.assertIn('sem lote', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn._obter_colunas_da_tabela',
+           return_value={'CODTIPOPER', 'CODNAT', 'STATUSNOTA', 'NUMNOTA', 'DTFATUR'})
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_faturamento_completo_top_35_aplica_codnat_correto(
+        self, _mp, mock_obter, _mock_cols
+    ):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (34, '0', 10, 1500.0),   # FOR UPDATE: TOP=34, livre, codemp=10, vlrnota=1500
+            (5, 0),                  # 5 itens, todos com lote
+            (42,),                   # próximo NUMNOTA
+        ]
+        conn = self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import faturar_pedido_venda_banco
+        res = faturar_pedido_venda_banco(nunota=100, nova_top=35, codusu_logado=99)
+        self.assertTrue(res['ok'])
+        self.assertEqual(res['top'], 35)
+        self.assertEqual(res['numnota'], 42)
+        self.assertEqual(res['codnat'], 10010100)
+        self.assertEqual(res['vlrnota'], 1500.0)
+        # Commit chamado dentro do try interno (atomicidade)
+        conn.commit.assert_called_once()
+
+    @patch('sankhya_integration.services.oracle_conn._obter_colunas_da_tabela',
+           return_value={'CODTIPOPER', 'CODNAT', 'STATUSNOTA', 'NUMNOTA'})
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_faturamento_top_37_usa_codnat_diferente(
+        self, _mp, mock_obter, _mock_cols
+    ):
+        from sankhya_integration.services.oracle_conn import (
+            faturar_pedido_venda_banco, CODNAT_POR_TOP,
+        )
+        # CODNAT da TOP 37 = 10010200 (Venda sem NFe)
+        self.assertEqual(CODNAT_POR_TOP[37], 10010200)
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (34, '0', 10, 1500.0),
+            (3, 0),
+            (10,),
+        ]
+        self._mock_conn_ctx(mock_obter, cursor)
+        res = faturar_pedido_venda_banco(nunota=100, nova_top=37)
+        self.assertTrue(res['ok'])
+        self.assertEqual(res['codnat'], 10010200)
+
+
+# ---------------------------------------------------------------------------
+# Helper humanizar_erro_oracle — Fase 1.1 (mapeamento ORA → mensagem amigável)
+# ---------------------------------------------------------------------------
+
+class HumanizarErroOracleHelperTest(TestCase):
+
+    def test_ora_20101_mapeado(self):
+        from sankhya_integration.services.oracle_conn import humanizar_erro_oracle
+        self.assertIn('Tipo de negociação', humanizar_erro_oracle('ORA-20101: ...'))
+
+    def test_ora_00001_mapeado(self):
+        from sankhya_integration.services.oracle_conn import humanizar_erro_oracle
+        self.assertIn('chave duplicada', humanizar_erro_oracle('ORA-00001 unique constraint').lower())
+
+    def test_dpy_1001_mapeado(self):
+        from sankhya_integration.services.oracle_conn import humanizar_erro_oracle
+        self.assertIn('Conexão', humanizar_erro_oracle('DPY-1001: not connected'))
+
+    def test_mensagem_desconhecida_devolve_primeira_linha(self):
+        from sankhya_integration.services.oracle_conn import humanizar_erro_oracle
+        msg = 'Erro qualquer\nLinha 2 do stack'
+        self.assertEqual(humanizar_erro_oracle(msg), 'Erro qualquer')
+
+    def test_string_vazia_devolve_padrao(self):
+        from sankhya_integration.services.oracle_conn import humanizar_erro_oracle
+        self.assertEqual(humanizar_erro_oracle(''), 'Falha desconhecida.')
+
+    def test_excecao_aceita_diretamente(self):
+        from sankhya_integration.services.oracle_conn import humanizar_erro_oracle
+        try:
+            raise RuntimeError('ORA-02292 child record found')
+        except Exception as e:
+            humanizada = humanizar_erro_oracle(e)
+        self.assertIn('dependências', humanizada)
