@@ -137,8 +137,104 @@
     };
   }
 
+  /**
+   * 5b. Cache em memória com TTL para responses de typeahead.
+   * Evita refetch repetido do mesmo termo dentro de uma janela curta. Útil
+   * para listas semi-estáticas (Empresa, Tipo de Negociação, Natureza,
+   * Centro de Resultado).
+   *
+   * Uso:
+   *   const data = await IAgro.cachedFetch('/sankhya/empresa/search/?q=10', { ttl: 60_000 });
+   * O cache é por URL completa. Limpa entradas expiradas no acesso.
+   */
+  const _cacheFetch = new Map();   // url -> { expira, body }
+  async function cachedFetch(url, opts) {
+    const ttl = (opts && typeof opts.ttl === 'number') ? opts.ttl : 60_000;
+    const agora = Date.now();
+    const entry = _cacheFetch.get(url);
+    if (entry && entry.expira > agora) return entry.body;
+    if (entry) _cacheFetch.delete(url);   // expirado
+    try {
+      const r = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+      const body = await r.json();
+      // Só cacheia respostas OK (não cacheia erros — pra não persistir falha transitória)
+      if (r.ok) _cacheFetch.set(url, { expira: agora + ttl, body });
+      return body;
+    } catch (e) {
+      return { ok: false, error: 'Erro de comunicação' };
+    }
+  }
+  function cachedFetchClear() { _cacheFetch.clear(); }
+
+  /**
+   * 5. Modal de Confirmação reutilizável (substitui o window.confirm nativo).
+   * Mostra um modal com título, mensagem e dois botões. Resolve a Promise
+   * com `true` se confirmar, `false` se cancelar (ou fechar com Esc/clique fora).
+   *
+   * @param {object} opts
+   * @param {string} opts.titulo  - Cabeçalho do modal (ex.: "Excluir pedido?")
+   * @param {string} opts.mensagem - Texto descritivo (HTML escapado pelo chamador)
+   * @param {string} [opts.confirmarLabel='Confirmar']
+   * @param {string} [opts.cancelarLabel='Cancelar']
+   * @param {'perigo'|'aviso'|'info'} [opts.tipo='perigo'] - Cor do botão de confirmar
+   * @returns {Promise<boolean>}
+   */
+  function confirmarAcao(opts) {
+    const o = opts || {};
+    const titulo = o.titulo || 'Confirmar ação';
+    const mensagem = o.mensagem || 'Tem certeza que deseja continuar?';
+    const confirmarLabel = o.confirmarLabel || 'Confirmar';
+    const cancelarLabel  = o.cancelarLabel  || 'Cancelar';
+    const tipo = o.tipo || 'perigo';
+
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'ia-confirm-overlay';
+      overlay.innerHTML = `
+        <div class="ia-confirm-card ia-confirm-${tipo}">
+          <div class="ia-confirm-header">${titulo}</div>
+          <div class="ia-confirm-body">${mensagem}</div>
+          <div class="ia-confirm-footer">
+            <button type="button" class="ia-confirm-btn ia-confirm-btn-cancel">${cancelarLabel}</button>
+            <button type="button" class="ia-confirm-btn ia-confirm-btn-ok ia-confirm-btn-${tipo}">${confirmarLabel}</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+
+      let resolvido = false;
+      const fechar = (resultado) => {
+        if (resolvido) return;
+        resolvido = true;
+        overlay.remove();
+        document.removeEventListener('keydown', onKey);
+        resolve(resultado);
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); fechar(false); }
+        else if (e.key === 'Enter') { e.preventDefault(); fechar(true); }
+      };
+      document.addEventListener('keydown', onKey);
+
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) fechar(false);
+      });
+      overlay.querySelector('.ia-confirm-btn-cancel')
+             .addEventListener('click', () => fechar(false));
+      overlay.querySelector('.ia-confirm-btn-ok')
+             .addEventListener('click', () => fechar(true));
+
+      // Foco inicial no botão de confirmar (Enter ativa)
+      setTimeout(() => overlay.querySelector('.ia-confirm-btn-ok')?.focus(), 30);
+    });
+  }
+
   // Expor os módulos para o escopo global (window)
-  window.IAgro = { ...(window.IAgro || {}), getCookie, postJSON, showToast, debounce };
+  window.IAgro = {
+    ...(window.IAgro || {}),
+    getCookie, postJSON, showToast, debounce, confirmarAcao,
+    cachedFetch, cachedFetchClear,
+  };
   window.IAOverlay = IAOverlay;
 
 })();

@@ -1,16 +1,18 @@
 <!doctype html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}IAgro{% endblock %}</title>
-    
+
     {% load static %}
     <link rel="stylesheet" href="{% static 'sankhya_integration/global.css' %}">
     <link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}">
 
     {% block extra_css %}{% endblock %}
 </head>
+
 <body>
     <div class="env-badge {{ ENV_BADGE_CLASS|default:'env-badge--producao' }}">
         {{ ENV_BADGE_LABEL|default:'PRODUÇÃO' }}
@@ -19,13 +21,14 @@
     <div id="pageOverlay" class="visible">
         <div class="ia-spinner"></div>
     </div>
-    
+
     <div class="wrap">
         <header class="appbar">
             <div class="header-row">
                 <div class="header-left">
                     <a href="/sankhya/" class="home-btn" title="Voltar para Home">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round" style="width:20px;">
                             <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
                             <polyline points="9 22 9 12 15 12 15 22"></polyline>
                         </svg>
@@ -36,7 +39,9 @@
 
                 <div class="user-profile-badge">
                     <div class="user-profile-info">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: #64748b;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                            style="color: #64748b;">
                             <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
                             <circle cx="12" cy="7" r="4"></circle>
                         </svg>
@@ -54,18 +59,18 @@
         </main>
 
         <footer class="ia-footer">
-            <div>NexusGTi — SIG (Sistema Integrado de Gestão)</div>
+            <div>NexusGTi — IAgro (Inteligência Artificial para o Agronegócio)</div>
             <div class="ia-footer-versao">Versão {{ APP_VERSION|default:"beta" }}</div>
         </footer>
     </div>
 
     <script src="{% static 'sankhya_integration/iagro_helpers.js' %}"></script>
-    
+
     <script>
-        (function() {
+        (function () {
             const tempoInatividade = 60 * 60 * 1000; // 60 minutos para deslogar
             const intervaloPing = 10 * 60 * 1000;    // 10 minutos para avisar o servidor
-            
+
             let timeoutInatividade;
             let usuarioAtivo = false;
             let throttleTimer;
@@ -80,7 +85,7 @@
                 if (usuarioAtivo) {
                     // Faz uma requisição invisível para a própria página só para o Django "ver" você
                     fetch(window.location.href, { method: 'HEAD' })
-                        .then(() => { 
+                        .then(() => {
                             usuarioAtivo = false; // Reseta até você se mexer de novo
                         })
                         .catch(() => console.log('Ping de sessão falhou, tentando no próximo ciclo.'));
@@ -107,28 +112,28 @@
             eventos.forEach(evt => document.addEventListener(evt, aoInteragir, { passive: true }));
 
             // Inicia os motores
-            resetarInatividade(); 
+            resetarInatividade();
             setInterval(pingServidor, intervaloPing);
         })();
 
         // Controle do Overlay
         window.addEventListener('load', () => {
             const ov = document.getElementById('pageOverlay');
-            if(ov) {
+            if (ov) {
                 ov.classList.add('hidden');
                 setTimeout(() => ov.style.display = 'none', 500);
             }
         });
 
         // --- SINCRONIZAÇÃO SEGURA DE ABAS (LADO DE DENTRO DO SISTEMA) ---
-        (function() {
+        (function () {
             // 1. SÓ avisa as outras abas se o estado for diferente de "LOGGED_IN"
             if (localStorage.getItem('ia_auth_sync') !== 'LOGGED_IN') {
                 localStorage.setItem('ia_auth_sync', 'LOGGED_IN');
             }
 
             // 2. Fica ouvindo as outras abas
-            window.addEventListener('storage', function(evento) {
+            window.addEventListener('storage', function (evento) {
                 if (evento.key === 'ia_auth_sync') {
                     // Se outra aba avisar que DESLOGOU, recarregamos para deslogar aqui também
                     if (evento.newValue === 'LOGGED_OUT') {
@@ -138,8 +143,9 @@
                 }
             });
         })();
-        </script>
+    </script>
 
     {% block extra_js %}{% endblock %}
 </body>
+
 </html>

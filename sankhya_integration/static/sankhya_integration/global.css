@@ -454,3 +454,84 @@ textarea:focus {
   from { opacity: 1; transform: translateX(0); }
   to   { opacity: 0; transform: translateX(20px); }
 }
+
+/* ==========================================================================
+   MODAL DE CONFIRMAÇÃO REUTILIZÁVEL — IAgro.confirmarAcao()
+   Substitui window.confirm com UI consistente. Variantes: perigo/aviso/info.
+   ========================================================================== */
+.ia-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99999;
+  animation: ia-subir 0.18s ease-out;
+}
+.ia-confirm-card {
+  background: var(--cor-fundo-painel);
+  border-radius: var(--borda-raio-lg);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  width: 460px;
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+  font-family: var(--fonte-base);
+}
+.ia-confirm-header {
+  padding: 14px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--cor-texto-titulo);
+  border-bottom: 1px solid var(--cor-borda);
+  background: var(--cor-fundo-secao);
+}
+.ia-confirm-card.ia-confirm-perigo .ia-confirm-header {
+  color: var(--cor-erro);
+}
+.ia-confirm-body {
+  padding: 18px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--cor-texto-body);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.ia-confirm-body strong { color: var(--cor-texto-titulo); }
+.ia-confirm-footer {
+  padding: 12px 18px;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  border-top: 1px solid var(--cor-borda);
+  background: var(--cor-fundo-secao);
+}
+.ia-confirm-btn {
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--borda-raio-sm);
+  cursor: pointer;
+  background: var(--cor-fundo-painel);
+  color: var(--cor-texto-body);
+  transition: all var(--transicao-rapida);
+}
+.ia-confirm-btn:hover { background: var(--cor-fundo-linha); }
+.ia-confirm-btn:focus { outline: 2px solid #3b82f6; outline-offset: 1px; }
+.ia-confirm-btn-ok.ia-confirm-btn-perigo {
+  background: var(--cor-erro);
+  border-color: var(--cor-erro);
+  color: #fff;
+}
+.ia-confirm-btn-ok.ia-confirm-btn-perigo:hover { filter: brightness(0.92); }
+.ia-confirm-btn-ok.ia-confirm-btn-aviso {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #fff;
+}
+.ia-confirm-btn-ok.ia-confirm-btn-info {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
