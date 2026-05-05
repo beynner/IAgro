@@ -1,5 +1,5 @@
 -- =============================================================================
--- View: SANKHYA.ANDRE_IRIS_SALDO_LOTE
+-- View: SANKHYA.ANDRE_IAGRO_SALDO_LOTE
 -- Pacote/Módulo: IAgro — Rastreabilidade (WMS)
 --
 -- Objetivo
@@ -35,9 +35,9 @@
 --
 -- Como testar:
 --   Rode este arquivo UMA VEZ para criar a view (CREATE OR REPLACE).
---   Depois use o arquivo ANDRE_IRIS_SALDO_LOTE_teste.sql para conferir lotes.
+--   Depois use o arquivo ANDRE_IAGRO_SALDO_LOTE_teste.sql para conferir lotes.
 -- =============================================================================
-CREATE OR REPLACE VIEW SANKHYA.ANDRE_IRIS_SALDO_LOTE AS
+CREATE OR REPLACE VIEW SANKHYA.ANDRE_IAGRO_SALDO_LOTE AS
 WITH
   -- -------------------------------------------------------------------------
   -- Origem TOP 11: identifica o produto-pai, GERAPRODUCAO, avaria do fornecedor
@@ -283,3 +283,22 @@ LEFT JOIN lotes_origem     lo ON lo.CODEMP = tp.CODEMP
 LEFT JOIN TGFPRO           pr ON pr.CODPROD = tp.CODPROD
 LEFT JOIN TGFPAR           par ON par.CODPARC = lo.CODPARC_ORIGEM
 ;
+
+
+-- =============================================================================
+-- MIGRAÇÃO: renomeação de ANDRE_IRIS_SALDO_LOTE → ANDRE_IAGRO_SALDO_LOTE
+-- =============================================================================
+-- Histórico: a view era chamada ANDRE_IRIS_SALDO_LOTE quando o projeto se
+-- chamava "Iris". Em Mai/2026 o projeto foi renomeado para "IAgro" e a view
+-- segue o mesmo nome. Se você está atualizando um ambiente que tinha a view
+-- antiga, escolha UMA das opções abaixo:
+--
+--   Opção A — RENAME (mantém os mesmos GRANTS e dependências):
+--      RENAME ANDRE_IRIS_SALDO_LOTE TO ANDRE_IAGRO_SALDO_LOTE;
+--
+--   Opção B — DROP + CREATE (mais limpo, mas exige refazer GRANTS depois):
+--      DROP VIEW SANKHYA.ANDRE_IRIS_SALDO_LOTE;
+--      -- e em seguida rodar este arquivo para CREATE OR REPLACE.
+--
+-- Em ambiente novo (sem a view antiga) basta executar o CREATE OR REPLACE
+-- acima — não há nada a renomear.
