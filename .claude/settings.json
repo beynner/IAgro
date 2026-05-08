@@ -3,7 +3,10 @@
     "allow": [
       "Bash(python -c \"import ast; [ast.parse\\(open\\(f, encoding='utf-8-sig'\\).read\\(\\)\\) for f in ['sankhya_integration/services/oracle_conn.py', 'sankhya_integration/views.py']]; print\\('Python OK'\\)\")",
       "Bash(python -c \"import ast; [ast.parse\\(open\\(f, encoding='utf-8-sig'\\).read\\(\\)\\) for f in ['sankhya_integration/services/oracle_conn.py', 'sankhya_integration/views.py', 'sankhya_integration/urls.py']]; print\\('Python OK'\\)\")",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('sankhya_integration/services/oracle_conn.py', encoding='utf-8-sig'\\).read\\(\\)\\); print\\('Python OK'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('sankhya_integration/services/oracle_conn.py', encoding='utf-8-sig'\\).read\\(\\)\\); print\\('Python OK'\\)\")",
+      "PowerShell(.\\\\.venv\\\\Scripts\\\\python.exe manage.py resplit_pdfs_email --dry-run 2>&1)",
+      "PowerShell(.\\\\.venv\\\\Scripts\\\\python.exe manage.py shell -c \"exec\\(open\\('_smoke_criar_item.py', encoding='utf-8'\\).read\\(\\)\\)\" 2>&1)",
+      "PowerShell(node --check sankhya_integration\\\\static\\\\sankhya_integration\\\\email_importar.js 2>&1)"
     ]
   }
 }

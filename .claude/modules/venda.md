@@ -166,6 +166,15 @@ CODNAT_POR_TOP = {
 - Linha de TOP 35/37 fica esmaecida (`.pedido-faturado`)
 - Badge `top-badge` mostra `34` / `35-NFe` / `37-S/NFe` com cores diferentes
 
+### Integração com módulo Importação por e-mail (Mai/2026)
+
+- **Botão `btnImportarPedidos`** na toolbar (ícone download/inbox SVG, ao lado da impressora) — IDs da toolbar agora: `btnNewVenda`, `btnDeleteVenda`, `btnPrintVenda`, `btnImportarPedidos`
+- Click → `window.open('/sankhya/venda/email-importar/', '_blank')` — abre **aba nova**, NÃO popup nem modal
+- Polling no parent: `setInterval(() => { if (aba.closed) { clearInterval(...); carregarVendas(false); } }, 500)` — quando o operador fecha a aba de Importação, a lista de Vendas recarrega automaticamente, refletindo pedidos confirmados em TGFCAB durante a sessão
+- **Fallback**: se o navegador bloquear `window.open` (popup blocker), faz `window.location.href = url` — navega na mesma aba sem perder funcionalidade
+- O destino também é acessível via card `📥 Importação` no `home.html` (depois do Rastreio). Mesmo URL, diferente entry point — botão na toolbar de Vendas tem o callback de recarga ao fechar; card no home é navegação tradicional na mesma aba
+- **Histórico de decisões UX (sessão Mai/2026, 2026-05-08)**: testamos modal full-screen + iframe + click-fora-não-fecha (precisou `@xframe_options_sameorigin` na view e workaround de `style.display='flex'` por causa do `.modal-overlay { display: none }` global do `entrada.css`). Operador preferiu o fluxo de aba nova — modal foi revertido. Card de home foi adicionado pra dar 2 entry points
+
 ---
 
 ## Frontend — arquivos

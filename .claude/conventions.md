@@ -83,6 +83,68 @@ Tudo exposto sob `window.IAgro` em `iagro_helpers.js`.
 
 ---
 
+## UX padrão para módulos NOVOS
+
+> **⚠ Aplicar apenas em módulos novos.** Não retrofitar módulos existentes (Entrada, Classificação, Comercial, Venda, Rastreio) sem pedido explícito do usuário — alterar UX bem testada introduz risco. O 1º módulo a seguir esses padrões foi a importação por e-mail (Mai/2026).
+
+### Typeaheads (campos de busca com dropdown)
+
+Toda função `attachTA` (ou equivalente) **deve** suportar navegação por teclado quando o dropdown está aberto:
+
+| Tecla | Comportamento |
+|---|---|
+| `↓` / `↑` | Move o destaque (`.dd-item.active`) entre os itens; wrap em ambas pontas |
+| `Enter` | Confirma o item ativo (chama o mesmo handler do click) + `e.preventDefault()` pra não submeter form |
+| `Tab` | Confirma o item ativo + **não** chama `preventDefault` (deixa o foco seguir pro próximo campo) |
+| `Esc` | Fecha o dropdown sem selecionar |
+
+Implementação de referência: [`attachTA` em email_importar.js](../sankhya_integration/static/sankhya_integration/email_importar.js).
+
+Estrutura mínima do dropdown HTML pra interop com a navegação:
+```html
+<div class="dropdown-abs">
+  <div class="dd-item active" data-cod="..." data-descr="...">cod — descr</div>
+  <div class="dd-item" data-cod="..." data-descr="...">cod — descr</div>
+</div>
+```
+
+### Select-all on first focus
+
+Inputs de texto/número **devem** auto-selecionar o conteúdo na primeira vez que recebem foco — facilita editar campos pré-populados sem ter que apagar manualmente. Implementar via delegação de eventos no container do módulo (não global), com opt-out por `data-no-select`:
+
+```js
+const _TIPOS_AUTOSEL = new Set(['text', 'number', 'search', 'tel', 'email', 'url']);
+container.addEventListener('focusin', function (e) {
+    const t = e.target;
+    if (!t || t.dataset?.noSelect !== undefined) return;
+    if (t.readOnly || t.disabled) return;
+    if (t.tagName === 'INPUT' && _TIPOS_AUTOSEL.has(t.type)) {
+        setTimeout(() => { try { t.select(); } catch (_) {} }, 0);
+    } else if (t.tagName === 'TEXTAREA') {
+        setTimeout(() => { try { t.select(); } catch (_) {} }, 0);
+    }
+});
+```
+
+`setTimeout(0)` é necessário porque o click subsequente ao focus pode desselecionar — adia o `.select()` pro próximo tick.
+
+### Defaults sensíveis ao domínio
+
+Campos com valor sugerido devem refletir o cenário **mais comum** do agronegócio (poupa o operador):
+
+| Campo | Default |
+|---|---|
+| Volume / unidade de medida | `KG` (não `UN`) — maioria dos itens vendidos é em quilo |
+| Empresa (CODEMP) quando não houver matching | `10` |
+| CODNAT | `10010100` (Pedido de Venda) |
+| Data | hoje (`YYYY-MM-DD` atual) |
+
+### Formato visual de campos pré-populados (typeahead)
+
+Inputs visíveis de typeahead devem mostrar `cod — NOME` (não só `cod`), padrão consistente com o conteúdo dos itens do dropdown. Isso evita o operador ver `456` sem saber qual parceiro é. Backend deve devolver o nome canônico via JOIN.
+
+---
+
 ## Padrão de Resposta de API
 
 Todas as APIs JSON retornam:

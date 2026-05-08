@@ -4,6 +4,55 @@ Lista de pegadinhas que **já causaram bugs** ou que podem causar se tocadas sem
 
 ---
 
+## Linter aponta `rapidfuzz` como módulo ausente — falso positivo
+
+Quando o Antigravity (ou outro IDE) está com **interpreter setado para o Python do sistema** (ex: `C:\Users\ANDRE\AppData\Local\Programs\Python\Python313\`) ao invés do venv do projeto (`.venv\Scripts\python.exe`), o linter olha apenas as packages do Python sistema — onde `rapidfuzz` (e demais deps do `requirements.txt`) **não estão instaladas**.
+
+Resultado: warning amarelo `Cannot find module 'rapidfuzz'` em [services/matching.py](sankhya_integration/services/matching.py). **Em runtime tudo funciona** — Django roda dentro da venv que tem rapidfuzz.
+
+**Correção definitiva:** No Antigravity, `Ctrl+Shift+P` → `Python: Select Interpreter` → escolher `.\.venv\Scripts\python.exe`.
+
+---
+
+## Console Windows (cp1252) estoura em emoji/setas no `stdout.write()`
+
+PowerShell em pt-BR roda com encoding **cp1252**. Quando um management command faz `self.stdout.write("→ Concluído")`, o caractere `→` (U+2192) não existe em cp1252 → `UnicodeEncodeError: 'charmap' codec can't encode character '\\u2192'`.
+
+Caracteres que **já causaram crash** em commands deste projeto:
+
+| Char | U+ | Substituir por |
+|---|---|---|
+| `→` (seta direita) | 2192 | `->` |
+| `↪` (seta retorno) | 21AA | `->` |
+| `✓` (check) | 2713 | `OK:` |
+| `⚠` (atenção) | 26A0 | `[!]` |
+
+**Regra:** em `self.stdout.write(...)` de qualquer management command, **só ASCII**. Em comentários e docstrings emojis são OK (não passam pelo encode do console).
+
+**Solução alternativa** (caso queira manter emojis): adicionar no início do `handle()`:
+```python
+import sys
+for s in (sys.stdout, sys.stderr):
+    if hasattr(s, 'reconfigure'):
+        try: s.reconfigure(encoding='utf-8', errors='replace')
+        except Exception: pass
+```
+Mas pode falhar dependendo de como o subprocess foi invocado — preferimos ASCII direto.
+
+---
+
+## Bash tool tem teto de 10 min — worker LLM grande precisa rodar com `--max 1`
+
+A ferramenta Bash da IDE limita execuções a `600000ms` (10 minutos). O worker `colher_pedidos_email` em modo padrão pode rodar muito mais que isso (cada chamada Ollama em CPU leva ~3-5 min × 3 retries × N records).
+
+**Padrão pra processar manualmente sem ser morto pelo timeout:**
+```powershell
+python manage.py colher_pedidos_email --skip-imap --max 1
+```
+Processa 1 record por chamada. Repetir até a fila esvaziar. Em produção, o Task Scheduler (a cada 30 min) não tem esse limite — só vale para diagnóstico via Bash da IDE.
+
+---
+
 ## CRÍTICO — `DEBUG=False` quebra arquivos estáticos em desenvolvimento
 
 O `runserver` do Django **não serve arquivos estáticos** quando `DEBUG=False`. Definir `DEBUG=False` no `.env` em ambiente sem nginx/WhiteNoise faz todo JS/CSS parar de carregar, quebrando completamente as páginas.
@@ -91,6 +140,28 @@ Por legado, o `base.html` carrega `entrada.css` para **todas as páginas**, não
 
 Pendência de refator: separar em `base-layout.css` (global) + `entrada.css` (específico).
 
+### Conflito específico: `.modal-overlay { display: none }` em `entrada.css`
+
+`entrada.css:272` define:
+```css
+.modal-overlay { display: none; ... }
+.modal-overlay.visible { display: flex; }
+```
+
+Como `entrada.css` carrega **depois** de `global.css` (que define `.modal-overlay { display: flex; }` por padrão), o `display: none` vence. Módulo novo que segue o padrão "remove classe `.hidden` pra mostrar modal" **não funciona** — modal fica invisível mesmo após `classList.remove('hidden')`.
+
+**Sintoma:** click no botão dispara o handler (visível com `console.log`), `classList.remove('hidden')` é executado, mas modal não aparece visualmente.
+
+**Workaround:** módulos novos que usam `.modal-overlay` precisam adicionar regra própria no CSS:
+
+```css
+.modal-overlay:not(.hidden) {
+    display: flex !important;
+}
+```
+
+`rastreio.css` (linha 546) e `email_importar.css` já fazem isso. Padronize ao criar tela com modal.
+
 ---
 
 ## Arquivos sempre em UTF-8 SEM BOM
@@ -148,6 +219,35 @@ except Exception as exc:
         'error': humanizar_erro_oracle(exc),
     }, status=500)
 ```
+
+---
+
+## Dropdown de typeahead dentro de `<td>` precisa `position: fixed` + appendChild no `<body>`
+
+`.dropdown-abs` posicionado com `position: absolute; top: 100%` num `<td class="pos-rel">` **não funciona de forma confiável** quando a tabela usa `border-collapse: collapse`. O Chrome ignora o `position: relative` do td em alguns cenários, então o dropdown é posicionado relativo ao `<html>` e some fora da viewport (mesmo com `display: block` e `width > 0`).
+
+**Sintoma:** request de busca chega ao backend (200), JSON com resultados volta, `show()` é chamado, dropdown tem `display: block` — mas nada aparece visualmente.
+
+**Solução aplicada no email_importar.js (Mai/2026):** o `attachTA` da tela de e-mail move o `<div class="dropdown-abs">` pro `<body>` antes de mostrar e usa `position: fixed` com coordenadas calculadas via `inp.getBoundingClientRect()`:
+
+```js
+function show(items) {
+    if (dd.parentElement !== document.body) document.body.appendChild(dd);
+    const r = inp.getBoundingClientRect();
+    dd.style.position = 'fixed';
+    dd.style.top      = `${r.bottom}px`;
+    dd.style.left     = `${r.left}px`;
+    dd.style.width    = `${r.width}px`;
+    dd.style.zIndex   = '10000';
+    dd.style.display  = 'block';
+}
+```
+
+E o `hide()` reseta os styles inline pra deixar limpo.
+
+**Quando reaproveitar:** qualquer typeahead novo cuja célula renderizadora seja `<td>` ou esteja dentro de `<table border-collapse: collapse>`. Se for fora de tabela (form normal), `position: absolute` no wrapper relativo basta — vide typeaheads do parceiro/empresa/tipo de venda no mesmo arquivo.
+
+**Limitação:** com `position: fixed`, se o usuário rolar a página enquanto o dropdown está aberto, ele fica "preso" na coordenada antiga. Aceitável porque `blur` do input fecha o dropdown e a maioria das interações é click/Tab/Enter (que fecham antes de rolar).
 
 ---
 

@@ -39,11 +39,13 @@ Para qualquer alteração de código:
 
 ---
 
-## 4. Uma tarefa por vez
+## 4. Plano aprovado = sinal verde do início ao fim
 
-- Executar **uma alteração de cada vez**.
-- Aguardar confirmação do usuário antes de avançar para a próxima.
-- Não encadear múltiplas mudanças em uma única resposta sem pausa.
+- Apresentar plano completo (regra #3) e aguardar **sinal explícito** ("sim", "pode", "ok", "execute") antes de começar.
+- Após aprovado, **executar o plano inteiro sem reabrir aprovação** a cada arquivo/passo.
+- Execução parcial sob demanda: se o usuário pedir "execute até o passo X" / "faça só o backend", parar exatamente no limite indicado e relatar progresso antes de seguir.
+- **Pausar mesmo dentro de um plano aprovado** se aparecer ação destrutiva ou de blast-radius alto que não estava listada (`git reset --hard`, `DROP TABLE`, push --force, mudança em produção). Em dúvida se o passo era previsto, perguntar.
+- No fim, dar resumo curto: arquivos tocados + validação rodada. Sem pedir aprovação retroativa do que já estava no plano.
 
 ---
 

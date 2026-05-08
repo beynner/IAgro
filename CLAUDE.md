@@ -47,7 +47,7 @@ Estas são as cinco regras inegociáveis. Detalhes e regras complementares em [`
 
 1. **NUNCA alterar lógica de negócio** (queries Oracle, cálculos financeiros, regras de precificação, fluxo de faturamento) sem aprovação explícita do usuário.
 2. **SEMPRE apresentar plano antes de agir.** Para qualquer alteração, listar todos os arquivos afetados e aguardar "sim" antes de executar.
-3. **EXECUTAR uma tarefa por vez** e aguardar confirmação antes de avançar.
+3. **APÓS plano aprovado, executar do início ao fim.** Sem reabrir aprovação a cada passo. Usuário pode pedir execução parcial ("execute até X"). Pausar apenas em ações destrutivas inesperadas que não estavam no plano.
 4. **NUNCA refatorar `oracle_conn.py` sem aprovação.** É o núcleo crítico (~3350 linhas) com todas as queries SQL. Funções aditivas são aceitáveis; alteração de queries existentes pode quebrar produção.
 5. **NUNCA criar duplicatas.** Antes de criar função/método/bloco novo, verificar se já existe algo reutilizável no projeto.
 

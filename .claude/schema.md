@@ -116,7 +116,7 @@ Mapeamento aplicado no sistema: ver `architecture.md` → "Mapeamento de grupos 
 |---|---|---|
 | `CODPROD` | NUMBER | Código do produto (PK) |
 | `DESCRPROD` | VARCHAR2 | Descrição |
-| `CODVOLPADRAO` | VARCHAR2 | Volume padrão |
+| `CODVOL` | VARCHAR2 | Volume padrão |
 | `FABRICANTE` | VARCHAR2 | Fabricante (usado em typeahead distinct no Rastreio) |
 
 ---
@@ -283,6 +283,27 @@ Compatível com Oracle 11g via `ROW_NUMBER() OVER ... BETWEEN`. **NÃO usar** `O
 **Fallback:** primeira linha da mensagem original, sem stack trace.
 
 **Regra:** sempre logar a exceção original com `logger.exception` **antes** de humanizar. Caso contrário, suporte fica sem trilha para diagnóstico.
+
+---
+
+## 7.5 Tabelas auxiliares do módulo Importação por E-mail (prefixo `AD_`)
+
+Schema separado das tabelas Sankhya nativas — não interferem em queries existentes do ERP. Detalhes completos em [`.claude/modules/email.md`](modules/email.md).
+
+| Tabela | Função | Migration |
+|---|---|---|
+| `AD_PEDIDO_EMAIL_RECEBIDO` | Cabeçalho do pré-pedido (1 linha por SUB_ID) — antes de virar TGFCAB | `AD_PEDIDO_EMAIL.sql` (canônico) + `..._SUB_ID.sql` + `..._ORIGEM.sql` |
+| `AD_PEDIDO_EMAIL_ITEM` | Itens do pré-pedido (com COD_CLIENTE pra Consinco) | `AD_PEDIDO_EMAIL.sql` + `AD_CLIENTE_PRODUTO_COD.sql` (adiciona COD_CLIENTE) |
+| `AD_PRODUTO_ALIAS` | De-para `(descricao_normalizada, codparc?) → CODPROD` | `AD_ALIAS_APRENDIZADO.sql` |
+| `AD_PARCEIRO_ALIAS` | De-para `nome_normalizado → CODPARC` | `AD_ALIAS_APRENDIZADO.sql` |
+| `AD_CLIENTE_PRODUTO_COD` | De-para `(CODPARC, COD_CLIENTE) → CODPROD` (matching mais forte) | `AD_CLIENTE_PRODUTO_COD.sql` |
+
+**Hierarquia de matching de produto (forte → fraco):**
+1. `AD_CLIENTE_PRODUTO_COD` por `(codparc, cod_cliente)` — Etapa 0, score 100
+2. `AD_PRODUTO_ALIAS` por descrição normalizada — Etapa 1, score 100
+3. Fuzzy (`rapidfuzz.WRatio`) contra TGFPRO completo — Etapa 2, score 75-100
+
+**Schema-resilience:** `oracle_conn.py` tem helper `_existe_coluna(cur, tabela, coluna)` com cache 1× por processo — código roda antes/depois das migrations sem ORA-00904. Reseta no restart do Django/worker.
 
 ---
 
