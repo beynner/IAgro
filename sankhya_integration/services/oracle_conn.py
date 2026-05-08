@@ -108,7 +108,7 @@ _MAPA_ORA_HUMANIZADO = (
     ('ORA-01722',  'Número inválido — verifique campos numéricos.'),
     ('ORA-01861',  'Data com formato inválido. Use o seletor de data.'),
     ('ORA-12899',  'Texto digitado é maior do que o permitido para este campo.'),
-    ('ORA-00054',  'Registro está sendo editado por outro usuário. Aguarde um instante e tente novamente.'),
+    ('ORA-00054',  'Outro operador está mexendo neste registro agora. Aguarde alguns segundos e tente novamente. Se o erro persistir após 1 minuto, avise o suporte.'),
     ('ORA-08177',  'Conflito ao salvar — outro usuário alterou os dados ao mesmo tempo. Recarregue e tente novamente.'),
     ('DPY-1001',   'Conexão com o banco caiu durante a operação. Tente novamente.'),
     ('DPY-4011',   'Conexão com o banco caiu durante a operação. Tente novamente.'),
@@ -3365,9 +3365,15 @@ def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
             qtd_disp = float(res_saldo[0]) if res_saldo else 0.0
 
             if qtd_disp + 1e-6 < qtd_atribuir:
+                # Mensagem operacional: formato BR + sugestão de ação. O
+                # operador raramente sabe qual atribuição pegou o saldo, mas
+                # saber o caminho ("desvincular ou reduzir qtd") destrava.
+                _fmt_br = lambda v: f'{v:,.2f}'.replace(',', '#').replace('.', ',').replace('#', '.')
                 return {'ok': False, 'error':
-                        f'Saldo insuficiente no lote {codagregacao}: '
-                        f'disponível={qtd_disp}, solicitado={qtd_atribuir}'}
+                        f'Saldo insuficiente no lote {codagregacao}. '
+                        f'Disponível: {_fmt_br(qtd_disp)} · Solicitado: {_fmt_br(qtd_atribuir)}. '
+                        f'Reduza a quantidade ou desvincule alguma atribuição '
+                        f'existente deste lote (clique no olho do card de lote pra ver quem usa).'}
 
             # 3) Aplica a atribuição
             if abs(qtd_atribuir - qtd_item_f) < 1e-6:

@@ -486,7 +486,12 @@ class HumanizarErroOracleTest(TestCase):
         self.assertEqual(response.status_code, 500)
         body = json.loads(response.content)
         self.assertNotIn('ORA-00054', body['error'])
-        self.assertIn('outro usuário', body['error'].lower())
+        # Mensagem operacional refinada (Mai/2026): aponta colega operador
+        # e sugere ação de espera. Validamos pelos termos-chave que devem
+        # estar presentes — não pela frase exata, pra suportar futuras
+        # melhorias de microcopy sem quebrar teste.
+        self.assertIn('operador', body['error'].lower())
+        self.assertIn('aguarde', body['error'].lower())
 
     @patch('sankhya_integration.views.consultar_saldo_lote_disponivel',
            side_effect=Exception('ORA-12899 value too large'))

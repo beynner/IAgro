@@ -1048,7 +1048,11 @@ class FaturarPedidoVendaTest(TestCase):
         self.assertEqual(response.status_code, 500)
         body = json.loads(response.content)
         self.assertNotIn('ORA-00054', body['error'])
-        self.assertIn('outro usuário', body['error'].lower())
+        # Mensagem operacional refinada (Mai/2026): aponta colega operador
+        # e sugere ação de espera. Validamos pelos termos-chave em vez da
+        # frase exata pra suportar futuras melhorias de microcopy.
+        self.assertIn('operador', body['error'].lower())
+        self.assertIn('aguarde', body['error'].lower())
 
 
 # ---------------------------------------------------------------------------
