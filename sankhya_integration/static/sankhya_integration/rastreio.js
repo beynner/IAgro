@@ -677,8 +677,32 @@ document.addEventListener('DOMContentLoaded', function () {
     // ==========================================================================
     // 7. RENDERIZAÇÃO — LOTES (cards 1-linha)
     // ==========================================================================
+    /** Gera placeholder cards cinzas pra mostrar durante o fetch inicial.
+     *  Usado nos dois painéis (lotes/pedidos). Reduz "tela parece travada"
+     *  nos 1-2s do Oracle real respondendo. */
+    function _renderSkeletonCards(n) {
+        let html = '';
+        for (let i = 0; i < n; i++) {
+            html += `
+                <div class="ras-skeleton-card" aria-hidden="true">
+                    <div class="ras-skel-line ras-skel-w70"></div>
+                    <div class="ras-skel-line ras-skel-w50"></div>
+                    <div class="ras-skel-line ras-skel-w30"></div>
+                </div>`;
+        }
+        return html;
+    }
+
     function renderLotes() {
         containerLotes.innerHTML = '';
+
+        // Skeleton de carga inicial — quando carregando e ainda sem dados,
+        // mostra placeholders cinzas em vez de tela vazia ou "Carregando..."
+        // pelado. Reduz a sensação de tela travada nos ~1-2s do Oracle real.
+        if (lotesData.length === 0 && lotesCarregando) {
+            containerLotes.innerHTML = _renderSkeletonCards(4);
+            return;
+        }
 
         // Filtra lotes pela união (checksLotes + qualquer codprod marcado em
         // qualquer pedido). Garante que se você marca um produto num pedido,
@@ -706,15 +730,23 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         if (visiveis.length === 0 && !lotesCarregando) {
+            const temFiltro = (textoFiltroLotes || fabricanteAtivo
+                || tipoLote !== 'todos' || temFiltroProdutos());
+            const titulo = temFiltro
+                ? 'Nenhum lote encontrado com os filtros atuais'
+                : 'Sem lotes disponíveis no período';
+            const msg = temFiltro
+                ? 'Os filtros ativos não retornaram resultados. Limpe-os ou amplie o período pra ver mais lotes.'
+                : 'Não há lotes com saldo no período selecionado. Tente aumentar o período de busca.';
+            const acao = temFiltro
+                ? '<button type="button" class="ras-empty-action" data-action="limpar-tudo">Limpar filtros</button>'
+                : '';
             containerLotes.innerHTML = `
                 <div class="ras-empty">
                     <div class="ras-empty-icone">📦</div>
-                    <div class="ras-empty-titulo">Nenhum lote encontrado</div>
-                    <div class="ras-empty-msg">
-                        ${(textoFiltroLotes || fabricanteAtivo || tipoLote !== 'todos' || temFiltroProdutos())
-                            ? 'Tente ajustar os filtros do topo ou clicar em <strong>LIMPAR</strong>.'
-                            : 'Sem lotes disponíveis para o período selecionado.'}
-                    </div>
+                    <div class="ras-empty-titulo">${titulo}</div>
+                    <div class="ras-empty-msg">${msg}</div>
+                    ${acao}
                 </div>`;
             return;
         }
@@ -733,11 +765,11 @@ document.addEventListener('DOMContentLoaded', function () {
             card.dataset.codagregacao = l.codagregacao;
 
             const badgeAvaria = (l.qtd_avaria_interna && l.qtd_avaria_interna > 0)
-                ? `<span class="badge-avaria-interna" title="Avaria interna">▼ ${fmtQtd(l.qtd_avaria_interna)}</span>`
+                ? `<span class="badge-avaria-interna" title="Avaria interna reservada (${fmtQtd(l.qtd_avaria_interna)}) — não disponível para vincular em pedido">▼ ${fmtQtd(l.qtd_avaria_interna)}</span>`
                 : '';
 
             const tagStatus = status === 'NAO_CLASSIFICAVEL'
-                ? '<span class="tag-naoclass" title="Sem classificação">N/C</span>'
+                ? '<span class="tag-naoclass" title="Sem classificação confirmada — vendável como in natura (vem da TOP 13, não passou pela TOP 26)">N/C</span>'
                 : '';
 
             // Fase 2.13 — alerta de lote envelhecido (DTNEG_ORIGEM > 60 dias)
@@ -752,7 +784,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // Ícones SVG inline — substituem os emojis 🔗 e 👁 e permitem
             // animação/cor consistentes via CSS quando a linha é selecionada.
             const armarBtn = podeArmar
-                ? `<button class="btn-armar btn-acao-linha" title="Armar este lote" type="button">
+                ? `<button class="btn-armar btn-acao-linha" title="Selecionar este lote para vincular num pedido (clique no produto-linha do pedido em seguida)" type="button">
                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
@@ -919,6 +951,12 @@ document.addEventListener('DOMContentLoaded', function () {
     function renderPedidos() {
         containerPedidos.innerHTML = '';
 
+        // Skeleton de carga inicial — placeholders cinzas em vez de tela vazia
+        if (pedidosData.length === 0 && pedidosCarregando) {
+            containerPedidos.innerHTML = _renderSkeletonCards(3);
+            return;
+        }
+
         let pedidos = agruparPedidos(pedidosData).filter(pedidoCasaFiltro);
 
         // Fase 4.6 — toggle "só pendentes": esconde produtos já 100% atribuídos
@@ -967,19 +1005,30 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         if (pedidos.length === 0 && !pedidosCarregando) {
-            const filtrando = somentePendentes || textoFiltroPedidos || pedidoIsolado != null
+            const temFiltro = textoFiltroPedidos || pedidoIsolado != null
                             || dataIniPedidos || dataFimPedidos || temFiltroProdutos();
-            const titulo = somentePendentes ? '✓ Tudo vinculado!' : 'Nenhum pedido em aberto';
-            const msg = somentePendentes
-                ? 'Não há itens pendentes nos pedidos visíveis. Para ver pedidos completos, desligue <strong>SÓ PENDENTES</strong>.'
-                : (filtrando
-                    ? 'Tente ajustar os filtros do topo ou clicar em <strong>LIMPAR</strong>.'
-                    : 'Sem pedidos no período selecionado.');
+            let titulo, msg, icone, acao = '';
+            if (somentePendentes) {
+                titulo = '✓ Tudo vinculado!';
+                icone  = '🎉';
+                msg    = 'Não há itens pendentes nos pedidos visíveis. Para ver pedidos já vinculados, desligue <strong>SÓ PENDENTES</strong>.';
+                acao   = '<button type="button" class="ras-empty-action" data-action="desligar-pendentes">Mostrar pedidos vinculados</button>';
+            } else if (temFiltro) {
+                titulo = 'Nenhum pedido encontrado com os filtros atuais';
+                icone  = '🔍';
+                msg    = 'Os filtros ativos não retornaram pedidos. Limpe-os ou amplie o período pra ver mais resultados.';
+                acao   = '<button type="button" class="ras-empty-action" data-action="limpar-tudo">Limpar filtros</button>';
+            } else {
+                titulo = 'Sem pedidos em aberto no período';
+                icone  = '📋';
+                msg    = 'Não há pedidos TOP 34 (em aberto) no período. Tente aumentar o período de busca acima.';
+            }
             containerPedidos.innerHTML = `
                 <div class="ras-empty">
-                    <div class="ras-empty-icone">${somentePendentes ? '🎉' : '📋'}</div>
+                    <div class="ras-empty-icone">${icone}</div>
                     <div class="ras-empty-titulo">${titulo}</div>
                     <div class="ras-empty-msg">${msg}</div>
+                    ${acao}
                 </div>`;
             return;
         }
@@ -1572,7 +1621,13 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
+        // Estado loading no botão: desabilita + troca texto pra "Vinculando..."
+        // Sem isso, operador clica 2× pensando que "não funcionou" e dispara
+        // 2 chamadas de UPDATE — corrida concorrente desnecessária.
+        const labelOriginal = btnConfirmarTransfer.textContent;
         btnConfirmarTransfer.disabled = true;
+        btnConfirmarTransfer.classList.add('btn--loading');
+        btnConfirmarTransfer.textContent = 'Vinculando...';
         try {
             // Distribui a qtd entre as linhas pendentes do produto, na ordem
             // que vieram (por SEQUENCIA). Cada linha recebe o que cabe.
@@ -1616,7 +1671,15 @@ document.addEventListener('DOMContentLoaded', function () {
             if (erro) {
                 showToast(`Vinculado ${fmtQtd(totalAtribuido)} antes do erro: ${erro}`, 'warning');
             } else {
-                showToast(`Lote atribuído (${fmtQtd(totalAtribuido)}).`, 'success');
+                // Toast contextual: cliente + pedido + qtd em vez de "Sucesso"
+                // genérico. Operador sabe exatamente o que aconteceu sem
+                // precisar voltar pra lista pra confirmar.
+                const cliente = pedido.nomeparc ? ` · ${pedido.nomeparc}` : '';
+                showToast(
+                    `Lote ${lote.codagregacao} vinculado: ${fmtQtd(totalAtribuido)} ` +
+                    `→ Pedido ${pedido.nunota}${cliente}`,
+                    'success',
+                );
             }
 
             // Atualização otimista — atualiza o estado local e re-renderiza
@@ -1630,6 +1693,8 @@ document.addEventListener('DOMContentLoaded', function () {
             desarmarLote();
         } finally {
             btnConfirmarTransfer.disabled = false;
+            btnConfirmarTransfer.classList.remove('btn--loading');
+            btnConfirmarTransfer.textContent = labelOriginal;
         }
     }
 
@@ -1738,6 +1803,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 const btn = e.target.closest('.btn-desvincular');
                 btn.disabled = true;
+                btn.classList.add('btn--loading');
                 try {
                     const res = await postJSON(URLS.desvincularLote, {
                         nunota:    Number(nunota),
@@ -1746,13 +1812,21 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (!res.ok || !res.body || !res.body.ok) {
                         showToast((res.body && res.body.error) || 'Falha ao desvincular.', 'error');
                         btn.disabled = false;
+                        btn.classList.remove('btn--loading');
                         return;
                     }
-                    showToast('Lote desvinculado.', 'success');
+                    // Toast contextual: lote + pedido + parceiro
+                    const parc = tr.querySelector('td:nth-child(3)')?.textContent?.trim() || '';
+                    const ctx  = parc && parc !== '—' ? ` · ${parc}` : '';
+                    showToast(
+                        `Lote ${codagregacao} desvinculado do Pedido ${nunota}${ctx}.`,
+                        'success',
+                    );
                     fecharModalVinculos();
                     recarregarTudo();
                 } catch (_) {
                     btn.disabled = false;
+                    btn.classList.remove('btn--loading');
                 }
                 return;
             }
@@ -1831,9 +1905,14 @@ document.addEventListener('DOMContentLoaded', function () {
                     ? '<button class="btn-desvincular" type="button" title="Desvincular este lote do pedido">🗑</button>'
                     : '';
                 // Fase 2.10 — badge FATURADO vs ATRIBUIDO
+                const tipNomeTop = top === 35
+                    ? 'Venda com NFe'
+                    : top === 37 ? 'Venda sem NFe'
+                    : top === 34 ? 'Pedido em aberto'
+                    : `TOP ${top}`;
                 const statusLabel = faturado
-                    ? `<span class="vinc-status vinc-status-faturado" title="Pedido já faturado (TOP ${top})">FATURADO</span>`
-                    : `<span class="vinc-status vinc-status-atribuido" title="Pedido em aberto">ATRIBUÍDO</span>`;
+                    ? `<span class="vinc-status vinc-status-faturado" title="Pedido já faturado (TOP ${top} - ${tipNomeTop}). Não pode mais ser desvinculado.">FATURADO</span>`
+                    : `<span class="vinc-status vinc-status-atribuido" title="Pedido em aberto (TOP 34) — pode ser desvinculado se necessário">ATRIBUÍDO</span>`;
                 return `
                     <tr class="vinc-linha ${faturado ? 'linha-faturada' : ''}"
                         data-nunota="${escapeHtml(v.nunota)}"
@@ -2426,6 +2505,29 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (btnLimparTudo) btnLimparTudo.addEventListener('click', limparTudo);
     if (btnAtualizar)  btnAtualizar.addEventListener('click', recarregarTudo);
+
+    // Botões dentro do empty state — delegação nos containers das duas colunas.
+    // Os botões são gerados dinamicamente em renderLotes/renderPedidos quando a
+    // lista vem vazia; o handler aqui dispara a ação que destrava o usuário.
+    function _bindEmptyActions(container) {
+        if (!container) return;
+        container.addEventListener('click', (e) => {
+            const btn = e.target.closest('.ras-empty-action');
+            if (!btn) return;
+            const acao = btn.dataset.action;
+            if (acao === 'limpar-tudo') {
+                limparTudo();
+            } else if (acao === 'desligar-pendentes') {
+                somentePendentes = false;
+                const tog = document.getElementById('checkSomentePendente');
+                if (tog) tog.setAttribute('aria-pressed', 'false');
+                _salvarPrefs();
+                renderPedidos();
+            }
+        });
+    }
+    _bindEmptyActions(containerLotes);
+    _bindEmptyActions(containerPedidos);
 
     // Botões "+" e "−" — agrupam/desagrupam todos os grupos visíveis,
     // respeitando o agrupamento ativo (POR PARCEIRO ou POR PRODUTO).

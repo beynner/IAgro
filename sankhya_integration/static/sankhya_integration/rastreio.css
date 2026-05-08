@@ -1496,6 +1496,78 @@
     border: 1px solid #fde68a;
     font-size: 11.5px;
 }
+/* Botão de ação dentro do empty state — saída clara pra o operador */
+.ras-empty-action {
+    margin-top: 14px;
+    padding: 8px 16px;
+    background: var(--ras-primary, #5e7e4a);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.1s ease;
+}
+.ras-empty-action:hover  { background: var(--ras-primary-dark, #4f6a3e); }
+.ras-empty-action:active { transform: scale(0.97); }
+
+/* ----- Skeleton de carga inicial ------------------------------------- */
+/* Mostrado em renderLotes/renderPedidos quando a primeira fetch ainda
+   não respondeu. Reduz a sensação de tela travada nos ~1-2s do Oracle real. */
+.ras-skeleton-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    margin: 6px 8px;
+    background: var(--cor-fundo-painel, #fff);
+    border: 1px solid var(--cor-borda, #e5e7eb);
+    border-radius: 6px;
+}
+.ras-skel-line {
+    height: 10px;
+    background: linear-gradient(90deg,
+        rgba(0, 0, 0, 0.06) 0%,
+        rgba(0, 0, 0, 0.12) 50%,
+        rgba(0, 0, 0, 0.06) 100%);
+    background-size: 200% 100%;
+    border-radius: 4px;
+    animation: ras-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+.ras-skel-w70 { width: 70%; }
+.ras-skel-w50 { width: 50%; }
+.ras-skel-w30 { width: 30%; }
+@keyframes ras-skeleton-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* ----- Botão em estado loading (disable + spinner inline) ------------ */
+/* Aplicado em btnConfirmarTransfer durante atribuição e em btn-desvincular
+   durante desvinculação. Sem isso, operador clica 2× e dispara duas chamadas. */
+.btn--loading,
+.btn.btn--loading {
+    cursor: wait;
+    opacity: 0.75;
+    position: relative;
+    pointer-events: none;
+}
+.btn--loading::after {
+    content: '';
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-left: 8px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    vertical-align: -2px;
+    animation: ras-spin 0.7s linear infinite;
+}
+@keyframes ras-spin {
+    to { transform: rotate(360deg); }
+}
 
 /* ----- Tag OK + linha completa: tom primary discreto ------------------ */
 .produto-linha.completo {

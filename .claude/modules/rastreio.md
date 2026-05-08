@@ -234,8 +234,30 @@ Detalhes em `gotchas.md`. Resumo:
 - Endpoints (lotes, pedidos, atribuir, desvincular, fabricantes, vinculos)
 - `AtribuirLoteServiceTest` — lock, double-binding, faturamento (4 testes)
 - `RastreioAuditLogTest` — atribuir grava, falha não grava, desvincular grava (3 testes)
-- `HumanizarErroOracleTest` — ORA-00054 → "outro usuário", ORA-12899 não vaza coluna (2 testes)
+- `HumanizarErroOracleTest` — ORA-00054 → mensagem operacional, ORA-12899 não vaza coluna (2 testes; assertions atualizadas em Mai/2026 pra novo microcopy)
 
 ### Pendências de cobertura
 
 - Testes diretos de `consultar_vinculos_de_lote`, `consultar_fabricantes_disponiveis`, `desvincular_lote_item_pedido`, `consultar_saldo_lote_disponivel`. Replicar padrão do `AtribuirLoteServiceTest`.
+
+---
+
+## UX polish em homologação (Mai/2026)
+
+10 ajustes pequenos pra reduzir fricção no 1º contato com operador real. Tudo em `rastreio.js` / `rastreio.css` exceto items 4 e 5 (`oracle_conn.py`). Em testes em produção.
+
+| # | O que mudou | Onde |
+|---|---|---|
+| 1 | Skeleton de carga (4 cards cinzas com shimmer animation) substitui "Carregando..." pelado quando `lotesData.length === 0 && lotesCarregando` ou pedidosCarregando | `_renderSkeletonCards(n)` em `rastreio.js` + `.ras-skeleton-card` + `@keyframes ras-skeleton-shimmer` em `rastreio.css` |
+| 2 | `.btn--loading` (disable + opacity 0.75 + spinner CSS via `::after`) aplicado em `btnConfirmarTransfer` durante atribuição e em `.btn-desvincular` durante desvinculação. Texto do botão muda pra "Vinculando..." durante a chamada | `confirmarTransferencia()` e `bindDesvincularNoModal()` |
+| 3 | Toast de sucesso contextual: `Lote 8117 vinculado: 160 kg → Pedido 4567 · CLIENTE X` (em vez de "Lote atribuído"). Mesma melhoria em desvinculação | `confirmarTransferencia()` |
+| 4 | `ORA-00054` reescrita: `"Outro operador está mexendo neste registro agora. Aguarde alguns segundos e tente novamente. Se o erro persistir após 1 minuto, avise o suporte."` | `_MAPA_ORA_HUMANIZADO` em `oracle_conn.py` |
+| 5 | Erro de saldo insuficiente em formato BR + sugestão: `Saldo insuficiente no lote 8117. Disponível: 125,50 · Solicitado: 200,00. Reduza a quantidade ou desvincule alguma atribuição existente deste lote (clique no olho do card de lote pra ver quem usa).` | `atribuir_lote_item_pedido` em `oracle_conn.py` |
+| 6 | Empty state com botão de ação: `Limpar filtros` (acumula filtros) ou `Mostrar pedidos vinculados` (pra `somentePendentes`). Delegação no container via `_bindEmptyActions(container)` | `renderLotes()` / `renderPedidos()` + `_bindEmptyActions()` |
+| 7 | Mensagem distingue: filtros ativos restritivos (`Nenhum lote encontrado com os filtros atuais`) vs sem dados reais (`Sem lotes disponíveis no período`) | mesmo lugar do #6 |
+| 8/9 | Tooltips estendidos em badges técnicos: `N/C` ("Sem classificação confirmada — vendável como in natura, vem da TOP 13, não passou pela TOP 26"), `AVARIA INTERNA` ("Avaria interna reservada — não disponível para vincular em pedido"), `FATURADO` ("Pedido já faturado (TOP 35 - Venda com NFe). Não pode mais ser desvinculado."), `ATRIBUÍDO` ("Pedido em aberto (TOP 34) — pode ser desvinculado se necessário") | `renderLotes()` e `abrirModalVinculosDeLote()` |
+| 10 | Microcopy: `Confirmar` (do modal de transferência) → `Vincular lote`. Tooltip do `btn-armar` mais explícito ("Selecionar este lote para vincular num pedido") | `rastreio.html` + `rastreio.js` |
+
+**Tests adicionados/atualizados em Mai/2026 (2026-05-08):**
+- `test_rastreio.py` `HumanizarErroOracleTest.test_excecao_ora_00054_humanizada` — assertions em termos-chave (`operador`, `aguarde`) em vez da frase exata, suportando futuras melhorias de microcopy sem quebrar
+- `test_views_venda.py` `FaturarPedidoVendaTest.test_excecao_retorna_500_humanizada` — mesmo padrão
