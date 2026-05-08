@@ -24,6 +24,7 @@ from .services.oracle_conn import (
 from django.contrib import messages
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render, redirect
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 
@@ -2581,6 +2582,78 @@ def api_email_listar(request: HttpRequest) -> JsonResponse:
         return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
 
 
+_ORIGENS_PASTE_VALIDAS = {'TEXTO_LIVRE', 'WHATSAPP_API'}
+
+
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_email_importar_texto(request: HttpRequest) -> JsonResponse:
+    """Operador colou um pedido em texto livre (WhatsApp / e-mail / etc.).
+
+    Cria registro em AD_PEDIDO_EMAIL_RECEBIDO com STATUS=AGUARDANDO_PARSER e
+    PDF_PATH=NULL. O worker, ao rodar a fase de parser LLM, lê PDF_TEXTO
+    direto e processa igual aos pedidos vindos de IMAP.
+
+    Body JSON: {"texto": "<...>", "origem": "TEXTO_LIVRE"|"WHATSAPP_API"}
+    """
+    import uuid
+    from datetime import datetime
+    from sankhya_integration.services.oracle_conn import inserir_pedido_email_recebido
+
+    try:
+        payload = _get_json_payload(request) or {}
+        texto = (payload.get('texto') or '').strip()
+        origem = (payload.get('origem') or 'TEXTO_LIVRE').upper()
+        codusu = request.session.get('codusu')
+
+        if not texto:
+            return JsonResponse({'ok': False, 'error': 'Texto vazio.'}, status=400)
+        if len(texto) < 30:
+            return JsonResponse(
+                {'ok': False, 'error': 'Texto muito curto (mín. 30 caracteres).'},
+                status=400,
+            )
+        if origem not in _ORIGENS_PASTE_VALIDAS:
+            return JsonResponse(
+                {'ok': False, 'error': f"Origem inválida: {origem}"},
+                status=400,
+            )
+
+        agora = datetime.now()
+        message_id = f'manual:{uuid.uuid4().hex}'
+        remetente = f'Operador {codusu or "?"}'
+        assunto_label = {
+            'TEXTO_LIVRE':  'Texto livre',
+            'WHATSAPP_API': 'WhatsApp',
+        }.get(origem, origem)
+
+        res = inserir_pedido_email_recebido({
+            'MESSAGE_ID':    message_id,
+            'SUB_ID':        1,
+            'REMETENTE':     remetente,
+            'ASSUNTO':       assunto_label,
+            'RECEBIDO_EM':   agora,
+            'PROCESSADO_EM': agora,
+            'PDF_PATH':      None,           # paste manual não tem arquivo
+            'PDF_TEXTO':     texto,
+            'STATUS':        'AGUARDANDO_PARSER',
+            'ORIGEM':        origem,
+        })
+        if not res.get('ok'):
+            return JsonResponse(
+                {'ok': False, 'error': humanizar_erro_oracle(res.get('error') or 'falha')},
+                status=400,
+            )
+        return JsonResponse({
+            'ok': True,
+            'id': res.get('id'),
+            'mensagem': 'Texto importado. O parser LLM vai processar na próxima rodada do worker.',
+        })
+    except Exception as exc:
+        logger.exception("Erro em api_email_importar_texto")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
 @require_http_methods(["GET"])
 @exige_grupo('venda')
 def api_email_obter(request: HttpRequest, recebido_id: int) -> JsonResponse:
@@ -2596,6 +2669,40 @@ def api_email_obter(request: HttpRequest, recebido_id: int) -> JsonResponse:
         for it in rec.get('itens', []):
             v = it.get('criado_em')
             if hasattr(v, 'isoformat'): it['criado_em'] = v.isoformat()
+        # Extrai do JSON crú do LLM o nome literal do cliente que veio no PDF.
+        # Útil como hint visual ao operador: o matching pode ter casado num
+        # CODPARC genérico ("SENDAS DISTRIBUIDORA"), mas o PDF dizia
+        # "SENDAS DISTRIBUIDORA S/A LJ176 PALMAS" — ver isso ajuda a refinar.
+        try:
+            llm_raw = rec.get('llm_resposta')
+            if llm_raw:
+                rec['cliente_nome_extraido'] = (json.loads(llm_raw).get('cliente_nome') or '').strip() or None
+        except Exception:
+            rec['cliente_nome_extraido'] = None
+
+        # Totais declarados no PDF — pra UI de conferência cruzada
+        # (Σ calculado dos itens vs total declarado pelo PDF). Vale pra
+        # registros parseados via LLM E via regex_consinco_v1: quando o
+        # parser regex já gravou totais em llm_resposta.totais_pdf, prefere
+        # esses; senão extrai do pdf_texto via mesma regex (Consinco/RelPed).
+        # Records de outros layouts ou paste manual ficam com totais_pdf=None
+        # e a UI esconde a linha de conferência.
+        try:
+            from sankhya_integration.services.pdf_parsers.consinco import extrair_totais_pdf
+            totais = extrair_totais_pdf(rec.get('pdf_texto') or '')
+            try:
+                llm_data = json.loads(rec.get('llm_resposta') or '{}')
+                tot_llm = (llm_data or {}).get('totais_pdf') or {}
+                for k, v in tot_llm.items():
+                    if v is not None:
+                        totais[k] = v
+            except Exception:
+                pass
+            rec['totais_pdf'] = totais if totais else None
+        except Exception:
+            logger.exception("Erro extraindo totais_pdf")
+            rec['totais_pdf'] = None
+
         return JsonResponse({'ok': True, 'pedido': rec})
     except Exception as exc:
         logger.exception("Erro em api_email_obter")
@@ -2604,6 +2711,7 @@ def api_email_obter(request: HttpRequest, recebido_id: int) -> JsonResponse:
 
 @require_http_methods(["GET"])
 @exige_grupo('venda')
+@xframe_options_sameorigin
 def api_email_pdf(request: HttpRequest, recebido_id: int) -> HttpResponse:
     """Serve o PDF original arquivado, autenticado por sessão.
 
@@ -2669,6 +2777,7 @@ def api_email_reparser(request: HttpRequest, recebido_id: int) -> JsonResponse:
     ERRO_PARSER. Apenas troca o STATUS de volta para AGUARDANDO_PARSER e remove
     os itens existentes; o worker pega na próxima rodada.
     """
+    from sankhya_integration.services.oracle_conn import deletar_itens_do_pedido_email
     try:
         rec = obter_pedido_email_completo(int(recebido_id))
         if not rec:
@@ -2676,15 +2785,29 @@ def api_email_reparser(request: HttpRequest, recebido_id: int) -> JsonResponse:
         if rec.get('status') == 'CONFIRMADO':
             return JsonResponse({'ok': False, 'error': 'Pedido já confirmado — não pode ser reparseado.'}, status=400)
 
-        # Remove itens existentes para o parser recriar
-        for it in rec.get('itens', []):
-            deletar_pedido_email_item(it['id'])
+        # Remove itens existentes em batch (1 DELETE pelo RECEBIDO_ID).
+        # Trocamos o loop antigo `for it in rec.itens: deletar_pedido_email_item(it.id)`
+        # porque o loop é falível: se obter_pedido_email_completo retornar
+        # `itens=[]` por algum motivo (erro silencioso na query, etc.), nenhum
+        # DELETE acontece e o worker insere por cima → DUPLICAÇÃO. Batch
+        # DELETE pelo RECEBIDO_ID é atômico e não depende da lista carregada.
+        res_del = deletar_itens_do_pedido_email(int(recebido_id))
+        if not res_del.get('ok'):
+            return JsonResponse(
+                {'ok': False,
+                 'error': f"Falha removendo itens existentes: {res_del.get('error')}"},
+                status=500,
+            )
 
         res = atualizar_pedido_email_status(int(recebido_id), 'AGUARDANDO_PARSER',
                                               motivo_descarte=None)
         if not res.get('ok'):
             return JsonResponse({'ok': False, 'error': res.get('error')}, status=400)
-        return JsonResponse({'ok': True, 'mensagem': 'Reparser agendado para próxima rodada do worker.'})
+        return JsonResponse({
+            'ok': True,
+            'itens_removidos': res_del.get('rows', 0),
+            'mensagem': 'Reparser agendado para próxima rodada do worker.',
+        })
     except Exception as exc:
         logger.exception("Erro em api_email_reparser")
         return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
@@ -2722,6 +2845,235 @@ def api_email_remover_item(request: HttpRequest, item_id: int) -> JsonResponse:
         return JsonResponse({'ok': True, 'rows': res.get('rows', 0)})
     except Exception as exc:
         logger.exception("Erro em api_email_remover_item")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_email_criar_item(request: HttpRequest, recebido_id: int) -> JsonResponse:
+    """Operador adicionou item manualmente na tela de revisão.
+
+    Útil quando o LLM esqueceu uma linha do PDF ou o operador precisa
+    incluir item que não veio. SEQUENCIA = MAX+1 do pré-pedido.
+    Como o operador escolheu o CODPROD na hora, já gravamos como FINAL
+    com CONFIANCA=1.00 (decisão humana).
+    """
+    from sankhya_integration.services.oracle_conn import inserir_pedido_email_item
+
+    try:
+        payload = _get_json_payload(request) or {}
+        codprod    = _converter_para_inteiro(payload.get('codprod'))
+        qtd        = payload.get('qtd')
+        codvol     = (payload.get('codvol') or '').strip().upper() or None
+        preco_unit = payload.get('preco_unit')
+
+        if not codprod:
+            return JsonResponse({'ok': False, 'error': 'CODPROD obrigatório.'}, status=400)
+        try:
+            qtd_f = float(qtd) if qtd not in (None, '') else 0
+        except (TypeError, ValueError):
+            qtd_f = 0
+        if qtd_f <= 0:
+            return JsonResponse({'ok': False, 'error': 'QTD obrigatória e positiva.'}, status=400)
+
+        rec = obter_pedido_email_completo(int(recebido_id))
+        if not rec:
+            return JsonResponse({'ok': False, 'error': 'Pré-pedido não encontrado.'}, status=404)
+        if rec.get('status') in ('CONFIRMADO', 'DESCARTADO'):
+            return JsonResponse(
+                {'ok': False, 'error': f"Pré-pedido {rec['status'].lower()} — não é possível adicionar itens."},
+                status=400,
+            )
+
+        seq_atual = max(
+            (int(it.get('sequencia') or 0) for it in (rec.get('itens') or [])),
+            default=0,
+        )
+        nova_seq = seq_atual + 1
+
+        res = inserir_pedido_email_item({
+            'RECEBIDO_ID':       int(recebido_id),
+            'SEQUENCIA':         nova_seq,
+            'DESCRICAO_PDF':     '[manual]',
+            'CODPROD_SUGERIDO':  codprod,
+            'CODPROD_CONFIANCA': 1.0,
+            'CODPROD_FINAL':     codprod,
+            'QTD':               qtd_f,
+            'CODVOL':            codvol,
+            'PRECO_UNIT':        preco_unit,
+        })
+        if not res.get('ok'):
+            return JsonResponse({'ok': False, 'error': res.get('error')}, status=400)
+        return JsonResponse({'ok': True, 'item_id': res.get('id'), 'sequencia': nova_seq})
+    except Exception as exc:
+        logger.exception("Erro em api_email_criar_item")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+# ----------------------------------------------------------------------------
+# Restauração de itens (sem rodar LLM de novo)
+# ----------------------------------------------------------------------------
+# O LLM_RESPOSTA crú está sempre salvo em AD_PEDIDO_EMAIL_RECEBIDO. Esses
+# endpoints leem o JSON e refazem os itens via matching atual — sem nova
+# chamada Ollama, instantâneo. Útil quando operador edita errado e quer
+# desfazer SEM esperar 3 min de novo LLM call.
+
+def _restaurar_itens_originais(rec: dict, codparc_sug: int | None) -> tuple[int, int]:
+    """Apaga itens atuais e re-cria a partir do LLM_RESPOSTA + matching atual.
+
+    Retorna (qtd_inseridos, qtd_apagados). Não chama LLM — usa o JSON crú
+    já salvo em rec['llm_resposta'].
+    """
+    import json as _json
+    from sankhya_integration.services import matching as _matching
+    from sankhya_integration.services.oracle_conn import (
+        deletar_itens_do_pedido_email, inserir_pedido_email_item,
+    )
+
+    recebido_id = int(rec['id'])
+    raw = rec.get('llm_resposta') or '{}'
+    try:
+        llm = _json.loads(raw) if isinstance(raw, str) else raw
+    except Exception:
+        llm = {}
+    itens_originais = llm.get('itens') or []
+
+    res_del = deletar_itens_do_pedido_email(recebido_id)
+    apagados = res_del.get('rows', 0) if res_del.get('ok') else 0
+
+    inseridos = 0
+    for idx, it in enumerate(itens_originais, start=1):
+        descr = (it.get('descricao_pdf') or '').strip()
+        if not descr:
+            continue
+        cod_cliente = it.get('cod_cliente')  # pode estar no JSON crú do LLM (Consinco)
+        codprod, score, _descr_canon = _matching.casar_codprod(
+            descr, codparc=codparc_sug, cod_cliente=cod_cliente,
+        )
+        inserir_pedido_email_item({
+            'RECEBIDO_ID':       recebido_id,
+            'SEQUENCIA':         idx,
+            'DESCRICAO_PDF':     descr,
+            'COD_CLIENTE':       cod_cliente,
+            'CODPROD_SUGERIDO':  codprod,
+            'CODPROD_CONFIANCA': round(score / 100.0, 2) if score else 0,
+            'CODPROD_FINAL':     None,   # null = "operador ainda não confirmou" — vai
+                                          # render usando codprod_sugerido
+            'QTD':               it.get('qtd'),
+            'CODVOL':            (it.get('codvol') or 'KG').upper(),
+            'PRECO_UNIT':        it.get('preco_unit'),
+        })
+        inseridos += 1
+    return inseridos, apagados
+
+
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_email_restaurar_todos(request: HttpRequest, recebido_id: int) -> JsonResponse:
+    """Restaura TODOS os itens ao estado original do LLM_RESPOSTA + matching atual.
+
+    NÃO chama LLM (instantâneo). Apaga itens atuais e recria a partir do JSON
+    crú salvo. Útil pra desfazer edições sem esperar nova rodada do worker.
+    """
+    try:
+        rec = obter_pedido_email_completo(int(recebido_id))
+        if not rec:
+            return JsonResponse({'ok': False, 'error': 'Pré-pedido não encontrado.'}, status=404)
+        if rec.get('status') == 'CONFIRMADO':
+            return JsonResponse({'ok': False, 'error': 'Pré-pedido já confirmado.'}, status=400)
+
+        inseridos, apagados = _restaurar_itens_originais(rec, rec.get('codparc_sugerido'))
+        return JsonResponse({
+            'ok': True,
+            'inseridos': inseridos,
+            'apagados': apagados,
+            'mensagem': f'{inseridos} itens restaurados ao original.',
+        })
+    except Exception as exc:
+        logger.exception("Erro em api_email_restaurar_todos")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_email_restaurar_item(request: HttpRequest, item_id: int) -> JsonResponse:
+    """Restaura UM item ao valor original do LLM_RESPOSTA + matching atual.
+
+    Identifica o item original pela SEQUENCIA do item atual (1-indexed na
+    lista do JSON). Faz UPDATE — preserva o ID do item.
+    """
+    try:
+        import json as _json
+        from sankhya_integration.services import matching as _matching
+
+        # Carrega item + cabecalho (precisamos da SEQUENCIA + LLM_RESPOSTA)
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT i.SEQUENCIA, i.RECEBIDO_ID, r.LLM_RESPOSTA, r.CODPARC_SUGERIDO, r.STATUS "
+                "  FROM AD_PEDIDO_EMAIL_ITEM i "
+                "  JOIN AD_PEDIDO_EMAIL_RECEBIDO r ON r.ID = i.RECEBIDO_ID "
+                " WHERE i.ID = :id",
+                id=int(item_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                return JsonResponse({'ok': False, 'error': 'Item não encontrado.'}, status=404)
+            sequencia, recebido_id, llm_raw, codparc_sug, status = row
+            if hasattr(llm_raw, 'read'):
+                llm_raw = llm_raw.read()
+            if status == 'CONFIRMADO':
+                return JsonResponse({'ok': False, 'error': 'Pré-pedido já confirmado.'}, status=400)
+
+            try:
+                llm = _json.loads(llm_raw or '{}')
+            except Exception:
+                llm = {}
+            itens_orig = llm.get('itens') or []
+            idx = int(sequencia) - 1
+            if idx < 0 or idx >= len(itens_orig):
+                return JsonResponse({
+                    'ok': False,
+                    'error': 'Item original não encontrado no LLM_RESPOSTA — use Restaurar tudo.',
+                }, status=400)
+
+            it_orig = itens_orig[idx]
+            descr = (it_orig.get('descricao_pdf') or '').strip()
+            cod_cliente = it_orig.get('cod_cliente')
+            codprod, score, _ = _matching.casar_codprod(
+                descr, codparc=codparc_sug, cod_cliente=cod_cliente,
+            )
+
+            # COD_CLIENTE só é atualizado se a coluna existir (migration aplicada)
+            from sankhya_integration.services.oracle_conn import _existe_coluna
+            tem_cod_cliente = _existe_coluna(cur, 'AD_PEDIDO_EMAIL_ITEM', 'COD_CLIENTE')
+            sql = (
+                "UPDATE AD_PEDIDO_EMAIL_ITEM "
+                "   SET DESCRICAO_PDF = :d, "
+                "       CODPROD_SUGERIDO = :sug, "
+                "       CODPROD_CONFIANCA = :conf, "
+                "       CODPROD_FINAL = NULL, "
+                "       QTD = :q, CODVOL = :v, PRECO_UNIT = :p "
+                + (", COD_CLIENTE = :cc " if tem_cod_cliente else "")
+                + " WHERE ID = :id"
+            )
+            binds = {
+                'id': int(item_id),
+                'd': descr,
+                'sug': codprod,
+                'conf': round(score / 100.0, 2) if score else 0,
+                'q': it_orig.get('qtd'),
+                'v': (it_orig.get('codvol') or 'UN').upper(),
+                'p': it_orig.get('preco_unit'),
+            }
+            if tem_cod_cliente:
+                binds['cc'] = (str(cod_cliente).strip()[:50] if cod_cliente else None)
+
+            cur.execute(sql, binds)
+            conn.commit()
+            return JsonResponse({'ok': True, 'mensagem': 'Item restaurado ao original.'})
+    except Exception as exc:
+        logger.exception("Erro em api_email_restaurar_item")
         return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
 
 
@@ -2847,6 +3199,57 @@ def api_email_confirmar(request: HttpRequest, recebido_id: int) -> JsonResponse:
     except Exception as e:
         logger.exception("Erro em api_email_confirmar")
         return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+    # 5) APRENDIZADO (pós-commit, tolerante a falhas)
+    # Após confirmação humana, gravamos as decisões dele em AD_*_ALIAS
+    # pra próximos pré-pedidos com a mesma descrição/cliente irem direto.
+    # Falha aqui NÃO desfaz a confirmação — só perde a oportunidade de aprender.
+    try:
+        from sankhya_integration.services.matching import (
+            aprender_alias_parceiro, aprender_alias_produto, aprender_cod_cliente,
+        )
+        # Alias de parceiro: usa o nome extraído pelo LLM como chave.
+        # Se o LLM_RESPOSTA tem cliente_nome, usamos. Senão pula.
+        try:
+            import json
+            llm_resp_raw = rec.get('llm_resposta') or '{}'
+            llm_resp = json.loads(llm_resp_raw) if isinstance(llm_resp_raw, str) else llm_resp_raw
+            cliente_nome_extraido = (llm_resp.get('cliente_nome')
+                                       or (llm_resp.get('cliente') or {}).get('nome'))
+            if cliente_nome_extraido:
+                aprender_alias_parceiro(
+                    nome_extraido=cliente_nome_extraido,
+                    codparc=int(codparc),
+                    confirmado_por=int(codusu),
+                )
+        except Exception:
+            logger.warning("Falha aprendendo alias parceiro — segue sem aprender", exc_info=True)
+
+        # Aprendizado por item:
+        #   1) Alias por descrição (chave = descricao_pdf, valor = codprod_final)
+        #   2) Vinculação por código do cliente quando presente
+        #      (chave = (codparc, cod_cliente), valor = codprod_final)
+        # A 2ª é mais forte: bate exato em código numérico, sem fuzzy.
+        for it in itens_pre:
+            descr = it.get('descricao_pdf')
+            codprod_final = it.get('codprod_final')
+            cod_cliente = it.get('cod_cliente')
+            if descr and codprod_final:
+                aprender_alias_produto(
+                    descricao_pdf=descr,
+                    codprod=int(codprod_final),
+                    codparc=int(codparc),  # alias scope-specific por cliente
+                    confirmado_por=int(codusu),
+                )
+            if cod_cliente and codprod_final:
+                aprender_cod_cliente(
+                    codparc=int(codparc),
+                    cod_cliente=cod_cliente,
+                    codprod=int(codprod_final),
+                    confirmado_por=int(codusu),
+                )
+    except Exception:
+        logger.warning("Falha geral no aprendizado de alias — pré-pedido confirmado normalmente", exc_info=True)
 
     return JsonResponse({"ok": True, "nunota": nunota}, status=200)
 

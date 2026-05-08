@@ -16,8 +16,16 @@
     <!-- ───────────────── Coluna esquerda: fila de pré-pedidos ───────────────── -->
     <aside class="panel" id="emailFilaPanel">
       <header>
-        <span>Fila de revisão</span>
+        <span>Fila de revisão <span id="emailFilaContador" class="email-fila-contador"></span></span>
         <div class="email-fila-actions">
+          <button type="button" id="emailImportarTextoBtn" class="email-icon-btn" title="Importar pedido por texto livre (WhatsApp, paste manual)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="9" y="2" width="6" height="4" rx="1"/>
+              <rect x="4" y="6" width="16" height="16" rx="2"/>
+              <line x1="8" y1="11" x2="16" y2="11"/>
+              <line x1="8" y1="15" x2="14" y2="15"/>
+            </svg>
+          </button>
           <select id="emailStatusFiltro" class="email-select" title="Filtrar por status">
             <option value="PENDENTE_REVISAO" selected>Pendentes</option>
             <option value="ERRO_PARSER">Erro do parser</option>
@@ -41,6 +49,7 @@
     <section class="panel" id="emailDetalhePanel">
       <header>
         <span>Detalhe do pré-pedido <strong id="emailDetalheId">—</strong></span>
+        <span id="emailOrigemBadge" class="email-origem-badge hidden" title="Origem da extração"></span>
         <span id="emailConfiancaBadge" class="email-confianca-badge"></span>
       </header>
 
@@ -56,9 +65,16 @@
         <!-- Conteúdo carregado por JS quando há pedido selecionado -->
         <div class="email-detalhe-conteudo hidden" id="emailDetalheConteudo">
           <div class="email-split">
-            <!-- PDF embutido -->
-            <div class="email-pdf-wrap">
+            <!-- PDF embutido (oculto em pedidos sem PDF — paste manual) -->
+            <div class="email-pdf-wrap" id="emailPdfWrap">
               <iframe id="emailPdfFrame" src="" title="PDF original"></iframe>
+              <div class="email-texto-preview hidden" id="emailTextoPreview">
+                <header class="email-texto-preview-header">
+                  <strong>Texto colado pelo operador</strong>
+                  <span class="email-mute" id="emailTextoOrigem"></span>
+                </header>
+                <pre id="emailTextoPreviewBody"></pre>
+              </div>
             </div>
 
             <!-- Form de revisão -->
@@ -74,6 +90,8 @@
                     <div id="emailParcDropdown" class="dropdown-abs"></div>
                   </div>
                   <span class="email-confianca-mini" id="emailConfiancaParc"></span>
+                  <small class="email-canonico-hint" id="emailCodparcNome"></small>
+                  <small class="email-pdf-hint" id="emailClienteExtraido"></small>
                 </div>
 
                 <div class="email-row email-row-3">
@@ -102,36 +120,62 @@
                   </div>
                 </div>
 
-                <div class="email-row">
-                  <label>Observação</label>
-                  <textarea id="emailObservacao" rows="2"></textarea>
-                </div>
               </div>
 
               <div class="email-form-secao">
-                <h4>Itens <span class="email-mute" id="emailItensCount">(0)</span></h4>
+                <h4>
+                  Itens <span class="email-mute" id="emailItensCount">(0)</span>
+                  <button type="button" class="email-add-item-btn" id="emailAddItemBtn"
+                          title="Adicionar item manual (caso o LLM tenha esquecido uma linha do PDF)">
+                    + Adicionar item
+                  </button>
+                </h4>
                 <div class="email-itens-tabela-wrap">
                   <table class="email-itens-tabela ia-selectable-table">
                     <thead>
                       <tr>
                         <th class="col-w-pdf">Texto do PDF</th>
-                        <th class="col-w-prod">Produto</th>
-                        <th class="text-right col-w-num">Qtd</th>
-                        <th class="col-w-vol">Vol</th>
-                        <th class="text-right col-w-num">Preço</th>
+                        <th class="col-w-prod">CODPROD</th>
+                        <th class="text-right col-w-qtdvol">Qtd</th>
+                        <th class="text-right col-w-preco">Preço</th>
+                        <th class="text-right col-w-num">Total</th>
                         <th class="col-w-acoes"></th>
                       </tr>
                     </thead>
                     <tbody id="emailItensBody">
                       <tr><td colspan="6" class="ia-placeholder">Sem itens.</td></tr>
                     </tbody>
+                    <tfoot id="emailItensFoot" class="email-itens-tfoot hidden">
+                      <tr>
+                        <td colspan="2" class="text-right"><strong>Calculado:</strong></td>
+                        <td class="text-right"><strong id="emailItensTotalQtd">0,00</strong></td>
+                        <td></td>
+                        <td class="text-right"><strong id="emailItensTotalValor">0,00</strong></td>
+                        <td></td>
+                      </tr>
+                      <tr id="emailConferenciaRow" class="email-conferencia-row hidden">
+                        <td colspan="2" class="text-right"><strong>PDF (referência):</strong></td>
+                        <td class="text-right" id="emailConferenciaQtd">—</td>
+                        <td></td>
+                        <td class="text-right" id="emailConferenciaValor">—</td>
+                        <td class="text-right"><span id="emailConferenciaChip" class="email-conferencia-chip"></span></td>
+                      </tr>
+                    </tfoot>
                   </table>
+                </div>
+              </div>
+
+              <div class="email-form-secao">
+                <div class="email-row">
+                  <label>Observação</label>
+                  <textarea id="emailObservacao" rows="3" placeholder="Observação livre (opcional)"></textarea>
                 </div>
               </div>
 
               <div class="email-actions">
                 <button type="button" class="btn btn-clear" id="emailDescartarBtn">Descartar</button>
-                <button type="button" class="btn btn-muted" id="emailReparserBtn" title="Re-rodar parser LLM nesse pré-pedido">Reparser</button>
+                <button type="button" class="btn btn-muted" id="emailRestaurarTodosBtn" title="Restaurar TODOS os itens ao estado original do LLM (sem chamar LLM de novo, instantâneo)">Restaurar tudo</button>
+                <button type="button" class="btn btn-muted" id="emailReparserBtn" title="Re-rodar parser LLM nesse pré-pedido (chama Ollama de novo, ~3 min)">Reparser</button>
                 <button type="button" class="btn btn-success" id="emailConfirmarBtn">Confirmar e criar pedido</button>
               </div>
             </div>
@@ -145,6 +189,70 @@
         </div>
       </div>
     </section>
+
+    <!-- Modal: importar pedido por texto livre (WhatsApp/paste manual) -->
+    <div id="emailImportarTextoModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+      <div class="modal-card email-importar-texto-card">
+        <div class="modal-header">Importar pedido por texto</div>
+        <div class="modal-body">
+          <p class="email-importar-texto-hint">
+            Cole abaixo o texto do pedido (WhatsApp, e-mail, anotação manual).
+            O parser LLM vai extrair os itens na próxima rodada do worker
+            (~30 min). Para pedidos urgentes, peça ao TI rodar o worker manualmente.
+          </p>
+          <div class="email-row">
+            <label>Origem</label>
+            <select id="emailImportarOrigem" class="email-select">
+              <option value="TEXTO_LIVRE" selected>Texto livre</option>
+              <option value="WHATSAPP_API">WhatsApp</option>
+            </select>
+          </div>
+          <div class="email-row">
+            <label>Texto do pedido <span class="email-mute" id="emailImportarCount">(0 caracteres)</span></label>
+            <textarea id="emailImportarTexto" rows="14" placeholder="Cole o texto aqui (ex: 'oi, manda 200kg pimentão verde, 50kg cenoura, 30kg tomate' — o LLM extrai)"></textarea>
+          </div>
+        </div>
+        <div class="email-actions email-add-item-actions">
+          <button type="button" class="btn btn-clear" id="emailImportarCancelBtn">Cancelar</button>
+          <button type="button" class="btn btn-success" id="emailImportarSalvarBtn">Importar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: adicionar item manual -->
+    <div id="emailAddItemModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+      <div class="modal-card email-add-item-card">
+        <div class="modal-header">Adicionar item manual</div>
+        <div class="modal-body">
+          <div class="email-row">
+            <label>Produto</label>
+            <div class="pos-rel">
+              <input type="hidden" id="emailNovoCodprod" />
+              <input type="text" id="emailNovoCodprodVis" placeholder="Buscar produto..." autocomplete="off" />
+              <div id="emailNovoCodprodDd" class="dropdown-abs"></div>
+            </div>
+          </div>
+          <div class="email-row email-row-3">
+            <div>
+              <label>Quantidade</label>
+              <input type="number" step="0.001" id="emailNovoQtd" placeholder="0" />
+            </div>
+            <div>
+              <label>Volume</label>
+              <input type="text" id="emailNovoVol" maxlength="10" value="KG" />
+            </div>
+            <div>
+              <label>Preço unit.</label>
+              <input type="number" step="0.01" id="emailNovoPreco" placeholder="0,00" />
+            </div>
+          </div>
+        </div>
+        <div class="email-actions email-add-item-actions">
+          <button type="button" class="btn btn-clear" id="emailNovoCancelBtn">Cancelar</button>
+          <button type="button" class="btn btn-success" id="emailNovoSalvarBtn">Adicionar</button>
+        </div>
+      </div>
+    </div>
 
   </div>
 {% endblock %}

@@ -52,41 +52,159 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Prompts
+# Prompts — variantes por layout
 # ---------------------------------------------------------------------------
+# A escolha do prompt afeta apenas a precisão da extração; o JSON de saída
+# é o mesmo (cliente_nome, data_negociacao, observacao, itens[]) e o
+# matching/aprendizado a jusante são layout-agnósticos. Pra adicionar um
+# layout novo, só preencher PROMPTS_POR_LAYOUT abaixo.
 
-PROMPT_SISTEMA = """Você é um extrator de dados de pedidos de venda no agronegócio. Recebe o texto bruto de um PDF de pedido e devolve EXCLUSIVAMENTE um objeto JSON válido (nada antes, nada depois — sem markdown, sem comentário, sem explicação).
+_PROMPT_SISTEMA_CONSINCO_RELPED = """Você é um extrator preciso de dados de pedidos de venda agropecuários. Recebe o texto bruto de UM ÚNICO pedido (extraído de PDF) e devolve EXCLUSIVAMENTE um objeto JSON válido. Sem markdown, sem comentário, sem explicação.
 
-Regras:
-- Use o contexto de parceiros e produtos fornecido para sugerir IDs reais (CODPARC, CODPROD).
-- Se não tiver certeza, retorne null no ID e a confiança próxima de 0.
-- Datas no formato YYYY-MM-DD.
-- Quantidades como número (ex: 10.5 — ponto, não vírgula).
-- Sempre devolva o array `itens`, mesmo que vazio.
-- Confiança é float entre 0.0 e 1.0.
+═══════════════════════════════════════════════════════
+ATENÇÃO — DOIS PONTOS QUE A IA SEMPRE ERRA SEM ESTE AVISO:
+═══════════════════════════════════════════════════════
+
+(A) FORNECEDOR ≠ CLIENTE
+   - O bloco "FORNECEDOR" no início do PDF é a empresa AGROMIL/HF SEMEAR
+     (somos nós que estamos vendendo). NUNCA extraia esse nome como cliente.
+   - O CLIENTE está SEMPRE no bloco "DADOS PARA FATURAMENTO" (à direita
+     do FORNECEDOR no cabeçalho), ou no rodapé "PALMAS, 30 de Abril de 2026
+     SENDAS DISTRIBUIDORA S/A LJ347-FLV1 ... AGROMIL AGROCOMERCIAL LTDA"
+     onde o NOSSO nome (AGROMIL) aparece DEPOIS, e o CLIENTE aparece ANTES.
+   - Se em dúvida, copie a razão social que aparece em "R. Social" do bloco
+     "DADOS PARA FATURAMENTO".
+
+(B) LAYOUT DA TABELA DE ITENS — Consinco / RelPedSuprim
+   Cabeçalho da tabela:
+       Cod Forn | SeqProdutos a Receber | Emb. | Qtde | Valor Unitário | Valor Item | Valor IPI | ...
+   Cada linha tem essa sequência de COLUNAS NUMÉRICAS:
+       <CodForn+Descrição> | <Vol> <Vol> | Emb. (sempre 1) | Qtde | ValorUnit | ValorItem | 0,00 | 0,00 | ...
+   Exemplo real:
+       8117PIMENTAO VERDE KG KG 1 160,00 12,5000 2.000,00 0,00 0,00 ...
+                                  ↑    ↑      ↑        ↑
+                                Emb  Qtde   ValorUnit  ValorItem
+   - "Emb." é o código de embalagem (geralmente o número 1) — IGNORE.
+   - "Qtde" é o número que vem DEPOIS do Emb. — extraia como `qtd`.
+   - "Valor Unitário" vem DEPOIS de Qtde — extraia como `preco_unit`.
+   - "Valor Item" (qtd × unit) vem DEPOIS — IGNORE, não pedimos.
+
+═══════════════════════════════════════════════════════
+
+REGRAS DE EXTRAÇÃO:
+1. EXTRAIA APENAS valores que aparecem LITERALMENTE no texto. NÃO INVENTE.
+2. Se um valor não estiver claramente no texto, retorne null.
+3. NÃO sugira CODPARC nem CODPROD. Outro sistema resolve.
+4. Datas: YYYY-MM-DD. Use "Data da emissão".
+5. Números: ponto decimal (1.234,56 BR → 1234.56 saída).
+6. Itens: extraia TODOS os produtos da tabela. SEMPRE retorne `itens`, mesmo vazio.
 """
 
-PROMPT_USUARIO_TMPL = """Texto extraído do PDF:
-\"\"\"{texto_pdf}\"\"\"
+_PROMPT_USUARIO_TMPL_CONSINCO_RELPED = """Texto extraído do PDF (UM pedido):
+\"\"\"
+{texto_pdf}
+\"\"\"
 
-Lista enxuta de parceiros conhecidos (use para sugerir CODPARC):
-{parceiros}
-
-Lista enxuta de produtos conhecidos (use para sugerir CODPROD por item):
-{produtos}
-
-Devolva um JSON com este formato exato:
+Devolva um JSON com este formato:
 {{
-  "cliente": {{"nome": "...", "codparc_sugerido": 0, "confianca": 0.0}},
-  "data_negociacao": "YYYY-MM-DD",
-  "observacao": "...",
+  "cliente_nome": "<razão social do CLIENTE em 'DADOS PARA FATURAMENTO' — NÃO o fornecedor>",
+  "data_negociacao": "<YYYY-MM-DD ou null>",
+  "observacao": "<observação livre se houver, ou null>",
   "itens": [
-    {{"descricao_pdf": "...", "codprod_sugerido": 0, "codprod_confianca": 0.0,
-      "qtd": 0.0, "codvol": "UN", "preco_unit": 0.0}}
-  ],
-  "confianca_geral": 0.0
+    {{
+      "cod_cliente": "<código numérico que vem ANTES da descrição na coluna 'Cod Forn' (ex: 8117). É o código que o CLIENTE usa pro produto. SEM letras coladas.>",
+      "descricao_pdf": "<descrição literal do produto, sem código>",
+      "qtd": <número da coluna QTDE — NUNCA da coluna EMB.>,
+      "codvol": "<KG/UN/BD/CX/...>",
+      "preco_unit": <número da coluna VALOR UNITÁRIO ou null>
+    }}
+  ]
+}}
+
+EXEMPLO REAL (use como referência de layout, NÃO copie valores):
+
+  Texto de entrada (trecho):
+    FORNECEDOR 4212917
+    R. Social AGROMIL AGROCOMERCIAL LTDA
+    DADOS PARA FATURAMENTO
+    R. Social SENDAS DISTRIBUIDORA S/A LJ176  176 PALMAS TEOTONIO
+    Cod Forn SeqProdutos a Receber Emb. Qtde Valor Unitário Valor Item
+    8117PIMENTAO VERDE KG    KG 1 160,00 12,5000  2.000,00  0,00 ...
+    1042608MILHO VERDE C/5UN BD 1  80,00  8,0000    640,00  0,00 ...
+    Data da emissão 30/04/2026
+
+  JSON correto:
+  {{
+    "cliente_nome": "SENDAS DISTRIBUIDORA S/A LJ176 176 PALMAS TEOTONIO",
+    "data_negociacao": "2026-04-30",
+    "observacao": null,
+    "itens": [
+      {{"cod_cliente": "8117", "descricao_pdf": "PIMENTAO VERDE", "qtd": 160.0, "codvol": "KG", "preco_unit": 12.5}},
+      {{"cod_cliente": "1042608", "descricao_pdf": "MILHO VERDE C/5UN", "qtd": 80.0, "codvol": "BD", "preco_unit": 8.0}}
+    ]
+  }}
+
+  ⚠ ERROS comuns que esse exemplo previne:
+   - cliente_nome NÃO é "AGROMIL AGROCOMERCIAL LTDA" (fornecedor).
+   - qtd NÃO é 1 (Emb.). É 160 e 80 (Qtde real).
+   - preco_unit NÃO é 160 ou 80 (Qtde). É 12.5 e 8.0 (Valor Unitário).
+   - cod_cliente é APENAS dígitos do "Cod Forn" (8117, 1042608) — não inclua letras.
+   - Se a linha não tem código numérico antes da descrição, use null em cod_cliente.
+"""
+
+
+# Variant GENERICO — neutro, pra layouts ainda não plugados (PDF de outro
+# fornecedor, paste de WhatsApp, etc.). Sem dicas específicas — pior precisão,
+# mas funciona em qualquer formato. Operador corrige na revisão; aprendizado
+# por alias acelera as próximas.
+_PROMPT_SISTEMA_GENERICO = """Você é um extrator preciso de dados de pedidos de venda agropecuários. Recebe texto bruto de UM ÚNICO pedido (extraído de PDF, mensagem de WhatsApp ou paste manual) e devolve EXCLUSIVAMENTE um objeto JSON válido. Sem markdown, sem comentário, sem explicação.
+
+REGRAS DE EXTRAÇÃO:
+1. EXTRAIA APENAS valores que aparecem LITERALMENTE no texto. NÃO INVENTE.
+2. Se um valor não estiver claramente no texto, retorne null.
+3. NÃO sugira CODPARC nem CODPROD. Outro sistema resolve.
+4. Datas: formato YYYY-MM-DD. Se o texto trouxer "30/04/2026", devolva "2026-04-30".
+5. Números: ponto decimal (1.234,56 BR → 1234.56 saída).
+6. Itens: extraia TODOS os produtos do pedido. SEMPRE retorne `itens`, mesmo vazio.
+7. Cliente vs Fornecedor: o CLIENTE é quem está RECEBENDO o pedido (quem vai
+   comprar de nós). O FORNECEDOR somos nós (AGROMIL / HF SEMEAR). Se houver
+   ambos no texto, escolha o cliente. Em caso de dúvida, prefira a razão
+   social associada a "Cliente", "Faturamento", "Destinatário" ou similar.
+"""
+
+_PROMPT_USUARIO_TMPL_GENERICO = """Texto do pedido:
+\"\"\"
+{texto_pdf}
+\"\"\"
+
+Devolva um JSON com este formato:
+{{
+  "cliente_nome": "<nome ou razão social do cliente, ou null>",
+  "data_negociacao": "<YYYY-MM-DD ou null>",
+  "observacao": "<observação livre se houver, ou null>",
+  "itens": [
+    {{
+      "descricao_pdf": "<descrição literal do produto, sem código se possível>",
+      "qtd": <número>,
+      "codvol": "<KG/UN/CX/BD/etc, use 'UN' se não especificado>",
+      "preco_unit": <número ou null>
+    }}
+  ]
 }}
 """
+
+
+# Mapa layout → (sistema, template_usuario). Adicionar novo layout =
+# 1 entrada aqui + 1 entrada no _HEADERS_POR_LAYOUT do worker.
+PROMPTS_POR_LAYOUT: dict[str, tuple[str, str]] = {
+    'CONSINCO_RELPED': (_PROMPT_SISTEMA_CONSINCO_RELPED, _PROMPT_USUARIO_TMPL_CONSINCO_RELPED),
+    'GENERICO':        (_PROMPT_SISTEMA_GENERICO,        _PROMPT_USUARIO_TMPL_GENERICO),
+}
+
+
+def _prompts_para_layout(layout: str | None) -> tuple[str, str]:
+    """Retorna (sistema, template_usuario) pro layout. Default GENERICO."""
+    return PROMPTS_POR_LAYOUT.get(layout or 'GENERICO', PROMPTS_POR_LAYOUT['GENERICO'])
 
 
 # ---------------------------------------------------------------------------
@@ -116,33 +234,6 @@ def _cliente_ollama():
 
 
 # ---------------------------------------------------------------------------
-# Helpers de prompt
-# ---------------------------------------------------------------------------
-
-def _formatar_lista_parceiros(parceiros: list[dict]) -> str:
-    """Formata top N parceiros como linhas curtas para o prompt."""
-    if not parceiros: return '(nenhum no contexto)'
-    linhas = []
-    for p in parceiros[:50]:
-        cod = p.get('codparc') or p.get('CODPARC')
-        nome = p.get('nome') or p.get('NOMEPARC') or ''
-        cgc = p.get('cgc') or p.get('CGC_CPF') or ''
-        linhas.append(f"  CODPARC={cod} — {nome} (CGC: {cgc})")
-    return '\n'.join(linhas)
-
-
-def _formatar_lista_produtos(produtos: list[dict]) -> str:
-    if not produtos: return '(nenhum no contexto)'
-    linhas = []
-    for p in produtos[:100]:
-        cod = p.get('codprod') or p.get('CODPROD')
-        descr = p.get('descr') or p.get('DESCRPROD') or ''
-        vol = p.get('codvol') or p.get('CODVOL') or ''
-        linhas.append(f"  CODPROD={cod} — {descr} ({vol})")
-    return '\n'.join(linhas)
-
-
-# ---------------------------------------------------------------------------
 # Extração e validação do JSON de resposta
 # ---------------------------------------------------------------------------
 
@@ -168,14 +259,21 @@ def _extrair_json_da_resposta(texto: str) -> dict:
 
 def _normalizar_resposta(parsed: dict) -> dict:
     """Garante que campos obrigatórios existem e tipos batem. Não falha — preenche
-    com valores neutros e baixa a confiança quando algo está estranho."""
+    com valores neutros.
+
+    O LLM agora retorna apenas dados textuais (cliente_nome, descricao_pdf).
+    Os IDs (codparc, codprod) e confiança vêm do matching em Python via
+    `services.matching` no worker.
+    """
     out: dict = {}
-    cliente = parsed.get('cliente') or {}
-    out['cliente'] = {
-        'nome':              str(cliente.get('nome') or '')[:120],
-        'codparc_sugerido':  _to_int(cliente.get('codparc_sugerido')),
-        'confianca':         _to_float_0_1(cliente.get('confianca')),
-    }
+    # Aceita tanto a forma nova ("cliente_nome": "...") quanto a antiga
+    # ("cliente": {"nome": "..."}) — robustez contra LLM seguir ou não o template
+    cliente_nome = parsed.get('cliente_nome')
+    if not cliente_nome:
+        cliente_obj = parsed.get('cliente') or {}
+        cliente_nome = cliente_obj.get('nome') or cliente_obj.get('cliente_nome') or ''
+    out['cliente_nome']    = str(cliente_nome or '')[:200]
+
     out['data_negociacao'] = parsed.get('data_negociacao') or None
     out['observacao']      = (parsed.get('observacao') or None)
     if out['observacao'] is not None:
@@ -184,16 +282,23 @@ def _normalizar_resposta(parsed: dict) -> dict:
     itens_raw = parsed.get('itens') or []
     itens: list[dict] = []
     for it in itens_raw if isinstance(itens_raw, list) else []:
+        # cod_cliente: aceita string ou número, normaliza pra string só dígitos
+        # (no Consinco vem como int "8117"). Vazio/null vira None.
+        cod_raw = it.get('cod_cliente')
+        cod_cliente = None
+        if cod_raw not in (None, '', 0):
+            cod_str = str(cod_raw).strip()
+            # Filtra só dígitos pra evitar lixo do LLM ("8117KG" vira "8117")
+            so_digitos = re.sub(r'[^0-9]', '', cod_str)
+            cod_cliente = so_digitos[:50] if so_digitos else None
         itens.append({
-            'descricao_pdf':     str(it.get('descricao_pdf') or '')[:500],
-            'codprod_sugerido':  _to_int(it.get('codprod_sugerido')),
-            'codprod_confianca': _to_float_0_1(it.get('codprod_confianca')),
-            'qtd':               _to_float(it.get('qtd')),
-            'codvol':            str(it.get('codvol') or 'UN').upper()[:10],
-            'preco_unit':        _to_float(it.get('preco_unit')),
+            'cod_cliente':   cod_cliente,
+            'descricao_pdf': str(it.get('descricao_pdf') or '')[:500],
+            'qtd':           _to_float(it.get('qtd')),
+            'codvol':        str(it.get('codvol') or 'KG').upper()[:10],   # default agro = KG
+            'preco_unit':    _to_float(it.get('preco_unit')),
         })
-    out['itens']            = itens
-    out['confianca_geral']  = _to_float_0_1(parsed.get('confianca_geral'))
+    out['itens'] = itens
     return out
 
 
@@ -219,36 +324,44 @@ def _to_float_0_1(v):
 # Função principal
 # ---------------------------------------------------------------------------
 
-def extrair_pedido_de_pdf(texto_pdf: str,
-                           parceiros_contexto: list[dict] | None = None,
-                           produtos_contexto: list[dict] | None = None) -> dict:
+def extrair_pedido_de_pdf(texto_pdf: str, layout: str | None = None) -> dict:
     """Chama o LLM local e devolve o pedido extraído + telemetria.
 
     Retorno SEMPRE com `ok` (True/False). Em caso de falha, devolve `error`.
     Em caso de sucesso, devolve campos normalizados + `resposta_crua` para audit.
+
+    `layout` controla qual variant do prompt usar — ver `PROMPTS_POR_LAYOUT`.
+    Default é `'GENERICO'` (neutro). Para máxima precisão em PDFs Consinco/
+    RelPedSuprim, passar `layout='CONSINCO_RELPED'` (avisa o LLM dos pontos
+    onde sempre erra: FORNECEDOR≠CLIENTE e layout das colunas Emb/Qtde/Valor).
+
+    O LLM extrai apenas dados textuais (cliente_nome, descricao_pdf, qtd,
+    codvol, preco_unit, data_negociacao, observacao). A resolução de
+    CODPARC/CODPROD acontece depois em Python via `services.matching`
+    (fuzzy determinístico contra TGFPAR/TGFPRO completas), o que evita
+    alucinação do LLM por contaminação de contexto.
     """
     if not texto_pdf or not texto_pdf.strip():
         return {'ok': False, 'error': 'texto_pdf vazio.'}
 
     cfg = _config()
-    parceiros = _formatar_lista_parceiros(parceiros_contexto or [])
-    produtos = _formatar_lista_produtos(produtos_contexto or [])
-
-    prompt_user = PROMPT_USUARIO_TMPL.format(
+    prompt_sistema, prompt_usuario_tmpl = _prompts_para_layout(layout)
+    prompt_user = prompt_usuario_tmpl.format(
         texto_pdf=texto_pdf[:15000],  # trava de tamanho — PDFs muito grandes truncam
-        parceiros=parceiros,
-        produtos=produtos,
     )
 
     cliente = _cliente_ollama()
     ultima_excecao: Exception | None = None
     for tentativa in range(1, cfg['retries'] + 1):
         try:
-            logger.info(f"LLM tentativa {tentativa}/{cfg['retries']} (modelo={cfg['modelo']})")
+            logger.info(
+                f"LLM tentativa {tentativa}/{cfg['retries']} "
+                f"(modelo={cfg['modelo']}, layout={layout or 'GENERICO'})"
+            )
             resposta = cliente.chat(
                 model=cfg['modelo'],
                 messages=[
-                    {'role': 'system', 'content': PROMPT_SISTEMA},
+                    {'role': 'system', 'content': prompt_sistema},
                     {'role': 'user', 'content': prompt_user},
                 ],
                 format='json',  # pede JSON estruturado ao Ollama

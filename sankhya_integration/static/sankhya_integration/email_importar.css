@@ -26,7 +26,7 @@
 }
 
 #emailFilaPanel {
-    flex: 0 0 320px;
+    flex: 0 0 260px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -138,6 +138,24 @@
 }
 .email-fila-data { white-space: nowrap; }
 
+/* Contador de pendentes no header da fila — pílula colorida ao lado
+   do título "Fila de revisão". Só aparece quando filtro = PENDENTE_REVISAO
+   e há itens. Cor escala com volume (verde/laranja/vermelho). */
+.email-fila-contador {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.4;
+    vertical-align: middle;
+}
+.email-fila-contador:empty { display: none; }
+.email-fila-contador.cont-baixo  { background: #d1fae5; color: var(--eml-success); }
+.email-fila-contador.cont-medio  { background: #fef3c7; color: var(--eml-warning); }
+.email-fila-contador.cont-alto   { background: #fee2e2; color: var(--eml-danger); }
+
 /* Confiança em forma de pílula no canto */
 .email-confianca-pill {
     display: inline-flex;
@@ -186,12 +204,21 @@
 
 .hidden { display: none !important; }
 
+/* Override do entrada.css (carregado globalmente por legado) que define
+   .modal-overlay { display: none; } e exige .visible pra mostrar. Aqui
+   re-estabelecemos o comportamento esperado: visível por padrão (display:
+   flex do global.css), oculto quando a classe .hidden é aplicada via JS.
+   Sem isso, classList.remove('hidden') no JS não tem efeito visual. */
+.modal-overlay:not(.hidden) {
+    display: flex !important;
+}
+
 .email-detalhe-conteudo { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
 .email-split {
     flex: 1;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1.35fr;   /* items ganha mais espaço que o PDF */
     gap: 0;
     min-height: 0;
     overflow: hidden;
@@ -203,12 +230,47 @@
     background: #f1f5f9;
     overflow: hidden;
     min-height: 0;
+    position: relative;
 }
 .email-pdf-wrap iframe {
     width: 100%;
     height: 100%;
     border: 0;
     background: white;
+}
+.email-pdf-wrap iframe.hidden { display: none; }
+
+/* Preview de texto (substitui o iframe quando origem != IMAP) */
+.email-texto-preview {
+    width: 100%;
+    height: 100%;
+    background: white;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.email-texto-preview.hidden { display: none; }
+.email-texto-preview-header {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--eml-borda);
+    background: var(--eml-fundo-secao);
+    font-size: 12px;
+    color: var(--eml-texto);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.email-texto-preview pre {
+    flex: 1;
+    margin: 0;
+    padding: 14px;
+    overflow: auto;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--eml-texto);
 }
 
 /* Form de revisão */
@@ -300,11 +362,25 @@
 .email-confianca-badge.media  { background: #fef3c7; color: var(--eml-warning); }
 .email-confianca-badge.baixa  { background: #fee2e2; color: var(--eml-danger); }
 
+/* Badge de origem da extração (regex vs LLM) — neutro, ao lado da confiança */
+.email-origem-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 10px;
+    cursor: help;
+}
+.email-origem-badge.hidden { display: none; }
+.email-origem-regex { background: #ecfeff; color: #0369a1; }   /* parser regex: rápido */
+.email-origem-llm   { background: #f5f3ff; color: #6d28d9; }   /* LLM: lento mas universal */
+
 /* Itens do pedido */
 .email-itens-tabela-wrap {
     border: 1px solid var(--eml-borda);
     border-radius: 4px;
-    overflow: hidden;
+    /* overflow visível para o dropdown do typeahead de produto não ser cortado.
+       Border-radius do wrapper continua visível no contorno externo. */
+    overflow: visible;
     background: var(--eml-fundo-painel);
 }
 .email-itens-tabela {
@@ -313,7 +389,7 @@
     font-size: 12px;
 }
 .email-itens-tabela th, .email-itens-tabela td {
-    padding: 6px 8px;
+    padding: 5px 6px;
     border-bottom: 1px solid var(--eml-borda);
     text-align: left;
 }
@@ -342,13 +418,168 @@
     background: var(--eml-fundo-painel);
 }
 .email-itens-tabela td.text-right input { text-align: right; }
-.col-w-pdf   { width: 28%; }
-.col-w-prod  { width: 30%; }
-.col-w-num   { width: 70px; }
-.col-w-vol   { width: 60px; }
-.col-w-acoes { width: 32px; }
 
-.email-trash-btn {
+/* Rodapé com totais (Σ qtd + Σ valor) — atualiza a cada edição inline */
+.email-itens-tfoot {
+    background: var(--eml-fundo-painel-suave, #f8fafc);
+    border-top: 2px solid var(--eml-borda, #e2e8f0);
+}
+.email-itens-tfoot td {
+    padding: 8px 6px;
+    font-size: 13px;
+    color: var(--eml-texto-principal, #1e293b);
+}
+.email-itens-tfoot strong { font-weight: 600; }
+.email-itens-tfoot.hidden { display: none; }
+
+/* Linha de conferência cruzada (PDF de referência) — só visível quando o
+   parser detectou totais declarados no PDF. Operador compara visualmente
+   com a linha "Calculado:" acima. */
+.email-conferencia-row.hidden { display: none; }
+.email-conferencia-row td {
+    background: var(--eml-fundo-secao, #f1f5f9);
+    color: var(--eml-texto-fraco, #64748b);
+    font-size: 12px;
+    border-top: 1px dashed var(--eml-borda);
+}
+.email-conferencia-chip {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    cursor: help;
+    white-space: nowrap;
+}
+.email-conferencia-ok      { background: #d1fae5; color: var(--eml-success, #059669); }
+.email-conferencia-diverge { background: #fef3c7; color: var(--eml-warning, #d97706); }
+.col-w-pdf       { width: 26%; }   /* "Texto do PDF" carrega "1042608 - MILHO VERDE C/5UN" combinado */
+.col-w-prod      { width: 32%; }   /* nosso produto — typeahead exibe "cod — descrição" sem cortar */
+.col-w-num       { width: 90px; }  /* cabe "R$ 38.030,00" no rodapé sem cortar (Total) */
+.col-w-preco     { width: 75px; }  /* preço unitário, mais estreito que Total */
+.col-w-qtdvol    { width: 110px; } /* qtd + unidade unificadas (ex.: 160 KG) */
+.col-w-acoes     { width: 60px; }
+
+/* Célula unificada Qtd + Vol — ex: "160 KG". Mantemos a td como table-cell
+   normal (sem display:flex no td — isso quebrava o alinhamento vertical com
+   as outras colunas). O flex acontece dentro de .qtdvol-wrap. */
+.email-itens-tabela td.email-it-qtdvol {
+    padding: 5px 6px;
+    white-space: nowrap;
+    text-align: right;
+}
+.email-itens-tabela .qtdvol-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;          /* pequeno espaço "160 KG" */
+}
+.email-itens-tabela .qtdvol-wrap .email-it-qtd {
+    width: 50px;
+    text-align: right;
+    flex: 0 0 auto;
+}
+.email-itens-tabela .qtdvol-wrap .email-it-vol {
+    width: 34px;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--eml-texto-fraco);
+    flex: 0 0 auto;
+}
+
+/* Coluna "Total" — qtd × preço por linha, read-only, atualizada em onChange */
+.email-itens-tabela td.email-it-total {
+    font-weight: 500;
+    color: var(--eml-texto-principal);
+    white-space: nowrap;
+}
+
+/* Coluna cod_cliente — vem do PDF (Consinco), read-only */
+.email-itens-tabela td.email-cod-cli {
+    color: var(--eml-texto-fraco);
+    font-size: 11px;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+
+/* Typeahead de produto por linha (substitui o input numérico simples).
+   Estrutura: input.email-it-codprod-vis (visível) + input.email-it-codprod
+   (hidden, guarda CODPROD) + .dropdown-abs.
+   Texto do input visível: "39 — PIMENTAO VERDE EXTRA" — formato padrão. */
+
+/* Wrapper position:relative dentro da td. Necessário porque <td> com
+   border-collapse não estabelece containing block confiável pra
+   position:absolute em todos os browsers — o dropdown ficava posicionado
+   relativo ao body, fora da viewport. Span block-level dentro da td
+   é garantia de containing block. */
+.email-itens-tabela td .email-prod-wrap {
+    position: relative;
+    display: block;
+    width: 100%;
+}
+.email-itens-tabela td .email-it-codprod-vis {
+    font-size: 12px;
+    text-overflow: ellipsis;
+}
+.email-itens-tabela td .dropdown-abs {
+    min-width: 100%;
+    font-size: 12px;
+}
+.email-itens-tabela td .dropdown-abs .dd-item {
+    padding: 6px 10px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--eml-borda);
+}
+.email-itens-tabela td .dropdown-abs .dd-item:last-child { border-bottom: none; }
+.email-itens-tabela td .dropdown-abs .dd-item:hover,
+.email-itens-tabela td .dropdown-abs .dd-item.active {
+    background: #e0e7ff;
+}
+
+/* Pill de origem do match (alias / fuzzy / confirmado) — canto inferior
+   direito da célula CODPROD, dentro da célula (não sobressai mais como
+   antes). pointer-events:none deixa o input do typeahead receber clicks
+   normalmente mesmo quando a pill está sobreposta. */
+.email-match-badge {
+    position: absolute;
+    bottom: 1px;
+    right: 4px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1.4;
+    pointer-events: none;
+    z-index: 1;
+    text-transform: lowercase;
+    letter-spacing: 0.2px;
+}
+.email-match-badge.confirmado  { background: #d1fae5; color: var(--eml-success); }
+.email-match-badge.alias       { background: #dcfce7; color: #166534; }
+.email-match-badge.fuzzy-alta  { background: #fef3c7; color: #92400e; }
+.email-match-badge.fuzzy-baixa { background: #fee2e2; color: var(--eml-danger); }
+
+/* Hint "Nosso cliente: NOME" abaixo do typeahead de parceiro */
+.email-canonico-hint {
+    display: block;
+    margin-top: 4px;
+    color: var(--eml-texto-fraco);
+    font-size: 11px;
+    font-style: italic;
+}
+.email-canonico-hint:empty { display: none; }
+
+/* Hint "📩 PDF: ..." — texto literal que o LLM extraiu do PDF.
+   Cor levemente diferente para distinguir do hint canônico (nome casado). */
+.email-pdf-hint {
+    display: block;
+    margin-top: 2px;
+    color: #6b7280;
+    font-size: 11px;
+    font-style: italic;
+    word-break: break-word;
+}
+.email-pdf-hint:empty { display: none; }
+
+.email-trash-btn,
+.email-restore-btn {
     background: transparent;
     border: none;
     color: var(--eml-texto-fraco);
@@ -356,9 +587,12 @@
     padding: 2px;
     border-radius: 3px;
     transition: all 150ms ease;
+    margin-right: 2px;
 }
 .email-trash-btn:hover { background: #fee2e2; color: var(--eml-danger); }
-.email-trash-btn svg { width: 14px; height: 14px; }
+.email-restore-btn:hover { background: #dbeafe; color: #2563eb; }
+.email-trash-btn svg, .email-restore-btn svg { width: 14px; height: 14px; }
+.email-itens-tabela td.email-it-acoes { white-space: nowrap; }
 
 .email-mute { color: var(--eml-texto-fraco); font-weight: 400; font-size: 11px; }
 
@@ -375,6 +609,67 @@
 /* Reusa estilos globais .btn .btn-success .btn-clear .btn-muted; aqui só customizamos
    espaçamento se necessário */
 .email-actions .btn { padding: 6px 14px; }
+
+/* Botão "+ Adicionar item" no header dos itens */
+.email-add-item-btn {
+    margin-left: 8px;
+    padding: 2px 10px;
+    border: 1px dashed var(--eml-borda);
+    background: var(--eml-fundo-painel);
+    color: var(--eml-info);
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 150ms ease;
+}
+.email-add-item-btn:hover {
+    background: #eff6ff;
+    border-color: var(--eml-info);
+    border-style: solid;
+}
+
+/* Modal "Importar pedido por texto" — reusa .modal-overlay/.modal-card globais */
+.email-importar-texto-card {
+    width: 600px;
+    max-width: 95vw;
+}
+.email-importar-texto-card .modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.email-importar-texto-hint {
+    margin: 0;
+    padding: 8px 10px;
+    background: #fff7ed;
+    border-left: 3px solid var(--eml-warning);
+    border-radius: 3px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--eml-texto);
+}
+.email-importar-texto-card textarea {
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 12px;
+    resize: vertical;
+}
+
+/* Modal "Adicionar item manual" — reusa .modal-overlay/.modal-card globais */
+.email-add-item-card {
+    width: 480px;
+    max-width: 92vw;
+}
+.email-add-item-card .modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.email-add-item-actions {
+    padding: 10px 16px 14px 16px;
+    border-top: 1px solid var(--eml-borda);
+    margin-top: 0;
+}
 
 /* Debug — resposta crua do LLM */
 .email-llm-debug {

@@ -3449,16 +3449,50 @@ def _proximo_id_sequence(cur, nome_sequence: str) -> int:
     return int(cur.fetchone()[0])
 
 
+# Cache em memória (1× por processo Python) das colunas opcionais que podem
+# ou não existir conforme migrations já aplicadas. Permite o código
+# funcionar em servidores que ainda não rodaram a migration mais recente.
+# Reseta no restart do Django — quando operador aplica migration e
+# reinicia, passa a detectar a coluna automaticamente.
+_SCHEMA_OPCIONAIS_CACHE: dict[str, bool] = {}
+
+
+def _existe_coluna(cur, tabela: str, coluna: str) -> bool:
+    """Verifica (com cache) se uma coluna existe no schema atual.
+
+    Uso típico: features novas que dependem de migration ALTER TABLE
+    podem checar antes de incluir a coluna no SELECT/INSERT, evitando
+    ORA-00904 quando a migration ainda não foi aplicada em produção.
+    """
+    chave = f'{tabela.upper()}.{coluna.upper()}'
+    if chave in _SCHEMA_OPCIONAIS_CACHE:
+        return _SCHEMA_OPCIONAIS_CACHE[chave]
+    try:
+        cur.execute(
+            "SELECT COUNT(*) FROM USER_TAB_COLUMNS "
+            "WHERE TABLE_NAME = :t AND COLUMN_NAME = :c",
+            {'t': tabela.upper(), 'c': coluna.upper()},
+        )
+        existe = (cur.fetchone()[0] or 0) > 0
+    except Exception:
+        existe = False
+    _SCHEMA_OPCIONAIS_CACHE[chave] = existe
+    return existe
+
+
 def inserir_pedido_email_recebido(dados: dict, conexao_existente=None) -> dict:
     """Insere um registro de e-mail recebido em AD_PEDIDO_EMAIL_RECEBIDO.
 
     Campos esperados em `dados`:
-      MESSAGE_ID (obrigatório), REMETENTE, ASSUNTO, RECEBIDO_EM (datetime),
+      MESSAGE_ID (obrigatório), SUB_ID (default 1 — sequencial quando 1 PDF
+      tem N pedidos), REMETENTE, ASSUNTO, RECEBIDO_EM (datetime),
       PROCESSADO_EM (datetime), PDF_PATH, PDF_TEXTO (CLOB), STATUS (default
-      'AGUARDANDO_PARSER').
+      'AGUARDANDO_PARSER'), ORIGEM (default 'IMAP' — outras: 'TEXTO_LIVRE',
+      'WHATSAPP_API').
 
     Retorna {'ok': True, 'id': <novo_id>} ou {'ok': False, 'error': msg}.
-    Falha com UNIQUE em MESSAGE_ID significa duplicado — caller deve ignorar.
+    Falha com UNIQUE em (MESSAGE_ID, SUB_ID) significa duplicado — caller
+    deve ignorar.
     """
     def _operar(conn):
         cur = conn.cursor()
@@ -3466,33 +3500,64 @@ def inserir_pedido_email_recebido(dados: dict, conexao_existente=None) -> dict:
         status = dados.get('STATUS') or 'AGUARDANDO_PARSER'
         if status not in EMAIL_STATUS_VALIDOS:
             return {'ok': False, 'error': f"STATUS inválido: {status}"}
+        origem = dados.get('ORIGEM') or 'IMAP'
 
-        cur.execute(
+        # ORIGEM é opcional até a migration AD_PEDIDO_EMAIL_MIGRATION_ORIGEM
+        # ser aplicada no servidor — verificamos dinamicamente.
+        # Se a coluna não existe, paste manual (TEXTO_LIVRE) ainda é
+        # rejeitado abaixo pra evitar perder o discriminador silenciosamente.
+        tem_origem = _existe_coluna(cur, 'AD_PEDIDO_EMAIL_RECEBIDO', 'ORIGEM')
+        if not tem_origem and origem != 'IMAP':
+            return {'ok': False,
+                    'error': "Coluna ORIGEM ainda não existe no Oracle. "
+                             "Aplique a migration AD_PEDIDO_EMAIL_MIGRATION_ORIGEM.sql "
+                             "antes de usar a importação de texto livre."}
+
+        if tem_origem:
+            sql = """
+                INSERT INTO AD_PEDIDO_EMAIL_RECEBIDO (
+                    ID, MESSAGE_ID, SUB_ID, REMETENTE, ASSUNTO,
+                    RECEBIDO_EM, PROCESSADO_EM,
+                    PDF_PATH, PDF_TEXTO,
+                    STATUS, ORIGEM
+                ) VALUES (
+                    :id, :message_id, :sub_id, :remetente, :assunto,
+                    :recebido_em, :processado_em,
+                    :pdf_path, :pdf_texto,
+                    :status, :origem
+                )
             """
-            INSERT INTO AD_PEDIDO_EMAIL_RECEBIDO (
-                ID, MESSAGE_ID, REMETENTE, ASSUNTO,
-                RECEBIDO_EM, PROCESSADO_EM,
-                PDF_PATH, PDF_TEXTO,
-                STATUS
-            ) VALUES (
-                :id, :message_id, :remetente, :assunto,
-                :recebido_em, :processado_em,
-                :pdf_path, :pdf_texto,
-                :status
-            )
-            """,
-            {
-                'id': novo_id,
-                'message_id': dados['MESSAGE_ID'],
-                'remetente': dados.get('REMETENTE'),
-                'assunto': dados.get('ASSUNTO'),
-                'recebido_em': dados.get('RECEBIDO_EM'),
-                'processado_em': dados.get('PROCESSADO_EM'),
-                'pdf_path': dados.get('PDF_PATH'),
-                'pdf_texto': dados.get('PDF_TEXTO'),
-                'status': status,
-            },
-        )
+        else:
+            sql = """
+                INSERT INTO AD_PEDIDO_EMAIL_RECEBIDO (
+                    ID, MESSAGE_ID, SUB_ID, REMETENTE, ASSUNTO,
+                    RECEBIDO_EM, PROCESSADO_EM,
+                    PDF_PATH, PDF_TEXTO,
+                    STATUS
+                ) VALUES (
+                    :id, :message_id, :sub_id, :remetente, :assunto,
+                    :recebido_em, :processado_em,
+                    :pdf_path, :pdf_texto,
+                    :status
+                )
+            """
+
+        binds = {
+            'id': novo_id,
+            'message_id': dados['MESSAGE_ID'],
+            'sub_id': int(dados.get('SUB_ID') or 1),
+            'remetente': dados.get('REMETENTE'),
+            'assunto': dados.get('ASSUNTO'),
+            'recebido_em': dados.get('RECEBIDO_EM'),
+            'processado_em': dados.get('PROCESSADO_EM'),
+            'pdf_path': dados.get('PDF_PATH'),
+            'pdf_texto': dados.get('PDF_TEXTO'),
+            'status': status,
+        }
+        if tem_origem:
+            binds['origem'] = origem
+
+        cur.execute(sql, binds)
         return {'ok': True, 'id': novo_id}
 
     try:
@@ -3512,37 +3577,61 @@ def inserir_pedido_email_item(dados: dict, conexao_existente=None) -> dict:
 
     Campos esperados em `dados`:
       RECEBIDO_ID (obrigatório), SEQUENCIA, DESCRICAO_PDF,
-      CODPROD_SUGERIDO, CODPROD_CONFIANCA, QTD, CODVOL, PRECO_UNIT, OBSERVACAO.
+      CODPROD_SUGERIDO, CODPROD_CONFIANCA, QTD, CODVOL, PRECO_UNIT, OBSERVACAO,
+      COD_CLIENTE (opcional — código do produto na visão do cliente, ex: 8117
+      em pedidos Consinco; só persiste se a coluna existir no schema).
     """
     def _operar(conn):
         cur = conn.cursor()
         novo_id = _proximo_id_sequence(cur, 'SEQ_AD_PEDIDO_EMAIL_ITEM')
-        cur.execute(
+        # COD_CLIENTE é opcional até a migration AD_CLIENTE_PRODUTO_COD ser
+        # aplicada (que cria a coluna). Detecção dinâmica preserva backward-compat.
+        tem_cod_cliente = _existe_coluna(cur, 'AD_PEDIDO_EMAIL_ITEM', 'COD_CLIENTE')
+
+        if tem_cod_cliente:
+            sql = """
+                INSERT INTO AD_PEDIDO_EMAIL_ITEM (
+                    ID, RECEBIDO_ID, SEQUENCIA, DESCRICAO_PDF,
+                    CODPROD_SUGERIDO, CODPROD_CONFIANCA, CODPROD_FINAL,
+                    QTD, CODVOL, PRECO_UNIT, OBSERVACAO, COD_CLIENTE
+                ) VALUES (
+                    :id, :recebido_id, :sequencia, :descricao_pdf,
+                    :codprod_sugerido, :codprod_confianca, :codprod_final,
+                    :qtd, :codvol, :preco_unit, :observacao, :cod_cliente
+                )
             """
-            INSERT INTO AD_PEDIDO_EMAIL_ITEM (
-                ID, RECEBIDO_ID, SEQUENCIA, DESCRICAO_PDF,
-                CODPROD_SUGERIDO, CODPROD_CONFIANCA, CODPROD_FINAL,
-                QTD, CODVOL, PRECO_UNIT, OBSERVACAO
-            ) VALUES (
-                :id, :recebido_id, :sequencia, :descricao_pdf,
-                :codprod_sugerido, :codprod_confianca, :codprod_final,
-                :qtd, :codvol, :preco_unit, :observacao
+        else:
+            sql = """
+                INSERT INTO AD_PEDIDO_EMAIL_ITEM (
+                    ID, RECEBIDO_ID, SEQUENCIA, DESCRICAO_PDF,
+                    CODPROD_SUGERIDO, CODPROD_CONFIANCA, CODPROD_FINAL,
+                    QTD, CODVOL, PRECO_UNIT, OBSERVACAO
+                ) VALUES (
+                    :id, :recebido_id, :sequencia, :descricao_pdf,
+                    :codprod_sugerido, :codprod_confianca, :codprod_final,
+                    :qtd, :codvol, :preco_unit, :observacao
+                )
+            """
+        binds = {
+            'id': novo_id,
+            'recebido_id': dados['RECEBIDO_ID'],
+            'sequencia': dados.get('SEQUENCIA', 1),
+            'descricao_pdf': dados.get('DESCRICAO_PDF'),
+            'codprod_sugerido': dados.get('CODPROD_SUGERIDO'),
+            'codprod_confianca': dados.get('CODPROD_CONFIANCA'),
+            'codprod_final': dados.get('CODPROD_FINAL'),
+            'qtd': dados.get('QTD'),
+            'codvol': dados.get('CODVOL'),
+            'preco_unit': dados.get('PRECO_UNIT'),
+            'observacao': dados.get('OBSERVACAO'),
+        }
+        if tem_cod_cliente:
+            cod_cliente_raw = dados.get('COD_CLIENTE')
+            binds['cod_cliente'] = (
+                str(cod_cliente_raw).strip()[:50] if cod_cliente_raw not in (None, '') else None
             )
-            """,
-            {
-                'id': novo_id,
-                'recebido_id': dados['RECEBIDO_ID'],
-                'sequencia': dados.get('SEQUENCIA', 1),
-                'descricao_pdf': dados.get('DESCRICAO_PDF'),
-                'codprod_sugerido': dados.get('CODPROD_SUGERIDO'),
-                'codprod_confianca': dados.get('CODPROD_CONFIANCA'),
-                'codprod_final': dados.get('CODPROD_FINAL'),
-                'qtd': dados.get('QTD'),
-                'codvol': dados.get('CODVOL'),
-                'preco_unit': dados.get('PRECO_UNIT'),
-                'observacao': dados.get('OBSERVACAO'),
-            },
-        )
+
+        cur.execute(sql, binds)
         return {'ok': True, 'id': novo_id}
 
     try:
@@ -3583,26 +3672,36 @@ def listar_pedidos_email_pendentes(filtros: dict | None = None,
         where.append("RECEBIDO_EM >= SYSTIMESTAMP - NUMTODSINTERVAL(:dias, 'DAY')")
         binds['dias'] = int(dias)
 
-    sql = f"""
-    SELECT * FROM (
-        SELECT t.*, ROW_NUMBER() OVER (ORDER BY RECEBIDO_EM DESC NULLS LAST, ID DESC) AS rn
-        FROM (
-            SELECT
-                ID, MESSAGE_ID, REMETENTE, ASSUNTO,
-                RECEBIDO_EM, PROCESSADO_EM,
-                LLM_CONFIANCA_GERAL, CODPARC_SUGERIDO,
-                STATUS, NUNOTA_GERADO, CRIADO_EM
-            FROM AD_PEDIDO_EMAIL_RECEBIDO
-            WHERE {' AND '.join(where)}
-        ) t
-    ) WHERE rn BETWEEN :ini AND :fim
-    """
+    # Ordenação: e-mails mais recentes no topo (RECEBIDO_EM DESC); dentro do
+    # mesmo e-mail (SUB_ID 1, 2, 3...), respeita a ordem das páginas do PDF
+    # original — antes era ID DESC, que invertia (página 3 vinha antes da 1).
     binds['ini'] = offset + 1
     binds['fim'] = offset + limite
 
     try:
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
+            # ORIGEM só existe após migration AD_PEDIDO_EMAIL_MIGRATION_ORIGEM.
+            # Antes da migration, retorna 'IMAP' literal pra preservar
+            # contrato com o frontend.
+            tem_origem = _existe_coluna(cur, 'AD_PEDIDO_EMAIL_RECEBIDO', 'ORIGEM')
+            col_origem = 'ORIGEM' if tem_origem else "'IMAP' AS ORIGEM"
+            sql = f"""
+            SELECT * FROM (
+                SELECT t.*, ROW_NUMBER() OVER (
+                    ORDER BY RECEBIDO_EM DESC NULLS LAST, SUB_ID ASC NULLS LAST, ID ASC
+                ) AS rn
+                FROM (
+                    SELECT
+                        ID, MESSAGE_ID, SUB_ID, REMETENTE, ASSUNTO,
+                        RECEBIDO_EM, PROCESSADO_EM,
+                        LLM_CONFIANCA_GERAL, CODPARC_SUGERIDO,
+                        STATUS, NUNOTA_GERADO, CRIADO_EM, {col_origem}
+                    FROM AD_PEDIDO_EMAIL_RECEBIDO
+                    WHERE {' AND '.join(where)}
+                ) t
+            ) WHERE rn BETWEEN :ini AND :fim
+            """
             cur.execute(sql, binds)
             cols = [d[0].lower() for d in cur.description]
             linhas = []
@@ -3618,31 +3717,56 @@ def listar_pedidos_email_pendentes(filtros: dict | None = None,
 
 def obter_pedido_email_completo(recebido_id: int) -> dict | None:
     """Retorna o pré-pedido com cabeçalho + itens. None se não existir."""
-    sql_cab = """
-        SELECT ID, MESSAGE_ID, REMETENTE, ASSUNTO,
-               RECEBIDO_EM, PROCESSADO_EM,
-               PDF_PATH, PDF_TEXTO,
-               LLM_RESPOSTA, LLM_MODELO,
-               LLM_TOKENS_IN, LLM_TOKENS_OUT, LLM_CONFIANCA_GERAL,
-               CODPARC_SUGERIDO, CODEMP_SUGERIDO,
-               DTNEG_SUGERIDA, CODTIPVENDA_SUGERIDO,
-               OBSERVACAO_EXTRAIDA,
-               STATUS, MOTIVO_DESCARTE,
-               NUNOTA_GERADO, CONFIRMADO_POR, CONFIRMADO_EM, CRIADO_EM
-        FROM AD_PEDIDO_EMAIL_RECEBIDO
-        WHERE ID = :id
-    """
-    sql_itens = """
-        SELECT ID, RECEBIDO_ID, SEQUENCIA, DESCRICAO_PDF,
-               CODPROD_SUGERIDO, CODPROD_CONFIANCA, CODPROD_FINAL,
-               QTD, CODVOL, PRECO_UNIT, OBSERVACAO, CRIADO_EM
-        FROM AD_PEDIDO_EMAIL_ITEM
-        WHERE RECEBIDO_ID = :id
-        ORDER BY SEQUENCIA
-    """
+    # LEFT JOIN com TGFPAR/TSIEMP/TGFTPV trazem nomes canônicos dos IDs
+    # sugeridos para o operador conferir visualmente (NOSSO CLIENTE / NOSSA
+    # EMPRESA / NOSSO TIPO DE NEGOCIAÇÃO).
+    # ORIGEM só existe após a migration AD_PEDIDO_EMAIL_MIGRATION_ORIGEM —
+    # tornamos opcional pra rodar antes/depois sem quebrar.
+    # LEFT JOIN com TGFPRO traz a descrição canônica do nosso produto
+    # (DESCRPROD) ao lado do CODPROD sugerido. Isso permite o operador
+    # conferir visualmente: "PIMENTAO VERDE" do PDF está casando com o que
+    # da nossa base? — ele vê "PIMENTAO VERDE EXTRA" e confirma.
     try:
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
+            tem_origem = _existe_coluna(cur, 'AD_PEDIDO_EMAIL_RECEBIDO', 'ORIGEM')
+            col_origem = 'r.ORIGEM' if tem_origem else "'IMAP' AS ORIGEM"
+            tem_cod_cliente = _existe_coluna(cur, 'AD_PEDIDO_EMAIL_ITEM', 'COD_CLIENTE')
+            col_cod_cliente = 'i.COD_CLIENTE' if tem_cod_cliente else "NULL AS COD_CLIENTE"
+            sql_itens = f"""
+                SELECT i.ID, i.RECEBIDO_ID, i.SEQUENCIA, i.DESCRICAO_PDF,
+                       i.CODPROD_SUGERIDO, i.CODPROD_CONFIANCA, i.CODPROD_FINAL,
+                       i.QTD, i.CODVOL, i.PRECO_UNIT, i.OBSERVACAO, i.CRIADO_EM,
+                       {col_cod_cliente},
+                       p.DESCRPROD AS CODPROD_SUGERIDO_DESCR,
+                       pf.DESCRPROD AS CODPROD_FINAL_DESCR
+                FROM AD_PEDIDO_EMAIL_ITEM i
+                LEFT JOIN TGFPRO p  ON p.CODPROD  = i.CODPROD_SUGERIDO
+                LEFT JOIN TGFPRO pf ON pf.CODPROD = i.CODPROD_FINAL
+                WHERE i.RECEBIDO_ID = :id
+                ORDER BY i.SEQUENCIA
+            """
+            sql_cab = f"""
+                SELECT r.ID, r.MESSAGE_ID, r.SUB_ID, r.REMETENTE, r.ASSUNTO,
+                       r.RECEBIDO_EM, r.PROCESSADO_EM,
+                       r.PDF_PATH, r.PDF_TEXTO,
+                       r.LLM_RESPOSTA, r.LLM_MODELO,
+                       r.LLM_TOKENS_IN, r.LLM_TOKENS_OUT, r.LLM_CONFIANCA_GERAL,
+                       r.CODPARC_SUGERIDO, r.CODEMP_SUGERIDO,
+                       r.DTNEG_SUGERIDA, r.CODTIPVENDA_SUGERIDO,
+                       r.OBSERVACAO_EXTRAIDA,
+                       r.STATUS, r.MOTIVO_DESCARTE,
+                       r.NUNOTA_GERADO, r.CONFIRMADO_POR, r.CONFIRMADO_EM, r.CRIADO_EM,
+                       {col_origem},
+                       p.NOMEPARC      AS CODPARC_SUGERIDO_NOME,
+                       e.NOMEFANTASIA  AS CODEMP_SUGERIDO_NOME,
+                       t.DESCRTIPVENDA AS CODTIPVENDA_SUGERIDO_DESCR
+                FROM AD_PEDIDO_EMAIL_RECEBIDO r
+                LEFT JOIN TGFPAR p ON p.CODPARC      = r.CODPARC_SUGERIDO
+                LEFT JOIN TSIEMP e ON e.CODEMP       = r.CODEMP_SUGERIDO
+                LEFT JOIN TGFTPV t ON t.CODTIPVENDA  = r.CODTIPVENDA_SUGERIDO
+                WHERE r.ID = :id
+            """
             cur.execute(sql_cab, id=recebido_id)
             row = cur.fetchone()
             if not row: return None
@@ -3814,6 +3938,26 @@ def atualizar_pedido_email_item(item_id: int, dados: dict,
         return {'ok': False, 'error': str(exc)}
 
 
+def deletar_itens_do_pedido_email(recebido_id: int, conexao_existente=None) -> dict:
+    """Remove TODOS os itens de um pré-pedido. Usado por 'Restaurar tudo'."""
+    def _operar(conn):
+        cur = conn.cursor()
+        cur.execute("DELETE FROM AD_PEDIDO_EMAIL_ITEM WHERE RECEBIDO_ID = :rid",
+                    rid=int(recebido_id))
+        return {'ok': True, 'rows': cur.rowcount}
+
+    try:
+        if conexao_existente is not None:
+            return _operar(conexao_existente)
+        with obter_conexao_oracle() as conn:
+            res = _operar(conn)
+            if res.get('ok'): conn.commit()
+            return res
+    except Exception as exc:
+        logger.exception("Erro em deletar_itens_do_pedido_email")
+        return {'ok': False, 'error': str(exc)}
+
+
 def deletar_pedido_email_item(item_id: int, conexao_existente=None) -> dict:
     """Remove um item da revisão (operador clicou lixeira na tela)."""
     def _operar(conn):
@@ -3908,3 +4052,291 @@ def consultar_pedido_email_por_message_id(message_id: str) -> dict | None:
     except Exception:
         logger.exception("Erro em consultar_pedido_email_por_message_id")
         return None
+
+
+# =============================================================================
+# Aprendizado por de-para — AD_PRODUTO_ALIAS / AD_PARCEIRO_ALIAS
+# =============================================================================
+# Após o operador confirmar um pré-pedido na tela /sankhya/venda/email-importar/,
+# salvamos as decisões dele aqui. Próximas execuções do worker LLM vão consultar
+# essas tabelas ANTES do fuzzy matching — alias bate, retorna direto.
+# Não é Machine Learning. É um dicionário deterministico.
+# =============================================================================
+
+def buscar_alias_produto(descricao_normalizada: str,
+                          codparc: int | None = None) -> int | None:
+    """Retorna CODPROD aprendido para uma descrição (já normalizada).
+
+    Lógica de busca em 2 etapas (mais específico antes):
+      1. (descr + codparc) — alias específico desse cliente
+      2. (descr + NULL)    — alias global (vale pra todos os clientes)
+    Retorna None se não houver match.
+
+    Side effect: incrementa COUNT_USADO + atualiza ULTIMO_USO ao retornar match.
+    """
+    if not descricao_normalizada:
+        return None
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            # Etapa 1: alias específico do cliente
+            if codparc:
+                cur.execute(
+                    "SELECT ID, CODPROD FROM AD_PRODUTO_ALIAS "
+                    " WHERE DESCRICAO_NORMALIZADA = :d AND CODPARC = :p",
+                    d=descricao_normalizada, p=int(codparc),
+                )
+                row = cur.fetchone()
+                if row:
+                    cur.execute(
+                        "UPDATE AD_PRODUTO_ALIAS SET COUNT_USADO = COUNT_USADO + 1, "
+                        "       ULTIMO_USO = SYSTIMESTAMP WHERE ID = :id",
+                        id=row[0],
+                    )
+                    conn.commit()
+                    return int(row[1])
+            # Etapa 2: alias global
+            cur.execute(
+                "SELECT ID, CODPROD FROM AD_PRODUTO_ALIAS "
+                " WHERE DESCRICAO_NORMALIZADA = :d AND CODPARC IS NULL",
+                d=descricao_normalizada,
+            )
+            row = cur.fetchone()
+            if row:
+                cur.execute(
+                    "UPDATE AD_PRODUTO_ALIAS SET COUNT_USADO = COUNT_USADO + 1, "
+                    "       ULTIMO_USO = SYSTIMESTAMP WHERE ID = :id",
+                    id=row[0],
+                )
+                conn.commit()
+                return int(row[1])
+            return None
+    except Exception:
+        logger.exception("Erro em buscar_alias_produto")
+        return None
+
+
+def buscar_alias_parceiro(nome_normalizado: str) -> int | None:
+    """Retorna CODPARC aprendido para um nome de cliente (já normalizado).
+
+    Side effect: incrementa COUNT_USADO + atualiza ULTIMO_USO ao retornar match.
+    """
+    if not nome_normalizado:
+        return None
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT ID, CODPARC FROM AD_PARCEIRO_ALIAS WHERE NOME_NORMALIZADO = :n",
+                n=nome_normalizado,
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cur.execute(
+                "UPDATE AD_PARCEIRO_ALIAS SET COUNT_USADO = COUNT_USADO + 1, "
+                "       ULTIMO_USO = SYSTIMESTAMP WHERE ID = :id",
+                id=row[0],
+            )
+            conn.commit()
+            return int(row[1])
+    except Exception:
+        logger.exception("Erro em buscar_alias_parceiro")
+        return None
+
+
+def gravar_alias_produto(descricao_normalizada: str, codprod: int,
+                          codparc: int | None = None,
+                          confirmado_por: int | None = None,
+                          conexao_existente=None) -> dict:
+    """Grava ou atualiza um alias produto após confirmação do operador.
+
+    UPSERT: se já existe (descr, codparc), atualiza CODPROD (operador mudou de
+    ideia, vale a última escolha). Senão, insere novo.
+    """
+    if not descricao_normalizada or not codprod:
+        return {'ok': False, 'error': 'descricao ou codprod vazio'}
+
+    def _operar(conn):
+        cur = conn.cursor()
+        # Tenta UPDATE primeiro (mais comum: alias já existe e operador apenas reconfirmou)
+        cur.execute(
+            "UPDATE AD_PRODUTO_ALIAS "
+            "   SET CODPROD = :codprod, ULTIMO_USO = SYSTIMESTAMP, "
+            "       CONFIRMADO_POR = COALESCE(:cu, CONFIRMADO_POR) "
+            " WHERE DESCRICAO_NORMALIZADA = :d "
+            "   AND ((:p IS NULL AND CODPARC IS NULL) OR CODPARC = :p)",
+            {'codprod': int(codprod), 'cu': confirmado_por,
+             'd': descricao_normalizada,
+             'p': int(codparc) if codparc else None},
+        )
+        if cur.rowcount > 0:
+            return {'ok': True, 'acao': 'UPDATE'}
+
+        # Não existe — INSERT
+        novo_id = _proximo_id_sequence(cur, 'SEQ_AD_PRODUTO_ALIAS')
+        cur.execute(
+            "INSERT INTO AD_PRODUTO_ALIAS "
+            "  (ID, DESCRICAO_NORMALIZADA, CODPROD, CODPARC, COUNT_USADO, "
+            "   ULTIMO_USO, CONFIRMADO_POR) "
+            "VALUES (:id, :d, :codprod, :p, 0, SYSTIMESTAMP, :cu)",
+            {'id': novo_id, 'd': descricao_normalizada,
+             'codprod': int(codprod),
+             'p': int(codparc) if codparc else None,
+             'cu': confirmado_por},
+        )
+        return {'ok': True, 'acao': 'INSERT', 'id': novo_id}
+
+    try:
+        if conexao_existente is not None:
+            return _operar(conexao_existente)
+        with obter_conexao_oracle() as conn:
+            res = _operar(conn)
+            if res.get('ok'): conn.commit()
+            return res
+    except Exception as exc:
+        logger.exception("Erro em gravar_alias_produto")
+        return {'ok': False, 'error': str(exc)}
+
+
+def gravar_alias_parceiro(nome_normalizado: str, codparc: int,
+                           confirmado_por: int | None = None,
+                           conexao_existente=None) -> dict:
+    """Grava ou atualiza um alias parceiro após confirmação do operador. UPSERT."""
+    if not nome_normalizado or not codparc:
+        return {'ok': False, 'error': 'nome ou codparc vazio'}
+
+    def _operar(conn):
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE AD_PARCEIRO_ALIAS "
+            "   SET CODPARC = :codparc, ULTIMO_USO = SYSTIMESTAMP, "
+            "       CONFIRMADO_POR = COALESCE(:cu, CONFIRMADO_POR) "
+            " WHERE NOME_NORMALIZADO = :n",
+            {'codparc': int(codparc), 'cu': confirmado_por, 'n': nome_normalizado},
+        )
+        if cur.rowcount > 0:
+            return {'ok': True, 'acao': 'UPDATE'}
+        novo_id = _proximo_id_sequence(cur, 'SEQ_AD_PARCEIRO_ALIAS')
+        cur.execute(
+            "INSERT INTO AD_PARCEIRO_ALIAS "
+            "  (ID, NOME_NORMALIZADO, CODPARC, COUNT_USADO, ULTIMO_USO, CONFIRMADO_POR) "
+            "VALUES (:id, :n, :codparc, 0, SYSTIMESTAMP, :cu)",
+            {'id': novo_id, 'n': nome_normalizado,
+             'codparc': int(codparc), 'cu': confirmado_por},
+        )
+        return {'ok': True, 'acao': 'INSERT', 'id': novo_id}
+
+    try:
+        if conexao_existente is not None:
+            return _operar(conexao_existente)
+        with obter_conexao_oracle() as conn:
+            res = _operar(conn)
+            if res.get('ok'): conn.commit()
+            return res
+    except Exception as exc:
+        logger.exception("Erro em gravar_alias_parceiro")
+        return {'ok': False, 'error': str(exc)}
+
+
+# =============================================================================
+# Aprendizado por código do cliente (AD_CLIENTE_PRODUTO_COD)
+# =============================================================================
+# Mais forte que alias por descrição: o "Cod Forn" do PDF Consinco (ex: 8117)
+# é estável e único por cliente. Match exato → CODPROD direto, confiança 100.
+# Usado como Etapa 0 do matching híbrido (alias por descrição é Etapa 1, fuzzy é Etapa 2).
+# Tudo isso é resiliente à migration AD_CLIENTE_PRODUTO_COD.sql ainda não aplicada
+# em produção — funções devolvem None ou {'ok': False} silencioso, sem quebrar
+# o pipeline.
+
+def buscar_cod_cliente_codprod(codparc: int, cod_cliente: str) -> int | None:
+    """Retorna CODPROD aprendido para (CODPARC, COD_CLIENTE), ou None.
+
+    Side effect: incrementa COUNT_USADO + atualiza ULTIMO_USO ao retornar match.
+    """
+    if not codparc or not cod_cliente:
+        return None
+    cod_cliente = str(cod_cliente).strip()[:50]
+    if not cod_cliente:
+        return None
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            # Tabela pode ainda não existir (migration não aplicada) → retorna None.
+            if not _existe_coluna(cur, 'AD_CLIENTE_PRODUTO_COD', 'CODPROD'):
+                return None
+            cur.execute(
+                "SELECT ID, CODPROD FROM AD_CLIENTE_PRODUTO_COD "
+                " WHERE CODPARC = :p AND COD_CLIENTE = :c",
+                {'p': int(codparc), 'c': cod_cliente},
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cur.execute(
+                "UPDATE AD_CLIENTE_PRODUTO_COD "
+                "   SET COUNT_USADO = COUNT_USADO + 1, ULTIMO_USO = SYSTIMESTAMP "
+                " WHERE ID = :id",
+                id=row[0],
+            )
+            conn.commit()
+            return int(row[1])
+    except Exception:
+        logger.exception("Erro em buscar_cod_cliente_codprod")
+        return None
+
+
+def gravar_cod_cliente_codprod(codparc: int, cod_cliente: str, codprod: int,
+                                confirmado_por: int | None = None,
+                                conexao_existente=None) -> dict:
+    """Grava ou atualiza vinculação (CODPARC, COD_CLIENTE) -> CODPROD após
+    confirmação do operador. UPSERT.
+
+    Resiliente: se a tabela não existir ainda (migration não aplicada),
+    retorna {'ok': False, 'error': '...'} sem quebrar o fluxo de confirmação
+    do pedido (que vai gravar TGFCAB normalmente).
+    """
+    if not codparc or not cod_cliente or not codprod:
+        return {'ok': False, 'error': 'codparc, cod_cliente ou codprod vazio'}
+    cod_cliente = str(cod_cliente).strip()[:50]
+    if not cod_cliente:
+        return {'ok': False, 'error': 'cod_cliente vazio após normalização'}
+
+    def _operar(conn):
+        cur = conn.cursor()
+        if not _existe_coluna(cur, 'AD_CLIENTE_PRODUTO_COD', 'CODPROD'):
+            return {'ok': False, 'error': 'tabela AD_CLIENTE_PRODUTO_COD não existe (migration pendente)'}
+
+        # UPSERT: tenta UPDATE; se 0 rows, INSERT
+        cur.execute(
+            "UPDATE AD_CLIENTE_PRODUTO_COD "
+            "   SET CODPROD = :codprod, ULTIMO_USO = SYSTIMESTAMP, "
+            "       CONFIRMADO_POR = COALESCE(:cu, CONFIRMADO_POR) "
+            " WHERE CODPARC = :p AND COD_CLIENTE = :c",
+            {'codprod': int(codprod), 'cu': confirmado_por,
+             'p': int(codparc), 'c': cod_cliente},
+        )
+        if cur.rowcount > 0:
+            return {'ok': True, 'acao': 'UPDATE'}
+
+        novo_id = _proximo_id_sequence(cur, 'SEQ_AD_CLIENTE_PRODUTO_COD')
+        cur.execute(
+            "INSERT INTO AD_CLIENTE_PRODUTO_COD "
+            "  (ID, CODPARC, COD_CLIENTE, CODPROD, COUNT_USADO, "
+            "   ULTIMO_USO, CONFIRMADO_POR) "
+            "VALUES (:id, :p, :c, :codprod, 0, SYSTIMESTAMP, :cu)",
+            {'id': novo_id, 'p': int(codparc), 'c': cod_cliente,
+             'codprod': int(codprod), 'cu': confirmado_por},
+        )
+        return {'ok': True, 'acao': 'INSERT', 'id': novo_id}
+
+    try:
+        if conexao_existente is not None:
+            return _operar(conexao_existente)
+        with obter_conexao_oracle() as conn:
+            res = _operar(conn)
+            if res.get('ok'): conn.commit()
+            return res
+    except Exception as exc:
+        logger.exception("Erro em gravar_cod_cliente_codprod")
+        return {'ok': False, 'error': str(exc)}

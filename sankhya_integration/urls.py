@@ -132,6 +132,7 @@ urlpatterns = [
 # ==============================================================================
     path('venda/email-importar/',                       views.view_email_importar,        name='email_importar'),
     path('venda/api/email/listar/',                     views.api_email_listar,           name='api_email_listar'),
+    path('venda/api/email/importar-texto/',             views.api_email_importar_texto,   name='api_email_importar_texto'),
     path('venda/api/email/<int:recebido_id>/',          views.api_email_obter,            name='api_email_obter'),
     path('venda/api/email/<int:recebido_id>/pdf/',      views.api_email_pdf,              name='api_email_pdf'),
     path('venda/api/email/<int:recebido_id>/descartar/',views.api_email_descartar,        name='api_email_descartar'),
@@ -139,4 +140,8 @@ urlpatterns = [
     path('venda/api/email/<int:recebido_id>/confirmar/',views.api_email_confirmar,        name='api_email_confirmar'),
     path('venda/api/email/item/<int:item_id>/editar/',  views.api_email_atualizar_item,   name='api_email_atualizar_item'),
     path('venda/api/email/item/<int:item_id>/remover/', views.api_email_remover_item,     name='api_email_remover_item'),
+    path('venda/api/email/<int:recebido_id>/item/criar/', views.api_email_criar_item,     name='api_email_criar_item'),
+    # Restauração sem rodar LLM (re-cria itens a partir do JSON crú salvo)
+    path('venda/api/email/<int:recebido_id>/restaurar/',     views.api_email_restaurar_todos, name='api_email_restaurar_todos'),
+    path('venda/api/email/item/<int:item_id>/restaurar/',    views.api_email_restaurar_item,  name='api_email_restaurar_item'),
 ]

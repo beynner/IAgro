@@ -30,8 +30,16 @@
 --   leve e permitir servir o arquivo via HTTP autenticado.
 --
 -- Anti-duplicação
---   Constraint UNIQUE em MESSAGE_ID. Se o worker for reiniciado e tentar reprocessar
---   o mesmo e-mail, o INSERT falha — worker captura essa condição e ignora.
+--   Constraint UNIQUE em (MESSAGE_ID, SUB_ID). Se o worker for reiniciado e tentar
+--   reprocessar o mesmo e-mail, o INSERT falha — worker captura essa condição e ignora.
+--
+-- Multi-pedido por PDF
+--   Um e-mail pode trazer N pedidos no mesmo PDF (ex: redes de supermercado enviam
+--   1 PDF com várias páginas, 1 loja por página). Cada pedido vira UMA linha em
+--   AD_PEDIDO_EMAIL_RECEBIDO com mesmo MESSAGE_ID e SUB_ID sequencial (1, 2, 3, ...).
+--   Operador revisa e confirma cada um independente; status, NUNOTA_GERADO,
+--   CONFIRMADO_POR/EM são por linha. PDF_PATH e PDF_TEXTO são replicados (mesmo
+--   PDF, mesmo texto bruto) — a especialização vem por SUB_ID.
 --
 -- Telemetria de LLM
 --   LLM_TOKENS_IN / LLM_TOKENS_OUT / LLM_MODELO permitem auditar custo (mesmo que
@@ -49,6 +57,7 @@
 CREATE TABLE AD_PEDIDO_EMAIL_RECEBIDO (
     ID                    NUMBER         NOT NULL,
     MESSAGE_ID            VARCHAR2(255)  NOT NULL,
+    SUB_ID                NUMBER         DEFAULT 1 NOT NULL,
     REMETENTE             VARCHAR2(120),
     ASSUNTO               VARCHAR2(255),
     RECEBIDO_EM           TIMESTAMP,
@@ -70,9 +79,10 @@ CREATE TABLE AD_PEDIDO_EMAIL_RECEBIDO (
     NUNOTA_GERADO         NUMBER,
     CONFIRMADO_POR        NUMBER,
     CONFIRMADO_EM         TIMESTAMP,
+    ORIGEM                VARCHAR2(20)   DEFAULT 'IMAP' NOT NULL,
     CRIADO_EM             TIMESTAMP      DEFAULT SYSTIMESTAMP NOT NULL,
     CONSTRAINT PK_AD_PEDIDO_EMAIL_RECEBIDO PRIMARY KEY (ID),
-    CONSTRAINT UK_AD_PEDIDO_EMAIL_MSGID    UNIQUE (MESSAGE_ID),
+    CONSTRAINT UK_AD_PEDIDO_EMAIL_MSGID    UNIQUE (MESSAGE_ID, SUB_ID),
     CONSTRAINT CK_AD_PEDIDO_EMAIL_STATUS CHECK (STATUS IN (
         'AGUARDANDO_PARSER',
         'PENDENTE_REVISAO',
@@ -135,7 +145,8 @@ CREATE INDEX IX_AD_EMAIL_ITEM_RECEBIDO
 -- COMENTÁRIOS DE DOCUMENTAÇÃO (úteis em ferramentas BI / SQL Developer)
 -- -----------------------------------------------------------------------------
 COMMENT ON TABLE  AD_PEDIDO_EMAIL_RECEBIDO IS 'IAgro: pedidos extraídos de e-mail com PDF, antes da promoção para TGFCAB';
-COMMENT ON COLUMN AD_PEDIDO_EMAIL_RECEBIDO.MESSAGE_ID IS 'Header Message-ID do e-mail (anti-duplicação)';
+COMMENT ON COLUMN AD_PEDIDO_EMAIL_RECEBIDO.MESSAGE_ID IS 'Header Message-ID do e-mail (anti-duplicação combinado com SUB_ID)';
+COMMENT ON COLUMN AD_PEDIDO_EMAIL_RECEBIDO.SUB_ID IS 'Sequencial (1,2,3,...) quando 1 PDF traz N pedidos. PDF de 1 pedido = SUB_ID=1';
 COMMENT ON COLUMN AD_PEDIDO_EMAIL_RECEBIDO.PDF_PATH IS 'Caminho absoluto do PDF original no disco';
 COMMENT ON COLUMN AD_PEDIDO_EMAIL_RECEBIDO.LLM_RESPOSTA IS 'JSON cru retornado pelo LLM (auditoria/debug)';
 COMMENT ON COLUMN AD_PEDIDO_EMAIL_RECEBIDO.STATUS IS 'AGUARDANDO_PARSER, PENDENTE_REVISAO, CONFIRMADO, DESCARTADO, ERRO_PARSER, ERRO_PDF';

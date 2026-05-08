@@ -24,6 +24,7 @@
    ========================================================================== */
 #cabCard.modal-card.small { width: 380px; }
 
+
 /* Sinalização de campo obrigatório não preenchido */
 #cabCard .ia-field-invalid,
 #cabCard .ia-field-invalid:focus {

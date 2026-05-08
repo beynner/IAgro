@@ -974,6 +974,25 @@ document.addEventListener('DOMContentLoaded', function() {
         setTimeout(() => document.getElementById('cab_parcSearch')?.focus(), 160);
     });
 
+    // Botão "Importar pedidos" — abre a tela de importação em aba nova.
+    // O `window.open` retorna referência mesmo pra tab; usamos polling de
+    // `closed` pra recarregar a lista de Vendas quando a aba é fechada
+    // (reflete pedidos confirmados em TGFCAB durante a sessão).
+    document.getElementById('btnImportarPedidos')?.addEventListener('click', () => {
+        const aba = window.open('/sankhya/venda/email-importar/', '_blank');
+        if (!aba) {
+            // Bloqueador de pop-up ativo — fallback navega na mesma aba.
+            window.location.href = '/sankhya/venda/email-importar/';
+            return;
+        }
+        const _pollImportar = setInterval(() => {
+            if (aba.closed) {
+                clearInterval(_pollImportar);
+                carregarVendas(false);
+            }
+        }, 500);
+    });
+
     document.getElementById('cabCancel')?.addEventListener('click', async () => {
         if (modoEdicaoCabecalho) {
             const nunota = parseInt(document.getElementById('cab_nunota').value, 10);
