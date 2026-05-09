@@ -2547,8 +2547,28 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     if (btnDesarmar) btnDesarmar.addEventListener('click', desarmarLote);
 
+    // Modal de ajuda (atalhos) — abre/fecha por click no botão e pelo atalho `?`
+    const modalAjuda = document.getElementById('modalAjudaAtalhos');
+    const btnAjuda   = document.getElementById('btnAjudaAtalhos');
+    const btnFecharAjuda = document.getElementById('btnFecharAjuda');
+    function abrirAjudaAtalhos() {
+        if (modalAjuda) modalAjuda.classList.remove('hidden');
+    }
+    function fecharAjudaAtalhos() {
+        if (modalAjuda) modalAjuda.classList.add('hidden');
+    }
+    if (btnAjuda) btnAjuda.addEventListener('click', abrirAjudaAtalhos);
+    if (btnFecharAjuda) btnFecharAjuda.addEventListener('click', fecharAjudaAtalhos);
+    // Click no overlay (fora do card) também fecha
+    if (modalAjuda) {
+        modalAjuda.addEventListener('click', (e) => {
+            if (e.target === modalAjuda) fecharAjudaAtalhos();
+        });
+    }
+
     // Atalhos globais de teclado (Mai/2026):
     //   Esc  — fecha modais (prioridade) ou desarma o lote
+    //   ?    — abre/fecha modal de ajuda com lista de atalhos
     //   /    — foca o campo de busca de lote (atalho clássico estilo GitHub)
     //   F    — foca o campo de busca de lote (alternativa pra teclados sem /)
     //   R    — recarrega lotes + pedidos (mesmo efeito do botão Atualizar)
@@ -2559,6 +2579,10 @@ document.addEventListener('DOMContentLoaded', function () {
     document.addEventListener('keydown', (e) => {
         // Esc: prioritário, funciona mesmo dentro de inputs
         if (e.key === 'Escape') {
+            if (modalAjuda && !modalAjuda.classList.contains('hidden')) {
+                fecharAjudaAtalhos();
+                return;
+            }
             if (modalVinculos && !modalVinculos.classList.contains('hidden')) {
                 fecharModalVinculos();
                 return;
@@ -2577,14 +2601,27 @@ document.addEventListener('DOMContentLoaded', function () {
                          (t && t.isContentEditable);
         if (editavel) return;
 
-        // Modais abertos: não dispara atalhos globais
-        const modalAberto = (modalVinculos && !modalVinculos.classList.contains('hidden')) ||
-                            (modalTransfer && !modalTransfer.classList.contains('hidden'));
-        if (modalAberto) return;
+        // Modais "bloqueantes" (transfer e vinculos) suprimem atalhos globais.
+        // Modal de ajuda NÃO suprime — assim `?` toggla mesmo com ele aberto.
+        const modalBloqueante = (modalVinculos && !modalVinculos.classList.contains('hidden')) ||
+                                (modalTransfer && !modalTransfer.classList.contains('hidden'));
+        if (modalBloqueante) return;
 
         // Modificadores tipo Ctrl/Alt/Meta interromperíam atalhos do navegador,
-        // então só agimos em teclas isoladas.
+        // então só agimos em teclas isoladas. Exceção: `?` requer Shift em
+        // teclados US — checamos pela `e.key` que já reflete o caractere final.
         if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+        // `?` — abre/fecha ajuda. Verifica antes dos demais porque depende de Shift.
+        if (e.key === '?') {
+            e.preventDefault();
+            if (modalAjuda && !modalAjuda.classList.contains('hidden')) {
+                fecharAjudaAtalhos();
+            } else {
+                abrirAjudaAtalhos();
+            }
+            return;
+        }
 
         const k = (e.key || '').toLowerCase();
         if (k === '/' || k === 'f') {

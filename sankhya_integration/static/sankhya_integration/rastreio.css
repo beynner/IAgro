@@ -1921,6 +1921,61 @@
 }
 .ras-icon-btn:active { transform: translateY(1px); }
 
+/* Variante "só ícone" — botão circular sem label de texto, usado pra ações
+   com tooltip auto-explicativo (ex: ajuda/atalhos). Mantém afinidade com
+   .ras-icon-btn (mesma cor de borda/hover) mas é mais compacto. */
+.ras-icon-btn-only {
+    padding: 4px;
+    gap: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+}
+.ras-icon-btn-only svg { margin: 0; }
+
+/* Modal de Ajuda — atalhos de teclado.
+   Reusa .modal-overlay + .modal-card globais; aqui só estiliza conteúdo. */
+.ras-ajuda-card {
+    width: 460px;
+    max-width: 92vw;
+}
+.ras-ajuda-tabela {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 4px 0 12px 0;
+}
+.ras-ajuda-tabela td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--cor-borda);
+    font-size: 13px;
+    vertical-align: middle;
+}
+.ras-ajuda-tabela tr:last-child td { border-bottom: none; }
+.ras-ajuda-tabela td:first-child {
+    width: 130px;
+    white-space: nowrap;
+    text-align: center;
+}
+.ras-ajuda-tabela kbd {
+    display: inline-block;
+    padding: 2px 8px;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--cor-texto-primario-escuro, #0f172a);
+    background: var(--cor-fundo-secao, #f1f5f9);
+    border: 1px solid var(--cor-borda);
+    border-radius: 4px;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.05);
+    margin: 0 1px;
+}
+.ras-ajuda-rodape {
+    margin: 4px 4px 0 4px;
+    font-size: 12px;
+    color: var(--texto-secundario);
+    font-style: italic;
+}
+
 /* Em telas estreitas: empilha controles e some labels longos */
 @media (max-width: 1280px) {
     .ras-controls { flex-wrap: wrap; }

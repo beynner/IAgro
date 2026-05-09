@@ -13,13 +13,20 @@
 <div id="filtrosAtivos" class="filtros-ativos">
     <div id="filtrosAtivosChips" class="filtros-ativos-chips"></div>
     <div class="filtros-ativos-actions">
-        <button type="button" id="btnLimparTudo" class="ras-icon-btn" title="Limpar todos os filtros">
+        <button type="button" id="btnAjudaAtalhos" class="ras-icon-btn ras-icon-btn-only" title="Atalhos de teclado (?)" aria-label="Atalhos de teclado">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+        </button>
+        <button type="button" id="btnLimparTudo" class="ras-icon-btn" title="Limpar todos os filtros (C)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M18 6 6 18M6 6l12 12"/>
             </svg>
             Limpar
         </button>
-        <button type="button" id="btnAtualizar" class="ras-icon-btn primary" title="Atualizar listagens">
+        <button type="button" id="btnAtualizar" class="ras-icon-btn primary" title="Atualizar listagens (R)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>
             </svg>
@@ -146,6 +153,48 @@
         </header>
         <div class="modal-body">
             <div id="vinculosBody"></div>
+        </div>
+    </div>
+</div>
+
+<div id="modalAjudaAtalhos" class="modal-overlay hidden">
+    <div class="modal-card ras-ajuda-card">
+        <header class="modal-header">
+            <strong>Atalhos de teclado</strong>
+            <button id="btnFecharAjuda" class="icon-btn" aria-label="Fechar">×</button>
+        </header>
+        <div class="modal-body">
+            <table class="ras-ajuda-tabela">
+                <tbody>
+                    <tr>
+                        <td><kbd>/</kbd> ou <kbd>F</kbd></td>
+                        <td>Foca o campo de busca de lote</td>
+                    </tr>
+                    <tr>
+                        <td><kbd>R</kbd></td>
+                        <td>Atualiza as listagens (mesma ação do botão Atualizar)</td>
+                    </tr>
+                    <tr>
+                        <td><kbd>C</kbd></td>
+                        <td>Limpa todos os filtros</td>
+                    </tr>
+                    <tr>
+                        <td><kbd>G</kbd></td>
+                        <td>Alterna agrupamento de pedidos: parceiro ↔ produto</td>
+                    </tr>
+                    <tr>
+                        <td><kbd>?</kbd></td>
+                        <td>Abre/fecha esta tela de ajuda</td>
+                    </tr>
+                    <tr>
+                        <td><kbd>Esc</kbd></td>
+                        <td>Desarma lote selecionado / fecha modal aberta</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p class="ras-ajuda-rodape">
+                Atalhos só funcionam quando o cursor <strong>não está</strong> num campo de texto.
+            </p>
         </div>
     </div>
 </div>
