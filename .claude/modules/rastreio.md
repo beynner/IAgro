@@ -261,3 +261,21 @@ Detalhes em `gotchas.md`. Resumo:
 **Tests adicionados/atualizados em Mai/2026 (2026-05-08):**
 - `test_rastreio.py` `HumanizarErroOracleTest.test_excecao_ora_00054_humanizada` — assertions em termos-chave (`operador`, `aguarde`) em vez da frase exata, suportando futuras melhorias de microcopy sem quebrar
 - `test_views_venda.py` `FaturarPedidoVendaTest.test_excecao_retorna_500_humanizada` — mesmo padrão
+
+---
+
+## Bloco A — Quick wins UX (Mai/2026, 2026-05-08, pós-feedback)
+
+5 melhorias adicionais de UX implementadas em sequência ao polish anterior. Todo trabalho frontend (`rastreio.js` + `rastreio.css`); zero mudança de backend.
+
+| # | O que mudou | Onde | Por que vale |
+|---|---|---|---|
+| 1 | **Avaria interna como linha B**: `qtd_avaria_interna > 0` agora gera **card separado** logo abaixo do vendável, em estilo `.nao-vendavel` (cinza tracejado, dashed border) com tag `AVARIA INT.` (`.tag-avaria-int`). Antes era badge inline `▼ Xkg` na col-qtd (Opção A descontinuada — classe `.badge-avaria-interna` mantida no CSS por compat). Helper `_criarCardLoteAvariaInterna(l)` | `renderLotes()` + CSS `.tag-avaria-int`, `.col-qtd-avaria`, `.ras-row-check-box-disabled` | Operador vê de relance "tem X kg deste lote em avaria, fora do saldo". Linha não bagunça o card vendável. |
+| 2 | **Saldo total no header de pedidos**: nova métrica `kg a atribuir` (vermelho) na quickstats de pedidos, somando `qtd_falta` agregada de todos pedidos visíveis. Cosmeticamente alinha com `kg disponíveis` (verde) que já existia na quickstats de lotes. | `renderPedidos()` linha quickstats | Operador compara visualmente os 2 totais (oferta vs demanda) sem precisar fazer conta. |
+| 3 | **Badge `✨ encaixa`**: card de lote ganha pílula verde quando `qtd_disponivel == falta_total[codprod]` (tolerância 0.001). Borda esquerda verde discreta (`.lote-encaixa-exato`) reforça em listas longas. Pré-cálculo via helper `_calcularFaltaPorCodprod()` que agrega `pedidosData` filtrando linhas sem `codagregacao_atual`. | `renderLotes()` + CSS `.badge-encaixa-exato` / `.lote-encaixa-exato` | Sinal forte de "atribuição segura sem split" — incentiva fechar o ciclo do lote em 1 click. |
+| 4 | **Atalhos de teclado globais**: `/` ou `F` foca busca de lote, `R` aciona Atualizar, `C` aciona Limpar, `G` alterna agrupamento parceiro↔produto, `Esc` (já existia) desarma lote / fecha modal. Ignora teclas quando foco está em `INPUT/TEXTAREA/SELECT/contenteditable` ou modal aberto. Sem modificadores (Ctrl/Alt/Meta). | listener `document.keydown` global | Fluxo de operador power-user — quem usa o módulo o dia todo aprende e ganha velocidade. |
+| 5 | **Persistência do lote armado**: `loteArmadoCodag` adicionado às prefs em `localStorage` (chave `iagro:rastreio:prefs:v1`). Salvo em `armarLote/desarmarLote`. Restaurado 1× por boot via `_tentarRestaurarLoteArmado()` chamado no `finally` do `carregarLotes`. Se o lote sumiu da listagem (foi vendido / fora do filtro), pref é descartada silenciosamente. | `_salvarPrefs`, `armarLote`, `desarmarLote`, `carregarLotes` | Operador interrompido (almoço, F5 acidental, conexão caiu) retoma exatamente de onde parou. |
+
+**Decisões de design preservadas:**
+- Filtros cruzados (`checksLotes`, `checksPorPedido`, `pedidoIsolado`) **NÃO** entram nas prefs — efêmeros por ciclo de uso, decisão consciente de Mai/2026.
+- Atalhos `Space`/`Enter` para armar/atribuir lote em foco **não foram implementados** — exigem rastreamento de "card em foco" que adiciona complexidade. Avaliar quando houver pedido explícito do operador.

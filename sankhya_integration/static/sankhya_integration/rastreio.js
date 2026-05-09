@@ -76,8 +76,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // ----- Persistência de preferências em localStorage (Fase 2.12) ---------
     // Restaura/grava: agrupamento, tipoLote, datas (ini/fim) lotes e pedidos,
-    // checkTrava, somentePendentes. Outros estados (filtros cruzados, lote
-    // armado) NÃO são persistidos — eles são efêmeros por ciclo de uso.
+    // checkTrava, somentePendentes, loteArmadoCodag. Filtros cruzados continuam
+    // efêmeros (decisão consciente — operador re-marca por ciclo de trabalho).
+    // loteArmadoCodag (Mai/2026) — re-arma o lote ao reload. Útil quando o
+    // operador é interrompido/perde a conexão no meio de uma vinculação.
     const LS_KEY = 'iagro:rastreio:prefs:v1';
     function _salvarPrefs() {
         try {
@@ -88,6 +90,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 dataIniPedidos, dataFimPedidos,
                 travado: !!(checkTrava && checkTrava.classList.contains('is-on')),
                 somentePendentes,
+                loteArmadoCodag: loteArmado ? loteArmado.codagregacao : null,
             }));
         } catch (_) {}
     }
@@ -97,6 +100,31 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!raw) return null;
             return JSON.parse(raw);
         } catch (_) { return null; }
+    }
+
+    // Re-arma o lote pelo CODAGREGACAO salvo nas prefs. Roda 1× por boot
+    // (após primeiro carregamento de lotes). Se o lote não estiver mais
+    // disponível (vendido/avariado/fora do filtro), a pref é descartada
+    // silenciosamente — operador retoma do zero sem mensagem assustadora.
+    let _restaurouArmado = false;
+    function _tentarRestaurarLoteArmado() {
+        if (_restaurouArmado) return;
+        _restaurouArmado = true;
+        const prefs = _carregarPrefs();
+        const codag = prefs && prefs.loteArmadoCodag;
+        if (!codag) return;
+        const lote = lotesData.find(l => l.codagregacao === codag);
+        if (!lote) {
+            // Lote não está mais visível — limpa pref pra não tentar de novo
+            try {
+                const p = _carregarPrefs() || {};
+                delete p.loteArmadoCodag;
+                localStorage.setItem(LS_KEY, JSON.stringify(p));
+            } catch (_) {}
+            return;
+        }
+        loteArmado = lote;
+        atualizarBarArmado();
     }
 
     /** União de todos os produtos marcados em checksLotes + checksPorPedido. */
@@ -602,6 +630,11 @@ document.addEventListener('DOMContentLoaded', function () {
         } finally {
             // Limpa o flag ANTES de renderizar — assim o loader inline some.
             lotesCarregando = false;
+            // Restaura lote armado vindo de prefs (se ainda não restaurado e
+            // o lote ainda existir nos dados atuais). Roda 1× por boot via
+            // flag _restaurouArmado — refresh ulterior do operador não
+            // re-arma silenciosamente.
+            _tentarRestaurarLoteArmado();
             renderLotes();
         }
     }
@@ -693,6 +726,58 @@ document.addEventListener('DOMContentLoaded', function () {
         return html;
     }
 
+    /**
+     * Soma a quantidade de falta agregada por CODPROD a partir de pedidosData
+     * (linhas brutas do TGFITE). Considera só linhas SEM codagregacao_atual
+     * (não-atribuídas). Usado pra detectar "encaixe exato" entre saldo de
+     * lote e falta total de produto. Map<codprod:Number, kgFalta:Number>.
+     */
+    function _calcularFaltaPorCodprod() {
+        const m = new Map();
+        for (const it of pedidosData) {
+            if (it.codagregacao_atual) continue;   // já atribuído — ignora
+            const k = Number(it.codprod);
+            const q = Number(it.qtd_pedida) || 0;
+            m.set(k, (m.get(k) || 0) + q);
+        }
+        return m;
+    }
+
+    /**
+     * Card de "avaria interna" (Opção B): linha não-vendável separada,
+     * mostrada logo após o card vendável do mesmo lote quando
+     * qtd_avaria_interna > 0. Estilo cinza tracejado — visualmente dá
+     * pra ver "tem X kg deste lote reservados em avaria, fora do
+     * vendável". Sem botão armar (não é vendável).
+     */
+    function _criarCardLoteAvariaInterna(l) {
+        const card = document.createElement('div');
+        card.className = 'rastreio-card card-lote compacto nao-vendavel card-lote-avaria-int';
+        card.dataset.codprod      = l.codprod;
+        card.dataset.codagregacao = l.codagregacao;
+        // Lê do campo qtd_avaria_interna que vem da view ANDRE_IAGRO_SALDO_LOTE
+        const qtdAvaria = Number(l.qtd_avaria_interna) || 0;
+        card.innerHTML = `
+            <span class="ras-row-check-wrap" aria-hidden="true">
+                <span class="ras-row-check-box ras-row-check-box-disabled"></span>
+            </span>
+            <span class="col-prod" title="${escapeHtml(l.descrprod)} (avaria interna deste lote)">
+                <strong>${escapeHtml(l.descrprod)}</strong>
+                <span class="tag-avaria-int" title="Avaria interna reservada — não disponível para vincular em pedido">AVARIA INT.</span>
+            </span>
+            <span class="col-parc" title="${escapeHtml(l.nomeparc_origem || '')}">
+                ${_avatarFornecedor(l.nomeparc_origem || '—')}
+                <span class="parc-name-text">${escapeHtml(l.nomeparc_origem || '—')}</span>
+            </span>
+            <span class="col-lote" title="Lote ${escapeHtml(l.codagregacao)}">
+                ${escapeHtml(l.codagregacao)}
+            </span>
+            <span class="col-data">${escapeHtml(l.dtneg_origem || '')}</span>
+            <span class="col-qtd col-qtd-avaria">${fmtQtd(qtdAvaria)}</span>
+        `;
+        return card;
+    }
+
     function renderLotes() {
         containerLotes.innerHTML = '';
 
@@ -709,6 +794,12 @@ document.addEventListener('DOMContentLoaded', function () {
         // os lotes daquele produto também aparecem destacados aqui.
         const visiveis = lotesData
             .filter(l => !temFiltroProdutos() || loteEstaCheckado(l.codprod));
+
+        // Pré-calcula falta total por CODPROD (Mai/2026) — usado pra
+        // detectar quando o saldo de UM lote casa exatamente com a falta
+        // total daquele produto nos pedidos visíveis. Insight forte:
+        // "este lote esgota essa demanda em 1 atribuição".
+        const faltaPorCodprod = _calcularFaltaPorCodprod();
 
         // Quick stats — mostra só quando há ao menos 1 lote (não polui empty state)
         if (visiveis.length > 0) {
@@ -764,9 +855,8 @@ document.addEventListener('DOMContentLoaded', function () {
             card.dataset.codprod      = l.codprod;
             card.dataset.codagregacao = l.codagregacao;
 
-            const badgeAvaria = (l.qtd_avaria_interna && l.qtd_avaria_interna > 0)
-                ? `<span class="badge-avaria-interna" title="Avaria interna reservada (${fmtQtd(l.qtd_avaria_interna)}) — não disponível para vincular em pedido">▼ ${fmtQtd(l.qtd_avaria_interna)}</span>`
-                : '';
+            // (Avaria interna agora aparece como CARD separado abaixo do vendável,
+            // não mais como badge inline — vide _criarCardLoteAvariaInterna no fim.)
 
             const tagStatus = status === 'NAO_CLASSIFICAVEL'
                 ? '<span class="tag-naoclass" title="Sem classificação confirmada — vendável como in natura (vem da TOP 13, não passou pela TOP 26)">N/C</span>'
@@ -778,6 +868,18 @@ document.addEventListener('DOMContentLoaded', function () {
                 ? `<span class="badge-idade-lote" title="Lote com ${idadeDias} dias desde a entrada">⚠ ${idadeDias}d</span>`
                 : '';
             if (idadeDias > DIAS_ALERTA_LOTE) card.classList.add('lote-envelhecido');
+
+            // Badge "✨ encaixa" (Mai/2026): saldo do lote bate exatamente com
+            // a falta total deste produto nos pedidos visíveis. Tolerância de
+            // 0.001 (kg) para arredondamento. Só aparece quando há falta > 0
+            // — sem demanda não há "encaixe" a destacar.
+            const faltaCodprod = faltaPorCodprod.get(Number(l.codprod)) || 0;
+            const encaixaExato = faltaCodprod > 0.001 &&
+                                 Math.abs(faltaCodprod - Number(qtd)) < 0.001;
+            const badgeEncaixa = encaixaExato
+                ? `<span class="badge-encaixa-exato" title="Saldo deste lote (${fmtQtd(qtd)}) bate exatamente com a falta total deste produto nos pedidos visíveis. Atribuição em 1 passo, sem split.">✨ encaixa</span>`
+                : '';
+            if (encaixaExato) card.classList.add('lote-encaixa-exato');
 
             // Lotes listados aqui já são vendáveis (qtd_disponivel > 0).
             const podeArmar = Number(l.qtd_disponivel) > 0;
@@ -815,7 +917,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     ${escapeHtml(l.codagregacao)}
                 </span>
                 <span class="col-data">${escapeHtml(l.dtneg_origem || '')} ${badgeIdade}</span>
-                <span class="col-qtd">${fmtQtd(qtd)} ${badgeAvaria}</span>
+                <span class="col-qtd">${fmtQtd(qtd)} ${badgeEncaixa}</span>
                 ${armarBtn}
                 <button class="btn-olho btn-acao-linha" title="Ver pedidos/vendas que usam este lote" type="button">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -868,6 +970,15 @@ document.addEventListener('DOMContentLoaded', function () {
             });
 
             containerLotes.appendChild(card);
+
+            // Card adicional de avaria interna (Opção B, Mai/2026): linha
+            // não-vendável separada logo abaixo do vendável. Antes era badge
+            // inline ▼Xkg na col-qtd; mudou pra linha dedicada que dá
+            // visibilidade clara de quanto deste lote está reservado em
+            // avaria, fora do saldo vendável.
+            if (l.qtd_avaria_interna && Number(l.qtd_avaria_interna) > 0) {
+                containerLotes.appendChild(_criarCardLoteAvariaInterna(l));
+            }
         });
 
         if (lotesCarregando) {
@@ -969,21 +1080,30 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Quick stats do painel direito — sempre acima da lista quando há pedidos
         if (pedidos.length > 0) {
-            let qtdTotal = 0, qtdAtribuida = 0, itensPendentes = 0;
+            let qtdTotal = 0, qtdAtribuida = 0, itensPendentes = 0, kgFaltaTotal = 0;
             pedidos.forEach(p => {
                 p.produtos.forEach(pr => {
                     qtdTotal     += Number(pr.qtd_total) || 0;
                     qtdAtribuida += Number(pr.qtd_atribuida) || 0;
-                    if (pr.qtd_falta > 0.000001) itensPendentes++;
+                    if (pr.qtd_falta > 0.000001) {
+                        itensPendentes++;
+                        kgFaltaTotal += Number(pr.qtd_falta) || 0;
+                    }
                 });
             });
             const pct = qtdTotal > 0 ? Math.round((qtdAtribuida / qtdTotal) * 100) : 0;
             const stats = document.createElement('div');
             stats.className = 'ras-quickstats ras-quickstats-pedidos';
+            // Mostra `qtd a atribuir` em destaque — operador compara visualmente
+            // com `kg disponíveis` da quickstats de lotes (lado esquerdo) pra ver
+            // se a oferta cobre a demanda. Cor avermelhada (qs-falta) reforça
+            // que é "ainda falta".
             stats.innerHTML = `
                 <span class="qs-num">${fmtInt(pedidos.length)}</span><span class="qs-lab">pedidos</span>
                 <span class="qs-sep">·</span>
                 <span class="qs-num qs-falta">${fmtInt(itensPendentes)}</span><span class="qs-lab">pendentes</span>
+                <span class="qs-sep">·</span>
+                <span class="qs-num qs-destaque qs-falta">${fmtQtd(kgFaltaTotal)}</span><span class="qs-lab">kg a atribuir</span>
                 <span class="qs-spacer"></span>
                 <span class="ras-pct-mini">
                     ${_renderProgressBar(qtdAtribuida, qtdTotal)}
@@ -1533,6 +1653,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function armarLote(lote) {
         loteArmado = lote;
         atualizarBarArmado();
+        _salvarPrefs();
         // Re-render para refletir .lote-armado nos cards e .alvo-armado nas linhas
         renderLotes();
         renderPedidos();
@@ -1542,6 +1663,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!loteArmado) return;
         loteArmado = null;
         atualizarBarArmado();
+        _salvarPrefs();
         renderLotes();
         renderPedidos();
     }
@@ -2425,17 +2547,67 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     if (btnDesarmar) btnDesarmar.addEventListener('click', desarmarLote);
 
-    // Esc fecha modais (prioridade) ou desarma o lote
+    // Atalhos globais de teclado (Mai/2026):
+    //   Esc  — fecha modais (prioridade) ou desarma o lote
+    //   /    — foca o campo de busca de lote (atalho clássico estilo GitHub)
+    //   F    — foca o campo de busca de lote (alternativa pra teclados sem /)
+    //   R    — recarrega lotes + pedidos (mesmo efeito do botão Atualizar)
+    //   C    — limpa todos os filtros (mesmo efeito do botão Limpar)
+    //   G    — alterna agrupamento parceiro ↔ produto
+    // Os atalhos só disparam quando o foco NÃO está num input/textarea/contenteditable
+    // (caso contrário 'r' digitado num search-input recarregaria a tela).
     document.addEventListener('keydown', (e) => {
-        if (e.key !== 'Escape') return;
-        if (modalVinculos && !modalVinculos.classList.contains('hidden')) {
-            fecharModalVinculos();
+        // Esc: prioritário, funciona mesmo dentro de inputs
+        if (e.key === 'Escape') {
+            if (modalVinculos && !modalVinculos.classList.contains('hidden')) {
+                fecharModalVinculos();
+                return;
+            }
+            if (modalTransfer && !modalTransfer.classList.contains('hidden')) {
+                return;   // o próprio input do modal já trata o Esc
+            }
+            if (loteArmado) desarmarLote();
             return;
         }
-        if (modalTransfer && !modalTransfer.classList.contains('hidden')) {
-            return;   // o próprio input do modal já trata o Esc
+
+        // Pra demais atalhos, ignora se foco está em campo editável
+        const t = e.target;
+        const tag = t && t.tagName;
+        const editavel = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' ||
+                         (t && t.isContentEditable);
+        if (editavel) return;
+
+        // Modais abertos: não dispara atalhos globais
+        const modalAberto = (modalVinculos && !modalVinculos.classList.contains('hidden')) ||
+                            (modalTransfer && !modalTransfer.classList.contains('hidden'));
+        if (modalAberto) return;
+
+        // Modificadores tipo Ctrl/Alt/Meta interromperíam atalhos do navegador,
+        // então só agimos em teclas isoladas.
+        if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+        const k = (e.key || '').toLowerCase();
+        if (k === '/' || k === 'f') {
+            // Foca busca de lote (campo mais usado, painel esquerdo)
+            const inp = document.getElementById('filtroLotes');
+            if (inp) {
+                e.preventDefault();
+                inp.focus();
+                inp.select();
+            }
+        } else if (k === 'r') {
+            // Refresh — disparar via click pra reusar feedback visual do botão
+            const btn = document.getElementById('btnAtualizar');
+            if (btn) { e.preventDefault(); btn.click(); }
+        } else if (k === 'c') {
+            const btn = document.getElementById('btnLimparTudo');
+            if (btn) { e.preventDefault(); btn.click(); }
+        } else if (k === 'g') {
+            // Alterna agrupamento. Faz o click no radio pra reusar o handler change.
+            const novoId = agrupamentoAtual === 'parceiro' ? 'grpProduto' : 'grpParceiro';
+            const radio = document.getElementById(novoId);
+            if (radio) { e.preventDefault(); radio.click(); }
         }
-        if (loteArmado) desarmarLote();
     });
 
     // ==========================================================================
