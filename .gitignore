@@ -162,3 +162,7 @@ _CLAUDE_bkp.md
 
 # Django media uploads (PDFs do módulo de e-mail, etc.)
 media/
+
+# Smoke scripts ad-hoc (temporários, criados durante diagnósticos contra
+# Oracle real — não devem ser versionados; reescritos sob demanda)
+_smoke_*.py

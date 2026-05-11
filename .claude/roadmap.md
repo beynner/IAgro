@@ -81,7 +81,6 @@ Sequência otimizada para chegar à produção rápido sem dívidas críticas.
 | **P1** | E-mail: keep_alive Ollama (pendência #11) | Quick-win 15min, elimina latência da 1ª chamada |
 | **P1** | Manual operacional (pendência #1) | Onboarding de operadores |
 | **P1** | Cobertura services do Rastreio (em andamento #4) e Classificação (pendência #4) | Dívida de testes |
-| **P2** | Avaria interna como linha separada (em andamento #3) | Pequena melhoria UX |
 | **P2** | Substituir `ControleInatividadeMiddleware` (pendência #3) | Limpeza arquitetural |
 | **P2** | E-mail: refatorar testes (pendência #9) | Dívida de testes |
 | **P2** | E-mail: avaliar migração LLM cloud (pendência #13) | Só após 1 semana da Etapa 0 em prod + aval LGPD. Etapa 0 sozinha pode tornar a migração desnecessária. |
@@ -116,6 +115,9 @@ Decisões debatidas e aprovadas. **Não revisar sem discussão prévia.**
 - **Vinculação por código do cliente (e-mail v4, Mai/2026)**: tabela `AD_CLIENTE_PRODUTO_COD` mapeia `(CODPARC, COD_CLIENTE) → CODPROD` direto. Etapa 0 do matching (antes de alias por descrição). Após operador confirmar 1× um cliente Consinco, **todos os pedidos seguintes daquele cliente casam itens automaticamente** com confiança 100%. Mais forte que alias por descrição porque é match exato em código numérico.
 - **Schema-resilient via `_existe_coluna()`** (`oracle_conn.py`): cache 1× por processo Python detecta dinamicamente colunas opcionais (ORIGEM, COD_CLIENTE). Permite código rodar antes/depois das migrations sem ORA-00904. Reseta no restart do Django.
 - **Defesa anti-duplicação em camadas (e-mail, Mai/2026)**: `api_email_reparser` faz batch DELETE pelo `RECEBIDO_ID` (atômico) + worker faz DELETE defensivo antes de cada INSERT. Já tivemos duplicação real quando a camada 1 falhou silenciosamente — defesa em camadas resolve.
+- **TGFVAR é fonte canônica do vínculo pedido↔nota** (Rastreio Fase 2, Mai/2026 — 2026-05-11). Tabela **nativa Sankhya** populada via trigger interna. Diagnosticada em 2026-05-09 após confirmar que TGFCAB tem 6 campos NUNOTA-* mas todos NULL em produção (100% dos 298 pedidos TOP 34 dos últimos 30 dias) — o link real mora em `TGFVAR(NUNOTA, SEQUENCIA, NUNOTAORIG, SEQUENCIAORIG)`. Cobertura: 185k pares TOP 34↔35, 9k TOP 11↔13 (mesma mecânica do fluxo compra/vale que o user já conhecia). **IAgro só lê TGFVAR, nunca escreve** — trigger Sankhya mantém. Por isso a Fase 2 do Rastreio NÃO suporta split em pedido faturado: INSERT em TGFVAR exigiria entender o trigger.
+- **`AD_NUMPEDIDOORIG` é convenção customizada da Agromil** (Mai/2026), não nativa Sankhya. Default populado automaticamente em `inserir_cabecalho_nota_banco` (linha 597: `int(dados.get('AD_NUMPEDIDOORIG') or novo_nunota)`). Funciona em pedidos criados pela IAgro (Vendas + Importação e-mail) e no fatura interno (UPDATE in-place do mesmo NUNOTA). **Mas em produção atual está NULL em 100% dos pedidos recentes** — operadores ainda criam direto no Sankhya. Migração retroativa via TGFVAR é pendência futura. Decisão: continuar populando pra preparar terreno; usar TGFVAR pro vínculo real.
+- **Risco fiscal de alterar lote em nota faturada: zero** (validado em 2026-05-10 com XML real da Agromil — NFe 6242, CENOURA EXTRA NCM 0706). Grupo `<rastro>` da NFe 4.0 não está no XML — hortifrúti não exige rastreabilidade fiscal de lote. `CODAGREGACAO` mora apenas em TGFITE (interno). Premissa que destravou a Fase 2 do Rastreio.
 
 ### UX e visual
 

@@ -251,6 +251,52 @@ E o `hide()` reseta os styles inline pra deixar limpo.
 
 ---
 
+## `TGFVAR` é populada via trigger Sankhya — NÃO escrever direto
+
+A tabela `TGFVAR` é a **fonte canônica do vínculo entre notas geradas** no Sankhya (pedido↔nota, compra↔vale, devolução↔venda, etc). Estrutura: `NUNOTA, SEQUENCIA, NUNOTAORIG, SEQUENCIAORIG, QTDATENDIDA, ...`.
+
+**Quem popula:** trigger interna do Sankhya, disparada no fluxo de faturamento / atendimento de pedido. **O IAgro nunca escreve em TGFVAR** — só lê.
+
+### Por que isso importa
+
+- ~211k linhas em produção (185k TOP 34↔35, 9k TOP 11↔13, etc.)
+- Mantém consistência entre TGFITE de pedido e TGFITE de nota gerada (mesmo CODPROD, mesma QTDNEG, mesma estrutura — mas SEQUENCIA pode mudar entre os dois lados; Sankhya re-ordena geralmente por CODPROD)
+- **Vínculo NÃO está em TGFCAB** — todos os 6 campos NUNOTA-* (`NUNOTAORIGCORTE`, `NUNOTAREC`, `NUNOTASUB`, `TIMNUNOTAMOD`, `NUNOTAPEDFRET`, `AD_NUMPEDIDOORIG`) estão NULL em 100% dos pedidos reais. Confirmado em 2026-05-09
+
+### Como usar (padrão Fase 2 Rastreio, Mai/2026)
+
+Pra propagar uma mudança em TGFITE pros 2 lados (pedido + nota), use a função helper:
+
+```python
+def _localizar_par_via_tgfvar(cur, nunota, sequencia):
+    cur.execute("""
+        SELECT NUNOTAORIG, SEQUENCIAORIG
+          FROM TGFVAR WHERE NUNOTA = :n AND SEQUENCIA = :s
+        UNION ALL
+        SELECT NUNOTA, SEQUENCIA
+          FROM TGFVAR WHERE NUNOTAORIG = :n AND SEQUENCIAORIG = :s
+    """, n=nunota, s=sequencia)
+    return cur.fetchall()
+```
+
+A query UNION cobre os dois sentidos (não sabemos se o NUNOTA passado é destino ou origem). Geralmente retorna 0 ou 1 par; raramente >1 (split prévio no Sankhya).
+
+### Limitação consciente: SPLIT em TGFITE quebra TGFVAR
+
+Se você fizer SPLIT (UPDATE qtd reduzida + INSERT nova linha) em TGFITE de um lado, **TGFVAR fica inconsistente** — não tem mapeamento pra nova SEQUENCIA. Pra consertar, precisaria INSERT em TGFVAR, mas:
+
+1. Não conhecemos o schema/constraints completos da TGFVAR
+2. Pode haver trigger que reage ao INSERT manual e quebra
+3. Sem ambiente de teste do trigger, risco é grande
+
+**Decisão atual (Fase 2 Rastreio Mai/2026):** funções `atribuir_lote_pedido_finalizado` e `desvincular_lote_pedido_finalizado` NÃO suportam split — apenas atribuição total / troca / desvinculação. Pra split em pedido faturado, operador deve desvincular + reatribuir. Se aparecer demanda real, investigar trigger Sankhya antes.
+
+### Não confundir com `AD_NUMPEDIDOORIG`
+
+`AD_NUMPEDIDOORIG` é **convenção customizada da Agromil** em TGFCAB+TGFITE — não substitui TGFVAR. Veja gotcha "`atualizar_cabecalho_nota_banco` tem auto-cura específica" e schema.md §5.5.
+
+---
+
 ## Lock pessimista em `atribuir_lote_item_pedido`
 
 `SELECT ... FOR UPDATE` **antes** da validação de saldo. Defesa contra:
