@@ -2808,9 +2808,23 @@ def consultar_saldo_lote_disponivel(filtros: dict | None = None,
         where.append("UPPER(CODAGREGACAO) LIKE :lote")
         binds['lote'] = f"%{str(filtros['codagregacao']).upper()}%"
 
-    # Filtro exato de FABRICANTE — usado quando o usuário seleciona no typeahead
+    # Filtro combinado lote OU produto (Mai/2026): texto do campo principal
+    # bate em CODAGREGACAO OU DESCRPROD via OR. Placeholder do input já é
+    # "Buscar lote ou produto…" — agora consistente com isso.
+    if filtros.get('q_lote_prod'):
+        termo_lp = str(filtros['q_lote_prod']).strip().upper()
+        if termo_lp:
+            where.append(
+                "(UPPER(CODAGREGACAO) LIKE :qlp OR UPPER(DESCRPROD) LIKE :qlp)"
+            )
+            binds['qlp'] = f"%{termo_lp}%"
+
+    # Filtro exato de FORNECEDOR (Mai/2026 — antes era FABRICANTE de TGFPRO).
+    # Agora aponta pra NOMEPARC_ORIGEM (parceiro da TOP 11 do lote), que é
+    # o "fornecedor real" exibido nos cards. Parâmetro mantido como
+    # `fabricante` por compatibilidade com chamadas existentes.
     if filtros.get('fabricante'):
-        where.append("UPPER(FABRICANTE) = :fab_exato")
+        where.append("UPPER(NOMEPARC_ORIGEM) = :fab_exato")
         binds['fab_exato'] = str(filtros['fabricante']).upper()
 
     # Cross filter: mostra apenas lotes cujo CODPROD aparece em pedidos
@@ -2837,8 +2851,10 @@ def consultar_saldo_lote_disponivel(filtros: dict | None = None,
             where.append("CODPROD = :q_codprod")
             binds['q_codprod'] = int(termo)
         else:
-            where.append("UPPER(FABRICANTE) LIKE :q_fab")
-            binds['q_fab'] = f"%{termo.upper()}%"
+            # Mai/2026: filtro `q` legado agora aponta pra NOMEPARC_ORIGEM
+            # (fornecedor real do lote) — antes era FABRICANTE de produto.
+            where.append("UPPER(NOMEPARC_ORIGEM) LIKE :q_fornecedor")
+            binds['q_fornecedor'] = f"%{termo.upper()}%"
 
     tipo = str(filtros.get('tipo') or '').strip().lower()
     if tipo == 'classificavel':
@@ -2947,29 +2963,33 @@ def consultar_vinculos_de_lote(codagregacao: str) -> list[dict]:
 
 
 def consultar_fabricantes_disponiveis(termo: str = '', limite: int = 10) -> list[str]:
-    """Lista FABRICANTEs DISTINTOS que têm pelo menos um lote vendável agora.
+    """Lista FORNECEDORES DISTINTOS que têm pelo menos um lote vendável agora.
 
-    Consulta SANKHYA.ANDRE_IAGRO_SALDO_LOTE filtrando por QTD_DISPONIVEL > 0
-    — versão original, comprovadamente funcional. O cache cliente-side
-    carrega tudo no boot (1 fetch só), então o custo da view é pago uma vez
-    por sessão e os filtros por keystroke ficam locais.
+    Mai/2026 — refatorado: consulta DISTINCT em `NOMEPARC_ORIGEM` (parceiro da
+    TOP 11 que originou o lote), NÃO mais em `FABRICANTE`. Razão: cadastro
+    Sankhya da Agromil tem TGFPRO.FABRICANTE populado com nome do produto
+    (LIMÃO, BATATA DOCE...), não com fornecedor de fato. O parceiro real
+    do lote (DEBORA, BRUNO, JOSE DO ALHO...) está em NOMEPARC_ORIGEM.
+
+    Nome da função preservado pra não quebrar imports/endpoints existentes;
+    o conceito virou "fornecedor do lote".
     """
     where = [
-        "FABRICANTE IS NOT NULL",
+        "NOMEPARC_ORIGEM IS NOT NULL",
         "QTD_DISPONIVEL > 0",
     ]
     binds: dict = {}
     termo = str(termo or '').strip()
     if termo:
-        where.append("UPPER(FABRICANTE) LIKE :q")
+        where.append("UPPER(NOMEPARC_ORIGEM) LIKE :q")
         binds['q'] = f"%{termo.upper()}%"
 
     sql = f"""
         SELECT * FROM (
-            SELECT DISTINCT FABRICANTE
+            SELECT DISTINCT NOMEPARC_ORIGEM
             FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE
             WHERE {' AND '.join(where)}
-            ORDER BY FABRICANTE
+            ORDER BY NOMEPARC_ORIGEM
         )
         WHERE ROWNUM <= :lim
     """
@@ -2998,18 +3018,91 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
     deles. Isso evita "cortar" um pedido ao meio em scroll infinito.
     """
     filtros = filtros or {}
-    # STATUSNOTA: sempre filtra 'E' (excluídos). Demais validações estão nas
-    # funções de escrita (atribuir_lote_item_pedido bloqueia 'L', e a função
-    # atribuir_lote_pedido_finalizado aceita 'L' propagando via TGFVAR).
-    incluir_finalizados = bool(filtros.get('incluir_finalizados'))
-    if incluir_finalizados:
-        # Mai/2026 — quando o operador liga "Incluir finalizados" no Rastreio,
-        # passamos a aceitar TOP 35/37 (notas faturadas) na listagem.
-        # Útil para o fluxo "vincular lote em nota emitida" (NFe sai pelo
-        # Sankhya antes da classificação chegar, operador transcreve depois).
-        where = ["c.CODTIPOPER IN (34, 35, 37)", "c.STATUSNOTA <> 'E'"]
+    # Toggle Pendente/Faturado (Mai/2026): listagem é SEMPRE TOP 34. A
+    # rastreabilidade do IAgro vive no pedido mesmo após faturamento (a nota
+    # TOP 35/37 não é tocada). Cada flag controla um conjunto de STATUSNOTA:
+    #   - mostrar_pendentes → STATUSNOTA NOT IN ('L','E')  (pedido em aberto)
+    #   - mostrar_faturados → STATUSNOTA = 'L'             (pedido já faturado)
+    # Compatibilidade: legacy `incluir_finalizados=True` continua valendo como
+    # "mostrar os dois" pra não quebrar chamadores antigos.
+    mostrar_pendentes = filtros.get('mostrar_pendentes')
+    mostrar_faturados = filtros.get('mostrar_faturados')
+    if mostrar_pendentes is None and mostrar_faturados is None:
+        if bool(filtros.get('incluir_finalizados')):
+            mostrar_pendentes = True
+            mostrar_faturados = True
+        else:
+            mostrar_pendentes = True
+            mostrar_faturados = False
     else:
-        where = ["c.CODTIPOPER = 34", "c.STATUSNOTA <> 'E'"]
+        mostrar_pendentes = bool(mostrar_pendentes)
+        mostrar_faturados = bool(mostrar_faturados)
+
+    if not mostrar_pendentes and not mostrar_faturados:
+        # Sem nenhum status selecionado: retorna lista vazia sem ir ao banco.
+        return []
+
+    # Mai/2026 — "tem nota par" considera duas fontes:
+    #   (1) TGFVAR — vínculo nativo Sankhya (populado por trigger no faturamento)
+    #   (2) AD_VINCULO_PEDIDO_NOTA — vínculo manual IAgro (Leva A: pedido
+    #       pré-existente vinculado pela tela. Leva B: pedido retroativo
+    #       criado pelo IAgro).
+    # Pedido "faturado" precisa ter pelo menos uma das duas. Nota "órfã"
+    # precisa não ter nenhuma das duas.
+    TEM_NOTA_VIA_TGFVAR = (
+        "EXISTS ("
+        "  SELECT 1 FROM TGFVAR v"
+        "    JOIN TGFCAB c2 ON c2.NUNOTA = v.NUNOTA"
+        "   WHERE v.NUNOTAORIG = c.NUNOTA"
+        "     AND c2.CODTIPOPER IN (35, 37)"
+        "     AND c2.STATUSNOTA <> 'E'"
+        ")"
+    )
+    TEM_NOTA_VIA_VINCULO_MANUAL = (
+        "EXISTS ("
+        "  SELECT 1 FROM AD_VINCULO_PEDIDO_NOTA av"
+        "    JOIN TGFCAB c2 ON c2.NUNOTA = av.NUNOTA_NOTA"
+        "   WHERE av.NUNOTA_PEDIDO = c.NUNOTA"
+        "     AND c2.STATUSNOTA <> 'E'"
+        ")"
+    )
+    TEM_NOTA_PAR = f"({TEM_NOTA_VIA_TGFVAR} OR {TEM_NOTA_VIA_VINCULO_MANUAL})"
+
+    # Nota com vínculo manual deixa de ser órfã — aparece via PEDIDO.
+    NOTA_TEM_VINCULO_MANUAL = (
+        "EXISTS ("
+        "  SELECT 1 FROM AD_VINCULO_PEDIDO_NOTA av"
+        "   WHERE av.NUNOTA_NOTA = c.NUNOTA"
+        ")"
+    )
+
+    # Cada toggle vira uma condição independente OR'd no WHERE. Permite
+    # pedidos e notas órfãs aparecerem na mesma listagem quando Faturado liga.
+    condicoes_or = []
+    if mostrar_pendentes and mostrar_faturados:
+        condicoes_or.append("(c.CODTIPOPER = 34 AND c.STATUSNOTA <> 'E')")
+    elif mostrar_pendentes:
+        condicoes_or.append(
+            f"(c.CODTIPOPER = 34 AND c.STATUSNOTA <> 'E' AND NOT {TEM_NOTA_PAR})"
+        )
+    elif mostrar_faturados:
+        condicoes_or.append(
+            f"(c.CODTIPOPER = 34 AND c.STATUSNOTA = 'L' AND {TEM_NOTA_PAR})"
+        )
+
+    if mostrar_faturados:
+        # Notas órfãs: TOP 35/37 STATUSNOTA='L' que não têm TGFVAR (nenhum
+        # sentido — nem origem, nem destino) E não têm vínculo manual IAgro.
+        # Foram emitidas direto no Sankhya sem fluxo "atender pedido". IAgro
+        # permite vincular lote diretamente no TGFITE da nota OU vincular
+        # manualmente a um pedido existente (sai de órfã).
+        condicoes_or.append(
+            "(c.CODTIPOPER IN (35, 37) AND c.STATUSNOTA = 'L'"
+            " AND NOT EXISTS (SELECT 1 FROM TGFVAR v WHERE v.NUNOTA = c.NUNOTA)"
+            f" AND NOT {NOTA_TEM_VINCULO_MANUAL})"
+        )
+
+    where = [f"({' OR '.join(condicoes_or)})"]
     binds: dict = {}
 
     if filtros.get('nunota'):
@@ -3050,19 +3143,24 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
             where.append("UPPER(p.NOMEPARC) LIKE :q_parc")
             binds['q_parc'] = f"%{termo.upper()}%"
 
-    # Cross filter vindo do typeahead de Lotes (FABRICANTE selecionado):
-    # mostra apenas pedidos que têm pelo menos um item de produto cujo
-    # FABRICANTE bate com o selecionado. Usa TGFPRO direto (mais rápido
-    # que joinar com a view de saldo).
+    # Cross filter vindo do typeahead de Fornecedor (Mai/2026 refatorado):
+    # mostra apenas pedidos cujos itens tenham produtos presentes em lotes
+    # vendáveis cujo NOMEPARC_ORIGEM (parceiro da TOP 11) bate com o
+    # selecionado. Antes filtrava por TGFPRO.FABRICANTE (= nome do produto
+    # na Agromil), que não casava com a expectativa do operador.
     fabricante = str(filtros.get('fabricante') or '').strip()
     if fabricante:
         where.append("""
             EXISTS (
                 SELECT 1
                 FROM TGFITE i_fab
-                JOIN TGFPRO pr_fab ON pr_fab.CODPROD = i_fab.CODPROD
                 WHERE i_fab.NUNOTA = c.NUNOTA
-                  AND UPPER(pr_fab.FABRICANTE) = :fabricante
+                  AND EXISTS (
+                    SELECT 1 FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE sl
+                     WHERE sl.CODPROD = i_fab.CODPROD
+                       AND UPPER(sl.NOMEPARC_ORIGEM) = :fabricante
+                       AND sl.QTD_DISPONIVEL > 0
+                  )
             )
         """)
         binds['fabricante'] = fabricante.upper()
@@ -3120,10 +3218,23 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
     # (ou só os filtrados, quando há filtro de item ativo).
     # LEFT JOIN em ANDRE_IAGRO_SALDO_LOTE traz dados de ORIGEM do lote
     # (data, parceiro do fornecedor, NUNOTA da TOP 11) p/ exibir no modal de vínculos.
+    # NOTA_NUMNOTA e NOTA_NUNOTA (Mai/2026): quando o pedido tem nota correlata,
+    # busca NUMNOTA + NUNOTA via UNIÃO de 2 fontes:
+    #   (1) TGFVAR (vínculo nativo Sankhya)
+    #   (2) AD_VINCULO_PEDIDO_NOTA (vínculo manual IAgro — Op 1 ou pedido retro Op 2)
+    # VINCULO_ORIGEM expõe qual fonte resolveu: 'TGFVAR' | 'MANUAL' | NULL.
+    # Frontend usa pra distinguir badge `FATURADO Nota Y` vs `FATURADO Nota Y · MANUAL`.
+    SUBQ_NOTAS_DO_PEDIDO = (
+        "SELECT v.NUNOTA FROM TGFVAR v WHERE v.NUNOTAORIG = c.NUNOTA"
+        "  UNION ALL"
+        "  SELECT av.NUNOTA_NOTA FROM AD_VINCULO_PEDIDO_NOTA av WHERE av.NUNOTA_PEDIDO = c.NUNOTA"
+    )
     sql = f"""
         SELECT
-            cp.NUNOTA, cp.CODEMP, cp.CODPARC, cp.NOMEPARC, cp.DTNEG,
+            cp.NUNOTA, cp.NUMNOTA, cp.CODEMP, cp.CODPARC, cp.NOMEPARC, cp.DTNEG,
             cp.CODTIPOPER, cp.STATUSNOTA,
+            cp.NOTA_NUMNOTA, cp.NOTA_NUNOTA, cp.VINCULO_ORIGEM, cp.TIPO_LINHA,
+            cp.TEM_CANDIDATO_PEDIDO,
             i.SEQUENCIA, i.CODPROD, pr.DESCRPROD,
             NVL(i.QTDNEG, 0)   AS QTD_PEDIDA,
             i.CODAGREGACAO     AS CODAGREGACAO_ATUAL,
@@ -3138,8 +3249,74 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
                     ORDER BY t.DTNEG DESC, t.NUNOTA DESC
                 ) AS RN
                 FROM (
-                    SELECT c.NUNOTA, c.CODEMP, c.CODPARC, c.DTNEG, p.NOMEPARC,
-                           c.CODTIPOPER, c.STATUSNOTA
+                    SELECT c.NUNOTA, c.NUMNOTA, c.CODEMP, c.CODPARC, c.DTNEG, p.NOMEPARC,
+                           c.CODTIPOPER, c.STATUSNOTA,
+                           (SELECT MAX(c2.NUMNOTA)
+                              FROM TGFCAB c2
+                             WHERE c2.NUNOTA IN ({SUBQ_NOTAS_DO_PEDIDO})
+                               AND c2.CODTIPOPER IN (35, 37)
+                               AND c2.STATUSNOTA <> 'E') AS NOTA_NUMNOTA,
+                           (SELECT MAX(c2.NUNOTA)
+                              FROM TGFCAB c2
+                             WHERE c2.NUNOTA IN ({SUBQ_NOTAS_DO_PEDIDO})
+                               AND c2.CODTIPOPER IN (35, 37)
+                               AND c2.STATUSNOTA <> 'E') AS NOTA_NUNOTA,
+                           CASE
+                             WHEN EXISTS (
+                                 SELECT 1 FROM TGFVAR v
+                                   JOIN TGFCAB c2 ON c2.NUNOTA = v.NUNOTA
+                                  WHERE v.NUNOTAORIG = c.NUNOTA
+                                    AND c2.CODTIPOPER IN (35, 37)
+                                    AND c2.STATUSNOTA <> 'E'
+                             ) THEN 'TGFVAR'
+                             WHEN EXISTS (
+                                 SELECT 1 FROM AD_VINCULO_PEDIDO_NOTA av
+                                  WHERE av.NUNOTA_PEDIDO = c.NUNOTA
+                                    AND av.ORIGEM = 'PEDIDO_RETROATIVO'
+                             ) THEN 'RETROATIVO'
+                             WHEN EXISTS (
+                                 SELECT 1 FROM AD_VINCULO_PEDIDO_NOTA av
+                                  WHERE av.NUNOTA_PEDIDO = c.NUNOTA
+                             ) THEN 'MANUAL'
+                             ELSE NULL
+                           END AS VINCULO_ORIGEM,
+                           CASE
+                             WHEN c.CODTIPOPER = 34 THEN 'PEDIDO'
+                             ELSE 'NOTA_ORFA'
+                           END AS TIPO_LINHA,
+                           -- Pra NOTA_ORFA: sinaliza se há pedido pareável (mesma
+                           -- heurística do consultar_candidatos_pedido_para_nota).
+                           -- Frontend usa pra decidir qual ação oferecer:
+                           --   1 → "Vincular a pedido…"      (Leva A)
+                           --   0 → "Criar pedido retroativo" (Leva B)
+                           -- Em PEDIDOs sempre 0 (sem efeito visual).
+                           -- Heurística rigorosa (Mai/2026, refinada): pedido
+                           -- só é candidato a vincular se for "obviamente" o par.
+                           -- Critérios firmes: mesmo CODPARC + CODEMP + valor exato
+                           -- (tolerância R$ 0,01) + data dentro de [nota-1, nota+1].
+                           -- Janela de data antes era frouxa (+7d) — clientes
+                           -- recorrentes têm pedidos em quase todo dia, coincidência
+                           -- de data sem valor exato não prova nada.
+                           CASE WHEN c.CODTIPOPER IN (35, 37) AND EXISTS (
+                                  SELECT 1 FROM TGFCAB pc
+                                   WHERE pc.CODTIPOPER = 34
+                                     AND pc.STATUSNOTA = 'L'
+                                     AND pc.CODEMP     = c.CODEMP
+                                     AND pc.CODPARC    = c.CODPARC
+                                     AND pc.DTNEG BETWEEN c.DTNEG - 1 AND c.DTNEG + 1
+                                     AND ABS(NVL(pc.VLRNOTA, 0) - NVL(c.VLRNOTA, 0)) <= 0.01
+                                     AND NOT EXISTS (
+                                       SELECT 1 FROM TGFVAR v
+                                         JOIN TGFCAB c3 ON c3.NUNOTA = v.NUNOTA
+                                        WHERE v.NUNOTAORIG = pc.NUNOTA
+                                          AND c3.CODTIPOPER IN (35, 37)
+                                          AND c3.STATUSNOTA <> 'E'
+                                     )
+                                     AND NOT EXISTS (
+                                       SELECT 1 FROM AD_VINCULO_PEDIDO_NOTA av
+                                        WHERE av.NUNOTA_PEDIDO = pc.NUNOTA
+                                     )
+                                ) THEN 1 ELSE 0 END AS TEM_CANDIDATO_PEDIDO
                     FROM TGFCAB c
                     LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC
                     WHERE {' AND '.join(where)}
@@ -3169,8 +3346,10 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
     binds['end_row']   = int(offset) + int(limite)
 
     cols = [
-        'nunota', 'codemp', 'codparc', 'nomeparc', 'dtneg',
+        'nunota', 'numnota', 'codemp', 'codparc', 'nomeparc', 'dtneg',
         'codtipoper', 'statusnota',
+        'nota_numnota', 'nota_nunota', 'vinculo_origem', 'tipo_linha',
+        'tem_candidato_pedido',
         'sequencia', 'codprod', 'descrprod',
         'qtd_pedida', 'codagregacao_atual', 'status_item',
         'lote_nunota', 'lote_dtneg', 'lote_codparc', 'lote_nomeparc',
@@ -3185,7 +3364,10 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
 
 
 def desvincular_lote_item_pedido(nunota: int, sequencia: int) -> dict:
-    """Desvincula um lote de um item de pedido TOP 34.
+    """Desvincula um lote de um item de pedido TOP 34 (em aberto OU faturado).
+
+    Mai/2026: aceita TOP 34 STATUSNOTA='L'. Rastreabilidade vive no pedido,
+    mesmo após faturamento — ver docstring de atribuir_lote_item_pedido.
 
     Comportamento:
         - Se EXISTE outra linha pendente (CODAGREGACAO IS NULL) do mesmo
@@ -3197,7 +3379,7 @@ def desvincular_lote_item_pedido(nunota: int, sequencia: int) -> dict:
 
     Validações:
         - Item precisa existir e ter CODAGREGACAO atualmente preenchido.
-        - Pedido precisa ser TOP 34 e não estar faturado/excluído.
+        - Pedido precisa ser TOP 34 e STATUSNOTA != 'E' (excluído).
     """
     if not verificar_permissao_escrita():
         return {'ok': False, 'error': 'Escrita desabilitada'}
@@ -3219,12 +3401,25 @@ def desvincular_lote_item_pedido(nunota: int, sequencia: int) -> dict:
 
             codtipoper, statusnota, codagregacao_atual, codprod, qtdneg = row
 
-            if int(codtipoper) != 34:
-                return {'ok': False, 'error': f'Operação não é TOP 34 (encontrada: TOP {codtipoper})'}
-            if statusnota == 'L':
-                return {'ok': False, 'error': 'Pedido já foi faturado — não é mais editável'}
+            # Mai/2026: mesma regra de atribuir — TOP 34 (qualquer status) ou
+            # TOP 35/37 STATUSNOTA='L' órfã (sem TGFVAR par).
             if statusnota == 'E':
                 return {'ok': False, 'error': 'Pedido excluído'}
+            top = int(codtipoper)
+            if top not in (34, 35, 37):
+                return {'ok': False, 'error': f'Operação não suportada (TOP {top})'}
+            if top in (35, 37):
+                if statusnota != 'L':
+                    return {'ok': False, 'error':
+                            f'Nota TOP {top} precisa estar liberada (STATUSNOTA=L)'}
+                cur.execute(
+                    "SELECT COUNT(*) FROM TGFVAR WHERE NUNOTA = :n",
+                    n=int(nunota),
+                )
+                if (cur.fetchone() or [0])[0] > 0:
+                    return {'ok': False, 'error':
+                            f'Nota TOP {top} tem pedido pareado via TGFVAR. '
+                            f'Trabalhe pelo pedido — não desvincule lote direto na nota.'}
             if not codagregacao_atual:
                 return {'ok': False, 'error': 'Item não tem lote vinculado'}
 
@@ -3286,7 +3481,13 @@ def desvincular_lote_item_pedido(nunota: int, sequencia: int) -> dict:
 
 def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
                               qtd: float | None = None) -> dict:
-    """Atribui um lote a um item de pedido TOP 34.
+    """Atribui um lote a um item de pedido TOP 34 (em aberto OU já faturado).
+
+    Mai/2026: aceita TOP 34 STATUSNOTA='L' (pedido já faturado pelo Sankhya).
+    A rastreabilidade do IAgro vive no pedido (TGFITE TOP 34) mesmo após
+    faturamento — a nota TOP 35/37 não é tocada e fica como referência fiscal.
+    Validado: NFe XML pra hortifrúti (NCM 0706) não exige grupo <rastro>, então
+    CODAGREGACAO no TGFITE é dado interno e não afeta documento fiscal.
 
     Comportamento:
         - Se ``qtd`` é None ou igual à QTDNEG do item: UPDATE simples no CODAGREGACAO
@@ -3295,7 +3496,7 @@ def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
           original e INSERT de uma nova linha com a qtd atribuída e o novo lote.
 
     Validações:
-        - Pedido tem que ser TOP 34 e não estar faturado/excluído.
+        - Pedido tem que ser TOP 34 e STATUSNOTA != 'E' (excluído).
         - Lote precisa ter saldo suficiente em ANDRE_IAGRO_SALDO_LOTE (VENDAVEL='S').
 
     UPDATE direto (não usa atualizar_item_nota_banco) para evitar a auto-cura
@@ -3336,12 +3537,27 @@ def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
             codtipoper, statusnota = row
             codagregacao_atual_lock, qtd_item, codprod = row_lock
 
-            if int(codtipoper) != 34:
-                return {'ok': False, 'error': f'Operação não é TOP 34 (encontrada: TOP {codtipoper})'}
-            if statusnota == 'L':
-                return {'ok': False, 'error': 'Pedido já foi faturado — não é mais editável'}
+            # Mai/2026: aceita TOP 34 (qualquer status exceto 'E') ou
+            # TOP 35/37 STATUSNOTA='L' órfã (sem TGFVAR par — nota emitida
+            # direto no Sankhya sem fluxo de pedido). TOP 35/37 com TGFVAR par
+            # é bloqueado: operador deve trabalhar pelo pedido pareado.
             if statusnota == 'E':
                 return {'ok': False, 'error': 'Pedido excluído'}
+            top = int(codtipoper)
+            if top not in (34, 35, 37):
+                return {'ok': False, 'error': f'Operação não suportada (TOP {top})'}
+            if top in (35, 37):
+                if statusnota != 'L':
+                    return {'ok': False, 'error':
+                            f'Nota TOP {top} precisa estar liberada (STATUSNOTA=L)'}
+                cur.execute(
+                    "SELECT COUNT(*) FROM TGFVAR WHERE NUNOTA = :n",
+                    n=int(nunota),
+                )
+                if (cur.fetchone() or [0])[0] > 0:
+                    return {'ok': False, 'error':
+                            f'Nota TOP {top} tem pedido pareado via TGFVAR. '
+                            f'Trabalhe pelo pedido — não atribua lote direto na nota.'}
 
             # Defesa contra double-binding: se o item já tem lote, recusa atribuir
             # de novo (operador deve desvincular antes). Sem isso, dois operadores
@@ -3442,149 +3658,333 @@ def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
 
 
 # ==============================================================================
-# 🔗 ATRIBUIR / DESVINCULAR LOTE EM PEDIDO FINALIZADO (TOP 34/35/37, qualquer STATUS)
-# ==============================================================================
-# Fase 2 do Rastreio (Mai/2026 — 2026-05-11) — operação de vincular lote
-# em pedido já faturado. Caso de uso: NFe sai pelo Sankhya antes da
-# classificação chegar no sistema; operador transcreve do papel depois.
-# Não há risco fiscal — XML real da Agromil (NCM 0706 hortifrúti) não carrega
-# grupo <rastro>, então CODAGREGACAO no TGFITE é dado interno.
-#
-# Diferenças vs atribuir_lote_item_pedido:
-#   - Aceita TOP 34/35/37 (não só 34) e STATUSNOTA != 'E'
-#   - Lê TGFVAR pra encontrar o par pedido↔nota e PROPAGA o UPDATE pros 2
-#     lados atomicamente no mesmo commit
-#   - NÃO suporta SPLIT (qtd parcial). Pra split em pedido faturado,
-#     operador deve desvincular tudo e re-atribuir. Razão: SPLIT exigiria
-#     INSERT em TGFVAR, que é populada por trigger Sankhya — risco de
-#     inconsistência fica grande demais sem ambiente de teste.
-#   - Função antiga continua bloqueando STATUSNOTA='L' (defesa em camadas)
+# 🔗 VÍNCULO MANUAL PEDIDO ↔ NOTA (AD_VINCULO_PEDIDO_NOTA)
+# Leva A (Mai/2026): operador vincula manualmente uma nota órfã a um pedido
+# pré-existente. Usado quando Sankhya não populou TGFVAR no faturamento.
+# DDL versionada em sankhya_integration/sql/AD_VINCULO_PEDIDO_NOTA.sql
 # ==============================================================================
 
-def _localizar_par_via_tgfvar(cur, nunota: int, sequencia: int) -> list[tuple[int, int]]:
-    """Procura o par (nunota_par, sequencia_par) em TGFVAR — busca nos dois
-    sentidos (esta linha é destino OU origem da relação). Retorna lista de
-    tuplas; geralmente 0 ou 1 elemento, raramente >1 (se houve split prévio
-    no fluxo Sankhya).
+def consultar_candidatos_pedido_para_nota(nunota_nota: int, limite: int = 10) -> list[dict]:
+    """Sugere pedidos TOP 34 STATUSNOTA='L' órfãos (sem TGFVAR par e sem
+    vínculo manual) que poderiam parear com a nota informada.
+
+    Heurística de ranking:
+      - Mesmo CODPARC e CODEMP (filtro firme)
+      - DTNEG dentro de janela de [nota - 1, nota + 7]
+      - Ordena por diferença de valor ascendente (menor delta primeiro)
+
+    Devolve lista de dicts com NUNOTA, NUMNOTA, DTNEG (formatada),
+    VLRNOTA, DIFF_VALOR.
     """
-    cur.execute("""
-        SELECT NUNOTAORIG, SEQUENCIAORIG
-          FROM TGFVAR WHERE NUNOTA = :n AND SEQUENCIA = :s
-        UNION ALL
-        SELECT NUNOTA, SEQUENCIA
-          FROM TGFVAR WHERE NUNOTAORIG = :n AND SEQUENCIAORIG = :s
-    """, n=int(nunota), s=int(sequencia))
-    return [(int(r[0]), int(r[1])) for r in cur.fetchall()]
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT CODEMP, CODPARC, DTNEG, NVL(VLRNOTA, 0)
+              FROM TGFCAB WHERE NUNOTA = :n
+        """, n=int(nunota_nota))
+        row = cur.fetchone()
+        if not row:
+            return []
+        codemp, codparc, dtneg, vlrnota = row
+
+        # Heurística rigorosa (Mai/2026 refinada): mesmo CODPARC + CODEMP,
+        # valor EXATO (∆ ≤ R$ 0,01), data dentro de ±1 dia. Critério rigoroso
+        # foi necessário porque clientes recorrentes têm pedidos quase todo
+        # dia — coincidência de data não basta como evidência.
+        cur.execute("""
+            SELECT * FROM (
+                SELECT c.NUNOTA, c.NUMNOTA,
+                       TO_CHAR(c.DTNEG, 'DD/MM/YYYY') AS DT,
+                       NVL(c.VLRNOTA, 0) AS VLR,
+                       ABS(NVL(c.VLRNOTA, 0) - :v) AS DIFF_VLR,
+                       (SELECT COUNT(*) FROM TGFITE i WHERE i.NUNOTA = c.NUNOTA) AS QTD_ITENS,
+                       (SELECT NVL(SUM(i.QTDNEG), 0) FROM TGFITE i WHERE i.NUNOTA = c.NUNOTA) AS QTD_TOTAL,
+                       (SELECT pr.DESCRPROD
+                          FROM TGFITE i JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
+                         WHERE i.NUNOTA = c.NUNOTA AND ROWNUM = 1) AS PRIMEIRO_PRODUTO
+                  FROM TGFCAB c
+                 WHERE c.CODTIPOPER = 34
+                   AND c.STATUSNOTA = 'L'
+                   AND c.CODEMP = :emp
+                   AND c.CODPARC = :parc
+                   AND c.DTNEG BETWEEN :dt - 1 AND :dt + 1
+                   AND ABS(NVL(c.VLRNOTA, 0) - :v) <= 0.01
+                   AND NOT EXISTS (
+                     SELECT 1 FROM TGFVAR v JOIN TGFCAB c2 ON c2.NUNOTA = v.NUNOTA
+                      WHERE v.NUNOTAORIG = c.NUNOTA
+                        AND c2.CODTIPOPER IN (35, 37)
+                        AND c2.STATUSNOTA <> 'E'
+                   )
+                   AND NOT EXISTS (
+                     SELECT 1 FROM AD_VINCULO_PEDIDO_NOTA av
+                      WHERE av.NUNOTA_PEDIDO = c.NUNOTA
+                   )
+                 ORDER BY DIFF_VLR ASC, c.NUNOTA DESC
+            ) WHERE ROWNUM <= :lim
+        """, v=float(vlrnota), emp=int(codemp), parc=int(codparc), dt=dtneg, lim=int(limite))
+        return [
+            {
+                'nunota':           int(r[0]),
+                'numnota':          int(r[1]) if r[1] is not None else None,
+                'dtneg':            r[2],
+                'vlrnota':          float(r[3]),
+                'diff_valor':       float(r[4]),
+                'qtd_itens':        int(r[5] or 0),
+                'qtd_total':        float(r[6] or 0),
+                'primeiro_produto': r[7] or '',
+            }
+            for r in cur.fetchall()
+        ]
 
 
-def atribuir_lote_pedido_finalizado(nunota: int, sequencia: int,
-                                    codagregacao: str) -> dict:
-    """Atribui ou troca lote em TGFITE de pedido em qualquer status
-    (TOP 34/35/37, STATUSNOTA <> 'E'). Propaga via TGFVAR pro par.
+def inserir_vinculo_manual_pedido_nota(nunota_pedido: int, nunota_nota: int,
+                                       codusu: int, nomeusu: str = '',
+                                       observacao: str = '') -> dict:
+    """Cria vínculo manual entre pedido (TOP 34) e nota (TOP 35/37).
 
-    NÃO suporta atribuição parcial (qtd < QTDNEG) — apenas total/troca.
-    Operador que precise de split em pedido faturado deve desvincular
-    primeiro e atribuir de novo.
+    Validações:
+      - Pedido existe, é TOP 34, STATUSNOTA != 'E', sem TGFVAR par, sem vínculo manual
+      - Nota existe, é TOP 35/37, STATUSNOTA != 'E', sem TGFVAR par (qualquer sentido),
+        sem vínculo manual
 
-    Retorno: {ok, lote_anterior, lote_novo, par_nunota, par_sequencia}
+    Retorna {ok, id, error?}.
     """
     if not verificar_permissao_escrita():
         return {'ok': False, 'error': 'Escrita desabilitada'}
-    if not codagregacao:
-        return {'ok': False, 'error': 'codagregacao obrigatório'}
 
     try:
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
 
-            # 1) Lock pessimista do item original
+            # Valida pedido
             cur.execute("""
-                SELECT i.CODAGREGACAO, NVL(i.QTDNEG, 0), i.CODPROD
-                  FROM TGFITE i
-                 WHERE i.NUNOTA = :n AND i.SEQUENCIA = :s
-                 FOR UPDATE
-            """, n=int(nunota), s=int(sequencia))
-            row_lock = cur.fetchone()
-            if not row_lock:
-                return {'ok': False, 'error':
-                        f'Item NUNOTA={nunota} SEQ={sequencia} não encontrado'}
-            codagregacao_atual, qtd_item, codprod = row_lock
+                SELECT CODTIPOPER, STATUSNOTA FROM TGFCAB WHERE NUNOTA = :n
+            """, n=int(nunota_pedido))
+            row = cur.fetchone()
+            if not row:
+                return {'ok': False, 'error': f'Pedido NUNOTA={nunota_pedido} não encontrado'}
+            top_ped, status_ped = row
+            if int(top_ped) != 34:
+                return {'ok': False, 'error': f'NUNOTA={nunota_pedido} não é pedido TOP 34 (é TOP {top_ped})'}
+            if status_ped == 'E':
+                return {'ok': False, 'error': f'Pedido NUNOTA={nunota_pedido} está excluído'}
 
-            # 2) Valida cabeçalho — TOP 34/35/37 e STATUSNOTA <> 'E'
+            cur.execute("""
+                SELECT COUNT(*) FROM TGFVAR v
+                  JOIN TGFCAB c2 ON c2.NUNOTA = v.NUNOTA
+                 WHERE v.NUNOTAORIG = :n
+                   AND c2.CODTIPOPER IN (35, 37)
+                   AND c2.STATUSNOTA <> 'E'
+            """, n=int(nunota_pedido))
+            if (cur.fetchone() or [0])[0] > 0:
+                return {'ok': False, 'error':
+                        f'Pedido NUNOTA={nunota_pedido} já tem nota pareada via TGFVAR'}
+
+            cur.execute("SELECT COUNT(*) FROM AD_VINCULO_PEDIDO_NOTA WHERE NUNOTA_PEDIDO = :n",
+                        n=int(nunota_pedido))
+            if (cur.fetchone() or [0])[0] > 0:
+                return {'ok': False, 'error':
+                        f'Pedido NUNOTA={nunota_pedido} já tem vínculo manual'}
+
+            # Valida nota
+            cur.execute("""
+                SELECT CODTIPOPER, STATUSNOTA FROM TGFCAB WHERE NUNOTA = :n
+            """, n=int(nunota_nota))
+            row = cur.fetchone()
+            if not row:
+                return {'ok': False, 'error': f'Nota NUNOTA={nunota_nota} não encontrada'}
+            top_nota, status_nota = row
+            if int(top_nota) not in (35, 37):
+                return {'ok': False, 'error':
+                        f'NUNOTA={nunota_nota} não é nota TOP 35/37 (é TOP {top_nota})'}
+            if status_nota == 'E':
+                return {'ok': False, 'error': f'Nota NUNOTA={nunota_nota} está excluída'}
+
+            cur.execute("SELECT COUNT(*) FROM TGFVAR WHERE NUNOTA = :n OR NUNOTAORIG = :n",
+                        n=int(nunota_nota))
+            if (cur.fetchone() or [0])[0] > 0:
+                return {'ok': False, 'error':
+                        f'Nota NUNOTA={nunota_nota} já tem vínculo via TGFVAR'}
+
+            cur.execute("SELECT COUNT(*) FROM AD_VINCULO_PEDIDO_NOTA WHERE NUNOTA_NOTA = :n",
+                        n=int(nunota_nota))
+            if (cur.fetchone() or [0])[0] > 0:
+                return {'ok': False, 'error':
+                        f'Nota NUNOTA={nunota_nota} já tem vínculo manual'}
+
+            # INSERT
+            cur.execute("SELECT SEQ_AD_VINCULO_PEDIDO_NOTA.NEXTVAL FROM DUAL")
+            novo_id = int(cur.fetchone()[0])
+            cur.execute("""
+                INSERT INTO AD_VINCULO_PEDIDO_NOTA
+                    (ID, NUNOTA_PEDIDO, NUNOTA_NOTA, ORIGEM, CODUSU, NOMEUSU, OBSERVACAO)
+                VALUES (:id, :p, :n, 'VINCULADO', :u, :nu, :obs)
+            """, id=novo_id, p=int(nunota_pedido), n=int(nunota_nota),
+                 u=int(codusu), nu=(nomeusu or '')[:80], obs=(observacao or '')[:500])
+
+            # Popula AD_NUMPEDIDOORIG na nota (convenção Agromil: venda gerada
+            # de pedido aponta pro NUNOTA do pedido). Aplica em TGFCAB e em
+            # todos os TGFITE da nota pra ficar consistente — Sankhya nativo
+            # passa a enxergar o vínculo via campo customizado.
             cur.execute(
-                "SELECT CODTIPOPER, STATUSNOTA FROM TGFCAB WHERE NUNOTA = :n",
-                n=int(nunota),
+                "UPDATE TGFCAB SET AD_NUMPEDIDOORIG = :p WHERE NUNOTA = :n",
+                p=int(nunota_pedido), n=int(nunota_nota),
             )
-            cab = cur.fetchone()
-            if not cab:
-                return {'ok': False, 'error':
-                        f'Pedido NUNOTA={nunota} não encontrado'}
-            codtipoper, statusnota = cab
-            if int(codtipoper) not in (34, 35, 37):
-                return {'ok': False, 'error':
-                        f'Operação não suportada (TOP {codtipoper}). '
-                        f'Apenas TOP 34/35/37 podem ter lote vinculado retroativamente.'}
-            if statusnota == 'E':
-                return {'ok': False, 'error': 'Pedido excluído'}
-
-            # 3) Valida saldo do lote — só conta se houver mudança real
-            # (não checar saldo quando re-atribuir o mesmo lote)
-            if str(codagregacao_atual or '') != str(codagregacao):
-                cur.execute("""
-                    SELECT NVL(SUM(QTD_DISPONIVEL), 0)
-                      FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE
-                     WHERE CODPROD = :p AND CODAGREGACAO = :l
-                       AND VENDAVEL = 'S'
-                """, p=int(codprod), l=str(codagregacao))
-                res_saldo = cur.fetchone()
-                qtd_disp = float(res_saldo[0]) if res_saldo else 0.0
-                qtd_necessaria = float(qtd_item)
-                if qtd_disp + 1e-6 < qtd_necessaria:
-                    _fmt_br = lambda v: f'{v:,.2f}'.replace(',', '#').replace('.', ',').replace('#', '.')
-                    return {'ok': False, 'error':
-                            f'Saldo insuficiente no lote {codagregacao}. '
-                            f'Disponível: {_fmt_br(qtd_disp)} · Solicitado: {_fmt_br(qtd_necessaria)}. '
-                            f'Reduza a quantidade ou desvincule alguma atribuição '
-                            f'existente deste lote.'}
-
-            # 4) Localiza par via TGFVAR (pode ser pedido ou nota)
-            pares = _localizar_par_via_tgfvar(cur, int(nunota), int(sequencia))
-
-            # 5) UPDATE em TGFITE — só CODAGREGACAO. Não muda qtd, vlrunit, etc.
-            cur.execute("""
-                UPDATE TGFITE SET CODAGREGACAO = :l
-                 WHERE NUNOTA = :n AND SEQUENCIA = :s
-            """, l=str(codagregacao), n=int(nunota), s=int(sequencia))
-
-            # 6) Propaga pro par (se houver) — mesma operação, sem recursão
-            pares_atualizados = []
-            for par_n, par_s in pares:
-                cur.execute("""
-                    UPDATE TGFITE SET CODAGREGACAO = :l
-                     WHERE NUNOTA = :n AND SEQUENCIA = :s
-                """, l=str(codagregacao), n=par_n, s=par_s)
-                if cur.rowcount and cur.rowcount > 0:
-                    pares_atualizados.append({'nunota': par_n, 'sequencia': par_s})
+            cur.execute(
+                "UPDATE TGFITE SET AD_NUMPEDIDOORIG = :p WHERE NUNOTA = :n",
+                p=int(nunota_pedido), n=int(nunota_nota),
+            )
 
             conn.commit()
-            return {
-                'ok': True,
-                'lote_anterior': codagregacao_atual,
-                'lote_novo':     str(codagregacao),
-                'codtipoper':    int(codtipoper),
-                'statusnota':    statusnota,
-                'pares_atualizados': pares_atualizados,
-            }
+            return {'ok': True, 'id': novo_id}
     except Exception as e:
-        logger.exception("Erro em atribuir_lote_pedido_finalizado")
+        logger.exception("Erro em inserir_vinculo_manual_pedido_nota")
         return {'ok': False, 'error': str(e)}
 
 
-def desvincular_lote_pedido_finalizado(nunota: int, sequencia: int) -> dict:
-    """Remove o lote (CODAGREGACAO = NULL) de um item de pedido finalizado
-    (TOP 34/35/37, STATUSNOTA <> 'E'). Propaga via TGFVAR pro par.
+def resolver_nota_orfa_automatica(nunota_nota: int, codusu: int,
+                                  nomeusu: str = '',
+                                  acao: str | None = None) -> dict:
+    """Resolve nota órfã (Mai/2026 — fluxo unificado Leva A+B):
 
-    Retorno: {ok, lote_removido, par_nunota, par_sequencia}
+    Decide automaticamente entre vincular a pedido existente ou criar pedido
+    retroativo, conforme presença de candidato pareável pela heurística rigorosa:
+      - Mesmo CODPARC + CODEMP
+      - Valor exato (∆ ≤ R$ 0,01)
+      - DTNEG dentro de [nota - 1, nota + 1]
+      - Sem TGFVAR par, sem vínculo manual
+
+    Parâmetros:
+        nunota_nota   — nota órfã alvo
+        codusu/nomeusu — usuário operador (audit)
+        acao          — opcional, força ação: 'VINCULAR' | 'CRIAR'. Se omitido
+                        ('AUTO'), backend decide pela heurística.
+
+    Retorno:
+        {ok: True, acao: 'VINCULADO'|'CRIADO_RETROATIVO', nunota_pedido, ...}
+        {ok: False, error}
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+
+    # 1) Lê dados da nota e tenta achar candidato exato
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT CODTIPOPER, STATUSNOTA, CODEMP, CODPARC, DTNEG,
+                       NVL(VLRNOTA, 0)
+                  FROM TGFCAB WHERE NUNOTA = :n
+            """, n=int(nunota_nota))
+            row = cur.fetchone()
+            if not row:
+                return {'ok': False, 'error': f'Nota NUNOTA={nunota_nota} não encontrada'}
+            top, status, codemp, codparc, dtneg, vlrnota = row
+            if int(top) not in (35, 37):
+                return {'ok': False, 'error':
+                        f'NUNOTA={nunota_nota} não é nota TOP 35/37 (é TOP {top})'}
+            if status == 'E':
+                return {'ok': False, 'error': f'Nota NUNOTA={nunota_nota} excluída'}
+
+            # 2) Busca pedido pareável exato. Pega o mais recente (data DESC,
+            # NUNOTA DESC pra desempate).
+            cur.execute("""
+                SELECT * FROM (
+                  SELECT NUNOTA FROM TGFCAB pc
+                   WHERE pc.CODTIPOPER = 34
+                     AND pc.STATUSNOTA = 'L'
+                     AND pc.CODEMP = :emp
+                     AND pc.CODPARC = :parc
+                     AND pc.DTNEG BETWEEN :dt - 1 AND :dt + 1
+                     AND ABS(NVL(pc.VLRNOTA, 0) - :v) <= 0.01
+                     AND NOT EXISTS (
+                       SELECT 1 FROM TGFVAR v JOIN TGFCAB c2 ON c2.NUNOTA = v.NUNOTA
+                        WHERE v.NUNOTAORIG = pc.NUNOTA
+                          AND c2.CODTIPOPER IN (35, 37)
+                          AND c2.STATUSNOTA <> 'E'
+                     )
+                     AND NOT EXISTS (
+                       SELECT 1 FROM AD_VINCULO_PEDIDO_NOTA av
+                        WHERE av.NUNOTA_PEDIDO = pc.NUNOTA
+                     )
+                   ORDER BY pc.DTNEG DESC, pc.NUNOTA DESC
+                ) WHERE ROWNUM = 1
+            """, emp=int(codemp), parc=int(codparc), dt=dtneg, v=float(vlrnota))
+            cand = cur.fetchone()
+            nunota_candidato = int(cand[0]) if cand else None
+    except Exception as e:
+        logger.exception("Erro em resolver_nota_orfa_automatica (busca candidato)")
+        return {'ok': False, 'error': str(e)}
+
+    # 3) Decide ação. Operador pode forçar via parâmetro `acao`.
+    acao = (acao or 'AUTO').upper()
+    if acao == 'AUTO':
+        acao_efetiva = 'VINCULAR' if nunota_candidato else 'CRIAR'
+    else:
+        acao_efetiva = acao
+
+    if acao_efetiva == 'VINCULAR':
+        if not nunota_candidato:
+            return {'ok': False, 'error':
+                    'Sem candidato exato pareável — use ação CRIAR pra gerar pedido retroativo'}
+        res = inserir_vinculo_manual_pedido_nota(
+            nunota_pedido=nunota_candidato, nunota_nota=int(nunota_nota),
+            codusu=int(codusu), nomeusu=nomeusu,
+        )
+        if not res.get('ok'):
+            return res
+        return {
+            'ok':            True,
+            'acao':          'VINCULADO',
+            'nunota_pedido': nunota_candidato,
+            'vinculo_id':    res.get('id'),
+        }
+
+    if acao_efetiva == 'CRIAR':
+        res = criar_pedido_retroativo_a_partir_de_nota(
+            nunota_nota=int(nunota_nota), codusu=int(codusu), nomeusu=nomeusu,
+        )
+        if not res.get('ok'):
+            return res
+        return {
+            'ok':            True,
+            'acao':          'CRIADO_RETROATIVO',
+            'nunota_pedido': res.get('nunota_pedido'),
+            'vinculo_id':    res.get('vinculo_id'),
+            'qtd_itens':     res.get('qtd_itens'),
+        }
+
+    return {'ok': False, 'error': f'Ação inválida: {acao}'}
+
+
+def criar_pedido_retroativo_a_partir_de_nota(nunota_nota: int, codusu: int,
+                                             nomeusu: str = '') -> dict:
+    """Leva B (Mai/2026) — cria pedido TOP 34 espelhando os itens da nota
+    órfã informada, e grava o vínculo em AD_VINCULO_PEDIDO_NOTA com
+    ORIGEM='PEDIDO_RETROATIVO'.
+
+    Caso de uso: nota foi venda direta sem pedido (TOP 35/37 STATUSNOTA='L'
+    sem TGFVAR par e sem pedido pareável no banco). Operador clica "Criar
+    pedido retroativo" e o IAgro cria a estrutura pra rastreabilidade
+    funcionar normalmente daí pra frente.
+
+    Validações:
+        - Nota existe e é TOP 35/37 STATUSNOTA != 'E'
+        - Nota não tem TGFVAR (nenhum sentido)
+        - Nota não tem vínculo manual já criado
+        - Nota tem pelo menos 1 item em TGFITE
+
+    O cabeçalho novo recebe:
+        - CODEMP, CODPARC, CODTIPVENDA, DTNEG: copiados da nota
+        - CODTIPOPER = 34
+        - CODNAT     = CODNAT_POR_TOP[34]  (10010100)
+        - STATUSNOTA: default Sankhya (vazio = pendente)
+
+    Cada item replica CODPROD, QTDNEG, VLRUNIT, CODVOL, CODLOCALORIG da nota.
+    CODAGREGACAO fica NULL — operador vincula lote depois.
+
+    Atomicidade: tudo num único commit. Falha em qualquer passo → rollback total.
+    Retorno: {ok, nunota_pedido, vinculo_id, qtd_itens}
     """
     if not verificar_permissao_escrita():
         return {'ok': False, 'error': 'Escrita desabilitada'}
@@ -3593,67 +3993,206 @@ def desvincular_lote_pedido_finalizado(nunota: int, sequencia: int) -> dict:
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
 
-            # 1) Lock pessimista do item original
+            # 1) Valida nota e lê cabeçalho
             cur.execute("""
-                SELECT i.CODAGREGACAO, i.CODPROD
-                  FROM TGFITE i
-                 WHERE i.NUNOTA = :n AND i.SEQUENCIA = :s
-                 FOR UPDATE
-            """, n=int(nunota), s=int(sequencia))
-            row_lock = cur.fetchone()
-            if not row_lock:
+                SELECT CODTIPOPER, STATUSNOTA, CODEMP, CODPARC, DTNEG,
+                       CODTIPVENDA
+                  FROM TGFCAB WHERE NUNOTA = :n
+            """, n=int(nunota_nota))
+            row = cur.fetchone()
+            if not row:
+                return {'ok': False, 'error': f'Nota NUNOTA={nunota_nota} não encontrada'}
+            top, status, codemp, codparc, dtneg, codtipvenda = row
+            if int(top) not in (35, 37):
                 return {'ok': False, 'error':
-                        f'Item NUNOTA={nunota} SEQ={sequencia} não encontrado'}
-            codagregacao_atual, codprod = row_lock
+                        f'NUNOTA={nunota_nota} não é nota TOP 35/37 (é TOP {top})'}
+            if status == 'E':
+                return {'ok': False, 'error': f'Nota NUNOTA={nunota_nota} está excluída'}
 
-            if not codagregacao_atual:
-                return {'ok': False, 'error': 'Item não tem lote vinculado'}
+            # 2) Garante que nota é órfã (sem TGFVAR e sem vínculo manual)
+            cur.execute("SELECT COUNT(*) FROM TGFVAR WHERE NUNOTA = :n OR NUNOTAORIG = :n",
+                        n=int(nunota_nota))
+            if (cur.fetchone() or [0])[0] > 0:
+                return {'ok': False, 'error':
+                        f'Nota NUNOTA={nunota_nota} já tem vínculo via TGFVAR'}
+            cur.execute("SELECT COUNT(*) FROM AD_VINCULO_PEDIDO_NOTA WHERE NUNOTA_NOTA = :n",
+                        n=int(nunota_nota))
+            if (cur.fetchone() or [0])[0] > 0:
+                return {'ok': False, 'error':
+                        f'Nota NUNOTA={nunota_nota} já tem vínculo manual'}
 
-            # 2) Valida cabeçalho — TOP 34/35/37 e STATUSNOTA <> 'E'
+            # 3) Lê itens da nota
+            cur.execute("""
+                SELECT SEQUENCIA, CODPROD, NVL(QTDNEG, 0), NVL(VLRUNIT, 0),
+                       NVL(CODVOL, 'UN'), NVL(CODLOCALORIG, 101)
+                  FROM TGFITE WHERE NUNOTA = :n
+                 ORDER BY SEQUENCIA
+            """, n=int(nunota_nota))
+            itens_nota = cur.fetchall()
+            if not itens_nota:
+                return {'ok': False, 'error':
+                        f'Nota NUNOTA={nunota_nota} não tem itens em TGFITE'}
+
+            # 4) Cria cabeçalho TOP 34 (passa conexão pra ficar tudo no mesmo commit)
+            dtneg_str = dtneg.strftime('%d/%m/%Y') if hasattr(dtneg, 'strftime') else str(dtneg)
+            dados_cab = {
+                'CODEMP':     int(codemp),
+                'CODPARC':    int(codparc),
+                'CODTIPOPER': 34,
+                'CODNAT':     CODNAT_POR_TOP[34],
+                'DTNEG':      dtneg_str,
+            }
+            if codtipvenda:
+                dados_cab['CODTIPVENDA'] = int(codtipvenda)
+            res_cab = inserir_cabecalho_nota_banco(dados_cab, conexao_existente=conn)
+            if not res_cab.get('ok'):
+                conn.rollback()
+                return {'ok': False, 'error':
+                        f'Falha ao criar cabeçalho do pedido: {res_cab.get("error")}'}
+            nunota_pedido_novo = int(res_cab['nunota'])
+
+            # 5) Cria itens (sem CODAGREGACAO — operador vincula lote depois)
+            for _seq, codprod, qtdneg, vlrunit, codvol, codlocalorig in itens_nota:
+                dados_item = {
+                    'NUNOTA':       nunota_pedido_novo,
+                    'CODPROD':      int(codprod),
+                    'QTDNEG':       float(qtdneg),
+                    'VLRUNIT':      float(vlrunit),
+                    'CODVOL':       codvol,
+                    'CODLOCALORIG': int(codlocalorig),
+                }
+                res_item = inserir_item_nota_banco(
+                    dados_item, conexao_existente=conn,
+                    codusu_logado=int(codusu) if codusu else None,
+                    gerar_lote_auto=False,
+                )
+                if not res_item.get('ok'):
+                    conn.rollback()
+                    return {'ok': False, 'error':
+                            f'Falha ao copiar item CODPROD={codprod}: {res_item.get("error")}'}
+
+            # 6) Recalcula totais
+            recalcular_totais_nota_banco(nunota_pedido_novo, conexao_existente=conn)
+
+            # 7) Cria vínculo na AD_VINCULO_PEDIDO_NOTA
+            cur.execute("SELECT SEQ_AD_VINCULO_PEDIDO_NOTA.NEXTVAL FROM DUAL")
+            novo_id = int(cur.fetchone()[0])
+            cur.execute("""
+                INSERT INTO AD_VINCULO_PEDIDO_NOTA
+                    (ID, NUNOTA_PEDIDO, NUNOTA_NOTA, ORIGEM, CODUSU, NOMEUSU, OBSERVACAO)
+                VALUES (:id, :p, :n, 'PEDIDO_RETROATIVO', :u, :nu, :obs)
+            """, id=novo_id, p=nunota_pedido_novo, n=int(nunota_nota),
+                 u=int(codusu), nu=(nomeusu or '')[:80],
+                 obs=f'Pedido retroativo criado pelo IAgro p/ rastreio da Nota {nunota_nota}'[:500])
+
+            # 8) Popula AD_NUMPEDIDOORIG na nota (TGFCAB + todos os TGFITE) com
+            # o NUNOTA do pedido recém-criado. Mesma convenção do fluxo padrão
+            # Sankhya (venda aponta pro pedido origem). Pedido novo já recebe
+            # AD_NUMPEDIDOORIG = próprio NUNOTA via default do inserir_cabecalho_nota_banco.
             cur.execute(
-                "SELECT CODTIPOPER, STATUSNOTA FROM TGFCAB WHERE NUNOTA = :n",
-                n=int(nunota),
+                "UPDATE TGFCAB SET AD_NUMPEDIDOORIG = :p WHERE NUNOTA = :n",
+                p=nunota_pedido_novo, n=int(nunota_nota),
             )
-            cab = cur.fetchone()
-            if not cab:
-                return {'ok': False, 'error':
-                        f'Pedido NUNOTA={nunota} não encontrado'}
-            codtipoper, statusnota = cab
-            if int(codtipoper) not in (34, 35, 37):
-                return {'ok': False, 'error':
-                        f'Operação não suportada (TOP {codtipoper})'}
-            if statusnota == 'E':
-                return {'ok': False, 'error': 'Pedido excluído'}
-
-            # 3) Localiza par via TGFVAR
-            pares = _localizar_par_via_tgfvar(cur, int(nunota), int(sequencia))
-
-            # 4) UPDATE em TGFITE — limpa lote
-            cur.execute("""
-                UPDATE TGFITE SET CODAGREGACAO = NULL
-                 WHERE NUNOTA = :n AND SEQUENCIA = :s
-            """, n=int(nunota), s=int(sequencia))
-
-            # 5) Propaga pro par
-            pares_atualizados = []
-            for par_n, par_s in pares:
-                cur.execute("""
-                    UPDATE TGFITE SET CODAGREGACAO = NULL
-                     WHERE NUNOTA = :n AND SEQUENCIA = :s
-                """, n=par_n, s=par_s)
-                if cur.rowcount and cur.rowcount > 0:
-                    pares_atualizados.append({'nunota': par_n, 'sequencia': par_s})
+            cur.execute(
+                "UPDATE TGFITE SET AD_NUMPEDIDOORIG = :p WHERE NUNOTA = :n",
+                p=nunota_pedido_novo, n=int(nunota_nota),
+            )
 
             conn.commit()
             return {
                 'ok': True,
-                'lote_removido': str(codagregacao_atual),
-                'codtipoper':    int(codtipoper),
-                'statusnota':    statusnota,
-                'pares_atualizados': pares_atualizados,
+                'nunota_pedido': nunota_pedido_novo,
+                'vinculo_id':    novo_id,
+                'qtd_itens':     len(itens_nota),
             }
     except Exception as e:
-        logger.exception("Erro em desvincular_lote_pedido_finalizado")
+        logger.exception("Erro em criar_pedido_retroativo_a_partir_de_nota")
+        return {'ok': False, 'error': str(e)}
+
+
+def remover_vinculo_manual_pedido_nota(*, nunota_pedido: int | None = None,
+                                       nunota_nota: int | None = None) -> dict:
+    """Desfaz vínculo manual pelo NUNOTA do pedido OU da nota.
+
+    Comportamento conforme `ORIGEM`:
+        - 'VINCULADO' (Leva A) → só remove a linha em AD_VINCULO_PEDIDO_NOTA.
+          Pedido e nota originais permanecem intactos.
+        - 'PEDIDO_RETROATIVO' (Leva B) → remove a linha em AD_VINCULO_PEDIDO_NOTA
+          E exclui o pedido (TGFITE + TGFCAB), porque o pedido foi criado
+          artificialmente pelo IAgro só pra rastrear a nota.
+          Bloqueia se algum item do pedido já tem CODAGREGACAO atribuído —
+          operador deve desvincular todos os lotes primeiro.
+
+    Pelo menos um dos dois NUNOTAs deve ser informado.
+    Retorna {ok, removidos, origem, pedido_excluido}.
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+    if not nunota_pedido and not nunota_nota:
+        return {'ok': False, 'error': 'Informe nunota_pedido ou nunota_nota'}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 1) Localiza o vínculo (pra saber ORIGEM antes de DELETE)
+            if nunota_pedido:
+                cur.execute("""
+                    SELECT ID, NUNOTA_PEDIDO, NUNOTA_NOTA, ORIGEM
+                      FROM AD_VINCULO_PEDIDO_NOTA WHERE NUNOTA_PEDIDO = :n
+                """, n=int(nunota_pedido))
+            else:
+                cur.execute("""
+                    SELECT ID, NUNOTA_PEDIDO, NUNOTA_NOTA, ORIGEM
+                      FROM AD_VINCULO_PEDIDO_NOTA WHERE NUNOTA_NOTA = :n
+                """, n=int(nunota_nota))
+            row = cur.fetchone()
+            if not row:
+                return {'ok': False, 'error': 'Vínculo não encontrado'}
+            id_v, nunota_ped, nunota_n_real, origem = row
+
+            # 2) Se for pedido retroativo, valida que nenhum item tem lote
+            pedido_excluido = False
+            if origem == 'PEDIDO_RETROATIVO':
+                cur.execute(
+                    "SELECT COUNT(*) FROM TGFITE WHERE NUNOTA = :n AND CODAGREGACAO IS NOT NULL",
+                    n=int(nunota_ped),
+                )
+                n_atrib = (cur.fetchone() or [0])[0]
+                if n_atrib > 0:
+                    return {'ok': False, 'error':
+                            f'Pedido retroativo {nunota_ped} tem {n_atrib} item(ns) com lote atribuído. '
+                            f'Desvincule todos os lotes antes de desfazer.'}
+                # Exclui TGFITE + TGFCAB do pedido criado pelo IAgro
+                cur.execute("DELETE FROM TGFITE WHERE NUNOTA = :n", n=int(nunota_ped))
+                cur.execute("DELETE FROM TGFCAB WHERE NUNOTA = :n", n=int(nunota_ped))
+                pedido_excluido = True
+
+            # 3) Limpa AD_NUMPEDIDOORIG da nota (TGFCAB + todos os TGFITE).
+            # Volta ao estado pré-vínculo: AD_NUMPEDIDOORIG = NULL na venda
+            # (convenção: venda sem pedido conhecido fica NULL, igual ao
+            # estado original Sankhya direto).
+            cur.execute(
+                "UPDATE TGFCAB SET AD_NUMPEDIDOORIG = NULL WHERE NUNOTA = :n",
+                n=int(nunota_n_real),
+            )
+            cur.execute(
+                "UPDATE TGFITE SET AD_NUMPEDIDOORIG = NULL WHERE NUNOTA = :n",
+                n=int(nunota_n_real),
+            )
+
+            # 4) Remove a linha do vínculo
+            cur.execute("DELETE FROM AD_VINCULO_PEDIDO_NOTA WHERE ID = :id", id=int(id_v))
+            removidos = int(cur.rowcount or 0)
+            conn.commit()
+            return {
+                'ok': True,
+                'removidos':      removidos,
+                'origem':         origem,
+                'pedido_excluido': pedido_excluido,
+            }
+    except Exception as e:
+        logger.exception("Erro em remover_vinculo_manual_pedido_nota")
         return {'ok': False, 'error': str(e)}
 
 

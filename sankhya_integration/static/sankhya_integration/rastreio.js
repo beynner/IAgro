@@ -7,13 +7,20 @@ document.addEventListener('DOMContentLoaded', function () {
     const URLS = {
         lotes:           '/sankhya/rastreio/api/lotes-disponiveis/',
         pedidos:         '/sankhya/rastreio/api/pedidos-abertos/',
+        // Mai/2026: endpoints únicos pra TOP 34 — aceitam STATUSNOTA='L'.
+        // Rastreabilidade vive no pedido mesmo após faturamento Sankhya.
         atribuirLote:    '/sankhya/rastreio/api/atribuir-lote/',
         desvincularLote: '/sankhya/rastreio/api/desvincular-lote/',
-        // Fase 2 (Mai/2026): vincular lote em pedido finalizado (TOP 34/35/37)
-        atribuirFinalizado:    '/sankhya/rastreio/api/atribuir-finalizado/',
-        desvincularFinalizado: '/sankhya/rastreio/api/desvincular-finalizado/',
         fabricantes:     '/sankhya/rastreio/api/fabricantes/',
         loteVinculos:    '/sankhya/rastreio/api/lote-vinculos/',
+        // Vínculo manual pedido↔nota (Leva A Mai/2026)
+        vinculoCandidatos: '/sankhya/rastreio/api/vinculo/candidatos/',
+        vinculoCriar:      '/sankhya/rastreio/api/vinculo/criar/',
+        vinculoRemover:    '/sankhya/rastreio/api/vinculo/remover/',
+        // Pedido retroativo a partir de nota órfã (Leva B Mai/2026)
+        vinculoCriarPedidoRetroativo: '/sankhya/rastreio/api/vinculo/criar-pedido-retroativo/',
+        // Fluxo unificado A+B (Mai/2026): backend decide vincular ou criar
+        vinculoResolver: '/sankhya/rastreio/api/vinculo/resolver/',
     };
     const PAGE_SIZE = 50;
     const SCROLL_THRESHOLD = 200;   // px do fim para disparar próxima página
@@ -56,13 +63,15 @@ document.addEventListener('DOMContentLoaded', function () {
     let dataIniPedidos      = '';
     let dataFimPedidos      = '';
     let loteArmado          = null;         // lote selecionado para vincular (click-to-select)
-    // Fase 4.6 — toggle "só pendentes" (esconde produto-linhas já 100% atribuídas)
-    let somentePendentes    = false;
-    // Fase 2 Rastreio (Mai/2026) — toggle "Incluir finalizados": quando ligado,
-    // backend retorna também TOP 35/37 (notas faturadas). Cards de finalizado
-    // ganham badge laranja `FATURADO` e botão de atribuição chama o endpoint
-    // /atribuir-finalizado/ (propaga via TGFVAR pro par pedido↔nota).
-    let incluirFinalizados  = false;
+    // Toggle Pendente/Faturado (Mai/2026): listagem é sempre TOP 34. Cada
+    // flag controla um conjunto de STATUSNOTA no backend:
+    //   - mostrarPendentes → STATUSNOTA NOT IN ('L','E') (pedido em aberto)
+    //   - mostrarFaturados → STATUSNOTA = 'L' (pedido já faturado pelo Sankhya;
+    //     card recebe badge laranja "FATURADO Nota Y" mas continua editável
+    //     no IAgro — rastreabilidade vive no pedido).
+    // Pelo menos um precisa estar ligado; ambos desligados → toast e revert.
+    let mostrarPendentes    = true;
+    let mostrarFaturados    = false;
     // Set<NUNOTA> — pedidos atualmente colapsados (produtos escondidos).
     // Default: TODOS os pedidos vêm colapsados; o usuário expande clicando
     // no header. Click no nome do parceiro/chevron alterna o estado.
@@ -84,8 +93,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // ----- Persistência de preferências em localStorage (Fase 2.12) ---------
     // Restaura/grava: agrupamento, tipoLote, datas (ini/fim) lotes e pedidos,
-    // checkTrava, somentePendentes, loteArmadoCodag. Filtros cruzados continuam
-    // efêmeros (decisão consciente — operador re-marca por ciclo de trabalho).
+    // mostrarPendentes, mostrarFaturados, loteArmadoCodag. Filtros cruzados
+    // continuam efêmeros (decisão consciente — operador re-marca por ciclo).
     // loteArmadoCodag (Mai/2026) — re-arma o lote ao reload. Útil quando o
     // operador é interrompido/perde a conexão no meio de uma vinculação.
     const LS_KEY = 'iagro:rastreio:prefs:v1';
@@ -96,9 +105,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 tipoLote,
                 dataIniLotes, dataFimLotes,
                 dataIniPedidos, dataFimPedidos,
-                travado: !!(checkTrava && checkTrava.classList.contains('is-on')),
-                somentePendentes,
-                incluirFinalizados,
+                mostrarPendentes,
+                mostrarFaturados,
                 loteArmadoCodag: loteArmado ? loteArmado.codagregacao : null,
             }));
         } catch (_) {}
@@ -183,7 +191,6 @@ document.addEventListener('DOMContentLoaded', function () {
     /** [LEGACY] Mantido pra retro-compat — não chamado por nada de UI.
      *  Click em card/linha não filtra mais (substituído por checkboxes). */
     function aplicarFiltroProdutos(codprods) {
-        if (checkTrava && checkTrava.classList.contains('is-on')) return;
         const lista = Array.isArray(codprods) ? codprods : [codprods];
         _limparTodosChecks();
         lista.forEach(cp => checksLotes.add(Number(cp)));
@@ -232,10 +239,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     /** Aplica isolamento ao clicar no header do pedido (replace + isolamento).
-     *  Click no mesmo pedido limpa tudo. TRAVAR FILTRO bloqueia este caminho. */
+     *  Click no mesmo pedido limpa tudo. */
     function aplicarFiltroPedidoIsolado(nunota, codprods) {
-        if (checkTrava && checkTrava.classList.contains('is-on')) return;
-
         const novoSet = new Set((codprods || []).map(Number));
         // Compara a representação atual de filtros de pedido isolado (todos os
         // codprods desse pedido em checksPorPedido[nunota] e checksLotes vazio)
@@ -260,10 +265,11 @@ document.addEventListener('DOMContentLoaded', function () {
     // ==========================================================================
     const containerLotes      = document.getElementById('lotesContainer');
     const containerPedidos    = document.getElementById('pedidosContainer');
-    const checkTrava          = document.getElementById('checkTrava');
     const inputFiltroLotes    = document.getElementById('filtroLotes');
+    const inputFiltroFabricante = document.getElementById('filtroFabricante');
     const inputFiltroPedidos  = document.getElementById('filtroPedidos');
     const dropdownLotes       = document.getElementById('dropdownLotes');
+    const dropdownFabricante  = document.getElementById('dropdownFabricante');
     const dropdownPedidos     = document.getElementById('dropdownPedidos');
     const inputDataIniLotes   = document.getElementById('dataIniLotes');
     const inputDataFimLotes   = document.getElementById('dataFimLotes');
@@ -444,6 +450,31 @@ document.addEventListener('DOMContentLoaded', function () {
         return '#' + codprod;
     }
 
+    // Rotula a linha conforme TIPO_LINHA vindo do backend (Mai/2026):
+    //   PEDIDO    → "Pedido NUNOTA". Se tiver TGFVAR par com nota, expõe
+    //               numnotaNota pra badge "FATURADO Nota Y".
+    //   NOTA_ORFA → "Nota NUMNOTA" (número fiscal). Sem TGFVAR par; recebe
+    //               badge "ÓRFÃ" no header. Operador vincula lote direto.
+    function _rotuloPedido(pedido) {
+        const tipo = pedido && pedido.tipo_linha;
+        if (tipo === 'NOTA_ORFA') {
+            return {
+                label:    'Nota',
+                num:      pedido.numnota || pedido.nunota,
+                orfa:     true,
+                faturado: false,
+            };
+        }
+        const numnotaNota = pedido && (pedido.nota_numnota || pedido.nota_nunota) || null;
+        return {
+            label:      'Pedido',
+            num:        pedido && pedido.nunota,
+            orfa:       false,
+            faturado:   !!numnotaNota,
+            numnotaNota,
+        };
+    }
+
     // Formata "YYYY-MM-DD" → "DD/MM"
     function _fmtDataChip(iso) {
         if (!iso) return '';
@@ -609,7 +640,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 limit: String(PAGE_SIZE),
                 offset: String(lotesOffset),
             });
-            if (textoFiltroLotes) params.set('codagregacao', textoFiltroLotes);
+            // Busca combinada: o input principal aceita lote OU produto.
+            // Backend faz OR em UPPER(CODAGREGACAO) LIKE :q OR UPPER(DESCRPROD) LIKE :q.
+            if (textoFiltroLotes) params.set('q_lote_prod', textoFiltroLotes);
             if (fabricanteAtivo)  params.set('fabricante',   fabricanteAtivo);
             if (tipoLote && tipoLote !== 'todos') params.set('tipo', tipoLote);
             if (dataIniLotes) params.set('data_ini', dataIniLotes);
@@ -692,9 +725,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     params.set('codprods', [...uniaoPed].join(','));
                 }
             }
-            // Toggle "Incluir finalizados" (Fase 2): backend passa a aceitar
-            // TOP 35/37 na listagem. Default: só TOP 34.
-            if (incluirFinalizados) params.set('incluir_finalizados', '1');
+            // Toggle Pendente/Faturado (Mai/2026): cada flag controla TOPs.
+            // Default: pendente=true, faturado=false. Backend devolve [] se ambos false.
+            params.set('mostrar_pendentes', mostrarPendentes ? '1' : '0');
+            params.set('mostrar_faturados', mostrarFaturados ? '1' : '0');
 
             const r = await fetch(URLS.pedidos + '?' + params.toString(), {
                 credentials: 'same-origin', cache: 'no-store',
@@ -1016,12 +1050,29 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!porNunota.has(k)) {
                 porNunota.set(k, {
                     nunota:   it.nunota,
+                    // NUMNOTA do próprio cabeçalho. Pra PEDIDO normalmente é null
+                    // (Sankhya gera só no faturamento); pra NOTA_ORFA é o número
+                    // fiscal real da NFe.
+                    numnota:  it.numnota,
+                    // Mai/2026: 3 tipos de linha:
+                    //   PEDIDO              → TOP 34. Quando faturado pelo Sankhya,
+                    //                         nota_numnota traz NUMNOTA da nota
+                    //                         correlata via TGFVAR (badge FATURADO).
+                    //   NOTA_ORFA           → TOP 35/37 STATUSNOTA='L' sem TGFVAR
+                    //                         par. Header exibe "Nota Y" e badge
+                    //                         laranja "ÓRFÃ".
+                    tipo_linha:   it.tipo_linha || 'PEDIDO',
+                    nota_numnota: it.nota_numnota,
+                    nota_nunota:  it.nota_nunota,
+                    // 'TGFVAR' (nativo Sankhya) | 'MANUAL' (Leva A) | 'RETROATIVO' (Leva B) | null
+                    vinculo_origem: it.vinculo_origem || null,
+                    // Pra NOTA_ORFA: 1 se há pedido pareável pela heurística,
+                    // 0 caso contrário. Decide qual ação é oferecida no card.
+                    tem_candidato_pedido: !!it.tem_candidato_pedido,
                     codemp:   it.codemp,
                     codparc:  it.codparc,
                     nomeparc: it.nomeparc,
                     dtneg:    it.dtneg,
-                    // Fase 2 (Mai/2026) — propaga tipo + status pro front
-                    // distinguir TOP 34 (em aberto) de TOP 35/37 (faturadas)
                     codtipoper: it.codtipoper,
                     statusnota: it.statusnota,
                     _produtos: new Map(),
@@ -1086,14 +1137,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
         let pedidos = agruparPedidos(pedidosData).filter(pedidoCasaFiltro);
 
-        // Fase 4.6 — toggle "só pendentes": esconde produtos já 100% atribuídos
-        // e remove pedidos cujos produtos visíveis ficaram todos completos.
-        if (somentePendentes) {
-            pedidos = pedidos
-                .map(p => ({ ...p, produtos: p.produtos.filter(pr => pr.qtd_falta > 0.000001) }))
-                .filter(p => p.produtos.length > 0);
-        }
-
         // Quick stats do painel direito — sempre acima da lista quando há pedidos
         if (pedidos.length > 0) {
             let qtdTotal = 0, qtdAtribuida = 0, itensPendentes = 0, kgFaltaTotal = 0;
@@ -1144,20 +1187,19 @@ document.addEventListener('DOMContentLoaded', function () {
             const temFiltro = textoFiltroPedidos || pedidoIsolado != null
                             || dataIniPedidos || dataFimPedidos || temFiltroProdutos();
             let titulo, msg, icone, acao = '';
-            if (somentePendentes) {
-                titulo = '✓ Tudo vinculado!';
-                icone  = '🎉';
-                msg    = 'Não há itens pendentes nos pedidos visíveis. Para ver pedidos já vinculados, desligue <strong>SÓ PENDENTES</strong>.';
-                acao   = '<button type="button" class="ras-empty-action" data-action="desligar-pendentes">Mostrar pedidos vinculados</button>';
-            } else if (temFiltro) {
+            if (temFiltro) {
                 titulo = 'Nenhum pedido encontrado com os filtros atuais';
                 icone  = '🔍';
                 msg    = 'Os filtros ativos não retornaram pedidos. Limpe-os ou amplie o período pra ver mais resultados.';
                 acao   = '<button type="button" class="ras-empty-action" data-action="limpar-tudo">Limpar filtros</button>';
+            } else if (!mostrarPendentes && !mostrarFaturados) {
+                titulo = 'Nenhum status selecionado';
+                icone  = '⚠️';
+                msg    = 'Selecione <strong>Pendente</strong> ou <strong>Faturado</strong> no toggle de status pra ver pedidos.';
             } else {
-                titulo = 'Sem pedidos em aberto no período';
+                titulo = 'Sem pedidos no período';
                 icone  = '📋';
-                msg    = 'Não há pedidos TOP 34 (em aberto) no período. Tente aumentar o período de busca acima.';
+                msg    = 'Não há pedidos no período com os status escolhidos. Tente aumentar o período ou ligar <strong>Faturado</strong>.';
             }
             containerPedidos.innerHTML = `
                 <div class="ras-empty">
@@ -1269,15 +1311,44 @@ document.addEventListener('DOMContentLoaded', function () {
             ? '<span class="pb-check" title="Todos os produtos vinculados">✓</span>'
             : '';
 
-        // Fase 2 (Mai/2026) — badge laranja `FATURADO` para TOP 35/37
-        // (nota faturada). Tooltip explicita o efeito da operação.
-        const ehFinalizado = Number(pedido.codtipoper) === 35 || Number(pedido.codtipoper) === 37;
-        const labelTop = Number(pedido.codtipoper) === 35 ? 'NF-e' :
-                          Number(pedido.codtipoper) === 37 ? 'S/NF' : '';
-        const badgeFaturado = ehFinalizado
-            ? `<span class="pb-badge-faturado" title="Nota faturada (TOP ${pedido.codtipoper} - ${labelTop}). Alterar lote propaga automaticamente para o par pedido/nota via TGFVAR.">FATURADO</span>`
-            : '';
-        if (ehFinalizado) header.classList.add('pedido-finalizado');
+        // Mai/2026 — 5 estados visuais (ver _rotuloPedido):
+        //   PEDIDO sem nota par       → header "Pedido X", sem badge
+        //   PEDIDO com nota TGFVAR    → "Pedido X" + badge "FATURADO Nota Y"
+        //   PEDIDO com nota MANUAL    → "Pedido X" + badge "... · MANUAL" + Desfazer (Leva A)
+        //   PEDIDO com nota RETROATIVA → "Pedido X" + badge "... · RETROATIVO" + Desfazer (Leva B)
+        //   NOTA_ORFA                  → header "Nota Y" + badge "ÓRFÃ" + "Vincular a pedido…" + "Criar pedido retroativo"
+        const ehOrfa = pedido.tipo_linha === 'NOTA_ORFA';
+        const numNotaCorrelata = pedido.nota_numnota || pedido.nota_nunota || null;
+        const ehFinalizado = !ehOrfa && !!numNotaCorrelata;
+        const ehManual     = ehFinalizado && pedido.vinculo_origem === 'MANUAL';
+        const ehRetroativo = ehFinalizado && pedido.vinculo_origem === 'RETROATIVO';
+        let badgeFaturado = '';
+        if (ehOrfa) {
+            // Fluxo unificado (Mai/2026): 1 botão único com label adaptativo.
+            // Backend decide a ação via heurística rigorosa (valor exato +
+            // data ±1 dia + mesmo cliente). Operador sempre vê confirmação
+            // ANTES da ação ser executada.
+            const acaoLabel = pedido.tem_candidato_pedido
+                ? 'Vincular ao pedido'
+                : 'Criar pedido retroativo';
+            const acaoTitle = pedido.tem_candidato_pedido
+                ? 'Há pedido pareável (mesmo cliente, valor exato, data ±1 dia). Vai vincular após confirmação.'
+                : 'Não há pedido pareável. Vai criar pedido TOP 34 retroativo espelhando os itens da nota.';
+            badgeFaturado =
+                `<span class="pb-badge-faturado pb-badge-orfa" title="Nota emitida direto no Sankhya, sem pedido vinculado.">ÓRFÃ</span>` +
+                `<button type="button" class="pb-btn-acao-mini btn-resolver-orfa" title="${acaoTitle}" data-tem-candidato="${pedido.tem_candidato_pedido ? '1' : '0'}">${acaoLabel}</button>`;
+        } else if (ehManual) {
+            badgeFaturado =
+                `<span class="pb-badge-faturado pb-badge-manual" title="Vínculo manual IAgro (Leva A). Pedido e nota foram pareados pelo operador — Sankhya não populou TGFVAR.">FATURADO Nota ${escapeHtml(numNotaCorrelata)} · MANUAL</span>` +
+                `<button type="button" class="pb-btn-acao-mini btn-desfazer-vinculo" title="Desfazer este vínculo manual">Desfazer</button>`;
+        } else if (ehRetroativo) {
+            badgeFaturado =
+                `<span class="pb-badge-faturado pb-badge-retroativo" title="Pedido criado retroativamente pelo IAgro (Leva B) pra rastrear esta nota (venda direta sem pedido). Operador trabalha rastreabilidade igual a qualquer pedido.">FATURADO Nota ${escapeHtml(numNotaCorrelata)} · RETROATIVO</span>` +
+                `<button type="button" class="pb-btn-acao-mini btn-desfazer-vinculo" title="Desfazer: exclui o pedido retroativo e devolve a nota ao estado órfã">Desfazer</button>`;
+        } else if (ehFinalizado) {
+            badgeFaturado = `<span class="pb-badge-faturado" title="Pedido já faturado pelo Sankhya (Nota ${escapeHtml(numNotaCorrelata)}). A rastreabilidade continua editável no pedido — a nota TOP 35/37 não é alterada.">FATURADO Nota ${escapeHtml(numNotaCorrelata)}</span>`;
+        }
+        if (ehFinalizado || ehOrfa) header.classList.add('pedido-finalizado');
 
         // Layout: [check] [chevron] avatar  parceiro · data ··· progresso · NUNOTA
         // O check fica antes do chevron para alinhar com os checks das produto-linhas.
@@ -1300,7 +1371,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 ${_renderProgressBar(qtdAtribuida, qtdTotal)}
                 <strong>${pct}%</strong>
             </span>
-            <span class="pb-nunota">${ehFinalizado ? 'Nota' : 'Pedido'} ${escapeHtml(pedido.nunota)}</span>
+            <span class="pb-nunota" title="${(() => {
+                if (ehOrfa) return 'Nota ' + escapeHtml(pedido.numnota || pedido.nunota) + ' órfã · sem pedido vinculado';
+                if (ehFinalizado && numNotaCorrelata) return 'Pedido ' + escapeHtml(pedido.nunota) + ' faturado · Nota ' + escapeHtml(numNotaCorrelata);
+                return '';
+            })()}">${(() => { const r = _rotuloPedido(pedido); return r.label + ' ' + escapeHtml(r.num); })()}</span>
             ${checkOk}
         `;
 
@@ -1331,6 +1406,34 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         header.querySelector('.pb-check-wrap')
               ?.addEventListener('click', (e) => e.stopPropagation());
+
+        // Botão unificado de resolução de nota órfã (Mai/2026)
+        header.querySelector('.btn-resolver-orfa')
+              ?.addEventListener('click', async (e) => {
+                  e.stopPropagation();
+                  await resolverNotaOrfaFluxo(pedido);
+              });
+        // Botão "Desfazer" (vínculo manual)
+        header.querySelector('.btn-desfazer-vinculo')
+              ?.addEventListener('click', async (e) => {
+                  e.stopPropagation();
+                  const ok = await phConfirmar({
+                      titulo:   'Desfazer vínculo manual?',
+                      mensagem: `Remover o vínculo entre Pedido <strong>${escapeHtml(pedido.nunota)}</strong> e Nota <strong>${escapeHtml(numNotaCorrelata)}</strong>?<br><small>A nota volta a aparecer como ÓRFÃ.</small>`,
+                      confirmarLabel: 'Desfazer',
+                      tipo: 'perigo',
+                  });
+                  if (!ok) return;
+                  const res = await postJSON(URLS.vinculoRemover, {
+                      nunota_pedido: pedido.nunota,
+                  });
+                  if (!res.ok || !res.body || !res.body.ok) {
+                      showToast((res.body && res.body.error) || 'Falha ao desfazer vínculo.', 'error');
+                      return;
+                  }
+                  showToast(`Vínculo Pedido ${pedido.nunota} ↔ Nota ${numNotaCorrelata} desfeito.`, 'success');
+                  recarregarTudo();
+              });
 
         // (b) Click no header (no nome do parceiro / chevron / espaço) → expand/collapse
         header.addEventListener('click', (e) => {
@@ -1497,7 +1600,7 @@ document.addEventListener('DOMContentLoaded', function () {
             </span>
             <span class="lpc-tag">${tagFalta}</span>
             ${olhoBtn}
-            <span class="lpc-nunota">Pedido ${escapeHtml(pedido.nunota)}</span>
+            <span class="lpc-nunota">${(() => { const r = _rotuloPedido(pedido); return r.label + ' ' + escapeHtml(r.num); })()}</span>
         `;
 
         // Listeners (mesmos da produto-linha — replicados pra linha compacta) -----
@@ -1729,8 +1832,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         transferLoteName.textContent =
             `${lote.descrprod} — Lote ${lote.codagregacao}`;
+        const _rot = _rotuloPedido(pedido);
         transferDestino.textContent =
-            `Pedido ${pedido.nunota} — ${pedido.nomeparc || ''}`;
+            `${_rot.label} ${_rot.num} — ${pedido.nomeparc || ''}`;
         maxLoteSpan.textContent   = fmtQtd(dispLote);
         maxPedidoSpan.textContent = fmtQtd(faltaProd);
         inputQtdTransfer.value    = sugerida.toFixed(2);
@@ -1778,17 +1882,15 @@ document.addEventListener('DOMContentLoaded', function () {
         btnConfirmarTransfer.classList.add('btn--loading');
         btnConfirmarTransfer.textContent = 'Vinculando...';
 
-        // Fase 2 (Mai/2026) — pedido finalizado (TOP 35/37): endpoint
-        // separado, NÃO suporta qtd parcial (split). Operador atribui o
-        // total da linha pendente; pra split, desvincular primeiro.
-        const ehFinalizado = Number(pedido.codtipoper) === 35 || Number(pedido.codtipoper) === 37;
-
         try {
             // Distribui a qtd entre as linhas pendentes do produto, na ordem
             // que vieram (por SEQUENCIA). Cada linha recebe o que cabe.
             // Coleta o resultado de cada chamada — o backend retorna
             // {operacao: 'UPDATE'|'SPLIT', nova_sequencia: N|null} e usamos
             // a SEQ real para a atualização local (sem inventar valores).
+            // Mai/2026: endpoint único — TOP 34 STATUSNOTA='L' (pedido
+            // faturado) também aceito, com SPLIT incluso (rastreabilidade
+            // vive no pedido; nota TOP 35/37 não é tocada).
             const linhas = [...prod.linhas_pendentes];
             let totalAtribuido = 0;
             let erro = null;
@@ -1800,33 +1902,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 const qtdParaLinha = Math.min(qtdRestante, qtdLinha);
                 if (qtdParaLinha <= 0) continue;
 
-                // Pedido finalizado: aceita apenas atribuição total (não SPLIT).
-                // Se a qtd informada não cobre a linha inteira, mostra erro
-                // explícito antes de tentar — operador entende sem mistério.
-                if (ehFinalizado && qtdParaLinha < qtdLinha - 1e-6) {
-                    erro = `Nota faturada não aceita split. Atribua a quantidade ` +
-                           `total desta linha (${fmtQtd(qtdLinha)}) ou desvincule ` +
-                           `outra atribuição antes de continuar.`;
-                    break;
-                }
-
-                let res;
-                if (ehFinalizado) {
-                    // Endpoint Fase 2 — propaga via TGFVAR pro par pedido↔nota
-                    res = await postJSON(URLS.atribuirFinalizado, {
-                        nunota:       pedido.nunota,
-                        sequencia:    linha.sequencia,
-                        codagregacao: lote.codagregacao,
-                    });
-                } else {
-                    // Fluxo histórico — TOP 34, suporta SPLIT
-                    res = await postJSON(URLS.atribuirLote, {
-                        nunota:       pedido.nunota,
-                        sequencia:    linha.sequencia,
-                        codagregacao: lote.codagregacao,
-                        qtd:          qtdParaLinha,
-                    });
-                }
+                const res = await postJSON(URLS.atribuirLote, {
+                    nunota:       pedido.nunota,
+                    sequencia:    linha.sequencia,
+                    codagregacao: lote.codagregacao,
+                    qtd:          qtdParaLinha,
+                });
                 if (!res.ok || !res.body || !res.body.ok) {
                     erro = (res.body && res.body.error) || 'Falha ao atribuir lote.';
                     break;
@@ -1852,9 +1933,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 // genérico. Operador sabe exatamente o que aconteceu sem
                 // precisar voltar pra lista pra confirmar.
                 const cliente = pedido.nomeparc ? ` · ${pedido.nomeparc}` : '';
+                const _rotT = _rotuloPedido(pedido);
                 showToast(
                     `Lote ${lote.codagregacao} vinculado: ${fmtQtd(totalAtribuido)} ` +
-                    `→ Pedido ${pedido.nunota}${cliente}`,
+                    `→ ${_rotT.label} ${_rotT.num}${cliente}`,
                     'success',
                 );
             }
@@ -1969,16 +2051,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 const nunota       = tr.dataset.nunota;
                 const sequencia    = tr.dataset.sequencia;
                 const codagregacao = tr.dataset.codagregacao;
-                const codtipoper   = Number(tr.dataset.codtipoper || 0);
-                // Fase 2 (Mai/2026) — TOP 35/37 usa endpoint que propaga
-                // via TGFVAR pro par pedido↔nota.
-                const ehFinalizado = codtipoper === 35 || codtipoper === 37;
                 const ok = await phConfirmar({
-                    titulo:   ehFinalizado ? 'Desvincular lote (nota faturada)?' : 'Desvincular lote?',
+                    titulo:   'Desvincular lote?',
                     mensagem: `Remover o vínculo do lote <strong>${escapeHtml(codagregacao)}</strong> ` +
-                              `da ${ehFinalizado ? 'nota' : 'pedido'} <strong>${escapeHtml(nunota)}</strong> ` +
-                              `(item ${escapeHtml(sequencia)})?` +
-                              (ehFinalizado ? '<br><small>Propaga automaticamente pro par pedido/nota via TGFVAR.</small>' : ''),
+                              `do pedido <strong>${escapeHtml(nunota)}</strong> ` +
+                              `(item ${escapeHtml(sequencia)})?`,
                     confirmarLabel: 'Desvincular',
                     tipo: 'perigo',
                 });
@@ -1988,8 +2065,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 btn.disabled = true;
                 btn.classList.add('btn--loading');
                 try {
-                    const endpoint = ehFinalizado ? URLS.desvincularFinalizado : URLS.desvincularLote;
-                    const res = await postJSON(endpoint, {
+                    const res = await postJSON(URLS.desvincularLote, {
                         nunota:    Number(nunota),
                         sequencia: Number(sequencia),
                     });
@@ -2028,7 +2104,8 @@ document.addEventListener('DOMContentLoaded', function () {
      *  Colunas: DATA · NUNOTA · PARCEIRO (do lote) · PRODUTO · QTD
      *  Não precisa fetch — os dados já estão em prod.lotes_vinculados. */
     function abrirModalVinculosDeProduto(pedido, prod) {
-        const titulo = `Lotes vinculados — ${prod.descrprod} · Pedido ${pedido.nunota}`;
+        const _rotV = _rotuloPedido(pedido);
+        const titulo = `Lotes vinculados — ${prod.descrprod} · ${_rotV.label} ${_rotV.num}`;
         if (!prod.lotes_vinculados || prod.lotes_vinculados.length === 0) {
             abrirModalVinculos(titulo, '<div class="empty-state">Nenhum lote vinculado.</div>');
             return;
@@ -2083,23 +2160,28 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             const linhas = itens.map(v => {
                 const top = Number(v.codtipoper);
-                const faturado = top === 35 || top === 37 || v.statusnota === 'L';
-                // Só pedidos TOP 34 não-faturados podem ser desvinculados
-                const podeDesvincular = top === 34 && v.statusnota !== 'L';
+                // Mai/2026: rastreabilidade vive no pedido (TOP 34). Qualquer
+                // STATUSNOTA (exceto 'E') pode ser desvinculado — inclusive
+                // pedido já faturado. TOP 35/37 só aparece se algum operador
+                // vinculou direto na nota no Sankhya nativo — fora do controle
+                // do IAgro, não dá pra desvincular daqui.
+                const ehNotaSankhya = top === 35 || top === 37;
+                const podeDesvincular = top === 34 && v.statusnota !== 'E';
                 const acaoHtml = podeDesvincular
                     ? '<button class="btn-desvincular" type="button" title="Desvincular este lote do pedido">🗑</button>'
                     : '';
-                // Fase 2.10 — badge FATURADO vs ATRIBUIDO
                 const tipNomeTop = top === 35
                     ? 'Venda com NFe'
                     : top === 37 ? 'Venda sem NFe'
-                    : top === 34 ? 'Pedido em aberto'
+                    : top === 34 ? 'Pedido'
                     : `TOP ${top}`;
-                const statusLabel = faturado
-                    ? `<span class="vinc-status vinc-status-faturado" title="Pedido já faturado (TOP ${top} - ${tipNomeTop}). Não pode mais ser desvinculado.">FATURADO</span>`
-                    : `<span class="vinc-status vinc-status-atribuido" title="Pedido em aberto (TOP 34) — pode ser desvinculado se necessário">ATRIBUÍDO</span>`;
+                const statusLabel = ehNotaSankhya
+                    ? `<span class="vinc-status vinc-status-faturado" title="Vínculo direto na nota TOP ${top} (${tipNomeTop}) — feito pelo Sankhya nativo. Não dá pra desvincular pelo IAgro.">NOTA SANKHYA</span>`
+                    : v.statusnota === 'L'
+                        ? `<span class="vinc-status vinc-status-faturado" title="Pedido já faturado pelo Sankhya. Rastreabilidade ainda pode ser ajustada aqui.">FATURADO</span>`
+                        : `<span class="vinc-status vinc-status-atribuido" title="Pedido em aberto — pode ser desvinculado se necessário">ATRIBUÍDO</span>`;
                 return `
-                    <tr class="vinc-linha ${faturado ? 'linha-faturada' : ''}"
+                    <tr class="vinc-linha ${ehNotaSankhya ? 'linha-faturada' : ''}"
                         data-nunota="${escapeHtml(v.nunota)}"
                         data-sequencia="${escapeHtml(v.sequencia)}"
                         data-codagregacao="${escapeHtml(lote.codagregacao)}"
@@ -2130,6 +2212,62 @@ document.addEventListener('DOMContentLoaded', function () {
             vinculosBody.innerHTML =
                 `<div class="empty-state">Erro: ${escapeHtml(e.message)}</div>`;
         }
+    }
+
+    // ==========================================================================
+    // 10c. Resolver nota órfã — fluxo unificado A+B (Mai/2026)
+    // Backend decide automaticamente entre vincular a pedido existente
+    // (heurística rigorosa: mesmo cliente + valor exato + data ±1d) ou
+    // criar pedido retroativo. Operador sempre vê confirmação ANTES.
+    // ==========================================================================
+    async function resolverNotaOrfaFluxo(notaOrfa) {
+        const numNota = notaOrfa.numnota || notaOrfa.nunota;
+        const temCandidato = !!notaOrfa.tem_candidato_pedido;
+
+        const titulo  = temCandidato ? 'Vincular ao pedido pareável?' : 'Criar pedido retroativo?';
+        const msg = temCandidato
+            ? `Encontrei um pedido com <strong>valor exato</strong> e do mesmo cliente.<br>` +
+              `Vou vincular a Nota <strong>${escapeHtml(numNota)}</strong> a esse pedido.<br>` +
+              `<small>Reversível pelo botão "Desfazer" no card depois.</small>`
+            : `Não há pedido pareável (cliente, valor exato e data ±1 dia).<br>` +
+              `Vou criar um pedido <strong>TOP 34</strong> retroativo espelhando os itens da Nota <strong>${escapeHtml(numNota)}</strong>.<br>` +
+              `<small>Empresa, cliente, data e tipo de venda copiados. Itens sem lote — você vincula depois.</small><br>` +
+              `<small>Reversível enquanto nenhum lote tiver sido atribuído.</small>`;
+
+        const ok = await phConfirmar({
+            titulo,
+            mensagem: msg,
+            confirmarLabel: temCandidato ? 'Vincular' : 'Criar pedido',
+            tipo: 'aviso',
+        });
+        if (!ok) return;
+
+        const res = await postJSON(URLS.vinculoResolver, {
+            nunota_nota: notaOrfa.nunota,
+            // 'AUTO' deixa o backend decidir pela mesma heurística (idempotente
+            // com o que o frontend já mostrou no label do botão).
+            acao: 'AUTO',
+        });
+        if (!res.ok || !res.body || !res.body.ok) {
+            showToast((res.body && res.body.error) || 'Falha ao resolver nota órfã.', 'error');
+            return;
+        }
+        const acao = res.body.acao;
+        const novoNunota = res.body.nunota_pedido;
+        if (acao === 'VINCULADO') {
+            showToast(
+                `Nota ${numNota} vinculada ao Pedido ${novoNunota}.`,
+                'success',
+            );
+        } else {
+            const qtd = res.body.qtd_itens;
+            showToast(
+                `Pedido ${novoNunota} criado retroativamente com ${qtd} item(ns). ` +
+                `Vinculado à Nota ${numNota}.`,
+                'success',
+            );
+        }
+        recarregarTudo();
     }
 
     // ==========================================================================
@@ -2184,29 +2322,34 @@ document.addEventListener('DOMContentLoaded', function () {
         // Permite forçar refresh visual quando o estado muda externamente
         btn._aplicarToggle = aplicar;
     }
-    const checkSomentePendente = document.getElementById('checkSomentePendente');
-    _bindToggleBtn(
-        checkSomentePendente,
-        () => somentePendentes,
-        (v) => { somentePendentes = v; },
-        () => renderPedidos(),
-    );
-    // Fase 2 (Mai/2026) — toggle "Incluir finalizados": refaz busca server-side
-    // pra trazer TOP 35/37 (notas faturadas) junto com pedidos abertos. Cards
-    // de finalizado vêm com badge laranja `FATURADO` (ver renderPedidos).
-    const checkIncluirFinalizados = document.getElementById('checkIncluirFinalizados');
-    _bindToggleBtn(
-        checkIncluirFinalizados,
-        () => incluirFinalizados,
-        (v) => { incluirFinalizados = v; },
-        () => carregarPedidos(true),   // refetch — filtro server-side
-    );
-    _bindToggleBtn(
-        checkTrava,
-        () => checkTrava && checkTrava.classList.contains('is-on'),
-        () => {},   // estado vive na própria classe; setValor é no-op
-        null,
-    );
+    // Toggle Pendente/Faturado (Mai/2026) — substitui "Só pendentes" + "Incluir
+    // finalizados". Pelo menos um precisa estar ligado; se o operador tentar
+    // desligar o último, revertemos com toast (mantém a tela com dados).
+    const checkStatusPendente = document.getElementById('checkStatusPendente');
+    const checkStatusFaturado = document.getElementById('checkStatusFaturado');
+    function _aplicarStatusBtn(btn, ligado) {
+        if (!btn) return;
+        btn.classList.toggle('is-on', !!ligado);
+        btn.setAttribute('aria-pressed', !!ligado);
+    }
+    _aplicarStatusBtn(checkStatusPendente, mostrarPendentes);
+    _aplicarStatusBtn(checkStatusFaturado, mostrarFaturados);
+    function _toggleStatus(qual) {
+        const proxPend = qual === 'pendente' ? !mostrarPendentes : mostrarPendentes;
+        const proxFat  = qual === 'faturado' ? !mostrarFaturados : mostrarFaturados;
+        if (!proxPend && !proxFat) {
+            showToast('Selecione pelo menos um status (Pendente ou Faturado).', 'warning');
+            return;
+        }
+        mostrarPendentes = proxPend;
+        mostrarFaturados = proxFat;
+        _aplicarStatusBtn(checkStatusPendente, mostrarPendentes);
+        _aplicarStatusBtn(checkStatusFaturado, mostrarFaturados);
+        _salvarPrefs();
+        carregarPedidos(true);
+    }
+    if (checkStatusPendente) checkStatusPendente.addEventListener('click', () => _toggleStatus('pendente'));
+    if (checkStatusFaturado) checkStatusFaturado.addEventListener('click', () => _toggleStatus('faturado'));
 
     // ----- FILTRO DE PERÍODO (data inicial → data final) ------------------
     /** Formata um Date como ISO YYYY-MM-DD (sem fuso). */
@@ -2272,26 +2415,16 @@ document.addEventListener('DOMContentLoaded', function () {
             dataFimPedidos = prefs.dataFimPedidos;
             if (inputDataFimPedidos) inputDataFimPedidos.value = prefs.dataFimPedidos;
         }
-        if (typeof prefs.travado === 'boolean' && checkTrava) {
-            checkTrava.classList.toggle('is-on', prefs.travado);
-            checkTrava.setAttribute('aria-pressed', prefs.travado);
-        }
-        if (typeof prefs.somentePendentes === 'boolean') {
-            somentePendentes = prefs.somentePendentes;
-            const c = document.getElementById('checkSomentePendente');
-            if (c) {
-                c.classList.toggle('is-on', somentePendentes);
-                c.setAttribute('aria-pressed', somentePendentes);
-            }
-        }
-        if (typeof prefs.incluirFinalizados === 'boolean') {
-            incluirFinalizados = prefs.incluirFinalizados;
-            const c = document.getElementById('checkIncluirFinalizados');
-            if (c) {
-                c.classList.toggle('is-on', incluirFinalizados);
-                c.setAttribute('aria-pressed', incluirFinalizados);
-            }
-        }
+        // Toggle Pendente/Faturado (Mai/2026). Garantia: pelo menos um ligado.
+        let prefPend = (typeof prefs.mostrarPendentes === 'boolean') ? prefs.mostrarPendentes : mostrarPendentes;
+        let prefFat  = (typeof prefs.mostrarFaturados === 'boolean') ? prefs.mostrarFaturados : mostrarFaturados;
+        if (!prefPend && !prefFat) { prefPend = true; prefFat = false; }
+        mostrarPendentes = prefPend;
+        mostrarFaturados = prefFat;
+        const cp = document.getElementById('checkStatusPendente');
+        const cf = document.getElementById('checkStatusFaturado');
+        if (cp) { cp.classList.toggle('is-on', mostrarPendentes); cp.setAttribute('aria-pressed', mostrarPendentes); }
+        if (cf) { cf.classList.toggle('is-on', mostrarFaturados); cf.setAttribute('aria-pressed', mostrarFaturados); }
     })();
 
     if (inputDataIniLotes) {
@@ -2480,37 +2613,43 @@ document.addEventListener('DOMContentLoaded', function () {
         return lista;
     }
 
-    let typeaheadLotes = null;
-    if (inputFiltroLotes && dropdownLotes) {
-        typeaheadLotes = criarTypeahead({
-            input:    inputFiltroLotes,
-            dropdown: dropdownLotes,
-            // Cada item é uma string (nome do fabricante)
+    // Input de busca de lote/produto — busca livre (LIKE em CODAGREGACAO/DESCRPROD).
+    // Sem typeahead; backend filtra por substring.
+    if (inputFiltroLotes) {
+        inputFiltroLotes.addEventListener('input', debounce((e) => {
+            textoFiltroLotes = (e.target.value || '').trim();
+            carregarLotes(true);
+        }, 300));
+    }
+
+    // Input dedicado ao FORNECEDOR (typeahead de FABRICANTE distinct).
+    // Separado do filtroLotes (Mai/2026) — antes os dois compartilhavam o
+    // mesmo input, confundindo busca livre com seleção de fabricante.
+    let typeaheadFabricante = null;
+    if (inputFiltroFabricante && dropdownFabricante) {
+        typeaheadFabricante = criarTypeahead({
+            input:    inputFiltroFabricante,
+            dropdown: dropdownFabricante,
             formatItem: (nome) => `<span class="sd-titulo">${escapeHtml(nome)}</span>`,
             onSelect: (nome) => {
-                inputFiltroLotes.value = nome;
-                fabricanteAtivo        = nome;
-                textoFiltroLotes       = '';
-                // Cross filter — fabricante refletido nos dois painéis
+                inputFiltroFabricante.value = nome;
+                fabricanteAtivo             = nome;
                 carregarLotes(true);
-                carregarPedidos(true);
+                carregarPedidos(true);   // cross filter
             },
         });
-
-        // 500ms debounce — dá tempo do operador digitar o nome completo do
-        // fabricante antes do dropdown filtrar (a pedido do usuário).
-        inputFiltroLotes.addEventListener('input', debounce(async (e) => {
+        // 500ms debounce — dá tempo do operador digitar o nome completo.
+        inputFiltroFabricante.addEventListener('input', debounce(async (e) => {
             const q = (e.target.value || '').trim();
             if (q.length === 0) {
-                fabricanteAtivo  = '';
-                textoFiltroLotes = '';
-                typeaheadLotes.fechar();
+                fabricanteAtivo = '';
+                typeaheadFabricante.fechar();
                 carregarLotes(true);
-                carregarPedidos(true);   // cross filter: limpar fabricante reflete nos pedidos
+                carregarPedidos(true);
                 return;
             }
             const items = await buscarFabricantes(q);
-            typeaheadLotes.abrir(items);
+            typeaheadFabricante.abrir(items);
         }, 500));
     }
     // Pre-carrega o cache em background no bootstrap — quando o usuário
@@ -2736,16 +2875,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
     /** Reseta toda a tela ao estado inicial: typeaheads, datas (defaults),
      *  agrupamento, tipoLote, filtro cruzado, isolamento, lote armado,
-     *  travar filtro. Depois recarrega lotes e pedidos. */
+     *  status (Pendente ligado, Faturado desligado). Recarrega lotes e pedidos. */
     function limparTudo() {
         // Typeaheads
         textoFiltroLotes   = '';
         fabricanteAtivo    = '';
         textoFiltroPedidos = '';
-        if (inputFiltroLotes)   inputFiltroLotes.value   = '';
-        if (inputFiltroPedidos) inputFiltroPedidos.value = '';
-        if (typeaheadLotes)   typeaheadLotes.fechar();
-        if (typeaheadPedidos) typeaheadPedidos.fechar();
+        if (inputFiltroLotes)      inputFiltroLotes.value      = '';
+        if (inputFiltroFabricante) inputFiltroFabricante.value = '';
+        if (inputFiltroPedidos)    inputFiltroPedidos.value    = '';
+        if (typeaheadFabricante) typeaheadFabricante.fechar();
+        if (typeaheadPedidos)    typeaheadPedidos.fechar();
 
         // Filtro cruzado e isolamento
         _limparTodosChecks();
@@ -2764,30 +2904,14 @@ document.addEventListener('DOMContentLoaded', function () {
         const radioParc = document.getElementById('grpParceiro');
         if (radioParc) radioParc.checked = true;
 
-        // TRAVAR FILTRO desativado
-        if (checkTrava) {
-            checkTrava.classList.remove('is-on');
-            checkTrava.setAttribute('aria-pressed', 'false');
-        }
-
         // Datas → defaults (hoje−7 → hoje)
         _inicializarPeriodos();
 
-        // "Só pendentes" desligado
-        somentePendentes = false;
-        const checkSP = document.getElementById('checkSomentePendente');
-        if (checkSP) {
-            checkSP.classList.remove('is-on');
-            checkSP.setAttribute('aria-pressed', 'false');
-        }
-
-        // "Incluir finalizados" desligado (Fase 2 Mai/2026)
-        incluirFinalizados = false;
-        const checkIF = document.getElementById('checkIncluirFinalizados');
-        if (checkIF) {
-            checkIF.classList.remove('is-on');
-            checkIF.setAttribute('aria-pressed', 'false');
-        }
+        // Status: Pendente ligado, Faturado desligado (default)
+        mostrarPendentes = true;
+        mostrarFaturados = false;
+        _aplicarStatusBtn(checkStatusPendente, true);
+        _aplicarStatusBtn(checkStatusFaturado, false);
 
         // Reset do estado de colapso — todos os pedidos voltam a ser
         // tratados como "novos" e serão colapsados na próxima renderização.
@@ -2815,12 +2939,6 @@ document.addEventListener('DOMContentLoaded', function () {
             const acao = btn.dataset.action;
             if (acao === 'limpar-tudo') {
                 limparTudo();
-            } else if (acao === 'desligar-pendentes') {
-                somentePendentes = false;
-                const tog = document.getElementById('checkSomentePendente');
-                if (tog) tog.setAttribute('aria-pressed', 'false');
-                _salvarPrefs();
-                renderPedidos();
             }
         });
     }

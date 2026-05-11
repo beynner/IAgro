@@ -864,6 +864,120 @@
     border-left-color: #f59e0b;
 }
 
+/* Badge "ÓRFÃ" (nota TOP 35/37 sem pedido pareado via TGFVAR) — vermelho-laranja
+   discreto, distinto do "FATURADO" amarelo. Sinaliza que o operador está
+   trabalhando direto no TGFITE da nota, sem rede de segurança do TGFVAR. */
+.pedido-bloco-header .pb-badge-faturado.pb-badge-orfa {
+    background: #fee2e2;
+    color:      #b91c1c;
+    border-color: #fca5a5;
+}
+
+/* Badge "FATURADO Nota Y · MANUAL" — vínculo manual IAgro (Leva A Mai/2026).
+   Verde-azulado discreto pra distinguir do FATURADO amarelo (TGFVAR nativo). */
+.pedido-bloco-header .pb-badge-faturado.pb-badge-manual {
+    background:   #ccfbf1;
+    color:        #0f766e;
+    border-color: #5eead4;
+}
+
+/* Badge "FATURADO Nota Y · RETROATIVO" — pedido criado pelo IAgro (Leva B
+   Mai/2026). Roxo discreto pra distinguir tanto de TGFVAR (amarelo) quanto
+   de MANUAL (verde-azulado). Sinaliza origem artificial. */
+.pedido-bloco-header .pb-badge-faturado.pb-badge-retroativo {
+    background:   #ede9fe;
+    color:        #6d28d9;
+    border-color: #c4b5fd;
+}
+
+/* Botão mini de ação no header (Vincular a pedido… / Desfazer).
+   Discreto mas clicável. Posição inline com o badge. */
+.pedido-bloco-header .pb-btn-acao-mini {
+    margin-left:    6px;
+    padding:        2px 8px;
+    background:     transparent;
+    color:          var(--ras-primary, #5e7e4a);
+    border:         1px dashed var(--ras-primary, #5e7e4a);
+    border-radius:  6px;
+    font-size:      10px;
+    font-weight:    700;
+    cursor:         pointer;
+    transition:     all 0.12s ease;
+    white-space:    nowrap;
+}
+.pedido-bloco-header .pb-btn-acao-mini:hover {
+    background: var(--ras-primary, #5e7e4a);
+    color:      #fff;
+}
+
+/* Explicação e seção manual no modal de vínculo */
+.vinc-explica {
+    margin:    0 0 8px 0;
+    padding:   8px 12px;
+    background: var(--cor-fundo-secao, #f1f5f9);
+    border-left: 3px solid var(--ras-primary, #5e7e4a);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--texto-secundario, #64748b);
+}
+.vinc-empty {
+    text-align: center;
+    color: var(--texto-secundario, #64748b);
+    padding: 12px;
+    font-style: italic;
+}
+.vinc-manual {
+    margin-top: 12px;
+    padding:    10px;
+    background: var(--cor-fundo-secao, #f1f5f9);
+    border-radius: 6px;
+    display:    flex;
+    gap:        8px;
+    align-items: center;
+    flex-wrap:   wrap;
+}
+.vinc-manual label {
+    font-size:   12px;
+    color:       var(--texto-principal);
+    font-weight: 600;
+}
+.vinc-manual input[type="number"] {
+    flex:        1;
+    min-width:   120px;
+    height:      30px;
+    padding:     0 8px;
+    border:      1px solid var(--cor-borda, #e2e8f0);
+    border-radius: 6px;
+    font-size:   13px;
+}
+.vinc-manual button {
+    height:      30px;
+    padding:     0 14px;
+    background:  var(--ras-primary, #5e7e4a);
+    color:       #fff;
+    border:      none;
+    border-radius: 6px;
+    cursor:      pointer;
+    font-weight: 700;
+    font-size:   12px;
+}
+.vinc-manual button:hover {
+    filter: brightness(1.1);
+}
+.btn-vincular-confirma {
+    padding: 4px 12px;
+    background: var(--ras-primary, #5e7e4a);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.btn-vincular-confirma:hover {
+    filter: brightness(1.1);
+}
+
 /* === Linha de produto dentro do bloco de pedido ==================== */
 .produto-linha {
     margin-left:  16px;     /* indenta para mostrar hierarquia */
@@ -1018,6 +1132,8 @@
     text-align:  right;
     font-weight: 700;
 }
+/* Cabeçalho da coluna de Qtde / valor numérico também alinhado à direita */
+.vinculos-tabela thead th.vnum-th { text-align: right; }
 /* Tamanho próprio do modal de vínculos: mais largo que o de transferência */
 #modalVinculos .modal-card {
     width:     min(90vw, 800px);
@@ -1712,6 +1828,25 @@
     margin-right: 4px;
 }
 
+/* Container dos 2 inputs de busca lado a lado (lote/produto + fornecedor).
+   Mantém ambos com a mesma largura proporcional e empilha em telas estreitas. */
+.ras-search-duo {
+    display: flex;
+    flex: 1;
+    gap: 8px;
+    min-width: 0;
+}
+.ras-search-duo .ras-search {
+    flex: 1 1 0;
+    min-width: 0;
+}
+@media (max-width: 1100px) {
+    .ras-search-duo {
+        flex-direction: column;
+        gap: 6px;
+    }
+}
+
 /* Search com ícone — input full-width na linha do título.
    `.ras-search-input` precisa vencer o `.search-input` legado (mesma
    especificidade); por isso `padding`/`width` recebem `!important`. */
@@ -1889,15 +2024,37 @@
     border-color: var(--ras-accent, #38292c);
     box-shadow: inset 0 1px 2px rgba(0,0,0,0.2);
 }
-/* Travar quando ativo: tom danger discreto (sinaliza bloqueio) */
-#checkTrava.is-on {
-    background: #a94442;
-    border-color: #a94442;
+/* Toggle de status do pedido (Pendente / Faturado — pelo menos um precisa
+   estar ligado). Visualmente agrupados sem gap entre os dois botões para
+   reforçar que são opções complementares da mesma dimensão. */
+.ras-status-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+    flex-shrink: 0;
 }
-/* Só pendentes quando ativo: secondary (marrom — filtro de atenção) */
-#checkSomentePendente.is-on {
-    background: var(--ras-secondary, #825e38);
-    border-color: var(--ras-secondary, #825e38);
+.ras-status-toggle .ras-toggle {
+    border-radius: 0;
+    margin-left: -1px;   /* sobrepõe borda do anterior */
+}
+.ras-status-toggle .ras-toggle:first-child {
+    border-top-left-radius: 7px;
+    border-bottom-left-radius: 7px;
+    margin-left: 0;
+}
+.ras-status-toggle .ras-toggle:last-child {
+    border-top-right-radius: 7px;
+    border-bottom-right-radius: 7px;
+}
+/* Pendente ligado: tom primário (verde Agromil) */
+#checkStatusPendente.is-on {
+    background: var(--ras-primary, #5e7e4a);
+    border-color: var(--ras-primary, #5e7e4a);
+}
+/* Faturado ligado: laranja (alinha com badge FATURADO dos cards) */
+#checkStatusFaturado.is-on {
+    background: #d97706;
+    border-color: #d97706;
 }
 
 /* ----- Botões de ação (LIMPAR / ATUALIZAR) — ícone + label ------------ */

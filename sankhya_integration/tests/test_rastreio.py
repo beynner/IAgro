@@ -285,6 +285,24 @@ class ApiPedidosAbertosTest(TestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 500)
 
+    @patch('sankhya_integration.views.consultar_pedidos_abertos_para_atribuicao',
+           return_value=[])
+    def test_toggle_status_default_pendentes(self, mock_fn):
+        """Sem query string: backend deve receber Pendente=True, Faturado=False."""
+        self.client.get(self.url)
+        filtros = mock_fn.call_args[0][0]
+        self.assertTrue(filtros.get('mostrar_pendentes'))
+        self.assertFalse(filtros.get('mostrar_faturados'))
+
+    @patch('sankhya_integration.views.consultar_pedidos_abertos_para_atribuicao',
+           return_value=[])
+    def test_toggle_status_apenas_faturados(self, mock_fn):
+        """Operador desliga Pendente e liga Faturado — backend respeita."""
+        self.client.get(self.url, {'mostrar_pendentes': '0', 'mostrar_faturados': '1'})
+        filtros = mock_fn.call_args[0][0]
+        self.assertFalse(filtros.get('mostrar_pendentes'))
+        self.assertTrue(filtros.get('mostrar_faturados'))
+
 
 # ---------------------------------------------------------------------------
 # api_rastreio_atribuir_lote (POST)
@@ -565,28 +583,114 @@ class AtribuirLoteServiceTest(TestCase):
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
            return_value=True)
-    def test_pedido_faturado_recusa(self, _mp, mock_obter):
+    def test_pedido_faturado_aceita(self, _mp, mock_obter):
+        """Mai/2026: TOP 34 STATUSNOTA='L' (pedido já faturado) é aceito.
+        Rastreabilidade vive no pedido mesmo após faturamento. O guard agora
+        só bloqueia STATUSNOTA='E' (excluído)."""
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
             (None, 10.0, 100),    # item sem lote ainda
-            (34, 'L'),            # mas o pedido está faturado
+            (34, 'L'),            # pedido faturado — aceito agora
+            (50.0,),              # saldo do lote: suficiente
+        ]
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import atribuir_lote_item_pedido
+        res = atribuir_lote_item_pedido(nunota=1, sequencia=1, codagregacao='L1')
+        self.assertTrue(res['ok'])
+        self.assertEqual(res['operacao'], 'UPDATE')
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_pedido_excluido_recusa(self, _mp, mock_obter):
+        """STATUSNOTA='E' (pedido excluído) continua bloqueado."""
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (None, 10.0, 100),
+            (34, 'E'),
         ]
         self._mock_conn_ctx(mock_obter, cursor)
         from sankhya_integration.services.oracle_conn import atribuir_lote_item_pedido
         res = atribuir_lote_item_pedido(nunota=1, sequencia=1, codagregacao='L1')
         self.assertFalse(res['ok'])
-        self.assertIn('faturado', res['error'].lower())
+        self.assertIn('excluído', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_nota_orfa_top35_aceita(self, _mp, mock_obter):
+        """TOP 35 STATUSNOTA='L' SEM TGFVAR par (nota órfã) é aceita.
+        Operador vincula lote direto no TGFITE da nota (caso 111976)."""
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (None, 10.0, 100),    # FOR UPDATE: sem lote, qtd 10, codprod 100
+            (35, 'L'),            # TOP 35 STATUSNOTA='L'
+            (0,),                 # COUNT(*) TGFVAR — zero = órfã
+            (50.0,),              # saldo do lote
+        ]
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import atribuir_lote_item_pedido
+        res = atribuir_lote_item_pedido(nunota=111976, sequencia=1, codagregacao='L1')
+        self.assertTrue(res['ok'])
+        self.assertEqual(res['operacao'], 'UPDATE')
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_top35_com_tgfvar_par_recusa(self, _mp, mock_obter):
+        """TOP 35 com TGFVAR par bloqueia — operador deve trabalhar pelo pedido."""
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (None, 10.0, 100),
+            (35, 'L'),
+            (15,),    # COUNT(*) TGFVAR > 0 — tem pedido pareado
+        ]
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import atribuir_lote_item_pedido
+        res = atribuir_lote_item_pedido(nunota=111983, sequencia=1, codagregacao='L1')
+        self.assertFalse(res['ok'])
+        self.assertIn('tgfvar', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_top35_sem_status_L_recusa(self, _mp, mock_obter):
+        """TOP 35 com STATUSNOTA != 'L' (rascunho/cancelada) bloqueia."""
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (None, 10.0, 100),
+            (35, ' '),    # STATUSNOTA em branco — não está liberada
+        ]
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import atribuir_lote_item_pedido
+        res = atribuir_lote_item_pedido(nunota=1, sequencia=1, codagregacao='L1')
+        self.assertFalse(res['ok'])
+        self.assertIn('liberada', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_top_nao_suportada_recusa(self, _mp, mock_obter):
+        """TOP fora de 34/35/37 (ex: 30 avaria) é rejeitada."""
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (None, 10.0, 100),
+            (30, 'L'),    # TOP 30
+        ]
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import atribuir_lote_item_pedido
+        res = atribuir_lote_item_pedido(nunota=1, sequencia=1, codagregacao='L1')
+        self.assertFalse(res['ok'])
+        self.assertIn('não suportada', res['error'].lower())
 
 
 # ---------------------------------------------------------------------------
-# Service atribuir_lote_pedido_finalizado — Fase 2 do Rastreio (Mai/2026)
-# Aceita TOP 34/35/37 STATUSNOTA<>'E'. Propaga via TGFVAR pro par.
+# Service vínculo manual pedido↔nota — Leva A (Mai/2026)
 # ---------------------------------------------------------------------------
 
-class AtribuirLoteFinalizadoServiceTest(TestCase):
-    """Testes do service novo (Mai/2026 — vincular lote em pedido finalizado).
-    Confere: TOP 35/37 aceitos, TOP 30 rejeita, propaga via TGFVAR pro par,
-    valida saldo, segurança de status excluído."""
+class VinculoManualPedidoNotaServiceTest(TestCase):
+    """Cobertura das 3 funções de vínculo manual (AD_VINCULO_PEDIDO_NOTA).
+    Mocks isolam totalmente Oracle — testa apenas a lógica de fluxo."""
 
     def _mock_conn_ctx(self, mock_obter, cursor):
         conn = MagicMock()
@@ -597,158 +701,291 @@ class AtribuirLoteFinalizadoServiceTest(TestCase):
 
     @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
            return_value=False)
-    def test_escrita_desabilitada(self, _mp):
-        from sankhya_integration.services.oracle_conn import atribuir_lote_pedido_finalizado
-        res = atribuir_lote_pedido_finalizado(nunota=1, sequencia=1, codagregacao='L1')
+    def test_inserir_escrita_desabilitada(self, _mp):
+        from sankhya_integration.services.oracle_conn import inserir_vinculo_manual_pedido_nota
+        res = inserir_vinculo_manual_pedido_nota(
+            nunota_pedido=1, nunota_nota=2, codusu=999,
+        )
         self.assertFalse(res['ok'])
         self.assertIn('desabilitada', res['error'].lower())
 
-    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
-           return_value=True)
-    def test_codagregacao_obrigatorio(self, _mp):
-        from sankhya_integration.services.oracle_conn import atribuir_lote_pedido_finalizado
-        res = atribuir_lote_pedido_finalizado(nunota=1, sequencia=1, codagregacao='')
-        self.assertFalse(res['ok'])
-        self.assertIn('obrigatório', res['error'].lower())
-
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
            return_value=True)
-    def test_top_30_rejeitada(self, _mp, mock_obter):
-        """TOP 30 (avaria) não está na lista de TOPs aceitas pelo finalizado."""
+    def test_inserir_pedido_top_errada(self, _mp, mock_obter):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
-            (None, 10.0, 100),    # FOR UPDATE: sem lote, qtd 10, codprod 100
-            (30, 'L'),            # cabeçalho — TOP 30, STATUS 'L'
+            (35, 'L'),    # pedido informado é na verdade TOP 35
         ]
         self._mock_conn_ctx(mock_obter, cursor)
-        from sankhya_integration.services.oracle_conn import atribuir_lote_pedido_finalizado
-        res = atribuir_lote_pedido_finalizado(nunota=1, sequencia=1, codagregacao='L1')
+        from sankhya_integration.services.oracle_conn import inserir_vinculo_manual_pedido_nota
+        res = inserir_vinculo_manual_pedido_nota(
+            nunota_pedido=111976, nunota_nota=111975, codusu=1,
+        )
         self.assertFalse(res['ok'])
-        self.assertIn('não suportada', res['error'].lower())
+        self.assertIn('top 34', res['error'].lower())
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
            return_value=True)
-    def test_status_excluido_rejeita(self, _mp, mock_obter):
+    def test_inserir_pedido_ja_tem_tgfvar(self, _mp, mock_obter):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
-            (None, 10.0, 100),
-            (35, 'E'),
+            (34, 'L'),    # pedido válido
+            (1,),         # COUNT TGFVAR > 0 — já tem nota pareada
         ]
         self._mock_conn_ctx(mock_obter, cursor)
-        from sankhya_integration.services.oracle_conn import atribuir_lote_pedido_finalizado
-        res = atribuir_lote_pedido_finalizado(nunota=1, sequencia=1, codagregacao='L1')
+        from sankhya_integration.services.oracle_conn import inserir_vinculo_manual_pedido_nota
+        res = inserir_vinculo_manual_pedido_nota(
+            nunota_pedido=111829, nunota_nota=111983, codusu=1,
+        )
         self.assertFalse(res['ok'])
-        self.assertIn('excluído', res['error'].lower())
+        self.assertIn('tgfvar', res['error'].lower())
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
            return_value=True)
-    def test_top_35_status_L_aceito_com_propagacao_via_tgfvar(self, _mp, mock_obter):
-        """Cenário principal: nota faturada TOP 35 STATUSNOTA='L'.
-        Espera-se UPDATE em TGFITE do NUNOTA original + UPDATE no par
-        encontrado via TGFVAR."""
+    def test_inserir_nota_top_errada(self, _mp, mock_obter):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
-            (None, 10.0, 100),     # FOR UPDATE: sem lote, qtd 10, codprod 100
-            (35, 'L'),             # cabeçalho — TOP 35 faturada
-            (100.0,),              # saldo do lote — suficiente
+            (34, 'L'),    # pedido OK
+            (0,),         # sem TGFVAR
+            (0,),         # sem vínculo manual
+            (34, 'L'),    # nota informada é na verdade TOP 34
         ]
-        # 4ª chamada não usa fetchone (é UPDATE) — usar fetchall pro UNION em TGFVAR
-        cursor.fetchall.return_value = [(999, 5)]   # par via TGFVAR: NUNOTAORIG=999, SEQ=5
-        # rowcount > 0 simula UPDATE bem-sucedido no par
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import inserir_vinculo_manual_pedido_nota
+        res = inserir_vinculo_manual_pedido_nota(
+            nunota_pedido=111975, nunota_nota=111974, codusu=1,
+        )
+        self.assertFalse(res['ok'])
+        self.assertIn('top 35/37', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_inserir_sucesso(self, _mp, mock_obter):
+        """Fluxo feliz: pedido TOP 34 STATUS=L sem TGFVAR sem vínculo +
+        nota TOP 35 STATUS=L sem TGFVAR sem vínculo → INSERT OK, id=42."""
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (34, 'L'),    # pedido OK
+            (0,),         # sem TGFVAR par pra pedido
+            (0,),         # sem vínculo manual pra pedido
+            (35, 'L'),    # nota OK
+            (0,),         # sem TGFVAR pra nota
+            (0,),         # sem vínculo manual pra nota
+            (42,),        # NEXTVAL da sequence
+        ]
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import inserir_vinculo_manual_pedido_nota
+        res = inserir_vinculo_manual_pedido_nota(
+            nunota_pedido=111975, nunota_nota=111976, codusu=7, nomeusu='OP1',
+        )
+        self.assertTrue(res['ok'])
+        self.assertEqual(res['id'], 42)
+
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_remover_sem_parametros_recusa(self, _mp):
+        from sankhya_integration.services.oracle_conn import remover_vinculo_manual_pedido_nota
+        res = remover_vinculo_manual_pedido_nota()
+        self.assertFalse(res['ok'])
+        self.assertIn('informe', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_remover_vinculo_inexistente(self, _mp, mock_obter):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [None]   # SELECT do vínculo: não achou
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import remover_vinculo_manual_pedido_nota
+        res = remover_vinculo_manual_pedido_nota(nunota_pedido=999)
+        self.assertFalse(res['ok'])
+        self.assertIn('não encontrado', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_remover_sucesso_vinculado(self, _mp, mock_obter):
+        """ORIGEM='VINCULADO' (Leva A) — só remove a linha, pedido fica intacto."""
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (1, 111975, 111976, 'VINCULADO'),   # SELECT do vínculo
+        ]
         cursor.rowcount = 1
         self._mock_conn_ctx(mock_obter, cursor)
-        from sankhya_integration.services.oracle_conn import atribuir_lote_pedido_finalizado
-        res = atribuir_lote_pedido_finalizado(nunota=111967, sequencia=1, codagregacao='LOTE_X')
+        from sankhya_integration.services.oracle_conn import remover_vinculo_manual_pedido_nota
+        res = remover_vinculo_manual_pedido_nota(nunota_nota=111976)
         self.assertTrue(res['ok'])
-        self.assertEqual(res['codtipoper'], 35)
-        self.assertEqual(res['statusnota'], 'L')
-        self.assertEqual(res['lote_novo'], 'LOTE_X')
-        # Par foi atualizado
-        self.assertEqual(len(res['pares_atualizados']), 1)
-        self.assertEqual(res['pares_atualizados'][0]['nunota'], 999)
-        self.assertEqual(res['pares_atualizados'][0]['sequencia'], 5)
+        self.assertEqual(res['origem'], 'VINCULADO')
+        self.assertFalse(res['pedido_excluido'])
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
            return_value=True)
-    def test_saldo_insuficiente_recusa(self, _mp, mock_obter):
+    def test_remover_sucesso_retroativo(self, _mp, mock_obter):
+        """ORIGEM='PEDIDO_RETROATIVO' (Leva B) — exclui pedido + linha."""
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
-            (None, 10.0, 100),     # item: qtd 10
-            (35, 'L'),             # TOP 35 STATUS 'L'
-            (3.0,),                # saldo lote: só 3 — insuficiente
+            (2, 222001, 111825, 'PEDIDO_RETROATIVO'),   # SELECT do vínculo
+            (0,),                                        # COUNT itens com CODAGREGACAO
         ]
-        self._mock_conn_ctx(mock_obter, cursor)
-        from sankhya_integration.services.oracle_conn import atribuir_lote_pedido_finalizado
-        res = atribuir_lote_pedido_finalizado(nunota=1, sequencia=1, codagregacao='L1')
-        self.assertFalse(res['ok'])
-        self.assertIn('saldo insuficiente', res['error'].lower())
-
-    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
-    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
-           return_value=True)
-    def test_reatribuir_mesmo_lote_pula_validacao_saldo(self, _mp, mock_obter):
-        """Re-atribuir mesmo lote (idempotência) não checa saldo de novo —
-        otimização útil quando operador clica 2× por engano."""
-        cursor = MagicMock()
-        cursor.fetchone.side_effect = [
-            ('LOTE_X', 10.0, 100),   # item já tem LOTE_X
-            (35, 'L'),
-            # Sem 3ª chamada (saldo) porque codagregacao igual pula validação
-        ]
-        cursor.fetchall.return_value = []   # sem par
         cursor.rowcount = 1
         self._mock_conn_ctx(mock_obter, cursor)
-        from sankhya_integration.services.oracle_conn import atribuir_lote_pedido_finalizado
-        res = atribuir_lote_pedido_finalizado(nunota=1, sequencia=1, codagregacao='LOTE_X')
+        from sankhya_integration.services.oracle_conn import remover_vinculo_manual_pedido_nota
+        res = remover_vinculo_manual_pedido_nota(nunota_nota=111825)
         self.assertTrue(res['ok'])
-
-
-class DesvincularLoteFinalizadoServiceTest(TestCase):
-    """Testes do service de desvinculação em pedido finalizado (Mai/2026).
-    Confere propagação via TGFVAR e que só rola se houver lote vinculado."""
-
-    def _mock_conn_ctx(self, mock_obter, cursor):
-        conn = MagicMock()
-        conn.cursor.return_value = cursor
-        mock_obter.return_value.__enter__.return_value = conn
-        mock_obter.return_value.__exit__.return_value = None
-        return conn
+        self.assertEqual(res['origem'], 'PEDIDO_RETROATIVO')
+        self.assertTrue(res['pedido_excluido'])
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
            return_value=True)
-    def test_sem_lote_atual_recusa(self, _mp, mock_obter):
-        cursor = MagicMock()
-        cursor.fetchone.side_effect = [(None, 100)]   # sem CODAGREGACAO
-        self._mock_conn_ctx(mock_obter, cursor)
-        from sankhya_integration.services.oracle_conn import desvincular_lote_pedido_finalizado
-        res = desvincular_lote_pedido_finalizado(nunota=1, sequencia=1)
-        self.assertFalse(res['ok'])
-        self.assertIn('não tem lote', res['error'].lower())
-
-    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
-    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
-           return_value=True)
-    def test_desvincula_e_propaga_par_via_tgfvar(self, _mp, mock_obter):
+    def test_remover_retroativo_bloqueia_com_lote_atribuido(self, _mp, mock_obter):
+        """Pedido retroativo com lote atribuído não pode ser desfeito."""
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
-            ('LOTE_X', 100),     # FOR UPDATE: tem lote
-            (35, 'L'),           # TOP 35 STATUS 'L'
+            (3, 222002, 111900, 'PEDIDO_RETROATIVO'),   # SELECT do vínculo
+            (1,),                                        # 1 item com CODAGREGACAO
         ]
-        cursor.fetchall.return_value = [(888, 3)]   # par via TGFVAR
-        cursor.rowcount = 1
         self._mock_conn_ctx(mock_obter, cursor)
-        from sankhya_integration.services.oracle_conn import desvincular_lote_pedido_finalizado
-        res = desvincular_lote_pedido_finalizado(nunota=111967, sequencia=1)
-        self.assertTrue(res['ok'])
-        self.assertEqual(res['lote_removido'], 'LOTE_X')
-        self.assertEqual(res['codtipoper'], 35)
-        self.assertEqual(len(res['pares_atualizados']), 1)
-        self.assertEqual(res['pares_atualizados'][0]['nunota'], 888)
+        from sankhya_integration.services.oracle_conn import remover_vinculo_manual_pedido_nota
+        res = remover_vinculo_manual_pedido_nota(nunota_nota=111900)
+        self.assertFalse(res['ok'])
+        self.assertIn('desvincule todos os lotes', res['error'].lower())
+
+    # ----- Leva B — criar_pedido_retroativo_a_partir_de_nota -----
+
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=False)
+    def test_criar_retroativo_escrita_desabilitada(self, _mp):
+        from sankhya_integration.services.oracle_conn import criar_pedido_retroativo_a_partir_de_nota
+        res = criar_pedido_retroativo_a_partir_de_nota(nunota_nota=1, codusu=1)
+        self.assertFalse(res['ok'])
+        self.assertIn('desabilitada', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_criar_retroativo_nota_inexistente(self, _mp, mock_obter):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [None]   # nota não encontrada
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import criar_pedido_retroativo_a_partir_de_nota
+        res = criar_pedido_retroativo_a_partir_de_nota(nunota_nota=999, codusu=1)
+        self.assertFalse(res['ok'])
+        self.assertIn('não encontrada', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_criar_retroativo_top_errada(self, _mp, mock_obter):
+        cursor = MagicMock()
+        # Cabeçalho informado é TOP 34, não TOP 35/37
+        from datetime import date as _d
+        cursor.fetchone.side_effect = [
+            (34, 'L', 10, 244, _d(2026, 5, 9), None),
+        ]
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import criar_pedido_retroativo_a_partir_de_nota
+        res = criar_pedido_retroativo_a_partir_de_nota(nunota_nota=111975, codusu=1)
+        self.assertFalse(res['ok'])
+        self.assertIn('top 35/37', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_criar_retroativo_nota_com_tgfvar_recusa(self, _mp, mock_obter):
+        from datetime import date as _d
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (35, 'L', 10, 244, _d(2026, 5, 9), None),
+            (1,),    # TGFVAR > 0 — tem vínculo
+        ]
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import criar_pedido_retroativo_a_partir_de_nota
+        res = criar_pedido_retroativo_a_partir_de_nota(nunota_nota=111976, codusu=1)
+        self.assertFalse(res['ok'])
+        self.assertIn('tgfvar', res['error'].lower())
+
+    # ----- Resolver unificado (Mai/2026) -----
+
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=False)
+    def test_resolver_escrita_desabilitada(self, _mp):
+        from sankhya_integration.services.oracle_conn import resolver_nota_orfa_automatica
+        res = resolver_nota_orfa_automatica(nunota_nota=1, codusu=1)
+        self.assertFalse(res['ok'])
+        self.assertIn('desabilitada', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_resolver_nota_inexistente(self, _mp, mock_obter):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [None]
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import resolver_nota_orfa_automatica
+        res = resolver_nota_orfa_automatica(nunota_nota=999, codusu=1)
+        self.assertFalse(res['ok'])
+        self.assertIn('não encontrada', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_resolver_acao_invalida(self, _mp, mock_obter):
+        from datetime import date as _d
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (35, 'L', 10, 244, _d(2026, 5, 9), 4200.0),  # nota OK
+            None,                                          # sem candidato exato
+        ]
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import resolver_nota_orfa_automatica
+        res = resolver_nota_orfa_automatica(
+            nunota_nota=111976, codusu=1, acao='XXX',
+        )
+        self.assertFalse(res['ok'])
+        self.assertIn('ação inválida', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_resolver_forca_vincular_sem_candidato_recusa(self, _mp, mock_obter):
+        """acao='VINCULAR' sem candidato exato é recusado (sugere CRIAR)."""
+        from datetime import date as _d
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (35, 'L', 10, 244, _d(2026, 5, 9), 510.0),
+            None,   # sem candidato
+        ]
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import resolver_nota_orfa_automatica
+        res = resolver_nota_orfa_automatica(
+            nunota_nota=111825, codusu=1, acao='VINCULAR',
+        )
+        self.assertFalse(res['ok'])
+        self.assertIn('sem candidato', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_criar_retroativo_nota_sem_itens(self, _mp, mock_obter):
+        from datetime import date as _d
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (35, 'L', 10, 244, _d(2026, 5, 9), None),
+            (0,),    # sem TGFVAR
+            (0,),    # sem vínculo manual
+        ]
+        cursor.fetchall.return_value = []  # SELECT itens — vazio
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import criar_pedido_retroativo_a_partir_de_nota
+        res = criar_pedido_retroativo_a_partir_de_nota(nunota_nota=111825, codusu=1)
+        self.assertFalse(res['ok'])
+        self.assertIn('não tem itens', res['error'].lower())
 
 
 # ---------------------------------------------------------------------------

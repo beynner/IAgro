@@ -11,8 +11,11 @@ from .services.oracle_conn import (
     consultar_vinculos_de_lote,
     atribuir_lote_item_pedido,
     desvincular_lote_item_pedido,
-    atribuir_lote_pedido_finalizado,
-    desvincular_lote_pedido_finalizado,
+    consultar_candidatos_pedido_para_nota,
+    inserir_vinculo_manual_pedido_nota,
+    remover_vinculo_manual_pedido_nota,
+    criar_pedido_retroativo_a_partir_de_nota,
+    resolver_nota_orfa_automatica,
     humanizar_erro_oracle,
     # Importação por e-mail
     listar_pedidos_email_pendentes,
@@ -2349,6 +2352,16 @@ def _parse_codprods(raw: str | None) -> list[int]:
     return [int(x) for x in str(raw).split(',') if x.strip().isdigit()]
 
 
+def _parse_bool_flag(raw, *, default: bool = False) -> bool:
+    """Parse de query string com default explícito quando ausente.
+
+    None ou '' devolve o default; caso contrário interpreta '1/true/on/yes' como True.
+    """
+    if raw is None or raw == '':
+        return default
+    return str(raw).strip().lower() in ('1', 'true', 'on', 'yes')
+
+
 def _registrar_audit_rastreio(request, *, acao, nunota, sequencia,
                               codagregacao=None, qtd=None, extra=None):
     """Grava uma linha em RastreioAudit. Falhas no audit não derrubam a operação.
@@ -2384,6 +2397,8 @@ def api_rastreio_lotes_disponiveis(request: HttpRequest) -> JsonResponse:
         'codprod':      request.GET.get('codprod'),
         'codprods':     _parse_codprods(request.GET.get('codprods')),
         'codagregacao': request.GET.get('codagregacao'),
+        # Busca combinada do input principal: lote OU produto (Mai/2026)
+        'q_lote_prod':  request.GET.get('q_lote_prod'),
         'fabricante':   request.GET.get('fabricante'),
         'tipo':         request.GET.get('tipo'),
         'desde_dias':   request.GET.get('desde_dias'),
@@ -2428,9 +2443,11 @@ def api_rastreio_pedidos_abertos(request: HttpRequest) -> JsonResponse:
         'data_ini':   request.GET.get('data_ini'),
         'data_fim':   request.GET.get('data_fim'),
         'fabricante': request.GET.get('fabricante'),
-        # Toggle "Incluir finalizados" (Fase 2 Mai/2026) — quando ligado,
-        # listagem inclui TOP 35/37 (notas faturadas) além dos TOP 34.
-        'incluir_finalizados': request.GET.get('incluir_finalizados') in ('1', 'true', 'on'),
+        # Toggle Pendente/Faturado (Mai/2026 — substitui incluir_finalizados):
+        # cada flag controla um conjunto de TOPs. Pendente = TOP 34, Faturado
+        # = TOP 35/37. Default no backend: pendentes=True, faturados=False.
+        'mostrar_pendentes': _parse_bool_flag(request.GET.get('mostrar_pendentes'), default=True),
+        'mostrar_faturados': _parse_bool_flag(request.GET.get('mostrar_faturados'), default=False),
     }
     limite, offset = _paginacao_do_request(request)
     try:
@@ -2541,97 +2558,219 @@ def api_rastreio_atribuir_lote(request: HttpRequest) -> JsonResponse:
 
 
 # ==============================================================================
-# 🔗 ATRIBUIR / DESVINCULAR LOTE EM PEDIDO FINALIZADO (Fase 2 do Rastreio)
-# Aceita TOP 34/35/37 STATUSNOTA <> 'E'. Propaga via TGFVAR pro par
-# pedido↔nota. Sem campo "motivo" — audit silencioso registra detalhes.
+# 🔗 VÍNCULO MANUAL PEDIDO ↔ NOTA (Leva A, Mai/2026)
+# Quando Sankhya não populou TGFVAR e há pedido+nota pareáveis no banco,
+# operador vincula manualmente pelo IAgro. Reversível (DELETE da linha).
 # ==============================================================================
 
-@require_http_methods(["POST"])
+@require_http_methods(["GET"])
 @exige_grupo('rastreio')
-def api_rastreio_atribuir_finalizado(request: HttpRequest) -> JsonResponse:
-    """Atribui/troca lote em item de pedido finalizado (qualquer TOP 34/35/37).
-
-    Não aceita qtd parcial — apenas atribuição total ou troca. Pra split em
-    pedido faturado, operador deve desvincular primeiro.
-    """
-    dados = _get_json_payload(request)
-    if not dados:
-        return JsonResponse({"ok": False, "error": "JSON inválido"}, status=400)
-
-    nunota       = _converter_para_inteiro(dados.get('nunota'))
-    sequencia    = _converter_para_inteiro(dados.get('sequencia'))
-    codagregacao = (dados.get('codagregacao') or '').strip()
-
-    if not nunota or not sequencia or not codagregacao:
+def api_rastreio_vinculo_candidatos(request: HttpRequest) -> JsonResponse:
+    """Sugere pedidos órfãos pareáveis com a nota informada (mesmo CODPARC +
+    DTNEG ±N + valor próximo). Não persiste nada — só busca."""
+    nunota_nota = _converter_para_inteiro(request.GET.get('nunota_nota'))
+    if not nunota_nota:
         return JsonResponse(
-            {"ok": False, "error": "nunota, sequencia e codagregacao são obrigatórios"},
-            status=400,
+            {"ok": False, "error": "nunota_nota é obrigatório"}, status=400,
         )
-
     try:
-        res = atribuir_lote_pedido_finalizado(
-            nunota=nunota, sequencia=sequencia, codagregacao=codagregacao,
-        )
-        if not res.get('ok'):
-            res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao atribuir lote')
-            return JsonResponse(res, status=400)
-        # Audit — operação em pedido finalizado fica explícita no detalhe
-        _registrar_audit_rastreio(
-            request, acao='ATRIBUIR',
-            nunota=nunota, sequencia=sequencia,
-            codagregacao=codagregacao, qtd=None,
-            extra={
-                'origem':         'finalizado',
-                'codtipoper':     res.get('codtipoper'),
-                'statusnota':     res.get('statusnota'),
-                'lote_anterior':  res.get('lote_anterior'),
-                'pares_atualizados': res.get('pares_atualizados') or [],
-            },
-        )
-        return JsonResponse(res)
+        candidatos = consultar_candidatos_pedido_para_nota(nunota_nota, limite=10)
+        return JsonResponse({"ok": True, "candidatos": candidatos})
     except Exception as e:
-        logger.exception("Erro em api_rastreio_atribuir_finalizado")
+        logger.exception("Erro em api_rastreio_vinculo_candidatos")
         return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
 
 @require_http_methods(["POST"])
 @exige_grupo('rastreio')
-def api_rastreio_desvincular_finalizado(request: HttpRequest) -> JsonResponse:
-    """Remove lote de item de pedido finalizado (qualquer TOP 34/35/37).
-    Propaga via TGFVAR pro par.
+def api_rastreio_vinculo_criar(request: HttpRequest) -> JsonResponse:
+    """Cria vínculo manual entre pedido (TOP 34) e nota (TOP 35/37)."""
+    dados = _get_json_payload(request)
+    if not dados:
+        return JsonResponse({"ok": False, "error": "JSON inválido"}, status=400)
+
+    nunota_pedido = _converter_para_inteiro(dados.get('nunota_pedido'))
+    nunota_nota   = _converter_para_inteiro(dados.get('nunota_nota'))
+    observacao    = (dados.get('observacao') or '').strip()
+
+    if not nunota_pedido or not nunota_nota:
+        return JsonResponse(
+            {"ok": False, "error": "nunota_pedido e nunota_nota são obrigatórios"},
+            status=400,
+        )
+
+    try:
+        codusu  = request.session.get('codusu') or 0
+        nomeusu = (request.session.get('nomeusu')
+                   or request.session.get('nome') or '')[:80]
+        res = inserir_vinculo_manual_pedido_nota(
+            nunota_pedido=nunota_pedido, nunota_nota=nunota_nota,
+            codusu=int(codusu), nomeusu=nomeusu, observacao=observacao,
+        )
+        if not res.get('ok'):
+            res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao vincular')
+            return JsonResponse(res, status=400)
+        _registrar_audit_rastreio(
+            request, acao='VINCULAR_MANUAL',
+            nunota=nunota_nota, sequencia=0,
+            codagregacao=None, qtd=None,
+            extra={
+                'nunota_pedido': nunota_pedido,
+                'nunota_nota':   nunota_nota,
+                'vinculo_id':    res.get('id'),
+                'origem':        'VINCULADO',
+            },
+        )
+        return JsonResponse(res)
+    except Exception as e:
+        logger.exception("Erro em api_rastreio_vinculo_criar")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('rastreio')
+def api_rastreio_vinculo_criar_pedido_retroativo(request: HttpRequest) -> JsonResponse:
+    """Leva B (Mai/2026) — cria pedido TOP 34 retroativo a partir de nota órfã
+    e grava vínculo com ORIGEM='PEDIDO_RETROATIVO'. Usado quando a nota foi
+    venda direta sem pedido (caso 111825)."""
+    dados = _get_json_payload(request)
+    if not dados:
+        return JsonResponse({"ok": False, "error": "JSON inválido"}, status=400)
+
+    nunota_nota = _converter_para_inteiro(dados.get('nunota_nota'))
+    if not nunota_nota:
+        return JsonResponse(
+            {"ok": False, "error": "nunota_nota é obrigatório"}, status=400,
+        )
+
+    try:
+        codusu  = request.session.get('codusu') or 0
+        nomeusu = (request.session.get('nomeusu')
+                   or request.session.get('nome') or '')[:80]
+        res = criar_pedido_retroativo_a_partir_de_nota(
+            nunota_nota=nunota_nota, codusu=int(codusu), nomeusu=nomeusu,
+        )
+        if not res.get('ok'):
+            res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao criar pedido retroativo')
+            return JsonResponse(res, status=400)
+        _registrar_audit_rastreio(
+            request, acao='CRIAR_PEDIDO_RETROATIVO',
+            nunota=nunota_nota, sequencia=0,
+            codagregacao=None, qtd=None,
+            extra={
+                'nunota_pedido_novo': res.get('nunota_pedido'),
+                'nunota_nota':        nunota_nota,
+                'vinculo_id':         res.get('vinculo_id'),
+                'qtd_itens':          res.get('qtd_itens'),
+                'origem':             'PEDIDO_RETROATIVO',
+            },
+        )
+        return JsonResponse(res)
+    except Exception as e:
+        logger.exception("Erro em api_rastreio_vinculo_criar_pedido_retroativo")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('rastreio')
+def api_rastreio_vinculo_resolver(request: HttpRequest) -> JsonResponse:
+    """Fluxo unificado de resolução de nota órfã (Mai/2026 — Levas A+B):
+
+    O backend busca pedido pareável pela heurística rigorosa e executa a
+    ação correspondente:
+      - Se há candidato exato: vincula (Leva A)
+      - Se não há: cria pedido retroativo (Leva B)
+
+    Operador pode forçar via `acao = 'VINCULAR'|'CRIAR'`. Sem parâmetro,
+    backend decide (`AUTO`).
     """
     dados = _get_json_payload(request)
     if not dados:
         return JsonResponse({"ok": False, "error": "JSON inválido"}, status=400)
 
-    nunota    = _converter_para_inteiro(dados.get('nunota'))
-    sequencia = _converter_para_inteiro(dados.get('sequencia'))
+    nunota_nota = _converter_para_inteiro(dados.get('nunota_nota'))
+    acao        = (dados.get('acao') or 'AUTO').upper()
 
-    if not nunota or not sequencia:
+    if not nunota_nota:
         return JsonResponse(
-            {"ok": False, "error": "nunota e sequencia são obrigatórios"},
+            {"ok": False, "error": "nunota_nota é obrigatório"}, status=400,
+        )
+    if acao not in ('AUTO', 'VINCULAR', 'CRIAR'):
+        return JsonResponse(
+            {"ok": False, "error": "acao deve ser AUTO, VINCULAR ou CRIAR"},
             status=400,
         )
 
     try:
-        res = desvincular_lote_pedido_finalizado(nunota=nunota, sequencia=sequencia)
+        codusu  = request.session.get('codusu') or 0
+        nomeusu = (request.session.get('nomeusu')
+                   or request.session.get('nome') or '')[:80]
+        res = resolver_nota_orfa_automatica(
+            nunota_nota=nunota_nota, codusu=int(codusu), nomeusu=nomeusu,
+            acao=acao,
+        )
         if not res.get('ok'):
-            res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao desvincular lote')
+            res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao resolver nota órfã')
             return JsonResponse(res, status=400)
+        # Audit unificado
+        acao_executada = res.get('acao')
         _registrar_audit_rastreio(
-            request, acao='DESVINCULAR',
-            nunota=nunota, sequencia=sequencia,
-            codagregacao=res.get('lote_removido'), qtd=None,
+            request,
+            acao=f'RESOLVER_NOTA_ORFA_{acao_executada}',
+            nunota=nunota_nota, sequencia=0,
+            codagregacao=None, qtd=None,
             extra={
-                'origem':         'finalizado',
-                'codtipoper':     res.get('codtipoper'),
-                'statusnota':     res.get('statusnota'),
-                'pares_atualizados': res.get('pares_atualizados') or [],
+                'nunota_pedido':   res.get('nunota_pedido'),
+                'nunota_nota':     nunota_nota,
+                'vinculo_id':      res.get('vinculo_id'),
+                'qtd_itens':       res.get('qtd_itens'),
+                'acao_executada':  acao_executada,
+                'acao_solicitada': acao,
             },
         )
         return JsonResponse(res)
     except Exception as e:
-        logger.exception("Erro em api_rastreio_desvincular_finalizado")
+        logger.exception("Erro em api_rastreio_vinculo_resolver")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('rastreio')
+def api_rastreio_vinculo_remover(request: HttpRequest) -> JsonResponse:
+    """Desfaz vínculo manual pelo NUNOTA do pedido OU da nota."""
+    dados = _get_json_payload(request)
+    if not dados:
+        return JsonResponse({"ok": False, "error": "JSON inválido"}, status=400)
+
+    nunota_pedido = _converter_para_inteiro(dados.get('nunota_pedido'))
+    nunota_nota   = _converter_para_inteiro(dados.get('nunota_nota'))
+
+    if not nunota_pedido and not nunota_nota:
+        return JsonResponse(
+            {"ok": False, "error": "Informe nunota_pedido ou nunota_nota"},
+            status=400,
+        )
+
+    try:
+        res = remover_vinculo_manual_pedido_nota(
+            nunota_pedido=nunota_pedido, nunota_nota=nunota_nota,
+        )
+        if not res.get('ok'):
+            res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao desfazer vínculo')
+            return JsonResponse(res, status=400)
+        _registrar_audit_rastreio(
+            request, acao='DESVINCULAR_MANUAL',
+            nunota=nunota_nota or nunota_pedido, sequencia=0,
+            codagregacao=None, qtd=None,
+            extra={
+                'nunota_pedido': nunota_pedido,
+                'nunota_nota':   nunota_nota,
+                'removidos':     res.get('removidos'),
+            },
+        )
+        return JsonResponse(res)
+    except Exception as e:
+        logger.exception("Erro em api_rastreio_vinculo_remover")
         return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
 

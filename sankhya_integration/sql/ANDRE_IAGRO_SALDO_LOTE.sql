@@ -18,9 +18,19 @@
 --                                  descarte da classificação repassado ao fornecedor)
 --
 -- Baixas e reservas que reduzem QTD_DISPONIVEL nas pernas A e B:
---   QTD_BAIXADA_VENDA  = Σ QTDNEG  TOP 35/37 com STATUSNOTA = 'L'
+--   QTD_BAIXADA_VENDA  = baixa de venda (ver detalhe abaixo)
 --   QTD_BAIXADA_AVARIA = Σ QTDNEG  TOP 30    com STATUSNOTA = 'L'
 --   QTD_RESERVADA      = Σ QTDNEG  TOP 34    com STATUSNOTA NOT IN ('L','E')
+--
+-- QTD_BAIXADA_VENDA (Mai/2026): a vinculação de lote do IAgro vive no pedido
+-- (TOP 34), mesmo após faturamento. O Sankhya direto pode também vincular pela
+-- nota (TOP 35/37). Para evitar contar duas vezes o mesmo CODAGREGACAO,
+-- a baixa é a UNIÃO de:
+--   1) TOP 34 STATUSNOTA='L' com CODAGREGACAO (verdade IAgro)
+--   2) TOP 35/37 STATUSNOTA='L' com CODAGREGACAO, mas SÓ quando o item
+--      origem via TGFVAR NÃO tem CODAGREGACAO no pedido (TOP 34) — evita
+--      duplicar quando o operador vinculou pela IAgro (no pedido).
+-- Resultado: lote sai do disponível em qualquer um dos cenários, sem dobrar.
 --
 -- Fórmula final (apenas pernas A e B; C e D retornam 0):
 --   QTD_DISPONIVEL = GREATEST( QTD_ENTRADA
@@ -86,15 +96,35 @@ WITH
   -- e ainda assim fazer a reserva descontar do saldo.)
   -- -------------------------------------------------------------------------
   baixas_venda AS (
-    SELECT
-      i.CODPROD, i.CODAGREGACAO,
-      SUM(NVL(i.QTDNEG, 0)) AS QTD_BAIXADA_VENDA
-    FROM TGFITE i
-    JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-    WHERE c.CODTIPOPER IN (35, 37)
-      AND c.STATUSNOTA  = 'L'
-      AND i.CODAGREGACAO IS NOT NULL
-    GROUP BY i.CODPROD, i.CODAGREGACAO
+    SELECT CODPROD, CODAGREGACAO, SUM(QTDNEG) AS QTD_BAIXADA_VENDA
+    FROM (
+      -- (1) Verdade IAgro: TOP 34 já atendido (STATUSNOTA='L') com lote vinculado
+      SELECT i.CODPROD, i.CODAGREGACAO, NVL(i.QTDNEG, 0) AS QTDNEG
+        FROM TGFITE i
+        JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+       WHERE c.CODTIPOPER     = 34
+         AND c.STATUSNOTA     = 'L'
+         AND i.CODAGREGACAO IS NOT NULL
+      UNION ALL
+      -- (2) Fallback Sankhya nativo: TOP 35/37 vinculado direto na nota,
+      -- somente quando o par TGFVAR no pedido NÃO tem lote (sem duplicar)
+      SELECT i.CODPROD, i.CODAGREGACAO, NVL(i.QTDNEG, 0) AS QTDNEG
+        FROM TGFITE i
+        JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+       WHERE c.CODTIPOPER IN (35, 37)
+         AND c.STATUSNOTA   = 'L'
+         AND i.CODAGREGACAO IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1
+             FROM TGFVAR v
+             JOIN TGFITE i34 ON i34.NUNOTA = v.NUNOTAORIG
+                            AND i34.SEQUENCIA = v.SEQUENCIAORIG
+            WHERE v.NUNOTA = i.NUNOTA
+              AND v.SEQUENCIA = i.SEQUENCIA
+              AND i34.CODAGREGACAO IS NOT NULL
+         )
+    )
+    GROUP BY CODPROD, CODAGREGACAO
   ),
 
   baixas_avaria AS (

@@ -263,33 +263,28 @@ A tabela `TGFVAR` é a **fonte canônica do vínculo entre notas geradas** no Sa
 - Mantém consistência entre TGFITE de pedido e TGFITE de nota gerada (mesmo CODPROD, mesma QTDNEG, mesma estrutura — mas SEQUENCIA pode mudar entre os dois lados; Sankhya re-ordena geralmente por CODPROD)
 - **Vínculo NÃO está em TGFCAB** — todos os 6 campos NUNOTA-* (`NUNOTAORIGCORTE`, `NUNOTAREC`, `NUNOTASUB`, `TIMNUNOTAMOD`, `NUNOTAPEDFRET`, `AD_NUMPEDIDOORIG`) estão NULL em 100% dos pedidos reais. Confirmado em 2026-05-09
 
-### Como usar (padrão Fase 2 Rastreio, Mai/2026)
+### Onde o IAgro lê TGFVAR (Mai/2026 — final)
 
-Pra propagar uma mudança em TGFITE pros 2 lados (pedido + nota), use a função helper:
+Apenas 2 lugares:
 
-```python
-def _localizar_par_via_tgfvar(cur, nunota, sequencia):
-    cur.execute("""
-        SELECT NUNOTAORIG, SEQUENCIAORIG
-          FROM TGFVAR WHERE NUNOTA = :n AND SEQUENCIA = :s
-        UNION ALL
-        SELECT NUNOTA, SEQUENCIA
-          FROM TGFVAR WHERE NUNOTAORIG = :n AND SEQUENCIAORIG = :s
-    """, n=nunota, s=sequencia)
-    return cur.fetchall()
-```
+1. **`consultar_pedidos_abertos_para_atribuicao`** — subquery escalar correlacionada pra trazer `NUMNOTA` + `NUNOTA` da nota correlata (TOP 35/37) de cada pedido TOP 34 STATUSNOTA='L'. Frontend usa pra exibir badge `FATURADO Nota Y`.
+2. **View `ANDRE_IAGRO_SALDO_LOTE`** — `NOT EXISTS` no UNION da perna `baixas_venda` pra desempatar quando o mesmo lote aparece tanto pelo lado do pedido (verdade IAgro) quanto pelo lado da nota (fallback Sankhya nativo).
 
-A query UNION cobre os dois sentidos (não sabemos se o NUNOTA passado é destino ou origem). Geralmente retorna 0 ou 1 par; raramente >1 (split prévio no Sankhya).
+### Por que NÃO escrevemos em TGFVAR — análise das 6 triggers
 
-### Limitação consciente: SPLIT em TGFITE quebra TGFVAR
+Em 2026-05-11 analisamos `TRG_INC_TGFVAR`, `TRG_UPT_TGFVAR`, `TRG_DLT_TGFVAR`, `TRG_DLT_TGFVAR_AFTER`, `TRG_INC_TGFVAR_BLOQ_SAFRA`, `TRG_INC_UPD_DEL_TGFVAR_CFIDEL`. Cascatas confirmadas:
 
-Se você fizer SPLIT (UPDATE qtd reduzida + INSERT nova linha) em TGFITE de um lado, **TGFVAR fica inconsistente** — não tem mapeamento pra nova SEQUENCIA. Pra consertar, precisaria INSERT em TGFVAR, mas:
+- **`TRG_INC_TGFVAR`**: INSERT em TGMTRA (movimentação financeira/meta-orçamento, 2-N linhas por par) + UPDATE em `TGFITE.QTDENTREGUE`/`QTDFIXADA`. Usa funções internas `SNK_VERIFICA_PK_TGMTRA`, `STP_TROCA_NUMTRANSF` que podem renomear NUMTRANSF dinamicamente
+- **`TRG_UPT_TGFVAR`**: simétrica — bloqueia mudança em NUNOTA/SEQUENCIA, DELETE + INSERT em TGMTRA pra recalcular compromissos
+- **`TRG_DLT_TGFVAR_AFTER`**: subtrai `QTDATENDIDA` de TGFITE.QTDENTREGUE
+- **`TRG_INC_TGFVAR_BLOQ_SAFRA`**: pode bloquear INSERT por `TGABDLC.BLOQUEAR='S'` em projetos
+- **`TRG_INC_UPD_DEL_TGFVAR_CFIDEL`**: mexe em TGFCFM (cupons de fidelidade) só em devoluções com cupom fiscal — fora do nosso escopo
 
-1. Não conhecemos o schema/constraints completos da TGFVAR
-2. Pode haver trigger que reage ao INSERT manual e quebra
-3. Sem ambiente de teste do trigger, risco é grande
+Resultado: INSERT manual em TGFVAR sem ambiente de homologação Sankhya pode duplicar movimentação financeira, quebrar metas/orçamento, e funções internas com auto-cura podem renomear PKs imprevisivelmente. Erros viram `ORA-20101` (mapeado pra "Tipo de negociação inativo" no IAgro — mensagem errada).
 
-**Decisão atual (Fase 2 Rastreio Mai/2026):** funções `atribuir_lote_pedido_finalizado` e `desvincular_lote_pedido_finalizado` NÃO suportam split — apenas atribuição total / troca / desvinculação. Pra split em pedido faturado, operador deve desvincular + reatribuir. Se aparecer demanda real, investigar trigger Sankhya antes.
+### Decisão arquitetural
+
+A rastreabilidade do IAgro vive **só no pedido (TGFITE TOP 34)**, inclusive após faturamento. A nota TOP 35/37 não é tocada. Validado: NFe XML pra NCM 0706 hortifrúti não exige grupo `<rastro>`, então `CODAGREGACAO` é dado interno sem efeito fiscal. SPLIT em pedido faturado funciona porque TGFVAR fica intocada — só o TGFITE do pedido ganha SEQ novo.
 
 ### Não confundir com `AD_NUMPEDIDOORIG`
 
@@ -357,6 +352,18 @@ O reset visual dos campos não basta: o storage também precisa ser apagado, sen
 A documentação antiga (`.claude/schema.md` antes de Abr/2026) listava `CONTROLE` como o campo do lote-texto. **Estava errada** — todas as queries reais do projeto usam `CODAGREGACAO` (apesar do nome sugerir `NUMBER`, na prática é `VARCHAR2` com valores tipo `NUNOTAS123D260429`). A doc foi corrigida.
 
 Ao escrever queries novas em `oracle_conn.py`, **usar `CODAGREGACAO`** — e tratar como string (`UPPER(CODAGREGACAO) LIKE :p`).
+
+---
+
+## `TGFPRO.FABRICANTE` na Agromil ≠ fornecedor real
+
+Cadastro Sankhya da Agromil tem `TGFPRO.FABRICANTE` populado com **nome do produto** (LIMÃO, BATATA DOCE, REPOLHO BRANCO…), **não** com fabricante/fornecedor de verdade. Validado em Mai/2026 contra 102 valores distintos no banco real.
+
+O **fornecedor real** do lote (DEBORA, BRUNO, JOSE DO ALHO, CLIONALDO…) está em `NOMEPARC_ORIGEM` da view `ANDRE_IAGRO_SALDO_LOTE` — vem do `TGFPAR.NOMEPARC` do parceiro da TOP 11 (compra de origem).
+
+**Ao construir filtros/typeaheads que falam de "fornecedor" do lote**, usar `NOMEPARC_ORIGEM`. `TGFPRO.FABRICANTE` só vale se você realmente quer o que está cadastrado lá (nome do produto, na prática).
+
+**Função do typeahead preserva nome legado:** `consultar_fabricantes_disponiveis` foi refatorada em Mai/2026 pra consultar `NOMEPARC_ORIGEM`, mas o nome de função e parâmetro `fabricante` foram mantidos por retrocompat. Semanticamente, o campo "fabricante" no IAgro virou sinônimo de "fornecedor do lote".
 
 ---
 

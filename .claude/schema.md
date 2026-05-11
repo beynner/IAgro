@@ -190,10 +190,14 @@ View dedicada do WMS, **não toca `TGFEST` nativa do Sankhya**. Toda aritmética
 
 ```
 QTD_DISPONIVEL = ENTRADA
-               − Σ TOP 35/37 confirmadas
+               − BAIXA_VENDA (ver detalhe abaixo)
                − Σ TOP 30 confirmadas
-               − Σ TOP 34 abertas
+               − Σ TOP 34 abertas (STATUSNOTA NOT IN ('L','E'))
 ```
+
+**BAIXA_VENDA (Mai/2026 — rastreabilidade no pedido):** UNIÃO deduplicada de duas fontes:
+1. **TOP 34 STATUSNOTA='L'** com `CODAGREGACAO` (verdade IAgro — pedido faturado vinculado pela tela)
+2. **TOP 35/37 STATUSNOTA='L'** com `CODAGREGACAO`, **somente quando** o item origem via TGFVAR não tem lote no pedido (fallback pra vínculos feitos direto pelo Sankhya nativo, sem duplicar)
 
 ### Decisões de agregação
 
@@ -254,14 +258,14 @@ Existe em **TGFCAB e TGFITE**. Convenção da Agromil para rastreabilidade da "n
 - **Auto-cura no UPDATE**: itens TGFITE buscam o `MIN(AD_NUMPEDIDOORIG)` de outros itens com mesmo `CODAGREGACAO` (lote) e propagam ao cabeçalho/item alvo. Permite TOP 26 herdar origem do TOP 11 do mesmo lote
 - **Não cobre venda/NFe (Mai/2026)**: 100% dos pedidos TOP 34 dos últimos 30 dias com `AD_NUMPEDIDOORIG = NULL` (todos vêm do Sankhya direto, não IAgro). Quando IAgro for a fonte de criação, popular naturalmente
 
-### Como o IAgro vai usar TGFVAR (planejado, ainda não implementado em Mai/2026)
+### Como o IAgro usa TGFVAR (Mai/2026 — final)
 
-Função `atribuir_lote_pedido_finalizado(nunota, sequencia, codagregacao, qtd, codusu)`:
-1. Lock pessimista `SELECT FOR UPDATE` em TGFITE do NUNOTA passado
-2. `SELECT NUNOTAORIG, SEQUENCIAORIG FROM TGFVAR WHERE NUNOTA = :n AND SEQUENCIA = :s` (ou versão reversa se for pedido virando nota)
-3. `UPDATE TGFITE SET CODAGREGACAO = :l WHERE NUNOTA = :n AND SEQUENCIA = :s` — no NUNOTA original
-4. **Se houver par via TGFVAR**: mesmo UPDATE no NUNOTA pareado, atomicamente no mesmo commit
-5. Audit em `RastreioAudit` com `detalhe={codtipoper, statusnota, nunota_par, sequencia_par}`
+**Apenas leitura, e apenas em 2 lugares específicos:**
+
+1. **`consultar_pedidos_abertos_para_atribuicao`** — subquery escalar pra trazer NUMNOTA + NUNOTA da nota correlata (TOP 35/37 STATUSNOTA<>'E') de cada pedido TOP 34 STATUSNOTA='L'. Frontend usa pra exibir badge `FATURADO Nota Y`.
+2. **View `ANDRE_IAGRO_SALDO_LOTE`** — perna `baixas_venda` consulta TGFVAR no `NOT EXISTS` que desempata baixa via TOP 34 (verdade IAgro) vs baixa via TOP 35/37 (fallback Sankhya nativo), evitando duplicação.
+
+**O IAgro nunca escreve em TGFVAR.** A análise das 6 triggers `TRG_*_TGFVAR` (em 2026-05-11) confirmou cascata em TGMTRA (movimentação financeira/meta/orçamento), TGFITE.QTDENTREGUE, TGFCFM (cupons de fidelidade) e bloqueios por TGABDLC — risco grande demais sem ambiente de homologação Sankhya pra testar. A rastreabilidade do IAgro vive no TGFITE do pedido (TOP 34), e a nota não é tocada. Ver [`.claude/gotchas.md`](gotchas.md) → "TGFVAR é populada via trigger Sankhya" pra detalhes.
 
 ---
 
@@ -356,6 +360,35 @@ Schema separado das tabelas Sankhya nativas — não interferem em queries exist
 3. Fuzzy (`rapidfuzz.WRatio`) contra TGFPRO completo — Etapa 2, score 75-100
 
 **Schema-resilience:** `oracle_conn.py` tem helper `_existe_coluna(cur, tabela, coluna)` com cache 1× por processo — código roda antes/depois das migrations sem ORA-00904. Reseta no restart do Django/worker.
+
+---
+
+## 7.6 Tabela auxiliar do Rastreio — `AD_VINCULO_PEDIDO_NOTA` (Mai/2026)
+
+Registra vínculos manuais pedido↔nota feitos pelo IAgro quando o Sankhya não populou TGFVAR. Detalhes completos em [`.claude/modules/rastreio.md`](modules/rastreio.md) → "Fluxo unificado de resolução de nota órfã".
+
+**Migration:** `sankhya_integration/sql/AD_VINCULO_PEDIDO_NOTA.sql`
+
+| Coluna | Tipo | Função |
+|---|---|---|
+| `ID` | NUMBER PK | Sequence `SEQ_AD_VINCULO_PEDIDO_NOTA` |
+| `NUNOTA_PEDIDO` | NUMBER UNIQUE | TGFCAB TOP 34 |
+| `NUNOTA_NOTA` | NUMBER UNIQUE | TGFCAB TOP 35/37 |
+| `ORIGEM` | VARCHAR2(20) CHECK | `VINCULADO` (Leva A) ou `PEDIDO_RETROATIVO` (Leva B) |
+| `CODUSU`, `NOMEUSU`, `CRIADO_EM`, `OBSERVACAO` | — | Audit completo |
+
+**Funções service** (`oracle_conn.py`):
+- `consultar_candidatos_pedido_para_nota(nunota_nota, limite)` — sugere pedidos pareáveis via heurística rigorosa (mesmo CODPARC + valor exato + data ±1 dia)
+- `inserir_vinculo_manual_pedido_nota(nunota_pedido, nunota_nota, codusu, nomeusu)` — Leva A: cria vínculo de pedido pré-existente
+- `criar_pedido_retroativo_a_partir_de_nota(nunota_nota, codusu, nomeusu)` — Leva B: cria TGFCAB+TGFITE TOP 34 espelhando a nota
+- `resolver_nota_orfa_automatica(nunota_nota, codusu, nomeusu, acao='AUTO')` — fluxo unificado: backend decide entre VINCULAR/CRIAR conforme heurística
+- `remover_vinculo_manual_pedido_nota(nunota_pedido, nunota_nota)` — desfaz vínculo (em Leva B também exclui o pedido criado, se nenhum lote foi atribuído)
+
+**Side effects no AD_NUMPEDIDOORIG:** todas as funções de criação/remoção atualizam `TGFCAB.AD_NUMPEDIDOORIG` + `TGFITE.AD_NUMPEDIDOORIG` (todos os itens) da nota:
+- Ao vincular/criar: aponta pro `NUNOTA_PEDIDO`
+- Ao desfazer: volta pra NULL
+
+**Por que tabela auxiliar e não TGFVAR:** TGFVAR é populada por trigger interna Sankhya (TRG_INC_TGFVAR), com cascata em TGMTRA (movimentação financeira/meta-orçamento) e TGFITE.QTDENTREGUE. INSERT manual é risco grande sem ambiente de homologação — ver gotchas.md "TGFVAR é populada via trigger Sankhya". A tabela auxiliar IAgro vive paralela e é lida em UNION com TGFVAR na consulta principal.
 
 ---
 

@@ -124,11 +124,18 @@ urlpatterns = [
     path('rastreio/api/lote-vinculos/',     views.api_rastreio_lote_vinculos,      name='api_rastreio_lote_vinculos'),
     path('rastreio/api/lotes-disponiveis/', views.api_rastreio_lotes_disponiveis, name='api_rastreio_lotes_disponiveis'),
     path('rastreio/api/pedidos-abertos/',   views.api_rastreio_pedidos_abertos,   name='api_rastreio_pedidos_abertos'),
+    # atribuir/desvincular aceitam TOP 34 STATUSNOTA='L' (Mai/2026 — rastreabilidade
+    # vive no pedido mesmo após faturamento; nota TOP 35/37 não é tocada)
     path('rastreio/api/atribuir-lote/',           views.api_rastreio_atribuir_lote,           name='api_rastreio_atribuir_lote'),
     path('rastreio/api/desvincular-lote/',        views.api_rastreio_desvincular_lote,        name='api_rastreio_desvincular_lote'),
-    # Fase 2 (Mai/2026): vincular lote em pedido finalizado (TOP 34/35/37 STATUSNOTA<>'E')
-    path('rastreio/api/atribuir-finalizado/',     views.api_rastreio_atribuir_finalizado,     name='api_rastreio_atribuir_finalizado'),
-    path('rastreio/api/desvincular-finalizado/',  views.api_rastreio_desvincular_finalizado,  name='api_rastreio_desvincular_finalizado'),
+    # Vínculo manual pedido↔nota (Leva A Mai/2026): quando TGFVAR não foi populado
+    path('rastreio/api/vinculo/candidatos/',          views.api_rastreio_vinculo_candidatos,           name='api_rastreio_vinculo_candidatos'),
+    path('rastreio/api/vinculo/criar/',               views.api_rastreio_vinculo_criar,                name='api_rastreio_vinculo_criar'),
+    path('rastreio/api/vinculo/remover/',             views.api_rastreio_vinculo_remover,              name='api_rastreio_vinculo_remover'),
+    # Pedido retroativo (Leva B Mai/2026): nota direta sem pedido — IAgro cria
+    path('rastreio/api/vinculo/criar-pedido-retroativo/', views.api_rastreio_vinculo_criar_pedido_retroativo, name='api_rastreio_vinculo_criar_pedido_retroativo'),
+    # Fluxo unificado A+B (Mai/2026): backend decide vincular ou criar
+    path('rastreio/api/vinculo/resolver/',                views.api_rastreio_vinculo_resolver,                 name='api_rastreio_vinculo_resolver'),
 
 # ==============================================================================
 # 📧 MÓDULO IMPORTAÇÃO POR E-MAIL (PEDIDOS COM PDF + LLM LOCAL)
