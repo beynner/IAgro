@@ -279,3 +279,38 @@ Detalhes em `gotchas.md`. Resumo:
 **Decisões de design preservadas:**
 - Filtros cruzados (`checksLotes`, `checksPorPedido`, `pedidoIsolado`) **NÃO** entram nas prefs — efêmeros por ciclo de uso, decisão consciente de Mai/2026.
 - Atalhos `Space`/`Enter` para armar/atribuir lote em foco **não foram implementados** — exigem rastreamento de "card em foco" que adiciona complexidade. Avaliar quando houver pedido explícito do operador.
+
+---
+
+## Fase 2 planejada (Mai/2026, ainda NÃO implementada) — Vincular lote em nota faturada
+
+### Caso de uso real
+
+Operação rotineira da Agromil: NFe sai pelo Sankhya **antes** da classificação física chegar no sistema (operadores anotam classificação em papel, depois transcrevem). Hoje a tela de Rastreio bloqueia atribuir/desvincular lote em pedido faturado (`STATUSNOTA='L'`), forçando gambiarra (atribuir lote provisório no fatura, ou pular o IAgro). Não é exceção rara — é o fluxo padrão.
+
+### Risco fiscal: zero
+
+XML real da Agromil analisado (NFe 6242, CENOURA EXTRA): grupo `<rastro>` da NFe 4.0 **não está presente**. NCM 0706 (hortifrúti) não exige rastreabilidade de lote no documento fiscal. `CODAGREGACAO` mora apenas em `TGFITE` (Sankhya interno) — alterar depois não cria divergência com a NFe.
+
+### Fonte de dados do vínculo: `TGFVAR` (não TGFCAB)
+
+Confirmado em SQL: o vínculo entre pedido (TOP 34) e nota (TOP 35/37) **não está em TGFCAB** (todos os campos `NUNOTAORIGCORTE`, `NUNOTAREC`, `NUNOTASUB`, `TIMNUNOTAMOD`, `NUNOTAPEDFRET`, `AD_NUMPEDIDOORIG` ficam NULL nesse fluxo). Está em **TGFVAR** — tabela nativa Sankhya populada por trigger interna. Ver `schema.md §5.5` para detalhes completos.
+
+### Plano de implementação (4 frentes)
+
+| Frente | Detalhe |
+|---|---|
+| **Backend** | Função nova `atribuir_lote_pedido_finalizado(nunota, sequencia, codagregacao, qtd, codusu)`. Lê TGFVAR pra descobrir par. UPDATE atômico em TGFITE dos dois lados (pedido + nota). Se split (qtd < QTDNEG), cria nova SEQ em ambos + nova linha TGFVAR. Função antiga `atribuir_lote_item_pedido` continua bloqueando faturado (defesa em camadas) |
+| **Frontend** | Toggle `Incluir finalizados` no header de pedidos (ao lado de "Só pendentes"). Cards TOP 35/37 com badge laranja `FATURADO`. Mesmo botão `🔗`/`✏️` aciona o backend novo quando `statusnota='L'`. Modal de atribuição **sem campo motivo** (decisão Mai/2026 — audit silencioso suficiente) |
+| **Audit** | `RastreioAudit.acao` continua `'ATRIBUIR'` / `'DESVINCULAR'`, mas `detalhe` JSON ganha `{codtipoper, statusnota, nunota_par, sequencia_par}`. Distingue na query sem mudar schema |
+| **Listagem** | `consultar_pedidos_abertos_para_atribuicao` ganha filtro `incluir_finalizados=False`. Default mostra pedidos com pelo menos 1 item sem `CODAGREGACAO` (independente de TOP); toggle ligado mostra também 100% rastreados. **Aceita TOP 34 + TOP 35/37 STATUSNOTA='L'** |
+
+### Pontos importantes
+
+- **SEQUENCIA difere entre pedido e nota**: Sankhya re-ordena (geralmente por CODPROD). Mapeamento via TGFVAR resolve. Não dá pra usar SEQUENCIA como chave direta
+- **Split funciona naturalmente**: 1 produto pode ter 2+ lotes mesmo em nota faturada — mecânica idêntica ao `atribuir_lote_item_pedido` atual, só replicada nos 2 lados
+- **Cancelamento NFe**: se Sankhya cancelar a nota (`STATUSNOTA='C'`), o `CODAGREGACAO` no TGFITE permanece. Refaturando depois, vínculo intacto
+
+### Estimativa: 3-4h
+
+Aguardando aprovação para executar. Validações: 174 testes existentes + ~6 novos cobrindo (sem motivo, com par, sem par, split, audit gravado, grupo sem permissão).

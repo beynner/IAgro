@@ -213,6 +213,58 @@ Compatível com Oracle 11g via `ROW_NUMBER() OVER ... BETWEEN`. **NÃO usar** `O
 
 ---
 
+## 5.5 Tabela `TGFVAR` — vínculo nativo Sankhya entre notas geradas
+
+**Descoberta em Mai/2026 (2026-05-09)** durante design da feature "vincular lote em nota faturada". Tabela nativa do Sankhya que registra atendimento de pedido — não está em nenhum lugar do código IAgro, mas é a **única fonte de vínculo confiável** entre TOP 34 (pedido) e TOP 35/37 (nota), porque Sankhya popula automaticamente via trigger interna no faturamento.
+
+### Estrutura
+
+| Coluna | Tipo | Função |
+|---|---|---|
+| `NUNOTA` | NUMBER | NUNOTA da nota gerada (destino) |
+| `SEQUENCIA` | NUMBER | SEQ do item na nota gerada |
+| `NUNOTAORIG` | NUMBER | NUNOTA da nota origem (pedido) |
+| `SEQUENCIAORIG` | NUMBER | SEQ do item na nota origem |
+| `QTDATENDIDA` | FLOAT | Quantidade transferida do pedido pra nota |
+| `STATUSNOTA` | VARCHAR2(1) | Status replicado |
+| `CUSATEND`, `ORDEMPROD`, `FIXACAO`, etc. | — | Campos auxiliares (não usados pelo IAgro) |
+
+### Uso real (Mai/2026, ~211k linhas no banco da Agromil)
+
+| TOP destino | TOP origem | Qtd linhas | Fluxo |
+|---|---|---|---|
+| 35 | 34 | 185.221 | NFe ← Pedido de Venda |
+| 36 | 35 | 16.623 | Devolução ← NFe |
+| 13 | 11 | 9.376 | Vale ← Compra |
+| 37 | 34 | 75 | Venda s/NFe ← Pedido |
+| 36 | 37 | 6 | Devolução ← Venda s/NFe |
+
+### Características importantes
+
+- **Granularidade por item**: uma linha por par `(SEQUENCIA_destino, SEQUENCIAORIG_origem)`. Permite N:1 e 1:N (1 pedido vira N notas, ou N compras viram 1 vale)
+- **SEQUENCIA pode mudar** entre pedido e nota (Sankhya re-ordena, geralmente por CODPROD). Não dá pra usar SEQUENCIA como chave sem passar por TGFVAR
+- **Populada via trigger Sankhya** — IAgro nunca escreveu nela. Apenas leitura
+- **CUSATEND** parece ser custo atendido; **ORDEMPROD** ordem de produção/separação — fora do escopo IAgro hoje
+
+### Mecânica complementar: `AD_NUMPEDIDOORIG` (campo customizado da Agromil)
+
+Existe em **TGFCAB e TGFITE**. Convenção da Agromil para rastreabilidade da "nota raiz via lote", usada pelos módulos Entrada/Classificação/Comercial (TOP 11/26/13):
+
+- **Auto-referência no INSERT**: `AD_NUMPEDIDOORIG = NUNOTA próprio` (default em [`inserir_cabecalho_nota_banco`](../sankhya_integration/services/oracle_conn.py))
+- **Auto-cura no UPDATE**: itens TGFITE buscam o `MIN(AD_NUMPEDIDOORIG)` de outros itens com mesmo `CODAGREGACAO` (lote) e propagam ao cabeçalho/item alvo. Permite TOP 26 herdar origem do TOP 11 do mesmo lote
+- **Não cobre venda/NFe (Mai/2026)**: 100% dos pedidos TOP 34 dos últimos 30 dias com `AD_NUMPEDIDOORIG = NULL` (todos vêm do Sankhya direto, não IAgro). Quando IAgro for a fonte de criação, popular naturalmente
+
+### Como o IAgro vai usar TGFVAR (planejado, ainda não implementado em Mai/2026)
+
+Função `atribuir_lote_pedido_finalizado(nunota, sequencia, codagregacao, qtd, codusu)`:
+1. Lock pessimista `SELECT FOR UPDATE` em TGFITE do NUNOTA passado
+2. `SELECT NUNOTAORIG, SEQUENCIAORIG FROM TGFVAR WHERE NUNOTA = :n AND SEQUENCIA = :s` (ou versão reversa se for pedido virando nota)
+3. `UPDATE TGFITE SET CODAGREGACAO = :l WHERE NUNOTA = :n AND SEQUENCIA = :s` — no NUNOTA original
+4. **Se houver par via TGFVAR**: mesmo UPDATE no NUNOTA pareado, atomicamente no mesmo commit
+5. Audit em `RastreioAudit` com `detalhe={codtipoper, statusnota, nunota_par, sequencia_par}`
+
+---
+
 ## 6. Funções-chave de `oracle_conn.py`
 
 ### Conexão e transação

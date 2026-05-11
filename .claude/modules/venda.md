@@ -207,11 +207,35 @@ Tentativa anterior de mover os filtros para o header inline do card de Pedidos f
 
 ---
 
+## Rastreabilidade via `AD_NUMPEDIDOORIG` (campo customizado) — Mai/2026
+
+Decisão arquitetural alinhada com Entrada/Classificação/Comercial: **todo pedido criado pela IAgro popula `AD_NUMPEDIDOORIG = NUNOTA próprio`** (auto-referência). Quando o IAgro for a fonte do faturamento (futuro), o UPDATE in-place de `CODTIPOPER 34 → 35/37` preserva naturalmente o valor — pedido e nota terminam com mesma origem.
+
+### Status atual (Mai/2026)
+
+- **Função IAgro popula corretamente**: [`inserir_cabecalho_nota_banco`](../../sankhya_integration/services/oracle_conn.py) tem default `int(dados.get('AD_NUMPEDIDOORIG') or novo_nunota)` (linha ~597). Tanto a página Vendas (`api_criar_cabecalho_venda`) quanto a Importação por e-mail (`api_email_confirmar`) passam pelo mesmo caminho e herdam o default
+- **MAS, em produção, 298/298 pedidos TOP 34 dos últimos 30 dias estão com `AD_NUMPEDIDOORIG = NULL`** — confirmado via SQL em 2026-05-09. Razão: praticamente todos os pedidos reais hoje vêm do Sankhya direto (operadores ainda usam o ERP nativo para criar pedidos), e Sankhya não conhece o campo customizado
+- **Quando IAgro for adoção real para criação de pedidos**, esses novos passarão a ter o campo populado automaticamente. Pra dados existentes, ficar via TGFVAR (ver schema.md §5.5) ou via job de migração futuro
+
+### Por que vale popular mesmo assim
+
+1. **Prepara o terreno** para quando o IAgro tomar o controle do faturamento
+2. **Cobertura natural** de qualquer pedido novo criado pela página Vendas ou Importação por e-mail
+3. **Sem custo adicional** — código já existe, só preserva a convenção
+
+### O que NÃO faz parte desta estratégia
+
+- **Não usa AD_NUMPEDIDOORIG para implementar a feature de "vincular lote em nota faturada"**. Essa feature (Fase 2, planejada Mai/2026 mas ainda não implementada) usa **TGFVAR** porque é a única fonte que cobre 100% dos dados existentes (~185k pares pedido↔nota), inclusive os criados via Sankhya
+- **Não cria trigger no Sankhya** para copiar AD_NUMPEDIDOORIG na geração de nota faturada via Sankhya — fora do escopo IAgro
+
+---
+
 ## Pendências
 
 - **Vínculo lote ↔ item dentro do modal** — hoje fica para o Rastreio. Avaliação: manter assim (recomendação) ou adicionar typeahead com saldo de lote.
 - **Emissão real de NFe** — decisão de negócio pendente.
 - **Typeahead de Lote** — refino apenas cosmético aplicado. Typeahead real exigiria nova função em `oracle_conn.py` (`SELECT DISTINCT CODAGREGACAO FROM TGFITE WHERE...`); bloqueado pela regra crítica #4 até decisão de negócio. Alternativa atual: input livre com `LIKE` e debounce 500ms.
+- **Migração retroativa de `AD_NUMPEDIDOORIG`** (futuro) — script que lê TGFVAR e popula `AD_NUMPEDIDOORIG` em pedidos/notas existentes, uniformizando dados antigos com a convenção que IAgro usa.
 
 ---
 
