@@ -124,8 +124,11 @@ urlpatterns = [
     path('rastreio/api/lote-vinculos/',     views.api_rastreio_lote_vinculos,      name='api_rastreio_lote_vinculos'),
     path('rastreio/api/lotes-disponiveis/', views.api_rastreio_lotes_disponiveis, name='api_rastreio_lotes_disponiveis'),
     path('rastreio/api/pedidos-abertos/',   views.api_rastreio_pedidos_abertos,   name='api_rastreio_pedidos_abertos'),
-    path('rastreio/api/atribuir-lote/',     views.api_rastreio_atribuir_lote,     name='api_rastreio_atribuir_lote'),
-    path('rastreio/api/desvincular-lote/',  views.api_rastreio_desvincular_lote,  name='api_rastreio_desvincular_lote'),
+    path('rastreio/api/atribuir-lote/',           views.api_rastreio_atribuir_lote,           name='api_rastreio_atribuir_lote'),
+    path('rastreio/api/desvincular-lote/',        views.api_rastreio_desvincular_lote,        name='api_rastreio_desvincular_lote'),
+    # Fase 2 (Mai/2026): vincular lote em pedido finalizado (TOP 34/35/37 STATUSNOTA<>'E')
+    path('rastreio/api/atribuir-finalizado/',     views.api_rastreio_atribuir_finalizado,     name='api_rastreio_atribuir_finalizado'),
+    path('rastreio/api/desvincular-finalizado/',  views.api_rastreio_desvincular_finalizado,  name='api_rastreio_desvincular_finalizado'),
 
 # ==============================================================================
 # 📧 MÓDULO IMPORTAÇÃO POR E-MAIL (PEDIDOS COM PDF + LLM LOCAL)

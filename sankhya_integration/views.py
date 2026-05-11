@@ -11,6 +11,8 @@ from .services.oracle_conn import (
     consultar_vinculos_de_lote,
     atribuir_lote_item_pedido,
     desvincular_lote_item_pedido,
+    atribuir_lote_pedido_finalizado,
+    desvincular_lote_pedido_finalizado,
     humanizar_erro_oracle,
     # Importação por e-mail
     listar_pedidos_email_pendentes,
@@ -2426,6 +2428,9 @@ def api_rastreio_pedidos_abertos(request: HttpRequest) -> JsonResponse:
         'data_ini':   request.GET.get('data_ini'),
         'data_fim':   request.GET.get('data_fim'),
         'fabricante': request.GET.get('fabricante'),
+        # Toggle "Incluir finalizados" (Fase 2 Mai/2026) — quando ligado,
+        # listagem inclui TOP 35/37 (notas faturadas) além dos TOP 34.
+        'incluir_finalizados': request.GET.get('incluir_finalizados') in ('1', 'true', 'on'),
     }
     limite, offset = _paginacao_do_request(request)
     try:
@@ -2532,6 +2537,101 @@ def api_rastreio_atribuir_lote(request: HttpRequest) -> JsonResponse:
         return JsonResponse(res)
     except Exception as e:
         logger.exception("Erro em api_rastreio_atribuir_lote")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+
+# ==============================================================================
+# 🔗 ATRIBUIR / DESVINCULAR LOTE EM PEDIDO FINALIZADO (Fase 2 do Rastreio)
+# Aceita TOP 34/35/37 STATUSNOTA <> 'E'. Propaga via TGFVAR pro par
+# pedido↔nota. Sem campo "motivo" — audit silencioso registra detalhes.
+# ==============================================================================
+
+@require_http_methods(["POST"])
+@exige_grupo('rastreio')
+def api_rastreio_atribuir_finalizado(request: HttpRequest) -> JsonResponse:
+    """Atribui/troca lote em item de pedido finalizado (qualquer TOP 34/35/37).
+
+    Não aceita qtd parcial — apenas atribuição total ou troca. Pra split em
+    pedido faturado, operador deve desvincular primeiro.
+    """
+    dados = _get_json_payload(request)
+    if not dados:
+        return JsonResponse({"ok": False, "error": "JSON inválido"}, status=400)
+
+    nunota       = _converter_para_inteiro(dados.get('nunota'))
+    sequencia    = _converter_para_inteiro(dados.get('sequencia'))
+    codagregacao = (dados.get('codagregacao') or '').strip()
+
+    if not nunota or not sequencia or not codagregacao:
+        return JsonResponse(
+            {"ok": False, "error": "nunota, sequencia e codagregacao são obrigatórios"},
+            status=400,
+        )
+
+    try:
+        res = atribuir_lote_pedido_finalizado(
+            nunota=nunota, sequencia=sequencia, codagregacao=codagregacao,
+        )
+        if not res.get('ok'):
+            res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao atribuir lote')
+            return JsonResponse(res, status=400)
+        # Audit — operação em pedido finalizado fica explícita no detalhe
+        _registrar_audit_rastreio(
+            request, acao='ATRIBUIR',
+            nunota=nunota, sequencia=sequencia,
+            codagregacao=codagregacao, qtd=None,
+            extra={
+                'origem':         'finalizado',
+                'codtipoper':     res.get('codtipoper'),
+                'statusnota':     res.get('statusnota'),
+                'lote_anterior':  res.get('lote_anterior'),
+                'pares_atualizados': res.get('pares_atualizados') or [],
+            },
+        )
+        return JsonResponse(res)
+    except Exception as e:
+        logger.exception("Erro em api_rastreio_atribuir_finalizado")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('rastreio')
+def api_rastreio_desvincular_finalizado(request: HttpRequest) -> JsonResponse:
+    """Remove lote de item de pedido finalizado (qualquer TOP 34/35/37).
+    Propaga via TGFVAR pro par.
+    """
+    dados = _get_json_payload(request)
+    if not dados:
+        return JsonResponse({"ok": False, "error": "JSON inválido"}, status=400)
+
+    nunota    = _converter_para_inteiro(dados.get('nunota'))
+    sequencia = _converter_para_inteiro(dados.get('sequencia'))
+
+    if not nunota or not sequencia:
+        return JsonResponse(
+            {"ok": False, "error": "nunota e sequencia são obrigatórios"},
+            status=400,
+        )
+
+    try:
+        res = desvincular_lote_pedido_finalizado(nunota=nunota, sequencia=sequencia)
+        if not res.get('ok'):
+            res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao desvincular lote')
+            return JsonResponse(res, status=400)
+        _registrar_audit_rastreio(
+            request, acao='DESVINCULAR',
+            nunota=nunota, sequencia=sequencia,
+            codagregacao=res.get('lote_removido'), qtd=None,
+            extra={
+                'origem':         'finalizado',
+                'codtipoper':     res.get('codtipoper'),
+                'statusnota':     res.get('statusnota'),
+                'pares_atualizados': res.get('pares_atualizados') or [],
+            },
+        )
+        return JsonResponse(res)
+    except Exception as e:
+        logger.exception("Erro em api_rastreio_desvincular_finalizado")
         return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
 

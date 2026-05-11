@@ -9,6 +9,9 @@ document.addEventListener('DOMContentLoaded', function () {
         pedidos:         '/sankhya/rastreio/api/pedidos-abertos/',
         atribuirLote:    '/sankhya/rastreio/api/atribuir-lote/',
         desvincularLote: '/sankhya/rastreio/api/desvincular-lote/',
+        // Fase 2 (Mai/2026): vincular lote em pedido finalizado (TOP 34/35/37)
+        atribuirFinalizado:    '/sankhya/rastreio/api/atribuir-finalizado/',
+        desvincularFinalizado: '/sankhya/rastreio/api/desvincular-finalizado/',
         fabricantes:     '/sankhya/rastreio/api/fabricantes/',
         loteVinculos:    '/sankhya/rastreio/api/lote-vinculos/',
     };
@@ -55,6 +58,11 @@ document.addEventListener('DOMContentLoaded', function () {
     let loteArmado          = null;         // lote selecionado para vincular (click-to-select)
     // Fase 4.6 — toggle "só pendentes" (esconde produto-linhas já 100% atribuídas)
     let somentePendentes    = false;
+    // Fase 2 Rastreio (Mai/2026) — toggle "Incluir finalizados": quando ligado,
+    // backend retorna também TOP 35/37 (notas faturadas). Cards de finalizado
+    // ganham badge laranja `FATURADO` e botão de atribuição chama o endpoint
+    // /atribuir-finalizado/ (propaga via TGFVAR pro par pedido↔nota).
+    let incluirFinalizados  = false;
     // Set<NUNOTA> — pedidos atualmente colapsados (produtos escondidos).
     // Default: TODOS os pedidos vêm colapsados; o usuário expande clicando
     // no header. Click no nome do parceiro/chevron alterna o estado.
@@ -90,6 +98,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 dataIniPedidos, dataFimPedidos,
                 travado: !!(checkTrava && checkTrava.classList.contains('is-on')),
                 somentePendentes,
+                incluirFinalizados,
                 loteArmadoCodag: loteArmado ? loteArmado.codagregacao : null,
             }));
         } catch (_) {}
@@ -683,6 +692,9 @@ document.addEventListener('DOMContentLoaded', function () {
                     params.set('codprods', [...uniaoPed].join(','));
                 }
             }
+            // Toggle "Incluir finalizados" (Fase 2): backend passa a aceitar
+            // TOP 35/37 na listagem. Default: só TOP 34.
+            if (incluirFinalizados) params.set('incluir_finalizados', '1');
 
             const r = await fetch(URLS.pedidos + '?' + params.toString(), {
                 credentials: 'same-origin', cache: 'no-store',
@@ -1008,6 +1020,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     codparc:  it.codparc,
                     nomeparc: it.nomeparc,
                     dtneg:    it.dtneg,
+                    // Fase 2 (Mai/2026) — propaga tipo + status pro front
+                    // distinguir TOP 34 (em aberto) de TOP 35/37 (faturadas)
+                    codtipoper: it.codtipoper,
+                    statusnota: it.statusnota,
                     _produtos: new Map(),
                 });
             }
@@ -1253,6 +1269,16 @@ document.addEventListener('DOMContentLoaded', function () {
             ? '<span class="pb-check" title="Todos os produtos vinculados">✓</span>'
             : '';
 
+        // Fase 2 (Mai/2026) — badge laranja `FATURADO` para TOP 35/37
+        // (nota faturada). Tooltip explicita o efeito da operação.
+        const ehFinalizado = Number(pedido.codtipoper) === 35 || Number(pedido.codtipoper) === 37;
+        const labelTop = Number(pedido.codtipoper) === 35 ? 'NF-e' :
+                          Number(pedido.codtipoper) === 37 ? 'S/NF' : '';
+        const badgeFaturado = ehFinalizado
+            ? `<span class="pb-badge-faturado" title="Nota faturada (TOP ${pedido.codtipoper} - ${labelTop}). Alterar lote propaga automaticamente para o par pedido/nota via TGFVAR.">FATURADO</span>`
+            : '';
+        if (ehFinalizado) header.classList.add('pedido-finalizado');
+
         // Layout: [check] [chevron] avatar  parceiro · data ··· progresso · NUNOTA
         // O check fica antes do chevron para alinhar com os checks das produto-linhas.
         header.innerHTML = `
@@ -1268,12 +1294,13 @@ document.addEventListener('DOMContentLoaded', function () {
             ${_avatarFornecedor(pedido.nomeparc || '—')}
             <span class="pb-parc">${escapeHtml(pedido.nomeparc || '—')}</span>
             <span class="pb-data">${escapeHtml(pedido.dtneg || '')}</span>
+            ${badgeFaturado}
             <span class="pb-spacer"></span>
             <span class="pb-progresso" title="${pct}% vinculado (${fmtInt(prodCompletos)}/${fmtInt(pedido.produtos.length)} produtos completos)">
                 ${_renderProgressBar(qtdAtribuida, qtdTotal)}
                 <strong>${pct}%</strong>
             </span>
-            <span class="pb-nunota">Pedido ${escapeHtml(pedido.nunota)}</span>
+            <span class="pb-nunota">${ehFinalizado ? 'Nota' : 'Pedido'} ${escapeHtml(pedido.nunota)}</span>
             ${checkOk}
         `;
 
@@ -1750,6 +1777,12 @@ document.addEventListener('DOMContentLoaded', function () {
         btnConfirmarTransfer.disabled = true;
         btnConfirmarTransfer.classList.add('btn--loading');
         btnConfirmarTransfer.textContent = 'Vinculando...';
+
+        // Fase 2 (Mai/2026) — pedido finalizado (TOP 35/37): endpoint
+        // separado, NÃO suporta qtd parcial (split). Operador atribui o
+        // total da linha pendente; pra split, desvincular primeiro.
+        const ehFinalizado = Number(pedido.codtipoper) === 35 || Number(pedido.codtipoper) === 37;
+
         try {
             // Distribui a qtd entre as linhas pendentes do produto, na ordem
             // que vieram (por SEQUENCIA). Cada linha recebe o que cabe.
@@ -1763,15 +1796,37 @@ document.addEventListener('DOMContentLoaded', function () {
 
             for (const linha of linhas) {
                 if (qtdRestante < 0.01) break;
-                const qtdParaLinha = Math.min(qtdRestante, Number(linha.qtd) || 0);
+                const qtdLinha = Number(linha.qtd) || 0;
+                const qtdParaLinha = Math.min(qtdRestante, qtdLinha);
                 if (qtdParaLinha <= 0) continue;
 
-                const res = await postJSON(URLS.atribuirLote, {
-                    nunota:       pedido.nunota,
-                    sequencia:    linha.sequencia,
-                    codagregacao: lote.codagregacao,
-                    qtd:          qtdParaLinha,
-                });
+                // Pedido finalizado: aceita apenas atribuição total (não SPLIT).
+                // Se a qtd informada não cobre a linha inteira, mostra erro
+                // explícito antes de tentar — operador entende sem mistério.
+                if (ehFinalizado && qtdParaLinha < qtdLinha - 1e-6) {
+                    erro = `Nota faturada não aceita split. Atribua a quantidade ` +
+                           `total desta linha (${fmtQtd(qtdLinha)}) ou desvincule ` +
+                           `outra atribuição antes de continuar.`;
+                    break;
+                }
+
+                let res;
+                if (ehFinalizado) {
+                    // Endpoint Fase 2 — propaga via TGFVAR pro par pedido↔nota
+                    res = await postJSON(URLS.atribuirFinalizado, {
+                        nunota:       pedido.nunota,
+                        sequencia:    linha.sequencia,
+                        codagregacao: lote.codagregacao,
+                    });
+                } else {
+                    // Fluxo histórico — TOP 34, suporta SPLIT
+                    res = await postJSON(URLS.atribuirLote, {
+                        nunota:       pedido.nunota,
+                        sequencia:    linha.sequencia,
+                        codagregacao: lote.codagregacao,
+                        qtd:          qtdParaLinha,
+                    });
+                }
                 if (!res.ok || !res.body || !res.body.ok) {
                     erro = (res.body && res.body.error) || 'Falha ao atribuir lote.';
                     break;
@@ -1779,7 +1834,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 operacoes.push({
                     seqOrig:     linha.sequencia,
                     qtdAplicada: qtdParaLinha,
-                    operacao:    res.body.operacao,        // 'UPDATE' ou 'SPLIT'
+                    operacao:    res.body.operacao || 'UPDATE',
                     novaSeq:     res.body.nova_sequencia,  // != null só quando SPLIT
                 });
                 qtdRestante   -= qtdParaLinha;
@@ -1914,10 +1969,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 const nunota       = tr.dataset.nunota;
                 const sequencia    = tr.dataset.sequencia;
                 const codagregacao = tr.dataset.codagregacao;
+                const codtipoper   = Number(tr.dataset.codtipoper || 0);
+                // Fase 2 (Mai/2026) — TOP 35/37 usa endpoint que propaga
+                // via TGFVAR pro par pedido↔nota.
+                const ehFinalizado = codtipoper === 35 || codtipoper === 37;
                 const ok = await phConfirmar({
-                    titulo:   'Desvincular lote?',
+                    titulo:   ehFinalizado ? 'Desvincular lote (nota faturada)?' : 'Desvincular lote?',
                     mensagem: `Remover o vínculo do lote <strong>${escapeHtml(codagregacao)}</strong> ` +
-                              `do pedido <strong>${escapeHtml(nunota)}</strong> (item ${escapeHtml(sequencia)})?`,
+                              `da ${ehFinalizado ? 'nota' : 'pedido'} <strong>${escapeHtml(nunota)}</strong> ` +
+                              `(item ${escapeHtml(sequencia)})?` +
+                              (ehFinalizado ? '<br><small>Propaga automaticamente pro par pedido/nota via TGFVAR.</small>' : ''),
                     confirmarLabel: 'Desvincular',
                     tipo: 'perigo',
                 });
@@ -1927,7 +1988,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 btn.disabled = true;
                 btn.classList.add('btn--loading');
                 try {
-                    const res = await postJSON(URLS.desvincularLote, {
+                    const endpoint = ehFinalizado ? URLS.desvincularFinalizado : URLS.desvincularLote;
+                    const res = await postJSON(endpoint, {
                         nunota:    Number(nunota),
                         sequencia: Number(sequencia),
                     });
@@ -1975,7 +2037,8 @@ document.addEventListener('DOMContentLoaded', function () {
             <tr class="vinc-linha"
                 data-nunota="${escapeHtml(pedido.nunota)}"
                 data-sequencia="${escapeHtml(lv.sequencia)}"
-                data-codagregacao="${escapeHtml(lv.codagregacao)}">
+                data-codagregacao="${escapeHtml(lv.codagregacao)}"
+                data-codtipoper="${escapeHtml(pedido.codtipoper || '')}">
                 <td>${escapeHtml(lv.lote_dtneg || '—')}</td>
                 <td class="vmono">${escapeHtml(lv.lote_nunota != null ? lv.lote_nunota : '—')}</td>
                 <td class="vmono">${escapeHtml(lv.codagregacao)}</td>
@@ -2128,6 +2191,16 @@ document.addEventListener('DOMContentLoaded', function () {
         (v) => { somentePendentes = v; },
         () => renderPedidos(),
     );
+    // Fase 2 (Mai/2026) — toggle "Incluir finalizados": refaz busca server-side
+    // pra trazer TOP 35/37 (notas faturadas) junto com pedidos abertos. Cards
+    // de finalizado vêm com badge laranja `FATURADO` (ver renderPedidos).
+    const checkIncluirFinalizados = document.getElementById('checkIncluirFinalizados');
+    _bindToggleBtn(
+        checkIncluirFinalizados,
+        () => incluirFinalizados,
+        (v) => { incluirFinalizados = v; },
+        () => carregarPedidos(true),   // refetch — filtro server-side
+    );
     _bindToggleBtn(
         checkTrava,
         () => checkTrava && checkTrava.classList.contains('is-on'),
@@ -2209,6 +2282,14 @@ document.addEventListener('DOMContentLoaded', function () {
             if (c) {
                 c.classList.toggle('is-on', somentePendentes);
                 c.setAttribute('aria-pressed', somentePendentes);
+            }
+        }
+        if (typeof prefs.incluirFinalizados === 'boolean') {
+            incluirFinalizados = prefs.incluirFinalizados;
+            const c = document.getElementById('checkIncluirFinalizados');
+            if (c) {
+                c.classList.toggle('is-on', incluirFinalizados);
+                c.setAttribute('aria-pressed', incluirFinalizados);
             }
         }
     })();
@@ -2698,6 +2779,14 @@ document.addEventListener('DOMContentLoaded', function () {
         if (checkSP) {
             checkSP.classList.remove('is-on');
             checkSP.setAttribute('aria-pressed', 'false');
+        }
+
+        // "Incluir finalizados" desligado (Fase 2 Mai/2026)
+        incluirFinalizados = false;
+        const checkIF = document.getElementById('checkIncluirFinalizados');
+        if (checkIF) {
+            checkIF.classList.remove('is-on');
+            checkIF.setAttribute('aria-pressed', 'false');
         }
 
         // Reset do estado de colapso — todos os pedidos voltam a ser

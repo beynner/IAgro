@@ -282,7 +282,7 @@ Detalhes em `gotchas.md`. Resumo:
 
 ---
 
-## Fase 2 planejada (Mai/2026, ainda NÃO implementada) — Vincular lote em nota faturada
+## Fase 2 ✅ IMPLEMENTADA (Mai/2026, 2026-05-11) — Vincular lote em nota faturada
 
 ### Caso de uso real
 
@@ -311,6 +311,37 @@ Confirmado em SQL: o vínculo entre pedido (TOP 34) e nota (TOP 35/37) **não es
 - **Split funciona naturalmente**: 1 produto pode ter 2+ lotes mesmo em nota faturada — mecânica idêntica ao `atribuir_lote_item_pedido` atual, só replicada nos 2 lados
 - **Cancelamento NFe**: se Sankhya cancelar a nota (`STATUSNOTA='C'`), o `CODAGREGACAO` no TGFITE permanece. Refaturando depois, vínculo intacto
 
-### Estimativa: 3-4h
+### Entregue
 
-Aguardando aprovação para executar. Validações: 174 testes existentes + ~6 novos cobrindo (sem motivo, com par, sem par, split, audit gravado, grupo sem permissão).
+Implementado em 2026-05-11. Resumo:
+
+**Backend (`oracle_conn.py`):**
+- `atribuir_lote_pedido_finalizado(nunota, sequencia, codagregacao)` — aceita TOP 34/35/37 STATUSNOTA<>'E'. Lock pessimista, valida saldo na view `ANDRE_IAGRO_SALDO_LOTE`, propaga via `_localizar_par_via_tgfvar()` pro par. Não suporta SPLIT (qtd parcial) — pra split em faturado, operador deve desvincular primeiro
+- `desvincular_lote_pedido_finalizado(nunota, sequencia)` — análoga
+- `_localizar_par_via_tgfvar(cur, nunota, sequencia)` — busca o par nos dois sentidos (UNION em TGFVAR.NUNOTA/SEQUENCIA e TGFVAR.NUNOTAORIG/SEQUENCIAORIG)
+- `consultar_pedidos_abertos_para_atribuicao` aceita filtro `incluir_finalizados=False`; quando True, expande pra `CODTIPOPER IN (34, 35, 37)` e SELECT retorna `CODTIPOPER` e `STATUSNOTA` no resultado pra frontend distinguir
+- Função antiga `atribuir_lote_item_pedido` **continua bloqueando STATUSNOTA='L'** (defesa em camadas)
+
+**Endpoints (`views.py` + `urls.py`):**
+- `POST /sankhya/rastreio/api/atribuir-finalizado/`
+- `POST /sankhya/rastreio/api/desvincular-finalizado/`
+- Ambos com `@exige_grupo('rastreio')`, audit detalhado em `RastreioAudit` com `extra={'origem': 'finalizado', codtipoper, statusnota, lote_anterior, pares_atualizados}`
+
+**Frontend (`rastreio.html`, `rastreio.js`, `rastreio.css`):**
+- Toggle `Incluir finalizados` no header de pedidos, persistido em prefs (`localStorage`)
+- Cards TOP 35/37 ganham badge laranja `FATURADO` + borda esquerda âmbar (`.pedido-finalizado`)
+- Header diz "Nota X" em vez de "Pedido X" pra pedidos finalizados
+- Modal de transferência usa endpoint diferente conforme `pedido.codtipoper` (35/37 → atribuir-finalizado; 34 → atribuir-lote)
+- Modal de vínculos do produto-linha carrega `data-codtipoper`; click no lixeira roteia pra endpoint correto
+- Confirmação extra "Propaga automaticamente pro par via TGFVAR" no modal de desvinculação
+- Validação client-side: se finalizado, recusa qtd parcial com mensagem clara (sem ir ao servidor)
+
+**Tests (`test_rastreio.py`):**
+- `AtribuirLoteFinalizadoServiceTest` × 7: escrita desabilitada, codagregacao obrigatório, TOP não-suportada (30), status excluído (E), TOP 35 com par via TGFVAR (sucesso completo), saldo insuficiente, re-atribuição do mesmo lote (idempotência)
+- `DesvincularLoteFinalizadoServiceTest` × 2: sem lote atual, desvincula propagando par
+
+**Validação final:** 183 testes saudáveis passam (174 antigos + 9 novos). `manage.py check` ok.
+
+### Limitação consciente — Split em pedido faturado
+
+Não permitido. Pra split em TOP 35/37, operador deve **desvincular** primeiro e atribuir novamente. Razão: SPLIT exigiria INSERT em `TGFVAR` (que é populada por trigger Sankhya) — risco de inconsistência sem ambiente de teste do trigger. Se aparecer demanda real, investigar trigger Sankhya antes de implementar.

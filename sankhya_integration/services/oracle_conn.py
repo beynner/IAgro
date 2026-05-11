@@ -2998,11 +2998,18 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
     deles. Isso evita "cortar" um pedido ao meio em scroll infinito.
     """
     filtros = filtros or {}
-    # STATUSNOTA: ignora 'L' (faturado) na listagem para o operador ver tudo;
-    # mantém o filtro de 'E' (excluídos), que sempre são lixo.
-    # A validação de "não pode atribuir a faturado" continua ativa em
-    # atribuir_lote_item_pedido, abaixo.
-    where = ["c.CODTIPOPER = 34", "c.STATUSNOTA <> 'E'"]
+    # STATUSNOTA: sempre filtra 'E' (excluídos). Demais validações estão nas
+    # funções de escrita (atribuir_lote_item_pedido bloqueia 'L', e a função
+    # atribuir_lote_pedido_finalizado aceita 'L' propagando via TGFVAR).
+    incluir_finalizados = bool(filtros.get('incluir_finalizados'))
+    if incluir_finalizados:
+        # Mai/2026 — quando o operador liga "Incluir finalizados" no Rastreio,
+        # passamos a aceitar TOP 35/37 (notas faturadas) na listagem.
+        # Útil para o fluxo "vincular lote em nota emitida" (NFe sai pelo
+        # Sankhya antes da classificação chegar, operador transcreve depois).
+        where = ["c.CODTIPOPER IN (34, 35, 37)", "c.STATUSNOTA <> 'E'"]
+    else:
+        where = ["c.CODTIPOPER = 34", "c.STATUSNOTA <> 'E'"]
     binds: dict = {}
 
     if filtros.get('nunota'):
@@ -3116,6 +3123,7 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
     sql = f"""
         SELECT
             cp.NUNOTA, cp.CODEMP, cp.CODPARC, cp.NOMEPARC, cp.DTNEG,
+            cp.CODTIPOPER, cp.STATUSNOTA,
             i.SEQUENCIA, i.CODPROD, pr.DESCRPROD,
             NVL(i.QTDNEG, 0)   AS QTD_PEDIDA,
             i.CODAGREGACAO     AS CODAGREGACAO_ATUAL,
@@ -3130,7 +3138,8 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
                     ORDER BY t.DTNEG DESC, t.NUNOTA DESC
                 ) AS RN
                 FROM (
-                    SELECT c.NUNOTA, c.CODEMP, c.CODPARC, c.DTNEG, p.NOMEPARC
+                    SELECT c.NUNOTA, c.CODEMP, c.CODPARC, c.DTNEG, p.NOMEPARC,
+                           c.CODTIPOPER, c.STATUSNOTA
                     FROM TGFCAB c
                     LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC
                     WHERE {' AND '.join(where)}
@@ -3161,6 +3170,7 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
 
     cols = [
         'nunota', 'codemp', 'codparc', 'nomeparc', 'dtneg',
+        'codtipoper', 'statusnota',
         'sequencia', 'codprod', 'descrprod',
         'qtd_pedida', 'codagregacao_atual', 'status_item',
         'lote_nunota', 'lote_dtneg', 'lote_codparc', 'lote_nomeparc',
@@ -3428,6 +3438,222 @@ def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
             }
     except Exception as e:
         logger.exception("Erro em atribuir_lote_item_pedido")
+        return {'ok': False, 'error': str(e)}
+
+
+# ==============================================================================
+# 🔗 ATRIBUIR / DESVINCULAR LOTE EM PEDIDO FINALIZADO (TOP 34/35/37, qualquer STATUS)
+# ==============================================================================
+# Fase 2 do Rastreio (Mai/2026 — 2026-05-11) — operação de vincular lote
+# em pedido já faturado. Caso de uso: NFe sai pelo Sankhya antes da
+# classificação chegar no sistema; operador transcreve do papel depois.
+# Não há risco fiscal — XML real da Agromil (NCM 0706 hortifrúti) não carrega
+# grupo <rastro>, então CODAGREGACAO no TGFITE é dado interno.
+#
+# Diferenças vs atribuir_lote_item_pedido:
+#   - Aceita TOP 34/35/37 (não só 34) e STATUSNOTA != 'E'
+#   - Lê TGFVAR pra encontrar o par pedido↔nota e PROPAGA o UPDATE pros 2
+#     lados atomicamente no mesmo commit
+#   - NÃO suporta SPLIT (qtd parcial). Pra split em pedido faturado,
+#     operador deve desvincular tudo e re-atribuir. Razão: SPLIT exigiria
+#     INSERT em TGFVAR, que é populada por trigger Sankhya — risco de
+#     inconsistência fica grande demais sem ambiente de teste.
+#   - Função antiga continua bloqueando STATUSNOTA='L' (defesa em camadas)
+# ==============================================================================
+
+def _localizar_par_via_tgfvar(cur, nunota: int, sequencia: int) -> list[tuple[int, int]]:
+    """Procura o par (nunota_par, sequencia_par) em TGFVAR — busca nos dois
+    sentidos (esta linha é destino OU origem da relação). Retorna lista de
+    tuplas; geralmente 0 ou 1 elemento, raramente >1 (se houve split prévio
+    no fluxo Sankhya).
+    """
+    cur.execute("""
+        SELECT NUNOTAORIG, SEQUENCIAORIG
+          FROM TGFVAR WHERE NUNOTA = :n AND SEQUENCIA = :s
+        UNION ALL
+        SELECT NUNOTA, SEQUENCIA
+          FROM TGFVAR WHERE NUNOTAORIG = :n AND SEQUENCIAORIG = :s
+    """, n=int(nunota), s=int(sequencia))
+    return [(int(r[0]), int(r[1])) for r in cur.fetchall()]
+
+
+def atribuir_lote_pedido_finalizado(nunota: int, sequencia: int,
+                                    codagregacao: str) -> dict:
+    """Atribui ou troca lote em TGFITE de pedido em qualquer status
+    (TOP 34/35/37, STATUSNOTA <> 'E'). Propaga via TGFVAR pro par.
+
+    NÃO suporta atribuição parcial (qtd < QTDNEG) — apenas total/troca.
+    Operador que precise de split em pedido faturado deve desvincular
+    primeiro e atribuir de novo.
+
+    Retorno: {ok, lote_anterior, lote_novo, par_nunota, par_sequencia}
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+    if not codagregacao:
+        return {'ok': False, 'error': 'codagregacao obrigatório'}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 1) Lock pessimista do item original
+            cur.execute("""
+                SELECT i.CODAGREGACAO, NVL(i.QTDNEG, 0), i.CODPROD
+                  FROM TGFITE i
+                 WHERE i.NUNOTA = :n AND i.SEQUENCIA = :s
+                 FOR UPDATE
+            """, n=int(nunota), s=int(sequencia))
+            row_lock = cur.fetchone()
+            if not row_lock:
+                return {'ok': False, 'error':
+                        f'Item NUNOTA={nunota} SEQ={sequencia} não encontrado'}
+            codagregacao_atual, qtd_item, codprod = row_lock
+
+            # 2) Valida cabeçalho — TOP 34/35/37 e STATUSNOTA <> 'E'
+            cur.execute(
+                "SELECT CODTIPOPER, STATUSNOTA FROM TGFCAB WHERE NUNOTA = :n",
+                n=int(nunota),
+            )
+            cab = cur.fetchone()
+            if not cab:
+                return {'ok': False, 'error':
+                        f'Pedido NUNOTA={nunota} não encontrado'}
+            codtipoper, statusnota = cab
+            if int(codtipoper) not in (34, 35, 37):
+                return {'ok': False, 'error':
+                        f'Operação não suportada (TOP {codtipoper}). '
+                        f'Apenas TOP 34/35/37 podem ter lote vinculado retroativamente.'}
+            if statusnota == 'E':
+                return {'ok': False, 'error': 'Pedido excluído'}
+
+            # 3) Valida saldo do lote — só conta se houver mudança real
+            # (não checar saldo quando re-atribuir o mesmo lote)
+            if str(codagregacao_atual or '') != str(codagregacao):
+                cur.execute("""
+                    SELECT NVL(SUM(QTD_DISPONIVEL), 0)
+                      FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE
+                     WHERE CODPROD = :p AND CODAGREGACAO = :l
+                       AND VENDAVEL = 'S'
+                """, p=int(codprod), l=str(codagregacao))
+                res_saldo = cur.fetchone()
+                qtd_disp = float(res_saldo[0]) if res_saldo else 0.0
+                qtd_necessaria = float(qtd_item)
+                if qtd_disp + 1e-6 < qtd_necessaria:
+                    _fmt_br = lambda v: f'{v:,.2f}'.replace(',', '#').replace('.', ',').replace('#', '.')
+                    return {'ok': False, 'error':
+                            f'Saldo insuficiente no lote {codagregacao}. '
+                            f'Disponível: {_fmt_br(qtd_disp)} · Solicitado: {_fmt_br(qtd_necessaria)}. '
+                            f'Reduza a quantidade ou desvincule alguma atribuição '
+                            f'existente deste lote.'}
+
+            # 4) Localiza par via TGFVAR (pode ser pedido ou nota)
+            pares = _localizar_par_via_tgfvar(cur, int(nunota), int(sequencia))
+
+            # 5) UPDATE em TGFITE — só CODAGREGACAO. Não muda qtd, vlrunit, etc.
+            cur.execute("""
+                UPDATE TGFITE SET CODAGREGACAO = :l
+                 WHERE NUNOTA = :n AND SEQUENCIA = :s
+            """, l=str(codagregacao), n=int(nunota), s=int(sequencia))
+
+            # 6) Propaga pro par (se houver) — mesma operação, sem recursão
+            pares_atualizados = []
+            for par_n, par_s in pares:
+                cur.execute("""
+                    UPDATE TGFITE SET CODAGREGACAO = :l
+                     WHERE NUNOTA = :n AND SEQUENCIA = :s
+                """, l=str(codagregacao), n=par_n, s=par_s)
+                if cur.rowcount and cur.rowcount > 0:
+                    pares_atualizados.append({'nunota': par_n, 'sequencia': par_s})
+
+            conn.commit()
+            return {
+                'ok': True,
+                'lote_anterior': codagregacao_atual,
+                'lote_novo':     str(codagregacao),
+                'codtipoper':    int(codtipoper),
+                'statusnota':    statusnota,
+                'pares_atualizados': pares_atualizados,
+            }
+    except Exception as e:
+        logger.exception("Erro em atribuir_lote_pedido_finalizado")
+        return {'ok': False, 'error': str(e)}
+
+
+def desvincular_lote_pedido_finalizado(nunota: int, sequencia: int) -> dict:
+    """Remove o lote (CODAGREGACAO = NULL) de um item de pedido finalizado
+    (TOP 34/35/37, STATUSNOTA <> 'E'). Propaga via TGFVAR pro par.
+
+    Retorno: {ok, lote_removido, par_nunota, par_sequencia}
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 1) Lock pessimista do item original
+            cur.execute("""
+                SELECT i.CODAGREGACAO, i.CODPROD
+                  FROM TGFITE i
+                 WHERE i.NUNOTA = :n AND i.SEQUENCIA = :s
+                 FOR UPDATE
+            """, n=int(nunota), s=int(sequencia))
+            row_lock = cur.fetchone()
+            if not row_lock:
+                return {'ok': False, 'error':
+                        f'Item NUNOTA={nunota} SEQ={sequencia} não encontrado'}
+            codagregacao_atual, codprod = row_lock
+
+            if not codagregacao_atual:
+                return {'ok': False, 'error': 'Item não tem lote vinculado'}
+
+            # 2) Valida cabeçalho — TOP 34/35/37 e STATUSNOTA <> 'E'
+            cur.execute(
+                "SELECT CODTIPOPER, STATUSNOTA FROM TGFCAB WHERE NUNOTA = :n",
+                n=int(nunota),
+            )
+            cab = cur.fetchone()
+            if not cab:
+                return {'ok': False, 'error':
+                        f'Pedido NUNOTA={nunota} não encontrado'}
+            codtipoper, statusnota = cab
+            if int(codtipoper) not in (34, 35, 37):
+                return {'ok': False, 'error':
+                        f'Operação não suportada (TOP {codtipoper})'}
+            if statusnota == 'E':
+                return {'ok': False, 'error': 'Pedido excluído'}
+
+            # 3) Localiza par via TGFVAR
+            pares = _localizar_par_via_tgfvar(cur, int(nunota), int(sequencia))
+
+            # 4) UPDATE em TGFITE — limpa lote
+            cur.execute("""
+                UPDATE TGFITE SET CODAGREGACAO = NULL
+                 WHERE NUNOTA = :n AND SEQUENCIA = :s
+            """, n=int(nunota), s=int(sequencia))
+
+            # 5) Propaga pro par
+            pares_atualizados = []
+            for par_n, par_s in pares:
+                cur.execute("""
+                    UPDATE TGFITE SET CODAGREGACAO = NULL
+                     WHERE NUNOTA = :n AND SEQUENCIA = :s
+                """, n=par_n, s=par_s)
+                if cur.rowcount and cur.rowcount > 0:
+                    pares_atualizados.append({'nunota': par_n, 'sequencia': par_s})
+
+            conn.commit()
+            return {
+                'ok': True,
+                'lote_removido': str(codagregacao_atual),
+                'codtipoper':    int(codtipoper),
+                'statusnota':    statusnota,
+                'pares_atualizados': pares_atualizados,
+            }
+    except Exception as e:
+        logger.exception("Erro em desvincular_lote_pedido_finalizado")
         return {'ok': False, 'error': str(e)}
 
 
