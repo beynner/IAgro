@@ -67,6 +67,13 @@
     <script src="{% static 'sankhya_integration/iagro_helpers.js' %}"></script>
 
     <script>
+        // Mai/2026 — Auto-select global on focus em todos os inputs de texto/número.
+        // Opt-out por campo: <input data-no-select ...>
+        // Vale pra todas as páginas (carregado pelo base.html).
+        try { window.IAgro && IAgro.installAutoSelect && IAgro.installAutoSelect(); } catch (e) {}
+    </script>
+
+    <script>
         (function () {
             const tempoInatividade = 60 * 60 * 1000; // 60 minutos para deslogar
             const intervaloPing = 10 * 60 * 1000;    // 10 minutos para avisar o servidor

@@ -37,9 +37,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // pegamos os elementos pelos seus IDs específicos.
     const inputStart = document.getElementById('dataInicio');
     const inputEnd   = document.getElementById('dataFim');
-    const camposFiltroEventBind = [
-        'filtroTop', 'filtroPedido', 'filtroNF', 'filtroLote',
-    ].map(id => document.getElementById(id)).filter(Boolean);
+    // Lista canônica dos IDs de filtros — usada também pelo wireFilterAuto (Mai/2026)
+    const IDS_FILTROS_VENDA = ['filtroTop', 'filtroPedido', 'filtroNF', 'filtroLote'];
 
     // ==========================================
     // 2. VARIÁVEIS DE ESTADO
@@ -62,12 +61,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Acumulador de pedidos carregados (para totalizadores) — reset a cada nova busca
     let vendasAcumuladas = [];
 
-    const dispararFiltroAutomatico = phDebounce(() => carregarVendas(false), 500);
-
-    camposFiltroEventBind.forEach(campo => {
-        campo.addEventListener('input', dispararFiltroAutomatico);
-        campo.addEventListener('change', dispararFiltroAutomatico);
-    });
+    // Mai/2026 — listeners centralizados via IAgro.wireFilterAuto.
+    // Debounce padrão 500ms (filtros de listagem pesados). Select dispara
+    // change imediato. Datas têm lógica de sincronização própria (acima).
+    IAgro.wireFilterAuto(IDS_FILTROS_VENDA, () => carregarVendas(false));
 
     // ==========================================
     // 2.5 PERSISTÊNCIA DE FILTROS EM localStorage (B5)
@@ -146,94 +143,27 @@ document.addEventListener('DOMContentLoaded', function() {
     // ==========================================
     // 4. TYPEAHEAD GENÉRICO
     // ==========================================
+    // Mai/2026 — wrapper sobre IAgro.attachTypeahead.
+    // Mantém assinatura legada (inpId, hidId, ddId, url, options). Default
+    // onChange = recarregar lista. Debounce 400ms (consistente com o legado).
     function attachTA(inpId, hidId, ddId, url, options) {
-        try {
-            const inp = document.getElementById(inpId);
-            const hid = document.getElementById(hidId);
-            const dd = document.getElementById(ddId);
-            if (!inp || !hid || !dd) return;
-
-            let t = null;
-
-            function hide() { dd.style.display = 'none'; dd.innerHTML = ''; }
-            function show(items) {
-                if (!items || !items.length) { hide(); return; }
-                dd.innerHTML = items.map((it, idx) =>
-                    `<div class="dd-item${idx === 0 ? ' active' : ''}" data-cod="${it.cod || it.codparc}" data-descr="${it.descr || it.nomeparc}">${(it.cod || it.codparc)} — ${(it.descr || it.nomeparc)}</div>`
-                ).join('');
-                dd.style.display = 'block';
-            }
-
-            const lim = options && typeof options.limit === 'number' ? Math.floor(options.limit) : 10;
-            const extraQuery = options && options.extraQuery ? options.extraQuery : '';
-            const onChange = (options && typeof options.onChange === 'function')
-                ? options.onChange
-                : () => carregarVendas(false);
-
-            function buildUrl(q) {
-                const sep = url.includes('?') ? '&' : '?';
-                let full = `${url}${sep}q=${encodeURIComponent(q)}&limit=${lim}`;
-                if (extraQuery) full += `&${extraQuery}`;
-                return full;
-            }
-            function fetchQ(q) {
-                fetch(buildUrl(q)).then(r => r.json()).then(d => show(d.results || [])).catch(() => hide());
-            }
-
-            inp.addEventListener('input', (e) => {
-                const raw = (e.target.value || '').trim();
-                if (t) clearTimeout(t);
-                if (raw) {
-                    t = setTimeout(() => fetchQ(raw), 400);
-                } else {
-                    hide();
-                    hid.value = '';
-                    onChange();
-                }
-            });
-            inp.addEventListener('keydown', (e) => {
-                if (dd.style.display === 'none') return;
-                const items = Array.from(dd.querySelectorAll('.dd-item'));
-                if (!items.length) return;
-                if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    let cur = items.findIndex(x => x.classList.contains('active'));
-                    let nxt = (cur + 1) % items.length;
-                    items.forEach(x => x.classList.remove('active'));
-                    items[nxt].classList.add('active');
-                    items[nxt].scrollIntoView({ block: 'nearest' });
-                } else if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    let cur = items.findIndex(x => x.classList.contains('active'));
-                    let nxt = (cur - 1 + items.length) % items.length;
-                    items.forEach(x => x.classList.remove('active'));
-                    items[nxt].classList.add('active');
-                    items[nxt].scrollIntoView({ block: 'nearest' });
-                } else if (e.key === 'Enter' || e.key === 'Tab') {
-                    const el = dd.querySelector('.dd-item.active') || dd.querySelector('.dd-item');
-                    if (el) {
-                        e.preventDefault();
-                        hid.value = el.dataset.cod;
-                        inp.value = `${el.dataset.cod} — ${el.dataset.descr}`;
-                        hide();
-                        onChange();
-                    }
-                } else if (e.key === 'Escape') hide();
-            });
-            dd.addEventListener('click', (ev) => {
-                const el = ev.target.closest('div[data-cod]');
-                if (!el) return;
-                hid.value = el.dataset.cod;
-                inp.value = `${el.dataset.cod} — ${el.dataset.descr}`;
-                hide();
-                onChange();
-            });
-            document.addEventListener('click', (ev) => {
-                if (!dd.contains(ev.target) && ev.target !== inp) hide();
-            });
-        } catch (e) {
-            console.error('Erro no attachTA:', e);
-        }
+        const onChangeCb = (options && typeof options.onChange === 'function')
+            ? options.onChange
+            : () => carregarVendas(false);
+        return IAgro.attachTypeahead({
+            inputId:    inpId,
+            hiddenId:   hidId,
+            dropdownId: ddId,
+            url,
+            limit:       (options && options.limit) || 10,
+            debounceMs:  400,
+            extraQuery:  options?.extraQuery,
+            positionFixed: !!(options && options.positionFixed),
+            pickCod:    (it) => it.cod ?? it.codparc,
+            pickDescr:  (it) => it.descr ?? it.nomeparc ?? '',
+            onSelect:   () => onChangeCb(),
+            onClear:    () => onChangeCb(),
+        });
     }
 
     attachTA('parcSearch', 'codparc', 'parcDropdown', '/sankhya/parceiros/search/', { limit: 15 });
@@ -563,7 +493,10 @@ document.addEventListener('DOMContentLoaded', function() {
     btnUpdate.addEventListener('click', () => carregarVendas(false));
     btnClear.addEventListener('click', () => {
         // Limpa todos os campos do filtro (agora estão fora do <form>, então .reset() não funciona)
-        camposFiltroEventBind.forEach(c => { c.value = c.tagName === 'SELECT' ? c.options[0].value : ''; });
+        IDS_FILTROS_VENDA.forEach(id => {
+            const c = document.getElementById(id);
+            if (c) c.value = c.tagName === 'SELECT' ? c.options[0].value : '';
+        });
         ['codparc', 'parcSearch', 'codprod', 'prodSearch', 'filtroEmpresa', 'filtroEmpresaSearch'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = '';
@@ -1044,86 +977,38 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // --------------------------------------------------------------------------
-    // AVARIA — typeahead de lote pela view do WMS
+    // AVARIA — typeahead de lote pela view do WMS (Mai/2026: helper central)
+    // Usa endpoint diferente (rastreio/lotes-disponiveis) e injeta extras
+    // (codprod/codemp/saldo/fornecedor) via pickExtra — lidos no onSelect.
     // --------------------------------------------------------------------------
-    function _attachAvariaLoteTA() {
-        const inp = document.getElementById('avaria_lote_search');
-        const dd  = document.getElementById('avaria_lote_dropdown');
-        if (!inp || !dd) return;
-
-        let t = null;
-        const hide = () => { dd.style.display = 'none'; dd.innerHTML = ''; };
-        const show = (rows) => {
-            if (!rows || !rows.length) { dd.innerHTML = '<div class="dd-item">Nenhum lote encontrado</div>'; dd.style.display = 'block'; return; }
-            dd.innerHTML = rows.map((r, idx) => `
-                <div class="dd-item${idx === 0 ? ' active' : ''}"
-                     data-cod="${r.codagregacao}"
-                     data-prod="${r.codprod}"
-                     data-emp="${r.codemp}"
-                     data-descr="${r.descrprod || ''}"
-                     data-saldo="${r.qtd_disponivel || 0}"
-                     data-vendedor="${r.nomeparc_origem || ''}"
-                >${r.codagregacao} — ${(r.descrprod || '').substring(0, 30)} · ${_fmtNum(r.qtd_disponivel)}</div>
-            `).join('');
-            dd.style.display = 'block';
-        };
-
-        const _aplicar = (el) => {
-            document.getElementById('avaria_codagregacao').value = el.dataset.cod;
-            document.getElementById('avaria_codprod').value      = el.dataset.prod;
-            document.getElementById('avaria_codemp').value       = el.dataset.emp;
-            document.getElementById('avaria_lote_produto').textContent    = el.dataset.descr || '—';
-            document.getElementById('avaria_lote_fornecedor').textContent = el.dataset.vendedor || '—';
-            document.getElementById('avaria_lote_saldo').textContent      = `${_fmtNum(el.dataset.saldo)} (mesma unidade)`;
+    IAgro.attachTypeahead({
+        inputId:    'avaria_lote_search',
+        hiddenId:   'avaria_codagregacao',
+        dropdownId: 'avaria_lote_dropdown',
+        url:        '/sankhya/rastreio/api/lotes-disponiveis/',
+        limit:      15,
+        debounceMs: 350,
+        extraQuery: 'tipo=todos',
+        pickItems:  (data) => data.lotes || [],
+        pickCod:    (r) => r.codagregacao,
+        pickDescr:  (r) => r.descrprod || '',
+        pickExtra:  (r) => ({
+            prod:     r.codprod,
+            emp:      r.codemp,
+            saldo:    r.qtd_disponivel || 0,
+            vendedor: r.nomeparc_origem || '',
+        }),
+        renderItem: (r) =>
+            `${r.codagregacao} — ${(r.descrprod || '').substring(0, 30)} · ${_fmtNum(r.qtd_disponivel)}`,
+        onSelect: (_cod, _descr, item) => {
+            document.getElementById('avaria_codprod').value     = item.dataset.prod;
+            document.getElementById('avaria_codemp').value      = item.dataset.emp;
+            document.getElementById('avaria_lote_produto').textContent    = item.dataset.descr || '—';
+            document.getElementById('avaria_lote_fornecedor').textContent = item.dataset.vendedor || '—';
+            document.getElementById('avaria_lote_saldo').textContent      = `${_fmtNum(item.dataset.saldo)} (mesma unidade)`;
             document.getElementById('avaria_lote_info').classList.remove('hidden');
-            inp.value = `${el.dataset.cod} — ${(el.dataset.descr || '').substring(0, 30)}`;
-            hide();
-        };
-
-        inp.addEventListener('input', (e) => {
-            const raw = (e.target.value || '').trim();
-            if (t) clearTimeout(t);
-            if (!raw) { hide(); return; }
-            t = setTimeout(async () => {
-                try {
-                    const r = await fetch(`/sankhya/rastreio/api/lotes-disponiveis/?q_lote_prod=${encodeURIComponent(raw)}&limit=15&tipo=todos`);
-                    const d = await r.json();
-                    show(d.lotes || []);
-                } catch (_) { hide(); }
-            }, 350);
-        });
-        inp.addEventListener('keydown', (e) => {
-            if (dd.style.display === 'none') return;
-            const items = Array.from(dd.querySelectorAll('.dd-item[data-cod]'));
-            if (!items.length) return;
-            if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                let cur = items.findIndex(x => x.classList.contains('active'));
-                let nxt = (cur + 1) % items.length;
-                items.forEach(x => x.classList.remove('active'));
-                items[nxt].classList.add('active');
-                items[nxt].scrollIntoView({ block: 'nearest' });
-            } else if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                let cur = items.findIndex(x => x.classList.contains('active'));
-                let nxt = (cur - 1 + items.length) % items.length;
-                items.forEach(x => x.classList.remove('active'));
-                items[nxt].classList.add('active');
-                items[nxt].scrollIntoView({ block: 'nearest' });
-            } else if (e.key === 'Enter' || e.key === 'Tab') {
-                const el = dd.querySelector('.dd-item.active') || dd.querySelector('.dd-item[data-cod]');
-                if (el) { e.preventDefault(); _aplicar(el); }
-            } else if (e.key === 'Escape') hide();
-        });
-        dd.addEventListener('click', (ev) => {
-            const el = ev.target.closest('.dd-item[data-cod]');
-            if (el) _aplicar(el);
-        });
-        document.addEventListener('click', (ev) => {
-            if (!dd.contains(ev.target) && ev.target !== inp) hide();
-        });
-    }
-    _attachAvariaLoteTA();
+        },
+    });
 
     // Typeahead de parceiro no modal de avaria (reusa endpoint da Venda)
     attachTA('avaria_parcSearch', 'avaria_codparc', 'avaria_parcDropdown',
@@ -1521,12 +1406,9 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    cabCard?.querySelectorAll('input:not([type="hidden"])').forEach(el => {
-        el.addEventListener('focus', function () {
-            if (this.disabled || this.readOnly) return;
-            setTimeout(() => { try { this.select(); } catch (_) {} }, 0);
-        });
-    });
+    // Mai/2026 — Select-on-focus agora vem do IAgro.installAutoSelect global
+    // (base.html). Removida a duplicação local. Pra opt-out em campo
+    // específico, usar atributo `data-no-select`.
 
     function hasDropdownCabAberto() {
         return Array.from(cabCard?.querySelectorAll('.dropdown-abs') || [])

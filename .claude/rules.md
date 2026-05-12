@@ -171,3 +171,29 @@ head -c 3 arquivo.html | od -c
 - **Idioma:** Português Brasileiro em toda comunicação, comentários e mensagens de erro humanizadas.
 - **Tom:** direto e objetivo. Sem "vou tentar", "talvez", "se você quiser".
 - **Erros ao operador:** sempre humanizados via `humanizar_erro_oracle()` — nunca vazar `ORA-XXXXX` ou stack trace.
+
+---
+
+## 11. Campo "Produto" — PERGUNTAR antes de criar/editar (Mai/2026)
+
+O projeto tem **dois padrões diferentes** de pesquisa em campos rotulados "Produto":
+
+- **Padrão A — Filtro por FABRICANTE** (texto LIKE em `pr.FABRICANTE`)
+- **Padrão B — Filtro por PRODUTO específico** (CODPROD numérico)
+
+Mesmo nome de campo, comportamentos diferentes. Escolher errado causa filtro silenciosamente inútil (operador acha que filtrou e não filtrou).
+
+**Antes de criar ou alterar QUALQUER campo "Produto" (filtro lateral, modal de item, dashboard, etc), PARAR e PERGUNTAR ao usuário:**
+
+> "Esse campo Produto vai filtrar por **fabricante** (texto, ex: pega tudo de "CENOURA") ou por **produto específico** (CODPROD, ex: só CENOURA IN NATURA)?"
+
+Depois da resposta, aplicar o padrão correspondente (frontend + backend) conforme [`conventions.md`](conventions.md) → "Campo 'Produto' — dois padrões de filtragem".
+
+**Não chutar.** Não copiar de outro módulo sem confirmar. Mesmo se aparenta óbvio pelo contexto, perguntar — porque a UI usa o mesmo rótulo nos dois casos.
+
+### Exemplos de quando se aplica
+
+- Adicionar filtro novo em listagem → perguntar
+- Mover campo de uma tela pra outra → confirmar se o padrão original ainda faz sentido
+- Refatorar typeahead existente que pareça "inconsistente" → confirmar antes
+- Criar novo módulo com campo Produto → perguntar logo no plano

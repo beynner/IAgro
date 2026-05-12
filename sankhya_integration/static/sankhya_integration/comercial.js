@@ -462,17 +462,21 @@ window.ComercialFiltros = (function() {
 
     const dispararBuscaDebounced = debounce(dispararBusca, 400);
 
+    // Mai/2026 — função local mantida porque o callback `onSelectFn` recebe
+    // o objeto raw da API (não só cod/descr). Aplicadas melhorias UX padrão:
+    // ↑/↓ com preventDefault, Esc fecha, debounce 400ms preservado.
+    // Select-on-focus vem do IAgro.installAutoSelect global (base.html).
     const setupAutocomplete = (inputEl, dropEl, urlFn, renderFn, onSelectFn) => {
         if (!inputEl || !dropEl) return;
-        let currentFocus = 0; 
+        let currentFocus = 0;
 
         const fetchResults = debounce(async () => {
             const q = inputEl.value.trim();
-            if (q === '') { 
-                dropEl.style.display = 'none'; 
+            if (q === '') {
+                dropEl.style.display = 'none';
                 if (inputEl.id === 'fltFornecedor' && DOM.parceiroCode) DOM.parceiroCode.value = '';
-                dispararBusca(); 
-                return; 
+                dispararBusca();
+                return;
             }
 
             try {
@@ -480,7 +484,7 @@ window.ComercialFiltros = (function() {
                 const data = await res.json();
                 const arr = data.results || [];
                 dropEl.innerHTML = '';
-                
+
                 if (arr.length) {
                     arr.forEach((it) => {
                         const div = document.createElement('div');
@@ -502,10 +506,19 @@ window.ComercialFiltros = (function() {
         inputEl.onkeydown = (e) => {
             let items = dropEl.getElementsByClassName('ac-item');
             if (!items.length || dropEl.style.display === 'none') return;
-            if (e.key === 'ArrowDown') { currentFocus++; addActive(items); }
-            else if (e.key === 'ArrowUp') { currentFocus--; addActive(items); }
-            else if (e.key === 'Enter' || e.key === 'Tab') {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();   // Mai/2026 — evita scroll da página
+                currentFocus++;
+                addActive(items);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();   // Mai/2026 — evita scroll da página
+                currentFocus--;
+                addActive(items);
+            } else if (e.key === 'Enter' || e.key === 'Tab') {
                 if (currentFocus > -1 && items[currentFocus]) { e.preventDefault(); items[currentFocus].click(); }
+            } else if (e.key === 'Escape') {
+                // Mai/2026 — Esc fecha dropdown sem selecionar (padrão IAgro)
+                dropEl.style.display = 'none';
             }
         };
 
@@ -514,7 +527,7 @@ window.ComercialFiltros = (function() {
             Array.from(items).forEach(i => i.style.backgroundColor = "");
             if (currentFocus >= items.length) currentFocus = 0;
             if (currentFocus < 0) currentFocus = (items.length - 1);
-            items[currentFocus].style.backgroundColor = "#d6e6d1"; 
+            items[currentFocus].style.backgroundColor = "#d6e6d1";
             items[currentFocus].scrollIntoView({ block: "nearest" });
         };
 
@@ -603,14 +616,11 @@ window.ComercialFiltros = (function() {
                 dispararBusca();
             });
 
-            DOM.nunota?.addEventListener('input', dispararBuscaDebounced);
-            document.getElementById('fltDataCompraFim')?.addEventListener('change', dispararBusca);
+            // Mai/2026 — filtros via IAgro.wireFilterAuto (500ms debounce padrão)
+            IAgro.wireFilterAuto(['fltNunota', 'fltDataCompraFim'], dispararBusca);
 
-            // 🚀 AUTO-SELECT: Seleciona todo o conteúdo ao focar ou clicar no campo
-            DOM.form?.querySelectorAll('input').forEach(input => {
-                input.addEventListener('focus', function() { this.select(); });
-                input.addEventListener('click', function() { this.select(); }); 
-            });
+            // Select-on-focus agora vem do IAgro.installAutoSelect global (base.html).
+            // Removida a duplicação local. Opt-out via `data-no-select` em campo específico.
 
             DOM.btnLimpar?.addEventListener('click', (e) => {
                 e.preventDefault(); // 🚀 FIX: Impede recarregamento da página (F5 fantasma) ao limpar

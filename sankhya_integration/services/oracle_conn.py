@@ -1115,7 +1115,23 @@ def listar_notas_compra_paginado(limite: int = 50, offset: int = 0, **kwargs):
     if kwargs.get('codparc'):
         where.append("c.CODPARC = :codparc")
         binds['codparc'] = int(kwargs['codparc'])
-        
+
+    # Mai/2026 — filtro por FABRICANTE (UI: campo "Produto").
+    # Replica o padrão do Comercial (consultar_vales_comercial, linha 1232):
+    # UPPER(...) LIKE %fab% — pega lotes cujo produto tem fabricante contendo
+    # o texto. JOIN extra com TGFPRO (PK indexed) é desprezível em custo.
+    # EXISTS preserva GROUP BY + agregação SUM(VLRTOT) do SELECT base.
+    if kwargs.get('fabricante'):
+        where.append(
+            "EXISTS ("
+            "  SELECT 1 FROM TGFITE i2 "
+            "  JOIN TGFPRO pr2 ON pr2.CODPROD = i2.CODPROD "
+            "  WHERE i2.NUNOTA = c.NUNOTA "
+            "    AND UPPER(pr2.FABRICANTE) LIKE :fab"
+            ")"
+        )
+        binds['fab'] = f"%{str(kwargs['fabricante']).upper()}%"
+
     sql_base = (
         "SELECT c.NUNOTA, c.NUMNOTA, c.DTNEG, c.CODPARC, p.NOMEPARC, NVL(SUM(i.VLRTOT),0) VLRTOTAL "
         "  FROM TGFCAB c "

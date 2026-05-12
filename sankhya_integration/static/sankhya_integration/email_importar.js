@@ -11,28 +11,10 @@ document.addEventListener('DOMContentLoaded', function () {
     const phConfirm  = PH.confirmarAcao || (async (o) => Promise.resolve(window.confirm(o.mensagem)));
 
     // ============================================================
-    // UX: select-all-on-focus em todos os inputs DESTA tela.
-    // Operador clica num campo já preenchido (ex: "456 — SENDAS"),
-    // texto fica todo selecionado, basta digitar pra substituir.
-    // Escopado via container .email-grid pra não vazar pra outras
-    // telas (em modal-overlays incluídos por DOM-aninhamento).
-    // Use data-no-select num input pra desabilitar caso a caso.
+    // UX: select-all-on-focus agora vem do IAgro.installAutoSelect global
+    // (Mai/2026, base.html). Removida a duplicação local. Opt-out via
+    // atributo `data-no-select` em campo específico.
     // ============================================================
-    const _TIPOS_AUTOSEL = new Set(['text', 'number', 'search', 'tel', 'email', 'url']);
-    const _emailContainer = document.querySelector('.email-grid');
-    if (_emailContainer) {
-        _emailContainer.addEventListener('focusin', function (e) {
-            const t = e.target;
-            if (!t || t.dataset?.noSelect !== undefined) return;
-            if (t.readOnly || t.disabled) return;
-            if (t.tagName === 'INPUT' && _TIPOS_AUTOSEL.has(t.type)) {
-                // setTimeout 0 evita que o click subsequente desfaça o select
-                setTimeout(() => { try { t.select(); } catch (_) {} }, 0);
-            } else if (t.tagName === 'TEXTAREA') {
-                setTimeout(() => { try { t.select(); } catch (_) {} }, 0);
-            }
-        });
-    }
 
     // ============================================================
     // Estado
@@ -83,136 +65,29 @@ document.addEventListener('DOMContentLoaded', function () {
     const confirmarBtn   = document.getElementById('emailConfirmarBtn');
 
     // ============================================================
-    // Typeahead genérico (mesmo pattern do venda.js)
+    // Typeahead (Mai/2026: wrapper sobre IAgro.attachTypeahead).
+    // Mantém assinatura legada. positionFixed=true necessário pra
+    // dropdown funcionar dentro de <td> da tabela de itens do e-mail.
     // ============================================================
     function attachTA(inpId, hidId, ddId, url, options) {
-        const inp = document.getElementById(inpId);
-        const hid = document.getElementById(hidId);
-        const dd  = document.getElementById(ddId);
-        if (!inp || !hid || !dd) return;
-        let t = null;
-
-        function hide() {
-            dd.style.display = 'none';
-            dd.innerHTML = '';
-            // Reseta posição inline aplicada pelo show()
-            dd.style.position = '';
-            dd.style.top = '';
-            dd.style.left = '';
-            dd.style.width = '';
-            dd.style.zIndex = '';
-        }
-        function show(items) {
-            if (!items || !items.length) { hide(); return; }
-            dd.innerHTML = items.map((it, idx) => {
-                const cod = it.cod || it.codparc || it.codemp || it.codtipvenda;
-                const desc = it.descr || it.nomeparc || it.nomefantasia || it.descrtipvenda || '';
-                return `<div class="dd-item${idx === 0 ? ' active' : ''}" data-cod="${cod}" data-descr="${desc}">${cod} — ${desc}</div>`;
-            }).join('');
-            // Position FIXED com coordenadas calculadas direto do input visível.
-            // Ignora qualquer overflow:hidden / containing block instável em
-            // ancestrais (problema clássico de dropdown dentro de <td>).
-            // Move o dropdown pro <body> pra escapar de qualquer stacking
-            // context que o pai possa ter criado.
-            if (dd.parentElement !== document.body) {
-                document.body.appendChild(dd);
-            }
-            const r = inp.getBoundingClientRect();
-            dd.style.position = 'fixed';
-            dd.style.top      = `${r.bottom}px`;
-            dd.style.left     = `${r.left}px`;
-            dd.style.width    = `${r.width}px`;
-            dd.style.zIndex   = '10000';
-            dd.style.display  = 'block';
-            console.log(`[typeahead] show(${items.length}) -> #${dd.id}`,
-                        `top=${r.bottom} left=${r.left} width=${r.width}`);
-        }
-
-        async function buscar() {
-            const q = inp.value.trim();
-            if (q.length < 1) { hide(); return; }
-            // extraQuery permite repassar filtros adicionais ao endpoint
-            // (ex: grupo_inicia_com=1 para limitar TGFPRO ao grupo 1xxxx,
-            // mesmo filtro usado pela Venda — produtos vendáveis do
-            // hortifrúti, sem insumos/mudas/embalagens).
-            const extra = options && options.extraQuery ? `&${options.extraQuery}` : '';
-            const fullUrl = `${url}?q=${encodeURIComponent(q)}&limit=${options.limit || 10}${extra}`;
-            try {
-                const r = await fetch(fullUrl, { credentials: 'same-origin' });
-                if (!r.ok) {
-                    console.warn(`[typeahead] ${fullUrl} -> HTTP ${r.status}`);
-                    phToast(`Busca falhou (HTTP ${r.status})`, 'error');
-                    hide();
-                    return;
+        return IAgro.attachTypeahead({
+            inputId:    inpId,
+            hiddenId:   hidId,
+            dropdownId: ddId,
+            url,
+            limit:        (options && options.limit) || 10,
+            debounceMs:   250,  // legado do email_importar (rápido pra fila ativa)
+            extraQuery:   options?.extraQuery,
+            positionFixed: true,  // dropdown dentro de <td>: vai pro body
+            pickItems:    (data) => data.results || data.items || data || [],
+            pickCod:      (it) => it.cod ?? it.codparc ?? it.codemp ?? it.codtipvenda,
+            pickDescr:    (it) => it.descr ?? it.nomeparc ?? it.nomefantasia ?? it.descrtipvenda ?? '',
+            onSelect: (cod, descr) => {
+                if (options && typeof options.onChange === 'function') {
+                    options.onChange(cod, descr);
                 }
-                const data = await r.json();
-                const items = data.results || data.items || data || [];
-                console.log(`[typeahead] ${fullUrl} -> ${items.length} resultado(s)`, items);
-                show(items);
-            } catch (e) {
-                console.error(`[typeahead] ${fullUrl} ->`, e);
-                phToast('Erro de rede na busca: ' + (e.message || e), 'error');
-                hide();
-            }
-        }
-
-        inp.addEventListener('input', () => {
-            clearTimeout(t);
-            t = setTimeout(buscar, 250);
+            },
         });
-
-        // Helper: aplica seleção do item ativo ao campo (mesmo fluxo do click).
-        function selecionarItem(item) {
-            hid.value = item.dataset.cod;
-            inp.value = `${item.dataset.cod} — ${item.dataset.descr}`;
-            hide();
-            // Callback opcional: dispara após o usuário escolher no dropdown.
-            if (options && typeof options.onChange === 'function') {
-                options.onChange(item.dataset.cod, item.dataset.descr);
-            }
-        }
-
-        dd.addEventListener('click', e => {
-            const item = e.target.closest('.dd-item');
-            if (item) selecionarItem(item);
-        });
-
-        // Navegação por teclado quando o dropdown está aberto:
-        //   ↓ / ↑       — move o destaque entre os itens
-        //   Enter / Tab — confirma a seleção do item ativo (Tab continua pro próximo campo)
-        //   Escape      — fecha o dropdown sem selecionar
-        inp.addEventListener('keydown', e => {
-            if (dd.style.display === 'none') return;
-            const items = Array.from(dd.querySelectorAll('.dd-item'));
-            if (!items.length) return;
-            let idx = items.findIndex(i => i.classList.contains('active'));
-            if (idx < 0) idx = 0;
-
-            if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                idx = (idx + 1) % items.length;
-                items.forEach(i => i.classList.remove('active'));
-                items[idx].classList.add('active');
-                items[idx].scrollIntoView({block: 'nearest'});
-            } else if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                idx = (idx - 1 + items.length) % items.length;
-                items.forEach(i => i.classList.remove('active'));
-                items[idx].classList.add('active');
-                items[idx].scrollIntoView({block: 'nearest'});
-            } else if (e.key === 'Enter') {
-                e.preventDefault();           // não submete o form / não fecha modal
-                selecionarItem(items[idx]);
-            } else if (e.key === 'Tab') {
-                // Tab confirma e segue o fluxo natural — vai pro próximo campo
-                selecionarItem(items[idx]);
-                // sem preventDefault: Tab continua a navegação
-            } else if (e.key === 'Escape') {
-                hide();
-            }
-        });
-
-        inp.addEventListener('blur', () => setTimeout(hide, 200));
     }
 
     attachTA('emailParcSearch',     'emailCodparc',     'emailParcDropdown',     '/sankhya/parceiros/search/', { limit: 15 });

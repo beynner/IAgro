@@ -474,9 +474,12 @@ def view_portal_entradas(request: HttpRequest) -> HttpResponse:
         "date_start": request.GET.get("start"),
         "date_end": request.GET.get("end"),
         # GARANTA QUE ESTA LINHA ESTEJA ASSIM (Sem conversão para inteiro):
-        "nunota_ini": request.GET.get("nunota_ini", "").strip(), 
+        "nunota_ini": request.GET.get("nunota_ini", "").strip(),
         "codparc": _converter_para_inteiro(request.GET.get("codparc")),
-        "codprod": _converter_para_inteiro(request.GET.get("codprod")),
+        # Mai/2026 — campo "Produto" da UI filtra por FABRICANTE (texto LIKE),
+        # padrão alinhado com o Comercial. Antes vinha como `codprod` int e
+        # era silenciosamente ignorado pelo service.
+        "fabricante": (request.GET.get("fabricante") or "").strip() or None,
     }
     
     try: pagina = int(request.GET.get("page", 1))
@@ -507,6 +510,9 @@ def view_portal_entradas(request: HttpRequest) -> HttpResponse:
                 nome = (r[0] if r else '') or ''
                 parceiro_display = f"{int(parametros['codparc'])} — {nome}" if nome else f"{int(parametros['codparc'])}"
     except Exception: pass
+
+    # Mai/2026 — `fabricante` é texto puro (sem código), persiste no template
+    # direto via `params.fabricante` — não precisa de prod_display
 
     contexto = {
         "nome_usuario": request.session.get('nomeusu', 'Usuário'),

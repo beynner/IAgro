@@ -470,6 +470,95 @@
         frm.submit();
       }catch(e){ console.error('applyFilters error', e); }
     }
+
+    /**
+     * Mai/2026 — Renderiza chips de filtros ativos no #filtrosAtivosChips.
+     * Lê os valores atuais dos campos (preenchidos pelo backend via params).
+     * Click no × zera o(s) campo(s) correspondente(s) e chama applyFilters().
+     * Roda 1x no boot — a página recarrega no submit, renderiza tudo de novo.
+     */
+    function renderChipsFiltrosEntrada(){
+      const cont = document.getElementById('filtrosAtivosChips');
+      if (!cont) return;
+      cont.innerHTML = '';
+      const chips = [];
+
+      // Período (só mostra se != hoje em ambas as datas)
+      const hoje = new Date().toISOString().split('T')[0];
+      const ini = document.querySelector('input[name="start"]')?.value;
+      const fim = document.querySelector('input[name="end"]')?.value;
+      if (ini && fim && (ini !== hoje || fim !== hoje)) {
+        const txt = ini === fim
+          ? new Date(ini + 'T12:00:00').toLocaleDateString('pt-BR')
+          : `${new Date(ini + 'T12:00:00').toLocaleDateString('pt-BR')} → ${new Date(fim + 'T12:00:00').toLocaleDateString('pt-BR')}`;
+        chips.push({
+          rotulo: 'Período', valor: txt,
+          remover: () => {
+            // Volta pra hoje em ambas
+            const startEl = document.querySelector('input[name="start"]');
+            const endEl   = document.querySelector('input[name="end"]');
+            if (startEl) startEl.value = hoje;
+            if (endEl)   endEl.value   = hoje;
+            applyFilters();
+          },
+        });
+      }
+
+      // Pedido / Vale
+      const nunota = document.querySelector('input[name="nunota_ini"]')?.value;
+      if (nunota) chips.push({
+        rotulo: 'Pedido', valor: nunota,
+        remover: () => {
+          const el = document.querySelector('input[name="nunota_ini"]');
+          if (el) el.value = '';
+          applyFilters();
+        },
+      });
+
+      // Produto (Fabricante)
+      const fab = document.getElementById('fabricanteHidden')?.value;
+      if (fab) {
+        const visivel = document.getElementById('prodSearch')?.value || fab;
+        chips.push({
+          rotulo: 'Produto', valor: visivel,
+          remover: () => {
+            document.getElementById('fabricanteHidden').value = '';
+            const vis = document.getElementById('prodSearch');
+            if (vis) vis.value = '';
+            applyFilters();
+          },
+        });
+      }
+
+      // Parceiro
+      const codparc = document.getElementById('codparc')?.value;
+      if (codparc) {
+        const visivel = document.getElementById('parcSearch')?.value || codparc;
+        chips.push({
+          rotulo: 'Parceiro', valor: visivel,
+          remover: () => {
+            document.getElementById('codparc').value = '';
+            const vis = document.getElementById('parcSearch');
+            if (vis) vis.value = '';
+            applyFilters();
+          },
+        });
+      }
+
+      chips.forEach(chip => {
+        const el = document.createElement('span');
+        el.className = 'iagro-filtro-chip';
+        el.innerHTML = `
+          <span class="chip-rotulo">${chip.rotulo}:</span>
+          <span class="chip-valor" title="${chip.valor}">${chip.valor}</span>
+          <button type="button" class="chip-remover" title="Remover" aria-label="Remover">×</button>
+        `;
+        el.querySelector('.chip-remover').addEventListener('click', chip.remover);
+        cont.appendChild(el);
+      });
+    }
+    // Boot: render no carregamento da página
+    try { renderChipsFiltrosEntrada(); } catch (e) { console.warn('renderChipsFiltrosEntrada falhou', e); }
     
     if (clearBtn && form) {
       clearBtn.addEventListener('click', (e) => {
@@ -514,15 +603,15 @@
 
         // Copy visible typeahead values into the hidden code inputs when appropriate
         try {
-          // Product (Isolado apenas para o Filtro Lateral)
+          // Mai/2026 — Fabricante (texto puro, igual ao Comercial).
+          // Se operador só digitou sem selecionar no dropdown, copia o texto
+          // visível pro hidden — backend filtra por LIKE %fabricante%.
           const prodVis = document.getElementById('prodSearch');
           const fabricanteHidden = document.getElementById('fabricanteHidden');
           if (prodVis && fabricanteHidden) {
             const raw = (prodVis.value || '').trim();
-            // Se o campo visual não estiver vazio, copia. 
-            // Se estiver vazio (porque a seleção limpou o texto), NÃO apaga o código oculto!
-            if (raw !== '') {
-                fabricanteHidden.value = raw.toUpperCase();
+            if (raw && !fabricanteHidden.value) {
+                fabricanteHidden.value = raw;
             }
           }
           
@@ -752,30 +841,27 @@
       document.addEventListener('click', (e) => { if (!dropdown.contains(e.target) && e.target !== parcInput) hideDropdown(); });
     })();
 
-    // 2. Typeahead Produto
+    // 2. Typeahead Fabricante (campo rotulado "Produto" na UI, mas filtra por
+    // FABRICANTE — Mai/2026 alinha com padrão do Comercial)
     (function(){
       const prodInput = document.getElementById('prodSearch');
-      const prodHidden = document.getElementById('fabricanteHidden'); 
+      const prodHidden = document.getElementById('fabricanteHidden');
       const dropdown = document.getElementById('prodDropdown');
       if(!prodInput || !prodHidden || !dropdown) return;
 
-      // O fundo verde na seleção ocorrerá naturalmente pela sua classe .dd-item.active no CSS
       function hideDropdown() { dropdown.style.display = 'none'; dropdown.innerHTML=''; }
       function showDropdown(items) {
         if (!items || !items.length) { hideDropdown(); return; }
-        
         dropdown.innerHTML = items.map((it, idx) => {
-            // Remove a expressão " IN NATURA" (ignorando maiúsculas/minúsculas) e tira espaços extras
-            const descrLimpa = (it.descr || '').replace(/\s*IN NATURA/gi, '').trim();
-            
-            return `<div class="dd-item typeahead-item${idx===0?' active':''}" data-cod="${it.cod}" data-descr="${descrLimpa}">${it.cod} — ${descrLimpa}</div>`;
+            const nome = (it.fabricante || it.descr || '').trim();
+            return `<div class="dd-item typeahead-item${idx===0?' active':''}" data-descr="${nome}">${nome}</div>`;
         }).join('');
-        
         dropdown.style.display = 'block';
       }
       function fetchProds(q) {
-        // Envia a flag allow_in_natura=1 e deixa o Oracle fazer o trabalho pesado
-        const url = `${API_URLS.PROD_SEARCH}?q=${encodeURIComponent(q)}&limit=15&allow_in_natura=1`;
+        // Endpoint retorna FABRICANTEs distintos (compartilha rota com produtos
+        // via flag fabricante=1 — mesmo padrão do Comercial).
+        const url = `${API_URLS.PROD_SEARCH}?q=${encodeURIComponent(q)}&limit=15&fabricante=1`;
         fetch(url)
           .then(r => r.json())
           .then(data => showDropdown(data.results || []))
@@ -789,16 +875,17 @@
         if (dropdown.style.display !== 'none'){
           if(e.key==='ArrowDown'){ e.preventDefault(); const items=Array.from(dropdown.querySelectorAll('.dd-item')); if(!items.length) return; const cur=items.findIndex(x=>x.classList.contains('active')); let nxt=(cur+1+items.length)%items.length; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'}); return; }
           if(e.key==='ArrowUp'){ e.preventDefault(); const items=Array.from(dropdown.querySelectorAll('.dd-item')); if(!items.length) return; const cur=items.findIndex(x=>x.classList.contains('active')); let nxt=(cur-1+items.length)%items.length; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'}); return; }
-          if(e.key==='Enter' || e.key==='Tab'){ 
-            const el = dropdown.querySelector('.dd-item.active') || dropdown.querySelector('.dd-item'); 
-            if(el){ 
-                e.preventDefault(); 
-                prodHidden.value = el.dataset.cod; 
-                prodInput.value = ''; // Limpa o campo visual imediatamente
-                hideDropdown(); 
-                focusNext(prodInput); 
-                try{ applyFilters(); }catch(err){} 
-            } 
+          if(e.key==='Enter' || e.key==='Tab'){
+            const el = dropdown.querySelector('.dd-item.active') || dropdown.querySelector('.dd-item');
+            if(el){
+                e.preventDefault();
+                // Fabricante é texto puro (sem código) — hidden e visível recebem o mesmo nome
+                prodHidden.value = el.dataset.descr;
+                prodInput.value = el.dataset.descr;
+                hideDropdown();
+                focusNext(prodInput);
+                try{ applyFilters(); }catch(err){}
+            }
           }
           if(e.key==='Escape'){ hideDropdown(); }
         }
@@ -806,8 +893,8 @@
       dropdown.addEventListener('click', (e) => {
         const item = e.target.closest('.dd-item');
         if (!item) return;
-        prodHidden.value = item.dataset.cod;
-        prodInput.value = ''; // Limpa o campo visual imediatamente
+        prodHidden.value = item.dataset.descr;
+        prodInput.value = item.dataset.descr;
         hideDropdown();
         focusNext(prodInput);
         try{ applyFilters(); }catch(err){}
@@ -1002,38 +1089,37 @@
 
     // helpers `getCookie` and `postJSON` are provided by static/sankhya_integration/iagro_helpers.js
 
-    // Reuse attachTypeahead helper available above by re-declaring minimal wrapper
-    function attachTA(inpId, hidId, ddId, url, options){ try{ const inp=document.getElementById(inpId); const hid=document.getElementById(hidId); const dd=document.getElementById(ddId); if(!inp||!hid||!dd) return; let t=null; function hide(){ dd.style.display='none'; dd.innerHTML=''; } function show(items){ if(!items||!items.length){ hide(); return; } dd.innerHTML = items.map((it,idx)=>`<div class="dd-item${idx===0?' active':''}" data-cod="${it.cod||it.codparc}" data-descr="${it.descr||it.nomeparc}" data-selecionado="${it.selecionado}">${(it.cod||it.codparc)} — ${(it.descr||it.nomeparc)}</div>`).join(''); dd.style.display='block'; }
-      const limOpt = options && typeof options.limit === 'number' && isFinite(options.limit) && options.limit > 0 ? Math.floor(options.limit) : 10;
-      const lim = Math.max(1, Math.min(limOpt, 500));
-      const extraQuery = options && typeof options.extraQuery === 'string' && options.extraQuery.trim() ? options.extraQuery.trim() : '';
-      function buildUrl(q){ const sep = url.includes('?') ? '&' : '?'; let full = `${url}${sep}q=${encodeURIComponent(q)}&limit=${encodeURIComponent(lim)}`; if(extraQuery){ full += extraQuery.startsWith('&') ? extraQuery : `&${extraQuery}`; } return full; }
-      function fetchQ(q){ fetch(buildUrl(q)).then(r=>r.json()).then(d=> show(d.results||[]) ).catch(()=> hide()); }
-      inp.addEventListener('input', (e)=>{ 
-        const raw = (e.target.value || '').trim(); 
-        if(t) clearTimeout(t); 
-        // Se 'raw' tiver qualquer texto, pesquisa. Se estiver vazio, esconde.
-        t = setTimeout(() => raw ? fetchQ(raw) : hide(), 400); 
-      });
-      // keyboard navigation: ArrowUp/Down, Enter selects, Tab selects+move to next focusable
-      inp.addEventListener('keydown', (e)=>{
-        if (e.key === 'ArrowDown'){
-          e.preventDefault(); if (dd.style.display==='none') return; const items = Array.from(dd.querySelectorAll('.dd-item')); if(!items.length) return; const cur = items.findIndex(x=>x.classList.contains('active')); let nxt = cur+1; if (nxt >= items.length) nxt = 0; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'});
-        } else if (e.key === 'ArrowUp'){
-          e.preventDefault(); if (dd.style.display==='none') return; const items = Array.from(dd.querySelectorAll('.dd-item')); if(!items.length) return; const cur = items.findIndex(x=>x.classList.contains('active')); let nxt = cur-1; if (nxt < 0) nxt = items.length-1; items.forEach(x=>x.classList.remove('active')); items[nxt].classList.add('active'); items[nxt].scrollIntoView({block:'nearest'});
-        } else if (e.key === 'Enter'){
-          if (dd.style.display !== 'none'){
-            e.preventDefault(); const el = dd.querySelector('.dd-item.active') || dd.querySelector('.dd-item'); if (el){ hid.value = el.dataset.cod; if(el.dataset.selecionado && el.dataset.selecionado !== 'undefined') hid.dataset.selecionado = el.dataset.selecionado; inp.value = `${el.dataset.cod} — ${el.dataset.descr}`; hide(); if(typeof window.__resetItemClassificaField === 'function') window.__resetItemClassificaField(); }
+    // Mai/2026 — wrapper sobre IAgro.attachTypeahead. Mantém a assinatura legada
+    // (inpId, hidId, ddId, url, options) e preserva o comportamento específico
+    // do Entrada: propaga data-selecionado pro hidden e chama
+    // window.__resetItemClassificaField após selecionar.
+    function attachTA(inpId, hidId, ddId, url, options) {
+      const lim = (options && typeof options.limit === 'number' && options.limit > 0)
+                  ? Math.floor(options.limit) : 10;
+      const hidEl = document.getElementById(hidId);
+      return IAgro.attachTypeahead({
+        inputId:    inpId,
+        hiddenId:   hidId,
+        dropdownId: ddId,
+        url,
+        limit:      Math.max(1, Math.min(lim, 500)),
+        debounceMs: 400,  // legado do Entrada
+        extraQuery: options?.extraQuery,
+        // Renderização mantém o padrão "cod — descr" e injeta data-selecionado
+        // pra que onSelect possa lê-lo via item.dataset.
+        pickCod:   (it) => it.cod ?? it.codparc,
+        pickDescr: (it) => it.descr ?? it.nomeparc ?? '',
+        pickExtra: (it) => ({ selecionado: it.selecionado }),
+        onSelect: (_cod, _descr, item) => {
+          if (hidEl && item.dataset.selecionado && item.dataset.selecionado !== 'undefined') {
+            hidEl.dataset.selecionado = item.dataset.selecionado;
           }
-        } else if (e.key === 'Tab'){
-          if (dd.style.display !== 'none'){
-            const el = dd.querySelector('.dd-item.active') || dd.querySelector('.dd-item'); if (el){ hid.value = el.dataset.cod; if(el.dataset.selecionado && el.dataset.selecionado !== 'undefined') hid.dataset.selecionado = el.dataset.selecionado; inp.value = `${el.dataset.cod} — ${el.dataset.descr}`; hide(); }
-            // allow tab to move to next focusable element
+          if (typeof window.__resetItemClassificaField === 'function') {
+            window.__resetItemClassificaField();
           }
-        }
+        },
       });
-    
-    dd.addEventListener('click', (ev)=>{ const el = ev.target.closest('div[data-cod]'); if(!el) return; hid.value = el.dataset.cod; if(el.dataset.selecionado && el.dataset.selecionado !== 'undefined') hid.dataset.selecionado = el.dataset.selecionado; inp.value = `${el.dataset.cod} — ${el.dataset.descr}`; hide(); if(typeof window.__resetItemClassificaField === 'function') window.__resetItemClassificaField(); }); document.addEventListener('click', (ev)=>{ if(!dd.contains(ev.target) && ev.target !== inp) hide(); }); }catch(e){ console.error('attachTA', e); } }
+    }
 
     attachTA('cab_parcSearch','cab_codparc','cab_parcDropdown', API_URLS.PARC_SEARCH);
     attachTA('cab_top','cab_top_cod','cab_top_dd', API_URLS.TOP_SEARCH);

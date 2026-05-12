@@ -39,8 +39,8 @@
           <div>
             <label>Produto</label>
             <div class="pos-rel">
-              <input type="hidden" name="codprod" id="fabricanteHidden" value="{{ params.codprod|default:'' }}" />
-              <input type="text" id="prodSearch" placeholder="Pesquisar produto" autocomplete="off" class="full-width" value="" />
+              <input type="hidden" name="fabricante" id="fabricanteHidden" value="{{ params.fabricante|default:'' }}" />
+              <input type="text" id="prodSearch" placeholder="Pesquisar produto" autocomplete="off" class="full-width" value="{{ params.fabricante|default:'' }}" />
               <div id="prodDropdown" class="dropdown-abs"></div>
             </div>
           </div>
@@ -56,6 +56,12 @@
                   
         <input type="hidden" name="days" value="{{ params.days|default:'' }}" />
     </form>
+
+    <!-- Mai/2026 — Chips de filtros ativos (padronizado com Venda) -->
+    <div id="filtrosAtivos" class="iagro-filtros-ativos">
+      <div id="filtrosAtivosChips" class="iagro-filtros-ativos-chips"></div>
+    </div>
+
     <div class="filters-footer">
       <button type="button" id="btnUpdate" class="btn btn-update">Atualizar</button>
       <button type="button" id="btnClear" class="btn btn-clear">Limpar</button>

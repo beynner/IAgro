@@ -193,10 +193,9 @@ window.ComercialDistribuicao = (function() {
             }
         });
 
-        // 🖱️ Auto-Select ao clicar
-        [exQty, mdQty, quebraInp, exUnit, mdUnit].forEach(el => {
-            if (el) el.addEventListener('focus', function() { this.select(); });
-        });
+        // Mai/2026 — Auto-select on focus agora vem do IAgro.installAutoSelect
+        // global (base.html). Removida a duplicação local. Esses campos seguem
+        // tendo o comportamento sem código adicional aqui.
 
         // 💾 Botão APLICAR
         if (btnApply) {

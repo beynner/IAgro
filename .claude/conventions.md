@@ -83,50 +83,109 @@ Tudo exposto sob `window.IAgro` em `iagro_helpers.js`.
 
 ---
 
-## UX padrão para módulos NOVOS
+## UX padrão (DEFAULT OBRIGATÓRIO — Mai/2026)
 
-> **⚠ Aplicar apenas em módulos novos.** Não retrofitar módulos existentes (Entrada, Classificação, Comercial, Venda, Rastreio) sem pedido explícito do usuário — alterar UX bem testada introduz risco. O 1º módulo a seguir esses padrões foi a importação por e-mail (Mai/2026).
+> **🟢 Agora é padrão pra TODOS os módulos.** Aplicado em retrofit Mai/2026 nos
+> 7 módulos com filtros/typeaheads (Entrada, Classificação, Comercial, Venda,
+> Rastreio, Email importação, modais da Venda). Helpers centrais em
+> [`iagro_helpers.js`](../sankhya_integration/static/sankhya_integration/iagro_helpers.js)
+> garantem comportamento idêntico em toda a aplicação.
 
-### Typeaheads (campos de busca com dropdown)
+### Helpers centrais — referência canônica
 
-Toda função `attachTA` (ou equivalente) **deve** suportar navegação por teclado quando o dropdown está aberto:
-
-| Tecla | Comportamento |
+| Helper | Para que serve |
 |---|---|
-| `↓` / `↑` | Move o destaque (`.dd-item.active`) entre os itens; wrap em ambas pontas |
-| `Enter` | Confirma o item ativo (chama o mesmo handler do click) + `e.preventDefault()` pra não submeter form |
-| `Tab` | Confirma o item ativo + **não** chama `preventDefault` (deixa o foco seguir pro próximo campo) |
-| `Esc` | Fecha o dropdown sem selecionar |
+| `IAgro.attachTypeahead(opts)` | Typeahead com ↑/↓/Enter/Tab/Esc, debounce, dropdown |
+| `IAgro.installAutoSelect()` | Delegação global de select-on-focus (chamado 1× no `base.html`) |
+| `IAgro.wireFilterAuto(ids, cb, opts)` | Bind padronizado de filtros de listagem (debounce 500ms default) |
 
-Implementação de referência: [`attachTA` em email_importar.js](../sankhya_integration/static/sankhya_integration/email_importar.js).
+### Typeaheads
 
-Estrutura mínima do dropdown HTML pra interop com a navegação:
-```html
-<div class="dropdown-abs">
-  <div class="dd-item active" data-cod="..." data-descr="...">cod — descr</div>
-  <div class="dd-item" data-cod="..." data-descr="...">cod — descr</div>
-</div>
-```
-
-### Select-all on first focus
-
-Inputs de texto/número **devem** auto-selecionar o conteúdo na primeira vez que recebem foco — facilita editar campos pré-populados sem ter que apagar manualmente. Implementar via delegação de eventos no container do módulo (não global), com opt-out por `data-no-select`:
+Use **sempre** `IAgro.attachTypeahead`. Sem retypar handlers de teclado nem dropdown.
 
 ```js
-const _TIPOS_AUTOSEL = new Set(['text', 'number', 'search', 'tel', 'email', 'url']);
-container.addEventListener('focusin', function (e) {
-    const t = e.target;
-    if (!t || t.dataset?.noSelect !== undefined) return;
-    if (t.readOnly || t.disabled) return;
-    if (t.tagName === 'INPUT' && _TIPOS_AUTOSEL.has(t.type)) {
-        setTimeout(() => { try { t.select(); } catch (_) {} }, 0);
-    } else if (t.tagName === 'TEXTAREA') {
-        setTimeout(() => { try { t.select(); } catch (_) {} }, 0);
-    }
+IAgro.attachTypeahead({
+    inputId:    'meu_campo',
+    hiddenId:   'meu_campo_hidden',     // opcional — pra campos só visuais
+    dropdownId: 'meu_campo_dropdown',
+    url:        '/sankhya/parceiros/search/',
+    limit:        15,                    // default 15
+    debounceMs:  300,                    // default 300ms (typeahead)
+    minChars:    1,                      // default 1
+    extraQuery: 'grupo_inicia_com=1',   // opcional
+    positionFixed: true,                 // true: dropdown dentro de <td>
+    pickItems:  (data) => data.results,  // default: tenta .results/.items/.lotes
+    pickCod:    (it) => it.codparc,      // default: cod/codparc/codemp/codtipvenda
+    pickDescr:  (it) => it.nomeparc,     // default: descr/nomeparc/nomefantasia
+    renderItem: (it) => `${it.codparc} — ${it.nomeparc}`,
+    pickExtra:  (it) => ({ selecionado: it.selecionado }), // injeta data-* customizados
+    onSelect:   (cod, descr, item) => carregarLista(),
+    onClear:    () => carregarLista(),
 });
 ```
 
-`setTimeout(0)` é necessário porque o click subsequente ao focus pode desselecionar — adia o `.select()` pro próximo tick.
+Garantias do helper:
+
+| Tecla | Comportamento |
+|---|---|
+| `↓` / `↑` | Move `.dd-item.active`; wrap em ambas pontas; `scrollIntoView` |
+| `Enter` | Confirma item ativo + `preventDefault` (não submete form) |
+| `Tab` | Confirma item ativo + NÃO chama `preventDefault` (segue pro próximo campo) |
+| `Esc` | Fecha sem selecionar |
+| Click | Confirma |
+| Blur | Fecha após 200ms (tolerância pra click) |
+
+Estrutura mínima do HTML:
+```html
+<input type="text" id="meu_campo" autocomplete="off">
+<input type="hidden" id="meu_campo_hidden">
+<div id="meu_campo_dropdown" class="dropdown-abs"></div>
+```
+
+### Select-all on first focus — GLOBAL
+
+`IAgro.installAutoSelect()` é chamado uma vez no [`base.html`](../sankhya_integration/templates/sankhya_integration/base.html), valendo pra **toda** a aplicação. Cobre:
+
+- `<input type="text|number|search|tel|email|url|password">`
+- `<textarea>`
+
+Ignora `readonly`, `disabled`, e campos com atributo `data-no-select`.
+
+**Opt-out por campo:**
+```html
+<input type="text" id="campo_que_nao_quer_select" data-no-select>
+```
+
+NÃO duplicar listeners locais de `focus → this.select()`. O global cobre.
+
+### Filtros de listagem — `wireFilterAuto`
+
+```js
+IAgro.wireFilterAuto(
+    ['filtroTop', 'filtroPedido', 'filtroNF', 'filtroLote'],
+    () => carregarLista(),
+    { debounceMs: 500 }   // opcional; default 500ms pra filtros
+);
+```
+
+Comportamento por tipo de campo:
+
+| Tipo | Evento | Debounce |
+|---|---|---|
+| `<input type="text\|number\|search">` | `input` + `change` | 500ms |
+| `<select>`, `<input type="date\|time\|month\|week>` | `change` imediato | 0ms |
+
+NÃO adicionar listeners manuais paralelos pros mesmos campos.
+
+### Debounce — padrão consolidado
+
+| Cenário | Debounce | Justificativa |
+|---|---|---|
+| Typeahead (busca por dropdown) | **300ms** (helper default) | Suficiente pra leitura humana; corta picos de keystroke |
+| Filtro de listagem grande | **500ms** (helper default) | Query pesada — pede mais espera |
+| Select / date / time | **0ms** | Mudança discreta — efeito imediato esperado |
+
+Helpers cuidam disso automaticamente. Quem precisa de outro tempo passa o `debounceMs` no opts.
 
 ### Defaults sensíveis ao domínio
 
@@ -142,6 +201,133 @@ Campos com valor sugerido devem refletir o cenário **mais comum** do agronegóc
 ### Formato visual de campos pré-populados (typeahead)
 
 Inputs visíveis de typeahead devem mostrar `cod — NOME` (não só `cod`), padrão consistente com o conteúdo dos itens do dropdown. Isso evita o operador ver `456` sem saber qual parceiro é. Backend deve devolver o nome canônico via JOIN.
+
+**Exceção: campos de filtro por FABRICANTE** mostram só o nome (sem código) — fabricante não tem código numérico, ver seção abaixo.
+
+---
+
+## Campo "Produto" — dois padrões de filtragem (Mai/2026)
+
+> ⚠ **Antes de criar ou alterar QUALQUER campo de busca rotulado "Produto", PERGUNTAR ao usuário qual padrão usar.** Mesmo nome de campo, comportamentos diferentes — escolher errado causa filtro silenciosamente errado (operador acha que filtrou e não filtrou).
+
+### Padrão A — Filtro por FABRICANTE (texto LIKE)
+
+Operador digita um nome → busca em fabricantes únicos → filtra lotes/notas onde **algum produto tem aquele fabricante**.
+
+Exemplo: digitar "CENOURA" pega notas com produtos `CENOURA IN NATURA`, `CENOURA EXTRA`, `CENOURA MOLHO`, etc — todos cujo `pr.FABRICANTE` contém "CENOURA".
+
+**Quando usar:** filtros laterais de listagem (Entrada, Comercial) onde operador quer ver tudo de uma categoria de produto.
+
+**Frontend:**
+```js
+// URL com flag fabricante=1 → endpoint retorna FABRICANTEs únicos
+const url = `/sankhya/produtos/search/?q=${encodeURIComponent(q)}&limit=15&fabricante=1`;
+// Render: SÓ o nome (sem código numérico)
+dropdown.innerHTML = items.map(it => {
+    const nome = (it.fabricante || it.descr || '').trim();
+    return `<div class="dd-item" data-descr="${nome}">${nome}</div>`;
+}).join('');
+// Hidden e visível recebem o MESMO texto (sem código)
+hidden.value = el.dataset.descr;  // ex: "CENOURA"
+input.value  = el.dataset.descr;  // ex: "CENOURA"
+```
+
+**Template:**
+```html
+<input type="hidden" name="fabricante" id="fabricanteHidden" value="{{ params.fabricante|default:'' }}" />
+<input type="text" id="prodSearch" value="{{ params.fabricante|default:'' }}" />
+```
+
+**Views (`views.py`):**
+```python
+"fabricante": (request.GET.get("fabricante") or "").strip() or None
+```
+
+**Backend (`oracle_conn.py`):**
+```python
+if kwargs.get('fabricante'):
+    where.append(
+        "EXISTS ("
+        "  SELECT 1 FROM TGFITE i2 "
+        "  JOIN TGFPRO pr2 ON pr2.CODPROD = i2.CODPROD "
+        "  WHERE i2.NUNOTA = c.NUNOTA "
+        "    AND UPPER(pr2.FABRICANTE) LIKE :fab"
+        ")"
+    )
+    binds['fab'] = f"%{str(kwargs['fabricante']).upper()}%"
+```
+
+**Exemplos no projeto:**
+- [entrada.js:755-815](../sankhya_integration/static/sankhya_integration/entrada.js) — filtro lateral da Entrada
+- [comercial.js:612](../sankhya_integration/static/sankhya_integration/comercial.js) — filtro lateral do Comercial
+- [oracle_conn.py:1119](../sankhya_integration/services/oracle_conn.py) — `listar_notas_compra_paginado`
+- [oracle_conn.py:1232](../sankhya_integration/services/oracle_conn.py) — `consultar_vales_comercial`
+
+### Padrão B — Filtro por PRODUTO específico (CODPROD numérico)
+
+Operador digita → busca em produtos individuais → filtra por **CODPROD exato selecionado**.
+
+Exemplo: digitar "CENOURA" mostra `30 — CENOURA IN NATURA`, `45 — CENOURA EXTRA`, etc. Operador escolhe CODPROD=30 → filtra **só** esse produto específico.
+
+**Quando usar:** modais de criação/edição de itens (Venda, Entrada item, Classificação item) onde a operação precisa do produto **específico** pra inserir TGFITE.
+
+**Frontend:**
+```js
+// URL SEM fabricante=1 → endpoint retorna PRODUTOS individuais
+const url = `/sankhya/produtos/search/?q=${encodeURIComponent(q)}&limit=15`;
+// Render: cod — descrição
+dropdown.innerHTML = items.map(it =>
+    `<div class="dd-item" data-cod="${it.cod}" data-descr="${it.descr}">${it.cod} — ${it.descr}</div>`
+).join('');
+// Hidden recebe CODPROD (int); visível mostra "cod — descr"
+hidden.value = el.dataset.cod;                       // ex: "30"
+input.value  = `${el.dataset.cod} — ${el.dataset.descr}`;  // ex: "30 — CENOURA IN NATURA"
+```
+
+**Template:**
+```html
+<input type="hidden" name="codprod" id="prodHidden" value="{{ params.codprod|default:'' }}" />
+<input type="text" id="prodSearch" />
+```
+
+**Views (`views.py`):**
+```python
+"codprod": _converter_para_inteiro(request.GET.get("codprod"))
+```
+
+**Backend (`oracle_conn.py`):**
+```python
+if kwargs.get('codprod'):
+    where.append(
+        "EXISTS (SELECT 1 FROM TGFITE i2 "
+        "WHERE i2.NUNOTA = c.NUNOTA AND i2.CODPROD = :codprod)"
+    )
+    binds['codprod'] = int(kwargs['codprod'])
+```
+
+**Exemplos no projeto:**
+- [venda.js:170](../sankhya_integration/static/sankhya_integration/venda.js) — filtro lateral de Venda
+- [venda.js:857](../sankhya_integration/static/sankhya_integration/venda.js) — modal de item da Venda (`item_prod_vis`)
+- [classificacao.js:1097](../sankhya_integration/static/sankhya_integration/classificacao.js) — modal de item da Classificação
+- [oracle_conn.py:2713](../sankhya_integration/services/oracle_conn.py) — `listar_vendas_paginado`
+
+### Como escolher
+
+| Cenário | Padrão |
+|---|---|
+| Filtro de listagem (lateral) onde operador quer "tudo de uma categoria" | **A — Fabricante** |
+| Filtro de listagem por item específico (rastreio, lote individual) | **B — CODPROD** |
+| Modal de criar/editar TGFITE (item de nota) | **B — CODPROD** (precisa do número pra gravar) |
+| Sugestão de pesquisa rápida em dashboard/relatório | Caso a caso — pergunta |
+
+### Endpoint compartilhado
+
+`/sankhya/produtos/search/` aceita ambos os modos:
+
+- Sem flag → retorna `{cod, descr, selecionado}` (CODPROD individual) — Padrão B
+- Com `?fabricante=1` → retorna `{fabricante}` (DISTINCT em FABRICANTE) — Padrão A
+
+Ambos os fluxos passam pelo mesmo endpoint Django ([api_pesquisar_produtos_entrada](../sankhya_integration/views.py)), que internamente roteia.
 
 ---
 

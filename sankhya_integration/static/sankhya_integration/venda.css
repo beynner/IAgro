@@ -153,7 +153,14 @@
    MÓDULO 2: CHIPS DE FILTROS ATIVOS (dentro do card lateral)
    ========================================================================== */
 
-/* Card de chips de filtros ativos — vive no rodapé do #cardFiltros, antes dos botões */
+/* Mai/2026 — as classes .vda-filtros-* foram migradas pra global.css com
+   prefixo .iagro-filtros-* (compartilhadas entre Venda, Entrada e
+   Classificação). Os aliases abaixo herdam o estilo central, preservando
+   os IDs/classes legados no HTML da Venda. */
+.vda-filtros-ativos       { /* alias: ver .iagro-filtros-ativos em global.css */ }
+.vda-filtros-ativos-chips { /* alias: ver .iagro-filtros-ativos-chips */ }
+.vda-filtro-chip          { /* alias: ver .iagro-filtro-chip */ }
+.vda-filtros-ativos       { all: inherit; }
 .vda-filtros-ativos {
     flex: 0 0 auto;
     display: flex;
@@ -178,8 +185,6 @@
     font-size: 11px;
     font-style: italic;
 }
-
-/* Chip de filtro ativo individual (parceiro=X, top=34, ...) */
 .vda-filtro-chip {
     display: inline-flex;
     align-items: center;

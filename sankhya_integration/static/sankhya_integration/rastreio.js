@@ -2560,6 +2560,10 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // ----- Typeahead de Lotes (sugere FABRICANTES distintos) ---------------
+    // Mai/2026 — mantém implementação local (não usa IAgro.attachTypeahead)
+    // porque a estrutura é diferente: cache cliente-side com fallback no servidor
+    // (otimização: carrega todos os fabricantes uma vez e filtra localmente).
+    // Já tem ↑/↓/Enter/Tab/Esc, debounce 300/500ms, blur tolerante. Sem retrofit necessário.
     // Cache cliente-side: carrega TODOS os fabricantes uma vez no boot,
     // depois cada keystroke filtra localmente — sem rede, instantâneo.
     // Se o termo digitado não estiver no cache (TGFPRO grande, fabricante

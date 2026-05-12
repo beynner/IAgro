@@ -535,3 +535,73 @@ textarea:focus {
   border-color: #2563eb;
   color: #fff;
 }
+
+/* ==========================================================================
+   Chips de filtros ativos (Mai/2026) — usado em Venda, Entrada, Classificação
+   ========================================================================== */
+.iagro-filtros-ativos {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  background: var(--cor-fundo-secundario-claro, #f8fafc);
+  border-top: 1px solid var(--cor-borda, #e2e8f0);
+  padding: 8px 12px;
+  min-height: 38px;
+}
+.iagro-filtros-ativos-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+  min-height: 22px;
+  align-items: center;
+}
+.iagro-filtros-ativos-chips:empty::before {
+  content: 'Nenhum filtro ativo';
+  color: var(--cor-texto-secundario-cinza, #64748b);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.iagro-filtro-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--cor-fundo-secundario-claro, #f8fafc);
+  border: 1px solid var(--cor-borda, #e2e8f0);
+  border-radius: 12px;
+  padding: 3px 4px 3px 10px;
+  font-size: 11px;
+  color: var(--cor-texto-primario-escuro, #1e293b);
+  line-height: 1;
+}
+.iagro-filtro-chip .chip-rotulo {
+  font-weight: 600;
+  color: var(--cor-texto-secundario-cinza, #64748b);
+}
+.iagro-filtro-chip .chip-valor {
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: help;
+}
+.iagro-filtro-chip .chip-remover {
+  background: transparent;
+  border: none;
+  color: var(--cor-texto-secundario-cinza, #64748b);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: all var(--transicao-rapida, 150ms ease);
+}
+.iagro-filtro-chip .chip-remover:hover {
+  background: var(--cor-erro);
+  color: #fff;
+}
