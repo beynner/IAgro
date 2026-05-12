@@ -176,6 +176,212 @@
   </div>
 </div>
 
+<!-- ======================================================================
+     Modal — AVARIA INTERNA (TOP 30) — Mai/2026
+     STATUSNOTA='L' direto. Sem TGFVAR, sem financeiro. Rastreia por lote.
+====================================================================== -->
+<div id="avariaModal" class="modal-overlay hidden">
+  <div class="modal-card" style="width: 540px;">
+    <div class="modal-header">
+      <strong>Registrar Avaria Interna</strong>
+      <span class="modal-header-sub">TOP 30 · Perda no estoque por lote</span>
+    </div>
+    <div class="modal-body">
+      <div class="aviso-leve" id="avariaWarning">
+        Avaria interna é registrada direto (sem financeiro/NFe). O saldo do lote
+        é descontado automaticamente.
+      </div>
+
+      <div class="form-row">
+        <div style="flex:1">
+          <label>Lote (CODAGREGACAO) <span class="required-mark">*</span></label>
+          <div class="pos-rel">
+            <input type="text" id="avaria_lote_search" placeholder="Buscar lote por código ou produto" autocomplete="off" class="full-width" />
+            <input type="hidden" id="avaria_codagregacao" />
+            <input type="hidden" id="avaria_codprod" />
+            <input type="hidden" id="avaria_codemp" />
+            <div id="avaria_lote_dropdown" class="dropdown-abs"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-row avaria-lote-info hidden" id="avaria_lote_info">
+        <div style="flex:1">
+          <small class="info-line"><strong>Produto:</strong> <span id="avaria_lote_produto">—</span></small>
+          <small class="info-line"><strong>Fornecedor:</strong> <span id="avaria_lote_fornecedor">—</span></small>
+          <small class="info-line"><strong>Saldo disponível:</strong> <span id="avaria_lote_saldo">—</span></small>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div style="flex:1">
+          <label>Cliente / Parceiro <span class="required-mark">*</span></label>
+          <div class="pos-rel">
+            <input type="hidden" id="avaria_codparc" />
+            <input type="text" id="avaria_parcSearch" placeholder="Código ou nome" autocomplete="off" class="full-width" />
+            <div id="avaria_parcDropdown" class="dropdown-abs"></div>
+          </div>
+        </div>
+        <div style="flex:1">
+          <label>Nº Nota Ref. (livre)</label>
+          <input type="text" id="avaria_numnota_ref" placeholder="NUMNOTA da venda original" class="full-width" />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div style="flex:1">
+          <label>Quantidade <span class="required-mark">*</span></label>
+          <input type="number" id="avaria_qtdneg" step="0.001" min="0.001" placeholder="ex: 50.000" class="full-width" />
+        </div>
+        <div style="flex:1">
+          <label>Volume</label>
+          <select id="avaria_codvol" class="full-width">
+            <option value="KG" selected>KG</option>
+            <option value="CX">CX</option>
+            <option value="UN">UN</option>
+            <option value="MC">MC</option>
+            <option value="SC">SC</option>
+          </select>
+        </div>
+        <div style="flex:1">
+          <label>Preço Unit. (opc)</label>
+          <input type="number" id="avaria_vlrunit" step="0.01" placeholder="0,00" class="full-width" />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div style="flex:1">
+          <label>Data Negociação</label>
+          <input type="date" id="avaria_dtneg" />
+        </div>
+      </div>
+
+      <div class="full-width">
+        <label>Observação / Motivo</label>
+        <textarea id="avaria_observacao" rows="2" class="full-width modal-textarea" placeholder="AVARIA"></textarea>
+      </div>
+
+      <div class="flex gap-8 justify-end mt6">
+        <button class="btn btn-clear" type="button" id="avariaCancelBtn">Cancelar</button>
+        <button class="btn btn-danger" type="button" id="avariaConfirmBtn">Registrar Avaria</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================================================================
+     Modal — DEVOLUÇÃO (TOP 36) — Mai/2026
+     STATUSNOTA='A' em aberto. Operador confirma no Sankhya.
+====================================================================== -->
+<div id="devolucaoModal" class="modal-overlay hidden">
+  <div class="modal-card" style="width: 820px;">
+    <div class="modal-header">
+      <strong>Registrar Devolução</strong>
+      <span class="modal-header-sub">TOP 36 · Cliente devolveu mercadoria</span>
+    </div>
+    <div class="modal-body">
+      <div class="aviso-leve">
+        Cria devolução em aberto. <strong>Operador confirma no Sankhya</strong>
+        (TGFCAB → STATUSNOTA='L') para disparar financeiro reverso + NFe.
+      </div>
+
+      <div class="form-row">
+        <div style="flex:1">
+          <label>NUNOTA da nota faturada (TOP 35/37) <span class="required-mark">*</span></label>
+          <input type="number" id="dev_nunota_origem" placeholder="NUNOTA da venda a devolver" class="full-width" />
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button class="btn btn-update" type="button" id="dev_btnCarregar">Carregar Itens</button>
+        </div>
+      </div>
+
+      <div class="dev-nota-info hidden" id="dev_nota_info">
+        <div class="info-line"><strong>Cliente:</strong> <span id="dev_nota_cliente">—</span></div>
+        <div class="info-line"><strong>Data:</strong> <span id="dev_nota_data">—</span> · <strong>Total nota:</strong> <span id="dev_nota_total">—</span> · <strong>NUMNOTA:</strong> <span id="dev_nota_numnota">—</span></div>
+      </div>
+
+      <div class="dev-itens-wrap hidden" id="dev_itens_wrap">
+        <label>Itens disponíveis para devolução</label>
+        <div class="scroll-panel" style="max-height: 280px;">
+          <table class="ia-selectable-table dev-itens-tabela">
+            <thead>
+              <tr>
+                <th class="col-w-30 text-center">Dev.</th>
+                <th>Produto</th>
+                <th class="col-w-90">Lote</th>
+                <th class="text-right col-w-70">Vendido</th>
+                <th class="text-right col-w-70">Já dev.</th>
+                <th class="text-right col-w-70">Saldo</th>
+                <th class="col-w-90">Qtd devolver</th>
+              </tr>
+            </thead>
+            <tbody id="dev_itens_body">
+              <tr><td colspan="7" class="ia-placeholder">Carregue a nota acima.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div style="flex:1">
+          <label>Data Negociação (devolução)</label>
+          <input type="date" id="dev_dtneg" />
+        </div>
+      </div>
+
+      <div class="full-width">
+        <label>Observação / Motivo</label>
+        <textarea id="dev_observacao" rows="2" class="full-width modal-textarea" placeholder="DEVOLUCAO"></textarea>
+      </div>
+
+      <div class="flex gap-8 justify-end mt6">
+        <button class="btn btn-clear" type="button" id="devCancelBtn">Cancelar</button>
+        <button class="btn btn-warning" type="button" id="devConfirmBtn">Criar Devolução (em aberto)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================================================================
+     Modal — HISTÓRICO DO LOTE — Mai/2026
+     Timeline: compra → classificação → vale → pedido → venda → devolução/avaria
+====================================================================== -->
+<div id="historicoLoteModal" class="modal-overlay hidden">
+  <div class="modal-card" style="width: 760px;">
+    <div class="modal-header">
+      <strong>Histórico do Lote</strong>
+      <span class="modal-header-sub">Rastreabilidade completa por CODAGREGACAO</span>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div style="flex:1">
+          <label>Lote (CODAGREGACAO) <span class="required-mark">*</span></label>
+          <input type="text" id="hist_lote" placeholder="ex: 12345S01D260507" class="full-width" />
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button class="btn btn-update" type="button" id="hist_btnBuscar">Buscar</button>
+        </div>
+      </div>
+
+      <div class="hist-resumo hidden" id="hist_resumo">
+        <span><strong>Lote:</strong> <span id="hist_lote_label">—</span></span>
+        <span><strong>Eventos:</strong> <span id="hist_count">0</span></span>
+      </div>
+
+      <div class="hist-timeline" id="hist_timeline">
+        <div class="ia-placeholder">Informe um lote acima e clique em Buscar.</div>
+      </div>
+
+      <div class="flex gap-8 justify-end mt6">
+        <button class="btn btn-muted" type="button" id="histCloseBtn">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
 <!-- Modal de Faturamento — escolha TOP 35 (NFe) vs TOP 37 (s/ NFe) -->
 <div id="faturarModal" class="modal-overlay hidden">
   <div class="modal-card mini-modal" style="width: 460px;">

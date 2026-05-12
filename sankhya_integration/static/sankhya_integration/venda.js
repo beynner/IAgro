@@ -260,6 +260,11 @@ document.addEventListener('DOMContentLoaded', function() {
             pedidoSelecionado = null;
             const btnDel = document.getElementById('btnDeleteVenda');
             if (btnDel) btnDel.disabled = true;
+            // Mai/2026 — avaria/devolução exigem venda selecionada
+            const btnAv  = document.getElementById('btnAvaria');
+            const btnDev = document.getElementById('btnDevolucao');
+            if (btnAv)  btnAv.disabled  = true;
+            if (btnDev) btnDev.disabled = true;
             const labelSel = document.getElementById('label_sel_nunota');
             if (labelSel) labelSel.textContent = '—';
             const subheader = document.getElementById('itensCardSubheader');
@@ -325,7 +330,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 const valorFormatado = v.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
                 const topLabel = topNum === 34 ? '34' :
                                  topNum === 35 ? '35-NFe' :
-                                 topNum === 37 ? '37-S/NFe' : String(topNum);
+                                 topNum === 37 ? '37-S/NFe' :
+                                 topNum === 36 ? '36-Dev' :
+                                 topNum === 30 ? '30-Avaria' :
+                                 String(topNum);
                 const statusDot = `<span class="venda-status-dot venda-status-dot--${statusKey}" title="${statusTitulo}" aria-label="${statusTitulo}"></span>`;
 
                 tr.innerHTML = `
@@ -355,9 +363,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         `;
                     }
                     carregarItens(v.nunota);
-                    pedidoSelecionado = { nunota: v.nunota, top: topNum };
+                    pedidoSelecionado = {
+                        nunota: v.nunota, top: topNum,
+                        emp: v.emp, parceiro: v.parceiro,
+                        numnota: v.numnota,
+                    };
                     const btnDel = document.getElementById('btnDeleteVenda');
                     if (btnDel) btnDel.disabled = (topNum !== 34);  // só TOP 34 pode excluir
+                    // Mai/2026 — avaria habilita pra qualquer TOP; devolução só pra venda faturada
+                    const btnAv  = document.getElementById('btnAvaria');
+                    const btnDev = document.getElementById('btnDevolucao');
+                    if (btnAv)  btnAv.disabled  = false;
+                    if (btnDev) btnDev.disabled = (topNum !== 35 && topNum !== 37);
                 });
                 tr.addEventListener('dblclick', function() {
                     if (topNum !== 34) {
@@ -991,6 +1008,472 @@ document.addEventListener('DOMContentLoaded', function() {
                 carregarVendas(false);
             }
         }, 500);
+    });
+
+    // ==========================================================================
+    // AVARIA (TOP 30) + DEVOLUÇÃO (TOP 36) + HISTÓRICO DE LOTE — Mai/2026
+    // ==========================================================================
+
+    function _fmtNum(v, casas = 3) {
+        const n = Number(v || 0);
+        return n.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas });
+    }
+    function _fmtBRL(v) {
+        const n = Number(v || 0);
+        return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    }
+    function _hoje() {
+        const d = new Date();
+        const yy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yy}-${mm}-${dd}`;
+    }
+
+    function _abrirModal(id) {
+        const m = document.getElementById(id);
+        if (!m) return;
+        m.classList.remove('hidden');
+        m.style.display = 'flex';
+    }
+    function _fecharModal(id) {
+        const m = document.getElementById(id);
+        if (!m) return;
+        m.classList.add('hidden');
+        m.style.display = '';
+    }
+
+    // --------------------------------------------------------------------------
+    // AVARIA — typeahead de lote pela view do WMS
+    // --------------------------------------------------------------------------
+    function _attachAvariaLoteTA() {
+        const inp = document.getElementById('avaria_lote_search');
+        const dd  = document.getElementById('avaria_lote_dropdown');
+        if (!inp || !dd) return;
+
+        let t = null;
+        const hide = () => { dd.style.display = 'none'; dd.innerHTML = ''; };
+        const show = (rows) => {
+            if (!rows || !rows.length) { dd.innerHTML = '<div class="dd-item">Nenhum lote encontrado</div>'; dd.style.display = 'block'; return; }
+            dd.innerHTML = rows.map((r, idx) => `
+                <div class="dd-item${idx === 0 ? ' active' : ''}"
+                     data-cod="${r.codagregacao}"
+                     data-prod="${r.codprod}"
+                     data-emp="${r.codemp}"
+                     data-descr="${r.descrprod || ''}"
+                     data-saldo="${r.qtd_disponivel || 0}"
+                     data-vendedor="${r.nomeparc_origem || ''}"
+                >${r.codagregacao} — ${(r.descrprod || '').substring(0, 30)} · ${_fmtNum(r.qtd_disponivel)}</div>
+            `).join('');
+            dd.style.display = 'block';
+        };
+
+        const _aplicar = (el) => {
+            document.getElementById('avaria_codagregacao').value = el.dataset.cod;
+            document.getElementById('avaria_codprod').value      = el.dataset.prod;
+            document.getElementById('avaria_codemp').value       = el.dataset.emp;
+            document.getElementById('avaria_lote_produto').textContent    = el.dataset.descr || '—';
+            document.getElementById('avaria_lote_fornecedor').textContent = el.dataset.vendedor || '—';
+            document.getElementById('avaria_lote_saldo').textContent      = `${_fmtNum(el.dataset.saldo)} (mesma unidade)`;
+            document.getElementById('avaria_lote_info').classList.remove('hidden');
+            inp.value = `${el.dataset.cod} — ${(el.dataset.descr || '').substring(0, 30)}`;
+            hide();
+        };
+
+        inp.addEventListener('input', (e) => {
+            const raw = (e.target.value || '').trim();
+            if (t) clearTimeout(t);
+            if (!raw) { hide(); return; }
+            t = setTimeout(async () => {
+                try {
+                    const r = await fetch(`/sankhya/rastreio/api/lotes-disponiveis/?q_lote_prod=${encodeURIComponent(raw)}&limit=15&tipo=todos`);
+                    const d = await r.json();
+                    show(d.lotes || []);
+                } catch (_) { hide(); }
+            }, 350);
+        });
+        inp.addEventListener('keydown', (e) => {
+            if (dd.style.display === 'none') return;
+            const items = Array.from(dd.querySelectorAll('.dd-item[data-cod]'));
+            if (!items.length) return;
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                let cur = items.findIndex(x => x.classList.contains('active'));
+                let nxt = (cur + 1) % items.length;
+                items.forEach(x => x.classList.remove('active'));
+                items[nxt].classList.add('active');
+                items[nxt].scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                let cur = items.findIndex(x => x.classList.contains('active'));
+                let nxt = (cur - 1 + items.length) % items.length;
+                items.forEach(x => x.classList.remove('active'));
+                items[nxt].classList.add('active');
+                items[nxt].scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'Enter' || e.key === 'Tab') {
+                const el = dd.querySelector('.dd-item.active') || dd.querySelector('.dd-item[data-cod]');
+                if (el) { e.preventDefault(); _aplicar(el); }
+            } else if (e.key === 'Escape') hide();
+        });
+        dd.addEventListener('click', (ev) => {
+            const el = ev.target.closest('.dd-item[data-cod]');
+            if (el) _aplicar(el);
+        });
+        document.addEventListener('click', (ev) => {
+            if (!dd.contains(ev.target) && ev.target !== inp) hide();
+        });
+    }
+    _attachAvariaLoteTA();
+
+    // Typeahead de parceiro no modal de avaria (reusa endpoint da Venda)
+    attachTA('avaria_parcSearch', 'avaria_codparc', 'avaria_parcDropdown',
+             '/sankhya/parceiros/search/', { limit: 15, onChange: () => {} });
+
+    async function abrirModalAvaria() {
+        if (!pedidoSelecionado) {
+            phToast('Selecione uma venda na listagem primeiro', 'error');
+            return;
+        }
+
+        // reset
+        document.getElementById('avaria_lote_search').value = '';
+        document.getElementById('avaria_codagregacao').value = '';
+        document.getElementById('avaria_codprod').value = '';
+        document.getElementById('avaria_codemp').value = '';
+        document.getElementById('avaria_lote_info').classList.add('hidden');
+        document.getElementById('avaria_parcSearch').value = '';
+        document.getElementById('avaria_codparc').value = '';
+        document.getElementById('avaria_numnota_ref').value = pedidoSelecionado.numnota || '';
+        document.getElementById('avaria_qtdneg').value = '';
+        document.getElementById('avaria_codvol').value = 'KG';
+        document.getElementById('avaria_vlrunit').value = '';
+        document.getElementById('avaria_dtneg').value = _hoje();
+        document.getElementById('avaria_observacao').value = '';
+
+        // Pré-popula cliente + empresa a partir do cabeçalho da venda selecionada
+        try {
+            const r = await fetch(`/sankhya/venda/api/cabecalho/obter/?nunota=${pedidoSelecionado.nunota}`);
+            const d = await r.json();
+            if (d.ok) {
+                if (d.codparc) {
+                    document.getElementById('avaria_codparc').value = d.codparc;
+                    document.getElementById('avaria_parcSearch').value =
+                        `${d.codparc} — ${d.nome_parc || pedidoSelecionado.parceiro || ''}`;
+                }
+                if (d.codemp) {
+                    document.getElementById('avaria_codemp').value = d.codemp;
+                }
+            }
+        } catch (_) { /* segue sem pré-população — operador preenche manualmente */ }
+
+        _abrirModal('avariaModal');
+    }
+
+    document.getElementById('btnAvaria')?.addEventListener('click', abrirModalAvaria);
+    document.getElementById('avariaCancelBtn')?.addEventListener('click', () => _fecharModal('avariaModal'));
+
+    document.getElementById('avariaConfirmBtn')?.addEventListener('click', async () => {
+        const codagregacao = document.getElementById('avaria_codagregacao').value.trim();
+        const codprod      = parseInt(document.getElementById('avaria_codprod').value, 10);
+        const codemp       = parseInt(document.getElementById('avaria_codemp').value, 10);
+        const codparc      = parseInt(document.getElementById('avaria_codparc').value, 10);
+        const qtdneg       = parseFloat(document.getElementById('avaria_qtdneg').value);
+        const codvol       = document.getElementById('avaria_codvol').value || 'KG';
+        const vlrunitRaw   = document.getElementById('avaria_vlrunit').value;
+        const vlrunit      = vlrunitRaw ? parseFloat(vlrunitRaw) : 0;
+        const numnota_ref  = document.getElementById('avaria_numnota_ref').value.trim();
+        const observacao   = document.getElementById('avaria_observacao').value.trim() || 'AVARIA';
+        const dtnegISO     = document.getElementById('avaria_dtneg').value;
+
+        // Validações cliente
+        const erros = [];
+        if (!codagregacao) erros.push('Selecione um lote');
+        if (!codprod)      erros.push('Lote sem produto associado');
+        if (!codemp)       erros.push('Empresa não detectada');
+        if (!codparc)      erros.push('Selecione o cliente/parceiro');
+        if (!qtdneg || qtdneg <= 0) erros.push('Quantidade obrigatória');
+        if (erros.length) { phToast(erros.join(' · '), 'error'); return; }
+
+        const ok = await phConfirmar({
+            titulo: 'Registrar avaria interna?',
+            mensagem: `Lote ${codagregacao} · ${_fmtNum(qtdneg)} ${codvol}. Saldo do lote será descontado.`,
+            tipo: 'aviso',
+        });
+        if (!ok) return;
+
+        const dtneg = dtnegISO ? dtnegISO.split('-').reverse().join('/') : null;
+
+        const btn = document.getElementById('avariaConfirmBtn');
+        btn.disabled = true; btn.classList.add('btn--loading');
+        try {
+            const res = await phPostJSON('/sankhya/venda/api/avaria/criar/', {
+                codemp, codparc, codagregacao, codprod, qtdneg,
+                codvol, vlrunit, numnota_ref, observacao, dtneg,
+            });
+            if (!res.ok || !res.body?.ok) {
+                phToast(res.body?.error || 'Falha ao registrar avaria', 'error');
+                return;
+            }
+            phToast(`Avaria registrada · NUNOTA ${res.body.nunota} · ${_fmtNum(qtdneg)} ${codvol}`, 'success');
+            _fecharModal('avariaModal');
+            carregarVendas(false);
+        } catch (e) {
+            phToast('Erro de comunicação. Tente novamente.', 'error');
+        } finally {
+            btn.disabled = false; btn.classList.remove('btn--loading');
+        }
+    });
+
+    // --------------------------------------------------------------------------
+    // DEVOLUÇÃO — carrega itens da nota origem, monta tabela, valida qtd
+    // --------------------------------------------------------------------------
+    let _devNotaCarregada = null;
+
+    function abrirModalDevolucao() {
+        if (!pedidoSelecionado) {
+            phToast('Selecione uma venda faturada (TOP 35/37) na listagem primeiro', 'error');
+            return;
+        }
+        if (pedidoSelecionado.top !== 35 && pedidoSelecionado.top !== 37) {
+            phToast('Devolução só de notas faturadas (TOP 35 ou 37)', 'error');
+            return;
+        }
+
+        document.getElementById('dev_nunota_origem').value = pedidoSelecionado.nunota;
+        document.getElementById('dev_nota_info').classList.add('hidden');
+        document.getElementById('dev_itens_wrap').classList.add('hidden');
+        document.getElementById('dev_itens_body').innerHTML =
+            '<tr><td colspan="7" class="ia-placeholder">Carregando itens...</td></tr>';
+        document.getElementById('dev_dtneg').value = _hoje();
+        document.getElementById('dev_observacao').value = '';
+        _devNotaCarregada = null;
+        _abrirModal('devolucaoModal');
+
+        // Auto-dispara o carregamento dos itens já que a nota foi pré-selecionada
+        document.getElementById('dev_btnCarregar')?.click();
+    }
+
+    document.getElementById('btnDevolucao')?.addEventListener('click', abrirModalDevolucao);
+    document.getElementById('devCancelBtn')?.addEventListener('click', () => _fecharModal('devolucaoModal'));
+
+    document.getElementById('dev_btnCarregar')?.addEventListener('click', async () => {
+        const nunota = parseInt(document.getElementById('dev_nunota_origem').value, 10);
+        if (!nunota) { phToast('Informe o NUNOTA da nota', 'error'); return; }
+
+        const btn = document.getElementById('dev_btnCarregar');
+        btn.disabled = true; btn.textContent = 'Carregando...';
+        try {
+            const r = await fetch(`/sankhya/venda/api/devolucao/preparar/?nunota=${nunota}`);
+            const d = await r.json();
+            if (!r.ok || !d.ok) {
+                phToast(d.error || 'Falha ao carregar nota', 'error');
+                document.getElementById('dev_nota_info').classList.add('hidden');
+                document.getElementById('dev_itens_wrap').classList.add('hidden');
+                return;
+            }
+
+            _devNotaCarregada = d;
+            const cab = d.cabecalho;
+            document.getElementById('dev_nota_cliente').textContent = cab.nomeparc || `CODPARC ${cab.codparc}`;
+            document.getElementById('dev_nota_data').textContent = cab.dtneg || '—';
+            document.getElementById('dev_nota_total').textContent = _fmtBRL(cab.vlrnota);
+            document.getElementById('dev_nota_numnota').textContent = cab.numnota || '—';
+            document.getElementById('dev_nota_info').classList.remove('hidden');
+
+            const body = document.getElementById('dev_itens_body');
+            if (!d.itens.length) {
+                body.innerHTML = '<tr><td colspan="7" class="ia-placeholder">Nota sem itens.</td></tr>';
+            } else {
+                body.innerHTML = d.itens.map(it => {
+                    const sem_saldo = it.qtd_devolvivel <= 0;
+                    return `
+                        <tr data-seq="${it.sequencia}" data-max="${it.qtd_devolvivel}" class="${sem_saldo ? 'dev-item-zerado' : ''}">
+                            <td class="text-center">
+                                <input type="checkbox" class="dev-chk" ${sem_saldo ? 'disabled' : ''}>
+                            </td>
+                            <td>${it.codprod} · ${(it.descrprod || '').substring(0, 35)}</td>
+                            <td>${it.codagregacao || '—'}</td>
+                            <td class="text-right">${_fmtNum(it.qtdneg)} ${it.codvol}</td>
+                            <td class="text-right">${_fmtNum(it.qtd_ja_devolvida)}</td>
+                            <td class="text-right"><strong>${_fmtNum(it.qtd_devolvivel)}</strong></td>
+                            <td>
+                                <input type="number" step="0.001" min="0" max="${it.qtd_devolvivel}"
+                                       class="dev-qtd full-width" placeholder="0,000"
+                                       ${sem_saldo ? 'disabled' : ''}>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+            document.getElementById('dev_itens_wrap').classList.remove('hidden');
+        } catch (e) {
+            phToast('Erro de comunicação', 'error');
+        } finally {
+            btn.disabled = false; btn.textContent = 'Carregar Itens';
+        }
+    });
+
+    // Quando o checkbox marca, pré-preenche qtd_devolver com o max disponível
+    document.getElementById('dev_itens_body')?.addEventListener('change', (ev) => {
+        if (!ev.target.classList.contains('dev-chk')) return;
+        const tr = ev.target.closest('tr');
+        const inp = tr.querySelector('.dev-qtd');
+        if (ev.target.checked && !inp.value) {
+            inp.value = tr.dataset.max;
+        } else if (!ev.target.checked) {
+            inp.value = '';
+        }
+    });
+
+    document.getElementById('devConfirmBtn')?.addEventListener('click', async () => {
+        if (!_devNotaCarregada) { phToast('Carregue a nota antes', 'error'); return; }
+
+        const linhas = Array.from(document.querySelectorAll('#dev_itens_body tr[data-seq]'));
+        const itens = [];
+        for (const tr of linhas) {
+            const chk = tr.querySelector('.dev-chk');
+            if (!chk || !chk.checked) continue;
+            const seq = parseInt(tr.dataset.seq, 10);
+            const max = parseFloat(tr.dataset.max);
+            const qtd = parseFloat(tr.querySelector('.dev-qtd').value);
+            if (!qtd || qtd <= 0) {
+                phToast(`SEQ ${seq}: informe a quantidade a devolver`, 'error');
+                return;
+            }
+            if (qtd > max + 1e-6) {
+                phToast(`SEQ ${seq}: quantidade ${_fmtNum(qtd)} excede saldo devolvível ${_fmtNum(max)}`, 'error');
+                return;
+            }
+            itens.push({ sequencia_origem: seq, qtd_devolver: qtd });
+        }
+
+        if (!itens.length) {
+            phToast('Marque ao menos 1 item para devolver', 'error');
+            return;
+        }
+
+        const observacao = document.getElementById('dev_observacao').value.trim() || 'DEVOLUCAO';
+        const dtnegISO   = document.getElementById('dev_dtneg').value;
+        const dtneg = dtnegISO ? dtnegISO.split('-').reverse().join('/') : null;
+
+        const ok = await phConfirmar({
+            titulo: 'Criar devolução em aberto?',
+            mensagem: `${itens.length} item(ns) da nota ${_devNotaCarregada.cabecalho.nunota}. ` +
+                      `Operador confirma no Sankhya pra disparar financeiro + NFe.`,
+            tipo: 'aviso',
+        });
+        if (!ok) return;
+
+        const btn = document.getElementById('devConfirmBtn');
+        btn.disabled = true; btn.classList.add('btn--loading');
+        try {
+            const res = await phPostJSON('/sankhya/venda/api/devolucao/criar/', {
+                nunota_origem: _devNotaCarregada.cabecalho.nunota,
+                itens, observacao, dtneg,
+            });
+            if (!res.ok || !res.body?.ok) {
+                phToast(res.body?.error || 'Falha ao criar devolução', 'error');
+                return;
+            }
+            phToast(`Devolução criada em aberto · NUNOTA ${res.body.nunota} · ${_fmtBRL(res.body.vlrnota)}. Confirme no Sankhya.`, 'success');
+            _fecharModal('devolucaoModal');
+            carregarVendas(false);
+        } catch (e) {
+            phToast('Erro de comunicação. Tente novamente.', 'error');
+        } finally {
+            btn.disabled = false; btn.classList.remove('btn--loading');
+        }
+    });
+
+    // --------------------------------------------------------------------------
+    // HISTÓRICO DO LOTE — timeline visual
+    // --------------------------------------------------------------------------
+    function abrirModalHistorico() {
+        document.getElementById('hist_lote').value = '';
+        document.getElementById('hist_resumo').classList.add('hidden');
+        document.getElementById('hist_timeline').innerHTML =
+            '<div class="ia-placeholder">Informe um lote acima e clique em Buscar.</div>';
+        _abrirModal('historicoLoteModal');
+    }
+
+    document.getElementById('btnHistoricoLote')?.addEventListener('click', abrirModalHistorico);
+    document.getElementById('histCloseBtn')?.addEventListener('click', () => _fecharModal('historicoLoteModal'));
+
+    async function _buscarHistoricoLote() {
+        const lote = document.getElementById('hist_lote').value.trim();
+        if (!lote) { phToast('Informe o lote', 'error'); return; }
+
+        const cont = document.getElementById('hist_timeline');
+        cont.innerHTML = '<div class="ia-placeholder">Buscando...</div>';
+        try {
+            const r = await fetch(`/sankhya/venda/api/lote/historico/?lote=${encodeURIComponent(lote)}`);
+            const d = await r.json();
+            if (!r.ok || !d.ok) {
+                cont.innerHTML = `<div class="ia-placeholder">${d.error || 'Erro'}</div>`;
+                return;
+            }
+            const tl = d.timeline || [];
+            document.getElementById('hist_lote_label').textContent = d.lote;
+            document.getElementById('hist_count').textContent = tl.length;
+            document.getElementById('hist_resumo').classList.remove('hidden');
+
+            if (!tl.length) {
+                cont.innerHTML = '<div class="ia-placeholder">Lote sem movimentações registradas.</div>';
+                return;
+            }
+            cont.innerHTML = tl.map(ev => {
+                const cls = ev.is_entrada ? 'hist-node-entrada'
+                         : ev.is_devolucao ? 'hist-node-devolucao'
+                         : ev.is_baixa ? 'hist-node-baixa'
+                         : 'hist-node-default';
+                const statusBadge = ev.statusnota === 'L' ? '<span class="hist-status hist-status-l">CONFIRMADO</span>'
+                                  : ev.statusnota === 'A' ? '<span class="hist-status hist-status-a">EM ABERTO</span>'
+                                  : '';
+                return `
+                    <div class="hist-event ${cls}">
+                        <div class="hist-event-top">
+                            <span class="hist-top-badge top-badge-${ev.codtipoper}">TOP ${ev.codtipoper}</span>
+                            <strong class="hist-top-nome">${ev.top_nome}</strong>
+                            ${statusBadge}
+                            <span class="hist-date">${ev.dtneg}</span>
+                        </div>
+                        <div class="hist-event-body">
+                            <div>
+                                <strong>NUNOTA ${ev.nunota}</strong>${ev.numnota ? ' · Nota ' + ev.numnota : ''}
+                                · ${ev.nomeparc || `CODPARC ${ev.codparc || '—'}`}
+                            </div>
+                            <div class="hist-event-prod">
+                                ${ev.codprod} — ${(ev.descrprod || '').substring(0, 50)}
+                                · <strong>${_fmtNum(ev.qtdneg)} ${ev.codvol}</strong>
+                                ${ev.vlrtot ? ' · ' + _fmtBRL(ev.vlrtot) : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        } catch (e) {
+            cont.innerHTML = '<div class="ia-placeholder">Erro de comunicação.</div>';
+        }
+    }
+
+    document.getElementById('hist_btnBuscar')?.addEventListener('click', _buscarHistoricoLote);
+    document.getElementById('hist_lote')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); _buscarHistoricoLote(); }
+    });
+
+    // Fechar modais com Esc / click fora
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        ['avariaModal', 'devolucaoModal', 'historicoLoteModal'].forEach(id => {
+            const m = document.getElementById(id);
+            if (m && !m.classList.contains('hidden')) _fecharModal(id);
+        });
+    });
+    ['avariaModal', 'devolucaoModal', 'historicoLoteModal'].forEach(id => {
+        const m = document.getElementById(id);
+        if (m) m.addEventListener('click', (e) => {
+            if (e.target === m) _fecharModal(id);
+        });
     });
 
     document.getElementById('cabCancel')?.addEventListener('click', async () => {

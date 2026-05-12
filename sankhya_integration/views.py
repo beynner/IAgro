@@ -103,6 +103,11 @@ try:
         consultar_lista_ultimas_vendas,
         listar_vendas_paginado,
         faturar_pedido_venda_banco,
+        # Mai/2026 — Avaria (TOP 30) + Devolução (TOP 36) + Histórico de Lote
+        criar_avaria_top30_banco,
+        criar_devolucao_top36_banco,
+        consultar_nota_para_devolucao,
+        obter_historico_lote,
     )
     ORACLE_DISPONIVEL = True
 except Exception as exc:
@@ -141,6 +146,10 @@ except Exception as exc:
     obter_conexao_oracle = _ausente('obter_conexao_oracle')
     listar_vendas_paginado = _ausente('listar_vendas_paginado')
     faturar_pedido_venda_banco = _ausente('faturar_pedido_venda_banco')
+    criar_avaria_top30_banco = _ausente('criar_avaria_top30_banco')
+    criar_devolucao_top36_banco = _ausente('criar_devolucao_top36_banco')
+    consultar_nota_para_devolucao = _ausente('consultar_nota_para_devolucao')
+    obter_historico_lote = _ausente('obter_historico_lote')
 
 # ==============================================================================
 # FUNÇÕES UTILITÁRIAS (Parse e Conversão)
@@ -2273,6 +2282,127 @@ def api_faturar_pedido_venda(request: HttpRequest) -> JsonResponse:
 
     if not res.get('ok'):
         res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao faturar pedido')
+        return JsonResponse(res, status=400)
+    return JsonResponse(res, status=200)
+
+
+# ==============================================================================
+# 🔄 AVARIA (TOP 30) + DEVOLUÇÃO (TOP 36) + HISTÓRICO DE LOTE — Mai/2026
+# ==============================================================================
+
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_criar_avaria(request: HttpRequest) -> JsonResponse:
+    """Cria TGFCAB TOP 30 (avaria interna) + TGFITE com lote obrigatório.
+
+    Payload JSON:
+        codemp, codparc, codagregacao, codprod, qtdneg, codvol,
+        vlrunit (opcional), numnota_ref (opcional), observacao (opcional),
+        codtipvenda (opcional), dtneg (opcional 'DD/MM/YYYY')
+
+    STATUSNOTA='L' direto — avaria não tem TGFVAR nem financeiro.
+    Saldo do lote desconta automaticamente via view ANDRE_IAGRO_SALDO_LOTE.
+    """
+    payload = _get_json_payload(request)
+    if not payload:
+        return JsonResponse({"ok": False, "error": "JSON inválido"}, status=400)
+
+    if not verificar_permissao_escrita():
+        return JsonResponse({"ok": False, "error": "Escrita desabilitada"}, status=403)
+
+    try:
+        res = criar_avaria_top30_banco(
+            dados=payload,
+            codusu_logado=request.session.get('codusu'),
+        )
+    except Exception as e:
+        logger.exception("Erro em api_criar_avaria")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+    if not res.get('ok'):
+        res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao registrar avaria')
+        return JsonResponse(res, status=400)
+    return JsonResponse(res, status=200)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('venda')
+def api_obter_nota_para_devolucao(request: HttpRequest) -> JsonResponse:
+    """Carrega dados da nota origem (TOP 35/37 STATUSNOTA='L') para o modal
+    de devolução montar a lista de itens com trava de qtd devolvível.
+
+    Querystring: ?nunota=X
+    """
+    nunota = _converter_para_inteiro(request.GET.get('nunota'))
+    if not nunota:
+        return JsonResponse({"ok": False, "error": "nunota obrigatório"}, status=400)
+
+    try:
+        res = consultar_nota_para_devolucao(nunota)
+    except Exception as e:
+        logger.exception("Erro em api_obter_nota_para_devolucao")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+    if not res.get('ok'):
+        res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao carregar nota')
+        return JsonResponse(res, status=400)
+    return JsonResponse(res, status=200)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_criar_devolucao(request: HttpRequest) -> JsonResponse:
+    """Cria TGFCAB TOP 36 STATUSNOTA='A' + TGFITE par-a-par + TGFVAR.
+
+    Payload JSON:
+        nunota_origem: int (TOP 35/37 STATUSNOTA='L')
+        itens: [{sequencia_origem, qtd_devolver, vlrunit?}]
+        observacao (opcional), dtneg (opcional)
+
+    Após criação, operador confirma a devolução no Sankhya (muda STATUSNOTA
+    pra 'L', dispara financeiro reverso e abre NFe de devolução).
+    """
+    payload = _get_json_payload(request)
+    if not payload:
+        return JsonResponse({"ok": False, "error": "JSON inválido"}, status=400)
+
+    if not verificar_permissao_escrita():
+        return JsonResponse({"ok": False, "error": "Escrita desabilitada"}, status=403)
+
+    try:
+        res = criar_devolucao_top36_banco(
+            dados=payload,
+            codusu_logado=request.session.get('codusu'),
+        )
+    except Exception as e:
+        logger.exception("Erro em api_criar_devolucao")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+    if not res.get('ok'):
+        res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao criar devolução')
+        return JsonResponse(res, status=400)
+    return JsonResponse(res, status=200)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('venda')
+def api_historico_lote(request: HttpRequest) -> JsonResponse:
+    """Timeline completa de um lote — compra → classificação → venda → devolução/avaria.
+
+    Querystring: ?lote=CODAGREGACAO
+    """
+    lote = (request.GET.get('lote') or '').strip()
+    if not lote:
+        return JsonResponse({"ok": False, "error": "lote obrigatório"}, status=400)
+
+    try:
+        res = obter_historico_lote(lote)
+    except Exception as e:
+        logger.exception("Erro em api_historico_lote")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+    if not res.get('ok'):
+        res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao consultar histórico do lote')
         return JsonResponse(res, status=400)
     return JsonResponse(res, status=200)
 

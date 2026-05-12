@@ -2530,8 +2530,10 @@ def desfaturar_comercial_banco(nunota_13: int) -> dict:
 # Centralizado aqui para uma única fonte da verdade.
 # ------------------------------------------------------------------
 CODNAT_POR_TOP = {
+    30: 20010200,  # Avaria interna (perda no estoque) — DESCRNAT "AVARIA"
     34: 10010100,  # Pedido de Venda
     35: 10010100,  # Venda com NFe
+    36: 10020100,  # Devolução de venda — DESCRNAT "DEVOLUCAO DE VENDA"
     37: 10010200,  # Venda sem NFe
 }
 
@@ -2675,7 +2677,8 @@ def faturar_pedido_venda_banco(nunota: int, nova_top: int,
 
 
 def listar_vendas_paginado(limite: int = 50, offset: int = 0, **kwargs):
-    where = ["c.CODTIPOPER IN (34, 35, 37)", "c.STATUSNOTA <> 'E'"]
+    # TOP 30 (Avaria) e 36 (Devolução) entram na mesma lista — operador filtra via select.
+    where = ["c.CODTIPOPER IN (30, 34, 35, 36, 37)", "c.STATUSNOTA <> 'E'"]
     binds = {}
     
     # 1. Datas
@@ -5110,4 +5113,560 @@ def gravar_cod_cliente_codprod(codparc: int, cod_cliente: str, codprod: int,
             return res
     except Exception as exc:
         logger.exception("Erro em gravar_cod_cliente_codprod")
+        return {'ok': False, 'error': str(exc)}
+
+
+# ==============================================================================
+# 🔄 5. AVARIA (TOP 30) + DEVOLUÇÃO (TOP 36) + HISTÓRICO DE LOTE — Mai/2026
+# ==============================================================================
+#
+# Premissas (ver .claude/modules/venda.md):
+# - Avaria interna: TGFCAB TOP 30 STATUSNOTA='L' direto (sem TGFVAR, sem
+#   financeiro reverso). CODAGREGACAO obrigatório no item — rastreabilidade
+#   por lote é decisão do IAgro (Sankhya nativo deixa CODAGREGACAO=NULL).
+# - Devolução: TGFCAB TOP 36 STATUSNOTA='A' (em aberto) + TGFITE par-a-par
+#   preservando CODAGREGACAO da nota origem + INSERT em TGFVAR replicando
+#   fielmente o Sankhya nativo. Operador confirma no Sankhya, que dispara
+#   financeiro reverso e NFe de devolução.
+# - Histórico do lote: lê TGFITE+TGFCAB de um CODAGREGACAO. Timeline ordenada
+#   por DTNEG ASC. Permite "pegar um lote e ver o que aconteceu com ele".
+
+# Nome canônico das TOPs para o histórico (mapeado em apenas 1 lugar)
+_NOMES_TOP = {
+    11: 'Compra (Entrada)',
+    13: 'Vale de compra',
+    26: 'Classificação',
+    30: 'Avaria interna',
+    34: 'Pedido de venda',
+    35: 'Venda com NFe',
+    36: 'Devolução de venda',
+    37: 'Venda sem NFe',
+}
+
+
+def consultar_devolucoes_anteriores_de_nota(nunota_origem: int) -> dict:
+    """Lê TGFVAR pra somar QTDATENDIDA agrupada por SEQUENCIAORIG.
+
+    Usada na trava de "devolução excessiva" antes de criar TOP 36:
+        qtd_a_devolver + ja_devolvido <= qtd_vendida
+
+    Conta devoluções com STATUSNOTA <> 'E' (inclui 'A' em aberto + 'L'
+    confirmadas) — devolução em aberto já bloqueia novo lote daquela qtd.
+
+    Retorno: {ok: True, por_sequencia: {seq_orig: qtd_devolvida}}
+    """
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT v.SEQUENCIAORIG, NVL(SUM(v.QTDATENDIDA), 0) AS QTD_DEVOLVIDA
+                FROM TGFVAR v
+                JOIN TGFCAB c ON c.NUNOTA = v.NUNOTA
+                WHERE v.NUNOTAORIG = :n
+                  AND c.CODTIPOPER = 36
+                  AND c.STATUSNOTA <> 'E'
+                GROUP BY v.SEQUENCIAORIG
+            """, n=int(nunota_origem))
+            por_seq = {int(row[0]): float(row[1] or 0) for row in cur.fetchall()}
+        return {'ok': True, 'por_sequencia': por_seq}
+    except Exception as exc:
+        logger.exception("Erro em consultar_devolucoes_anteriores_de_nota")
+        return {'ok': False, 'error': str(exc), 'por_sequencia': {}}
+
+
+def consultar_nota_para_devolucao(nunota_origem: int) -> dict:
+    """Lê cabeçalho + itens de uma TOP 35/37 STATUSNOTA='L', incluindo a
+    quantidade já devolvida por SEQUENCIA (somatório de TGFVAR).
+
+    Usada pelo modal de devolução pra montar a lista de itens com travas.
+
+    Retorno: {ok: True, cabecalho: {...}, itens: [...]}
+        itens[i] = {sequencia, codprod, descrprod, codagregacao, codvol,
+                    qtdneg, vlrunit, vlrtot, qtd_ja_devolvida, qtd_devolvivel}
+    """
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT c.NUNOTA, c.NUMNOTA, c.CODEMP, c.CODPARC,
+                       c.CODTIPOPER, c.STATUSNOTA, c.VLRNOTA, c.CODTIPVENDA,
+                       TO_CHAR(c.DTNEG, 'YYYY-MM-DD') AS DTNEG_STR,
+                       p.NOMEPARC
+                FROM TGFCAB c
+                LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC
+                WHERE c.NUNOTA = :n
+            """, n=int(nunota_origem))
+            cab_row = cur.fetchone()
+            if not cab_row:
+                return {'ok': False, 'error': 'Nota não encontrada'}
+
+            codtipoper = int(cab_row[4])
+            statusnota = cab_row[5]
+            if codtipoper not in (35, 37):
+                return {
+                    'ok': False,
+                    'error': f'Devolução só de notas faturadas (TOP 35/37). '
+                             f'NUNOTA {nunota_origem} é TOP {codtipoper}.',
+                }
+            if statusnota != 'L':
+                return {
+                    'ok': False,
+                    'error': f'Nota precisa estar faturada (STATUSNOTA=L). '
+                             f'NUNOTA {nunota_origem} está STATUSNOTA={statusnota}.',
+                }
+
+            cabecalho = {
+                'nunota': int(cab_row[0]),
+                'numnota': int(cab_row[1] or 0),
+                'codemp': int(cab_row[2]),
+                'codparc': int(cab_row[3]),
+                'codtipoper': codtipoper,
+                'statusnota': statusnota,
+                'vlrnota': float(cab_row[6] or 0),
+                'codtipvenda': int(cab_row[7] or 0),
+                'dtneg': cab_row[8],
+                'nomeparc': cab_row[9] or '',
+            }
+
+            # Itens da nota
+            cur.execute("""
+                SELECT i.SEQUENCIA, i.CODPROD, pr.DESCRPROD, i.CODAGREGACAO,
+                       i.CODVOL, NVL(i.QTDNEG, 0), NVL(i.VLRUNIT, 0),
+                       NVL(i.VLRTOT, 0)
+                FROM TGFITE i
+                LEFT JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
+                WHERE i.NUNOTA = :n
+                ORDER BY i.SEQUENCIA
+            """, n=int(nunota_origem))
+            itens_raw = cur.fetchall()
+
+        # Quanto já foi devolvido por sequência
+        ja_dev = consultar_devolucoes_anteriores_de_nota(nunota_origem)
+        por_seq = ja_dev.get('por_sequencia', {})
+
+        itens = []
+        for r in itens_raw:
+            seq = int(r[0])
+            qtdneg = float(r[5])
+            ja = float(por_seq.get(seq, 0))
+            itens.append({
+                'sequencia': seq,
+                'codprod': int(r[1]),
+                'descrprod': r[2] or '',
+                'codagregacao': r[3] or '',
+                'codvol': r[4] or 'UN',
+                'qtdneg': qtdneg,
+                'vlrunit': float(r[6]),
+                'vlrtot': float(r[7]),
+                'qtd_ja_devolvida': ja,
+                'qtd_devolvivel': max(qtdneg - ja, 0),
+            })
+
+        return {'ok': True, 'cabecalho': cabecalho, 'itens': itens}
+    except Exception as exc:
+        logger.exception("Erro em consultar_nota_para_devolucao")
+        return {'ok': False, 'error': str(exc)}
+
+
+def criar_avaria_top30_banco(dados: dict, codusu_logado: int | None = None) -> dict:
+    """Cria TGFCAB TOP 30 (avaria) + TGFITE com CODAGREGACAO obrigatório.
+
+    STATUSNOTA='L' direto — avaria não tem financeiro, não tem NFe, não tem
+    TGFVAR. View ANDRE_IAGRO_SALDO_LOTE perna `baixas_avaria` já desconta
+    automaticamente do saldo.
+
+    dados esperado:
+        codemp: int
+        codparc: int
+        codagregacao: str (lote — obrigatório, é a chave da rastreabilidade)
+        codprod: int
+        qtdneg: float
+        codvol: str (default 'KG')
+        vlrunit: float (opcional, default 0)
+        numnota_ref: str|int (opcional — número da venda original, livre)
+        observacao: str (opcional — default 'AVARIA')
+        codtipvenda: int (opcional — default 11)
+        dtneg: 'DD/MM/YYYY' (opcional — default hoje)
+
+    Retorno: {ok, executed, nunota, codnat, vlrnota}
+    """
+    resultado = {'ok': False, 'executed': False, 'nunota': None}
+
+    if not verificar_permissao_escrita():
+        resultado['error'] = 'Escrita desabilitada'
+        return resultado
+
+    # Validações de payload
+    obrigatorios = ['codemp', 'codparc', 'codagregacao', 'codprod', 'qtdneg']
+    faltando = [c for c in obrigatorios if not dados.get(c)]
+    if faltando:
+        resultado['error'] = f'Campos obrigatórios faltando: {", ".join(faltando)}'
+        return resultado
+
+    try:
+        codemp = int(dados['codemp'])
+        codparc = int(dados['codparc'])
+        codagregacao = str(dados['codagregacao']).strip().upper()
+        codprod = int(dados['codprod'])
+        qtdneg = float(dados['qtdneg'])
+        if qtdneg <= 0:
+            resultado['error'] = 'Quantidade deve ser maior que zero'
+            return resultado
+    except (ValueError, TypeError):
+        resultado['error'] = 'Tipos inválidos no payload'
+        return resultado
+
+    codvol = str(dados.get('codvol') or 'KG').strip().upper()
+    vlrunit = float(dados.get('vlrunit') or 0)
+    numnota_ref = dados.get('numnota_ref') or 0
+    observacao = (dados.get('observacao') or 'AVARIA').strip()
+    codtipvenda = int(dados.get('codtipvenda') or 11)
+    dtneg = dados.get('dtneg') or datetime.now().strftime('%d/%m/%Y')
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            try:
+                # Valida lote existe e tem saldo
+                cur.execute("""
+                    SELECT NVL(SUM(QTD_DISPONIVEL), 0)
+                    FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE
+                    WHERE CODAGREGACAO = :l AND CODPROD = :p
+                """, l=codagregacao, p=codprod)
+                row = cur.fetchone()
+                saldo = float(row[0] or 0) if row else 0
+                if saldo <= 0:
+                    resultado['error'] = (
+                        f'Lote {codagregacao} sem saldo disponível para o produto {codprod}.'
+                    )
+                    return resultado
+                if qtdneg > saldo:
+                    resultado['error'] = (
+                        f'Saldo insuficiente no lote {codagregacao}. '
+                        f'Disponível: {saldo:.3f} · Solicitado: {qtdneg:.3f}.'
+                    )
+                    return resultado
+
+                # 1) Cabeçalho TGFCAB
+                cab_payload = {
+                    'CODEMP': codemp,
+                    'CODPARC': codparc,
+                    'CODTIPOPER': 30,
+                    'CODNAT': CODNAT_POR_TOP[30],
+                    'DTNEG': dtneg,
+                    'CODTIPVENDA': codtipvenda,
+                    'OBSERVACAO': observacao,
+                    'PENDENTE': 'N',
+                    'NUMNOTA': int(numnota_ref) if str(numnota_ref).strip().isdigit() else 0,
+                }
+                ret_cab = inserir_cabecalho_nota_banco(
+                    cab_payload, conexao_existente=conn,
+                )
+                if not ret_cab.get('ok'):
+                    resultado['error'] = ret_cab.get('error') or 'Falha ao criar cabeçalho TOP 30'
+                    return resultado
+                novo_nunota = int(ret_cab['nunota'])
+
+                # 2) Item TGFITE com CODAGREGACAO obrigatório
+                ite_payload = {
+                    'NUNOTA': novo_nunota,
+                    'CODPROD': codprod,
+                    'QTDNEG': qtdneg,
+                    'VLRUNIT': vlrunit,
+                    'CODVOL': codvol,
+                    'CODLOCALORIG': 101,
+                    'CODAGREGACAO': codagregacao,
+                    'OBSERVACAO': observacao,
+                }
+                ret_ite = inserir_item_nota_banco(
+                    ite_payload,
+                    conexao_existente=conn,
+                    codusu_logado=codusu_logado,
+                    gerar_lote_auto=False,
+                )
+                if not ret_ite.get('ok'):
+                    resultado['error'] = ret_ite.get('error') or 'Falha ao criar item TOP 30'
+                    return resultado
+
+                # 3) Recalcular totais (define VLRNOTA)
+                ret_rec = recalcular_totais_nota_banco(novo_nunota, conexao_existente=conn)
+                vlrnota = float(ret_rec.get('vlrnota') or (qtdneg * vlrunit))
+
+                # 4) Confirma direto STATUSNOTA='L' (avaria não tem fluxo de aprovação)
+                cur.execute("""
+                    UPDATE TGFCAB SET STATUSNOTA = 'L'
+                    WHERE NUNOTA = :n
+                """, n=novo_nunota)
+
+                conn.commit()
+                resultado.update({
+                    'ok': True, 'executed': True,
+                    'nunota': novo_nunota,
+                    'codnat': CODNAT_POR_TOP[30],
+                    'vlrnota': vlrnota,
+                })
+                return resultado
+            except Exception:
+                try: conn.rollback()
+                except Exception: pass
+                raise
+    except Exception as exc:
+        logger.exception("Erro em criar_avaria_top30_banco")
+        resultado['error'] = humanizar_erro_oracle(exc)
+        return resultado
+
+
+def criar_devolucao_top36_banco(dados: dict, codusu_logado: int | None = None) -> dict:
+    """Cria TGFCAB TOP 36 (devolução) + TGFITE par-a-par + TGFVAR.
+
+    STATUSNOTA='A' (em aberto). Operador confirma no Sankhya pra disparar
+    financeiro reverso + emissão NFe de devolução.
+
+    dados esperado:
+        nunota_origem: int (TOP 35/37 STATUSNOTA='L')
+        itens: list[{sequencia_origem, qtd_devolver, vlrunit?}]
+        observacao: str (opcional — default 'DEVOLUCAO')
+        dtneg: 'DD/MM/YYYY' (opcional — default hoje)
+
+    Retorno: {ok, executed, nunota, codnat, vlrnota}
+    """
+    resultado = {'ok': False, 'executed': False, 'nunota': None}
+
+    if not verificar_permissao_escrita():
+        resultado['error'] = 'Escrita desabilitada'
+        return resultado
+
+    if not dados.get('nunota_origem'):
+        resultado['error'] = 'nunota_origem obrigatório'
+        return resultado
+    itens_pedidos = dados.get('itens') or []
+    if not itens_pedidos:
+        resultado['error'] = 'Nenhum item informado para devolução'
+        return resultado
+
+    try:
+        nunota_origem = int(dados['nunota_origem'])
+    except (ValueError, TypeError):
+        resultado['error'] = 'nunota_origem inválido'
+        return resultado
+
+    observacao = (dados.get('observacao') or 'DEVOLUCAO').strip()
+    dtneg = dados.get('dtneg') or datetime.now().strftime('%d/%m/%Y')
+
+    # Carrega contexto da nota origem (cabeçalho + itens + qtd já devolvida)
+    info = consultar_nota_para_devolucao(nunota_origem)
+    if not info.get('ok'):
+        resultado['error'] = info.get('error') or 'Falha ao carregar nota origem'
+        return resultado
+
+    cab_origem = info['cabecalho']
+    itens_origem_por_seq = {it['sequencia']: it for it in info['itens']}
+
+    # Valida cada item pedido contra o saldo devolvível
+    itens_para_inserir = []
+    for it_req in itens_pedidos:
+        try:
+            seq_orig = int(it_req.get('sequencia_origem'))
+            qtd_dev = float(it_req.get('qtd_devolver') or 0)
+        except (ValueError, TypeError):
+            resultado['error'] = f'Item inválido: {it_req}'
+            return resultado
+
+        if qtd_dev <= 0:
+            continue  # ignora linhas em branco
+
+        if seq_orig not in itens_origem_por_seq:
+            resultado['error'] = (
+                f'Sequência {seq_orig} não pertence à nota {nunota_origem}'
+            )
+            return resultado
+
+        it_orig = itens_origem_por_seq[seq_orig]
+        devolvivel = it_orig['qtd_devolvivel']
+        if qtd_dev > devolvivel + 1e-6:
+            resultado['error'] = (
+                f'Quantidade excessiva no item SEQ={seq_orig} ({it_orig["descrprod"]}). '
+                f'Já devolvido: {it_orig["qtd_ja_devolvida"]:.3f} · '
+                f'Saldo devolvível: {devolvivel:.3f} · '
+                f'Solicitado: {qtd_dev:.3f}.'
+            )
+            return resultado
+
+        # Preço: usa o do payload se vier, senão preserva o original
+        vlrunit_req = it_req.get('vlrunit')
+        vlrunit = float(vlrunit_req) if vlrunit_req is not None else it_orig['vlrunit']
+
+        itens_para_inserir.append({
+            'sequencia_origem': seq_orig,
+            'codprod': it_orig['codprod'],
+            'qtdneg': qtd_dev,
+            'vlrunit': vlrunit,
+            'codvol': it_orig['codvol'],
+            'codagregacao': it_orig['codagregacao'] or None,
+        })
+
+    if not itens_para_inserir:
+        resultado['error'] = 'Nenhum item com quantidade > 0 para devolver'
+        return resultado
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            try:
+                # 1) Cabeçalho TGFCAB TOP 36
+                cab_payload = {
+                    'CODEMP': cab_origem['codemp'],
+                    'CODPARC': cab_origem['codparc'],
+                    'CODTIPOPER': 36,
+                    'CODNAT': CODNAT_POR_TOP[36],
+                    'DTNEG': dtneg,
+                    'CODTIPVENDA': cab_origem['codtipvenda'] or 2,
+                    'OBSERVACAO': observacao,
+                    'PENDENTE': 'S',  # em aberto até confirmação
+                    'AD_NUMPEDIDOORIG': None,  # Sankhya nativo deixa NULL
+                }
+                ret_cab = inserir_cabecalho_nota_banco(
+                    cab_payload, conexao_existente=conn,
+                )
+                if not ret_cab.get('ok'):
+                    resultado['error'] = ret_cab.get('error') or 'Falha ao criar cabeçalho TOP 36'
+                    return resultado
+                novo_nunota = int(ret_cab['nunota'])
+
+                # 2) Itens TGFITE + 3) TGFVAR par-a-par
+                # Necessário SEQUENCIA do TGFITE recém-criado pra popular TGFVAR
+                for item in itens_para_inserir:
+                    ite_payload = {
+                        'NUNOTA': novo_nunota,
+                        'CODPROD': item['codprod'],
+                        'QTDNEG': item['qtdneg'],
+                        'VLRUNIT': item['vlrunit'],
+                        'CODVOL': item['codvol'],
+                        'CODLOCALORIG': 101,
+                        'CODAGREGACAO': item['codagregacao'],
+                        'OBSERVACAO': observacao,
+                    }
+                    ret_ite = inserir_item_nota_banco(
+                        ite_payload,
+                        conexao_existente=conn,
+                        codusu_logado=codusu_logado,
+                        gerar_lote_auto=False,
+                    )
+                    if not ret_ite.get('ok'):
+                        resultado['error'] = ret_ite.get('error') or 'Falha ao inserir item TOP 36'
+                        return resultado
+
+                    seq_nova = int(ret_ite['sequencia'])
+
+                    # TGFVAR — replica fielmente Sankhya nativo
+                    cur.execute("""
+                        INSERT INTO TGFVAR (
+                            NUNOTA, SEQUENCIA, NUNOTAORIG, SEQUENCIAORIG,
+                            QTDATENDIDA, STATUSNOTA
+                        ) VALUES (:n, :s, :no, :so, :q, 'A')
+                    """, {
+                        'n': novo_nunota,
+                        's': seq_nova,
+                        'no': nunota_origem,
+                        'so': item['sequencia_origem'],
+                        'q': item['qtdneg'],
+                    })
+
+                # 4) Recalcular totais (VLRNOTA)
+                ret_rec = recalcular_totais_nota_banco(novo_nunota, conexao_existente=conn)
+                vlrnota = float(ret_rec.get('vlrnota') or 0)
+
+                # STATUSNOTA permanece 'A' (em aberto) — operador confirma no Sankhya
+
+                conn.commit()
+                resultado.update({
+                    'ok': True, 'executed': True,
+                    'nunota': novo_nunota,
+                    'codnat': CODNAT_POR_TOP[36],
+                    'vlrnota': vlrnota,
+                })
+                return resultado
+            except Exception:
+                try: conn.rollback()
+                except Exception: pass
+                raise
+    except Exception as exc:
+        logger.exception("Erro em criar_devolucao_top36_banco")
+        resultado['error'] = humanizar_erro_oracle(exc)
+        return resultado
+
+
+def obter_historico_lote(codagregacao: str) -> dict:
+    """Timeline completa de um lote: compra → classificação → venda → devolução/avaria.
+
+    Lê TGFITE+TGFCAB por CODAGREGACAO. Cada linha vira um nó da timeline.
+    Para TOP 35/37 com devolução, agrega os pares TGFVAR mostrando origem.
+
+    Retorno: {ok: True, lote: str, timeline: [...]}
+        timeline[i] = {
+            nunota, numnota, codtipoper, top_nome, statusnota,
+            dtneg, codparc, nomeparc, codprod, descrprod,
+            qtdneg, codvol, vlrunit, vlrtot,
+            is_baixa (bool — TOP 30/35/37), is_entrada (bool — TOP 11/26/13),
+            is_devolucao (bool — TOP 36),
+        }
+    """
+    if not codagregacao:
+        return {'ok': False, 'error': 'Lote vazio'}
+
+    lote = str(codagregacao).strip().upper()
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT
+                    c.NUNOTA, NVL(c.NUMNOTA, 0), c.CODTIPOPER, c.STATUSNOTA,
+                    TO_CHAR(c.DTNEG, 'YYYY-MM-DD'),
+                    c.CODPARC, p.NOMEPARC,
+                    i.CODPROD, pr.DESCRPROD,
+                    NVL(i.QTDNEG, 0), i.CODVOL,
+                    NVL(i.VLRUNIT, 0), NVL(i.VLRTOT, 0),
+                    i.SEQUENCIA, NVL(i.AD_QTDAVARIA, 0)
+                FROM TGFITE i
+                JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                LEFT JOIN TGFPAR p  ON p.CODPARC = c.CODPARC
+                LEFT JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
+                WHERE UPPER(i.CODAGREGACAO) = :l
+                  AND c.STATUSNOTA <> 'E'
+                ORDER BY c.DTNEG ASC, c.NUNOTA ASC, i.SEQUENCIA ASC
+            """, l=lote)
+            rows = cur.fetchall()
+
+        if not rows:
+            return {'ok': True, 'lote': lote, 'timeline': []}
+
+        timeline = []
+        for r in rows:
+            top = int(r[2])
+            timeline.append({
+                'nunota': int(r[0]),
+                'numnota': int(r[1] or 0),
+                'codtipoper': top,
+                'top_nome': _NOMES_TOP.get(top, f'TOP {top}'),
+                'statusnota': r[3] or '',
+                'dtneg': r[4],
+                'codparc': int(r[5]) if r[5] else None,
+                'nomeparc': r[6] or '',
+                'codprod': int(r[7]),
+                'descrprod': r[8] or '',
+                'qtdneg': float(r[9]),
+                'codvol': r[10] or 'UN',
+                'vlrunit': float(r[11]),
+                'vlrtot': float(r[12]),
+                'sequencia': int(r[13]),
+                'ad_qtdavaria': float(r[14]),
+                'is_baixa': top in (30, 35, 37),
+                'is_entrada': top in (11, 26, 13),
+                'is_devolucao': top == 36,
+            })
+
+        return {'ok': True, 'lote': lote, 'timeline': timeline}
+    except Exception as exc:
+        logger.exception("Erro em obter_historico_lote")
         return {'ok': False, 'error': str(exc)}

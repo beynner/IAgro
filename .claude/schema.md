@@ -127,8 +127,10 @@ Constante exportada em `oracle_conn.py` — fonte única para CODNAT por TOP de 
 
 ```python
 CODNAT_POR_TOP = {
+    30: 20010200,   # Avaria interna (DESCRNAT "AVARIA") — Mai/2026
     34: 10010100,   # Pedido de Venda
     35: 10010100,   # Venda com NFe
+    36: 10020100,   # Devolução de venda (DESCRNAT "DEVOLUCAO DE VENDA") — Mai/2026
     37: 10010200,   # Venda sem NFe
 }
 ```
@@ -140,10 +142,10 @@ CODNAT_POR_TOP = {
 | 11 | — | Compra (Entrada) | Recebimento de fornecedor | Gera lote com `CODAGREGACAO = NUNOTAS{SEQ}D{YYMMDD}` |
 | 13 | — | Vale de Compra (Comercial) | Faturamento de vales | Gera financeiro em TGFFIN |
 | 26 | — | Classificação confirmada | Triagem de qualidade | Discriminador de lote `CLASSIFICADO` no WMS |
-| 30 | — | Avaria interna (perda) | Perda no estoque | Perna D no WMS (não-vendável) |
+| 30 | 20010200 | Avaria interna (perda) | Módulo Venda IAgro (Mai/2026) | STATUSNOTA='L' direto. CODAGREGACAO obrigatório (rastreabilidade). Perna D no WMS |
 | 34 | 10010100 | Pedido de Venda (em aberto) | Módulo Venda | TOP base para edição/atribuição de lote |
 | 35 | 10010100 | Venda com NFe | Faturamento da Venda | Emissão real de NFe é tarefa do Sankhya |
-| 36 | 10020100 | (a confirmar) | — | Não usado no MVP |
+| 36 | 10020100 | Devolução de venda | Módulo Venda IAgro (Mai/2026) | STATUSNOTA='A' em aberto. TGFVAR populada no INSERT. Operador confirma no Sankhya |
 | 37 | 10010200 | Venda sem NFe | Faturamento da Venda | TOP alternativo para venda s/ documento fiscal |
 | 99 | 10010400 | (a confirmar) | — | Não usado no MVP |
 
@@ -185,11 +187,13 @@ View dedicada do WMS, **não toca `TGFEST` nativa do Sankhya**. Toda aritmética
 | C | `AGUARDANDO_CLASSIFICACAO` | TOP 11 com `GERAPRODUCAO='S'` ainda sem TOP 26 (qtd pendente = `QTDNEG − AD_QTDAVARIA − Σ TOP 26`) | ❌ |
 | D | `AVARIA_INTERNA` | TOP 30 (perda no estoque) | ❌ |
 | E | `AVARIA_FORNECEDOR` | `AD_QTDAVARIA` da TOP 11 (descarte da classificação repassado ao fornecedor) | ❌ |
+| F | `DEVOLVIDO` | TOP 36 STATUSNOTA='L' com `CODAGREGACAO` preservado (cliente devolveu — Mai/2026) | ❌ (informativo; SOMA ao saldo das pernas A/B) |
 
 ### Fórmula de saldo
 
 ```
 QTD_DISPONIVEL = ENTRADA
+               + Σ TOP 36 confirmadas (devolvido — Mai/2026)
                − BAIXA_VENDA (ver detalhe abaixo)
                − Σ TOP 30 confirmadas
                − Σ TOP 34 abertas (STATUSNOTA NOT IN ('L','E'))
@@ -302,8 +306,18 @@ Existe em **TGFCAB e TGFITE**. Convenção da Agromil para rastreabilidade da "n
 | `consultar_empresas_oracle` | Typeahead TSIEMP |
 | `consultar_tipos_negociacao_oracle` | Typeahead TGFTPV |
 | `consultar_cabecalho_venda_oracle` | SELECT cabeçalho + JOINs (TSIEMP, TGFPAR, TGFTPV) |
-| `listar_vendas_paginado(filtros, limite, offset)` | Listagem do portal de Venda |
+| `listar_vendas_paginado(filtros, limite, offset)` | Listagem do portal de Venda. WHERE inclui `CODTIPOPER IN (30, 34, 35, 36, 37)` (Mai/2026) |
 | `faturar_pedido_venda_banco(nunota, nova_top, codusu_logado)` | Faturamento atômico TOP 34 → 35/37 com `SELECT FOR UPDATE`, validação de itens com lote, geração de `NUMNOTA` por empresa |
+
+### Avaria + Devolução + Histórico de Lote (Mai/2026)
+
+| Função | Operação |
+|---|---|
+| `criar_avaria_top30_banco(dados, codusu)` | TGFCAB TOP 30 STATUSNOTA='L' direto + TGFITE com `CODAGREGACAO` obrigatório. Valida saldo via view. Reusa `inserir_cabecalho_nota_banco` + `inserir_item_nota_banco` |
+| `criar_devolucao_top36_banco(dados, codusu)` | TGFCAB TOP 36 STATUSNOTA='A' + TGFITE par-a-par preservando CODAGREGACAO + **INSERT em TGFVAR** replicando Sankhya nativo. Operador confirma no Sankhya |
+| `consultar_nota_para_devolucao(nunota_origem)` | Lê cabeçalho + itens da TOP 35/37 origem com `qtd_ja_devolvida` somada de TGFVAR. Usada pelo modal de devolução |
+| `consultar_devolucoes_anteriores_de_nota(nunota_origem)` | Soma TGFVAR.QTDATENDIDA por SEQUENCIAORIG (TOP 36 STATUSNOTA <> 'E'). Trava anti-devolução-excessiva |
+| `obter_historico_lote(codagregacao)` | Timeline completa do lote: TOP 11 → 26 → 13 → 34 → 35/37 → 30/36. Lê TGFITE+TGFCAB+TGFPAR. Ordenada por DTNEG ASC |
 
 ### Rastreio (WMS)
 

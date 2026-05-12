@@ -115,6 +115,12 @@ urlpatterns = [
     path("venda/api/cabecalho/editar/", views.api_atualizar_cabecalho_venda, name="api_atualizar_cabecalho_venda"),
     path("venda/api/faturar/", views.api_faturar_pedido_venda, name="api_faturar_pedido_venda"),
 
+    # Mai/2026 — Avaria (TOP 30) + Devolução (TOP 36) + Histórico de Lote
+    path("venda/api/avaria/criar/",          views.api_criar_avaria,              name="api_criar_avaria"),
+    path("venda/api/devolucao/preparar/",    views.api_obter_nota_para_devolucao, name="api_obter_nota_para_devolucao"),
+    path("venda/api/devolucao/criar/",       views.api_criar_devolucao,           name="api_criar_devolucao"),
+    path("venda/api/lote/historico/",        views.api_historico_lote,            name="api_historico_lote"),
+
 # ==============================================================================
 # 💰 MÓDULO DE RASTREABILIDADE
 # ==============================================================================

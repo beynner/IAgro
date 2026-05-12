@@ -8,7 +8,7 @@
 --   Toda a leitura é derivada de TGFITE + TGFCAB.
 --
 -- Pernas (cada lote pode aparecer em mais de uma — pernas A/B/C são exclusivas
--- entre si pelo discriminador "tem TOP 26?"; D e E são informativas paralelas):
+-- entre si pelo discriminador "tem TOP 26?"; D, E e F são informativas paralelas):
 --   A) CLASSIFICADO              → fonte TOP 26 (lote tem TOP 26 confirmada)
 --   B) NAO_CLASSIFICAVEL         → fonte TOP 13 (lote NÃO tem TOP 26)
 --   C) AGUARDANDO_CLASSIFICACAO  → in natura pendente:
@@ -16,11 +16,14 @@
 --   D) AVARIA_INTERNA            → fonte TOP 30 (informativo, perda no estoque)
 --   E) AVARIA_FORNECEDOR         → fonte AD_QTDAVARIA da TOP 11 (informativo,
 --                                  descarte da classificação repassado ao fornecedor)
+--   F) DEVOLVIDO                 → fonte TOP 36 (informativo, devolução do cliente
+--                                  retorna saldo ao lote — Mai/2026)
 --
--- Baixas e reservas que reduzem QTD_DISPONIVEL nas pernas A e B:
+-- Baixas, reservas e retornos que ajustam QTD_DISPONIVEL nas pernas A e B:
 --   QTD_BAIXADA_VENDA  = baixa de venda (ver detalhe abaixo)
 --   QTD_BAIXADA_AVARIA = Σ QTDNEG  TOP 30    com STATUSNOTA = 'L'
 --   QTD_RESERVADA      = Σ QTDNEG  TOP 34    com STATUSNOTA NOT IN ('L','E')
+--   QTD_DEVOLVIDA      = Σ QTDNEG  TOP 36    com STATUSNOTA = 'L'  (SOMA ao saldo)
 --
 -- QTD_BAIXADA_VENDA (Mai/2026): a vinculação de lote do IAgro vive no pedido
 -- (TOP 34), mesmo após faturamento. O Sankhya direto pode também vincular pela
@@ -32,8 +35,9 @@
 --      duplicar quando o operador vinculou pela IAgro (no pedido).
 -- Resultado: lote sai do disponível em qualquer um dos cenários, sem dobrar.
 --
--- Fórmula final (apenas pernas A e B; C e D retornam 0):
+-- Fórmula final (apenas pernas A e B; C, D, E e F retornam 0):
 --   QTD_DISPONIVEL = GREATEST( QTD_ENTRADA
+--                              + QTD_DEVOLVIDA           ← Mai/2026
 --                              − QTD_BAIXADA_VENDA
 --                              − QTD_BAIXADA_AVARIA
 --                              − QTD_RESERVADA, 0 )
@@ -152,6 +156,27 @@ WITH
   ),
 
   -- -------------------------------------------------------------------------
+  -- Devoluções confirmadas (TOP 36 STATUSNOTA='L') — Mai/2026.
+  -- Quando o cliente devolve, o lote do item da venda original retorna
+  -- ao estoque. Soma ao saldo da perna A/B do lote correspondente.
+  -- IAgro preserva CODAGREGACAO da nota origem ao criar TOP 36; Sankhya
+  -- nativo geralmente deixa CODAGREGACAO=NULL em TOP 36 — esses não
+  -- voltam saldo aqui (e não tem como, sem rastro de lote), mas a maior
+  -- parte das devoluções via IAgro fica devidamente rastreada.
+  -- -------------------------------------------------------------------------
+  devolucoes_lote AS (
+    SELECT
+      i.CODPROD, i.CODAGREGACAO,
+      SUM(NVL(i.QTDNEG, 0)) AS QTD_DEVOLVIDA
+    FROM TGFITE i
+    JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+    WHERE c.CODTIPOPER     = 36
+      AND c.STATUSNOTA     = 'L'
+      AND i.CODAGREGACAO IS NOT NULL
+    GROUP BY i.CODPROD, i.CODAGREGACAO
+  ),
+
+  -- -------------------------------------------------------------------------
   -- PERNA A — CLASSIFICADO (fonte TOP 26)
   -- -------------------------------------------------------------------------
   perna_a AS (
@@ -250,7 +275,29 @@ WITH
     WHERE lo.QTD_AVARIA_FORNECEDOR > 0
   ),
 
-  -- União das 5 pernas
+  -- -------------------------------------------------------------------------
+  -- PERNA F — DEVOLVIDO (fonte TOP 36 STATUSNOTA='L', informativa) — Mai/2026
+  -- Linha exposta no Rastreio pra operador ver o histórico do lote
+  -- (Compra → Classif. → Venda → Devolução). A volta de saldo de fato
+  -- acontece via devolucoes_lote, somada nas pernas A/B no SELECT final.
+  -- -------------------------------------------------------------------------
+  perna_f AS (
+    SELECT
+      i36.CODEMP,
+      i36.CODPROD,
+      i36.CODAGREGACAO,
+      'DEVOLVIDO'                   AS STATUS_LINHA,
+      SUM(NVL(i36.QTDNEG, 0))       AS QTD_ENTRADA,
+      0                             AS QTD_PENDENTE
+    FROM TGFITE i36
+    JOIN TGFCAB c36 ON c36.NUNOTA = i36.NUNOTA
+    WHERE c36.CODTIPOPER     = 36
+      AND c36.STATUSNOTA     = 'L'
+      AND i36.CODAGREGACAO IS NOT NULL
+    GROUP BY i36.CODEMP, i36.CODPROD, i36.CODAGREGACAO
+  ),
+
+  -- União das 6 pernas
   todas_pernas AS (
     SELECT * FROM perna_a
     UNION ALL
@@ -261,6 +308,8 @@ WITH
     SELECT * FROM perna_d
     UNION ALL
     SELECT * FROM perna_e
+    UNION ALL
+    SELECT * FROM perna_f
   )
 
 -- =============================================================================
@@ -278,10 +327,12 @@ SELECT
   NVL(bv.QTD_BAIXADA_VENDA,  0) AS QTD_BAIXADA_VENDA,
   NVL(ba.QTD_BAIXADA_AVARIA, 0) AS QTD_BAIXADA_AVARIA,
   NVL(rp.QTD_RESERVADA,      0) AS QTD_RESERVADA,
+  NVL(dv.QTD_DEVOLVIDA,      0) AS QTD_DEVOLVIDA,
   CASE
     WHEN tp.STATUS_LINHA IN ('CLASSIFICADO', 'NAO_CLASSIFICAVEL') THEN
       GREATEST(
         tp.QTD_ENTRADA
+          + NVL(dv.QTD_DEVOLVIDA,    0)
           - NVL(bv.QTD_BAIXADA_VENDA,  0)
           - NVL(ba.QTD_BAIXADA_AVARIA, 0)
           - NVL(rp.QTD_RESERVADA,      0),
@@ -308,6 +359,8 @@ LEFT JOIN baixas_avaria    ba ON ba.CODPROD      = tp.CODPROD
                               AND ba.CODAGREGACAO = tp.CODAGREGACAO
 LEFT JOIN reservas_pedido  rp ON rp.CODPROD      = tp.CODPROD
                               AND rp.CODAGREGACAO = tp.CODAGREGACAO
+LEFT JOIN devolucoes_lote  dv ON dv.CODPROD      = tp.CODPROD
+                              AND dv.CODAGREGACAO = tp.CODAGREGACAO
 LEFT JOIN lotes_origem     lo ON lo.CODEMP = tp.CODEMP
                               AND lo.CODAGREGACAO = tp.CODAGREGACAO
 LEFT JOIN TGFPRO           pr ON pr.CODPROD = tp.CODPROD

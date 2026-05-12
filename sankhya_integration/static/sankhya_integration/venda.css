@@ -505,6 +505,8 @@
 .top-badge.top-34 { background: #dbeafe; color: #1e40af; }
 .top-badge.top-35 { background: #d1fae5; color: #065f46; }
 .top-badge.top-37 { background: #fef3c7; color: #92400e; }
+.top-badge.top-30 { background: #fee2e2; color: #991b1b; }   /* Vermelho avaria — Mai/2026 */
+.top-badge.top-36 { background: #fef3c7; color: #92400e; }   /* Amarelo devolução — Mai/2026 */
 
 /* ==========================================================================
    MÓDULO 7: BOTÕES DE AÇÃO POR LINHA NOS ITENS DO MODAL (edit/remove)
@@ -758,9 +760,302 @@ input:focus {
 }
 
 /* Item focado via teclado ou mouse */
-.dd-item.active { 
+.dd-item.active {
     background: #EAF0E8; /* Verde sutil do Sankhya */
-    border-left: 3px solid #6F8B60; 
-    font-weight: 600; 
-    color: #334155; 
+    border-left: 3px solid #6F8B60;
+    font-weight: 600;
+    color: #334155;
+}
+
+/* ==========================================================================
+   AVARIA + DEVOLUÇÃO + HISTÓRICO DE LOTE — Mai/2026
+   ========================================================================== */
+
+/* Divisor visual na toolbar entre grupo de pedidos e grupo de avaria/devolução */
+.toolbar-divider {
+    display: inline-block;
+    width: 1px;
+    height: 22px;
+    background: #d1d5db;
+    margin: 0 6px;
+    vertical-align: middle;
+}
+
+/* Botões coloridos da toolbar (diferenciam ações destrutivas das normais) */
+/* Mai/2026 — paleta revisada: avaria=vermelho (destrutivo), devolução=amarelo (reversível) */
+.icon-btn-venda.btn-avaria {
+    color: #b91c1c;          /* vermelho avaria — irreversível, sai do estoque */
+}
+.icon-btn-venda.btn-avaria:hover:not(:disabled) {
+    background: #fef2f2;
+    color: #7f1d1d;
+}
+.icon-btn-venda.btn-devolucao {
+    color: #b45309;          /* amarelo devolução — reversível, retorna estoque */
+}
+.icon-btn-venda.btn-devolucao:hover:not(:disabled) {
+    background: #fffbeb;
+    color: #92400e;
+}
+.icon-btn-venda.btn-avaria:disabled,
+.icon-btn-venda.btn-devolucao:disabled {
+    color: #cbd5e1;
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+.icon-btn-venda.btn-historico {
+    color: #1d4ed8;          /* azul rastreio */
+}
+.icon-btn-venda.btn-historico:hover {
+    background: #eff6ff;
+    color: #1e40af;
+}
+
+/* Badge na coluna TOP da listagem — pequeno, contornado */
+.top-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 9px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 16px;
+    border: 1px solid currentColor;
+    background: rgba(255, 255, 255, 0.6);
+}
+.top-badge-34 { color: #1d4ed8; }                 /* Azul */
+.top-badge-35 { color: #16a34a; }                 /* Verde NFe */
+.top-badge-37 { color: #6b7280; }                 /* Cinza s/NFe */
+.top-badge-30 { color: #c2410c; }                 /* Laranja avaria */
+.top-badge-36 { color: #b91c1c; }                 /* Vermelho devolução */
+.top-badge-11, .top-badge-13, .top-badge-26 { color: #6f8b60; }  /* tons agro */
+
+/* Override do modal-overlay (precisa por causa do conflito com entrada.css) */
+#avariaModal:not(.hidden),
+#devolucaoModal:not(.hidden),
+#historicoLoteModal:not(.hidden) {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Subtítulo no header do modal */
+.modal-header-sub {
+    display: block;
+    font-size: 12px;
+    font-weight: 400;
+    opacity: 0.75;
+    margin-top: 2px;
+}
+
+/* Aviso leve no topo do modal (info, não-bloqueante) */
+.aviso-leve {
+    padding: 8px 10px;
+    background: #f0f9ff;
+    border-left: 3px solid #0ea5e9;
+    color: #075985;
+    font-size: 12px;
+    line-height: 1.4;
+    margin-bottom: 10px;
+    border-radius: 0 4px 4px 0;
+}
+
+/* Info do lote / nota dentro do modal */
+.avaria-lote-info,
+.dev-nota-info {
+    padding: 8px 10px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    margin: 8px 0;
+}
+.info-line {
+    display: block;
+    font-size: 12px;
+    color: #475569;
+    line-height: 1.6;
+}
+
+/* Tabela do modal de devolução */
+.dev-itens-tabela {
+    width: 100%;
+    font-size: 12.5px;
+}
+.dev-itens-tabela th {
+    background: #f1f5f9;
+    font-weight: 600;
+    color: #334155;
+    padding: 6px 8px;
+    border-bottom: 1px solid #cbd5e1;
+}
+.dev-itens-tabela td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #f1f5f9;
+}
+.dev-itens-tabela .dev-qtd {
+    text-align: right;
+    padding: 3px 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 3px;
+    width: 100%;
+}
+.dev-itens-tabela .dev-item-zerado {
+    opacity: 0.5;
+    background: #fafafa;
+}
+.dev-itens-wrap label {
+    display: block;
+    font-size: 12px;
+    color: #475569;
+    font-weight: 600;
+    margin: 10px 0 4px;
+}
+
+/* Botão variante warning (avaria) e danger (devolução) — caso não existam */
+.btn-warning {
+    background: #ea580c;
+    color: #fff;
+    border: 1px solid #c2410c;
+}
+.btn-warning:hover:not(:disabled) {
+    background: #c2410c;
+}
+.btn-danger {
+    background: #dc2626;
+    color: #fff;
+    border: 1px solid #b91c1c;
+}
+.btn-danger:hover:not(:disabled) {
+    background: #b91c1c;
+}
+
+/* Spinner de loading nos botões durante POST */
+.btn--loading {
+    position: relative;
+    opacity: 0.75;
+    pointer-events: none;
+}
+.btn--loading::after {
+    content: '';
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    top: 50%;
+    right: 8px;
+    margin-top: -6px;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: ia-girar 0.7s linear infinite;
+}
+@keyframes ia-girar {
+    to { transform: rotate(360deg); }
+}
+
+/* ----- Histórico do lote — timeline ----- */
+.hist-resumo {
+    padding: 8px 10px;
+    background: #f1f5f9;
+    border-radius: 4px;
+    margin: 8px 0;
+    font-size: 12px;
+    color: #475569;
+    display: flex;
+    gap: 16px;
+}
+
+.hist-timeline {
+    max-height: 420px;
+    overflow-y: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 10px;
+    background: #fafafa;
+    position: relative;
+}
+
+.hist-event {
+    position: relative;
+    padding: 10px 12px 10px 36px;
+    margin-bottom: 8px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #94a3b8;
+    border-radius: 4px;
+    font-size: 12.5px;
+}
+.hist-event::before {
+    content: '';
+    position: absolute;
+    left: 12px;
+    top: 14px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #94a3b8;
+    box-shadow: 0 0 0 3px #fff, 0 0 0 4px #e2e8f0;
+}
+
+.hist-node-entrada {
+    border-left-color: #6f8b60;
+}
+.hist-node-entrada::before { background: #6f8b60; }
+
+.hist-node-baixa {
+    border-left-color: #16a34a;
+}
+.hist-node-baixa::before { background: #16a34a; }
+
+.hist-node-devolucao {
+    border-left-color: #b91c1c;
+}
+.hist-node-devolucao::before { background: #b91c1c; }
+
+.hist-event-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+}
+.hist-top-badge {
+    padding: 1px 7px;
+    background: #f1f5f9;
+    border: 1px solid currentColor;
+    border-radius: 9px;
+    font-size: 10.5px;
+    font-weight: 700;
+    line-height: 16px;
+}
+.hist-top-nome {
+    color: #1e293b;
+    font-size: 13px;
+}
+.hist-date {
+    margin-left: auto;
+    color: #64748b;
+    font-size: 11.5px;
+}
+.hist-status {
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+.hist-status-l {
+    background: #dcfce7;
+    color: #166534;
+}
+.hist-status-a {
+    background: #fef3c7;
+    color: #92400e;
+}
+.hist-event-body {
+    color: #334155;
+    line-height: 1.5;
+}
+.hist-event-prod {
+    color: #64748b;
+    font-size: 12px;
+    margin-top: 2px;
 }

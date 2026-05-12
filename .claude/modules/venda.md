@@ -230,6 +230,93 @@ Decisão arquitetural alinhada com Entrada/Classificação/Comercial: **todo ped
 
 ---
 
+## Avaria (TOP 30) — Mai/2026
+
+Registro de perda interna de estoque, rastreado por lote.
+
+### Fluxo
+
+1. Operador na tela Vendas clica `⚠ Avaria` na toolbar
+2. Modal `#avariaModal` abre:
+   - Typeahead de lote (busca por CODAGREGACAO ou DESCRPROD via endpoint do Rastreio com `q_lote_prod`)
+   - Auto-preenche produto + fornecedor + saldo disponível ao selecionar
+   - Operador escolhe cliente, qtd, vol (default KG), NUMNOTA da venda original (campo livre), motivo
+3. Frontend valida cliente: lote selecionado, qtd > 0, saldo suficiente (cliente)
+4. POST `/sankhya/venda/api/avaria/criar/` → `criar_avaria_top30_banco`
+5. Backend: valida saldo na view, cria TGFCAB TOP 30 (CODNAT=20010200, TIPMOV='V' via TGFTOP) + TGFITE com CODAGREGACAO obrigatório + STATUSNOTA='L' direto
+6. View `ANDRE_IAGRO_SALDO_LOTE` desconta automaticamente via `baixas_avaria`
+
+### Decisões-chave
+
+- **STATUSNOTA='L' direto** — avaria não tem TGFVAR, não tem financeiro reverso, não tem NFe. Sankhya nativo também só registra a perda
+- **CODAGREGACAO obrigatório no item** — diferente do Sankhya nativo (que deixa NULL), IAgro registra o lote pra rastreabilidade ponta-a-ponta. Aparece no Histórico do Lote
+- **NUMNOTA livre** — operador anota número da venda original como referência humana, sem vínculo formal de TGFVAR
+- **Auto-cura `AD_NUMPEDIDOORIG` por CODAGREGACAO** funciona automaticamente em `inserir_item_nota_banco` — o cabeçalho TOP 30 herda a raiz (TOP 11) do lote sem código adicional
+
+---
+
+## Devolução (TOP 36) — Mai/2026
+
+Cliente devolveu mercadoria de uma TOP 35 (NFe) ou TOP 37 (s/ NFe) faturada.
+
+### Fluxo
+
+1. Operador na tela Vendas clica `📤 Devolução` na toolbar
+2. Modal `#devolucaoModal` abre:
+   - Input NUNOTA da nota origem + botão `Carregar Itens`
+   - GET `/sankhya/venda/api/devolucao/preparar/?nunota=X` → `consultar_nota_para_devolucao`
+   - Cabeçalho da nota exibido (cliente, data, total, NUMNOTA)
+   - Tabela de itens com colunas: checkbox · produto · lote · qtd vendida · já devolvido · saldo devolvível · qtd a devolver
+   - Marca checkbox → pré-preenche qtd a devolver com saldo máximo
+3. Frontend valida cliente: pelo menos 1 item marcado, qtd > 0 e ≤ saldo devolvível
+4. POST `/sankhya/venda/api/devolucao/criar/` → `criar_devolucao_top36_banco`
+5. Backend:
+   - Recarrega contexto da nota origem
+   - Valida cada item: `qtd_devolver + ja_devolvido <= qtd_vendida` via TGFVAR
+   - Cria TGFCAB TOP 36 STATUSNOTA='A' (em aberto) + TGFITE par-a-par preservando CODAGREGACAO
+   - **INSERT em TGFVAR** (NUNOTA, SEQUENCIA, NUNOTAORIG=nota_origem, SEQUENCIAORIG, QTDATENDIDA, STATUSNOTA='A')
+6. Operador entra no Sankhya, abre a devolução criada, clica `Confirmar` → STATUSNOTA vira 'L' + dispara financeiro reverso + abre NFe devolução
+7. Quando STATUSNOTA='L', view `ANDRE_IAGRO_SALDO_LOTE` **soma** a qtd ao saldo do lote correspondente (perna F + soma em A/B)
+
+### Decisões-chave
+
+- **STATUSNOTA='A' (em aberto), não 'L'** — Sankhya cuida do financeiro/NFe na confirmação. IAgro não duplica o trabalho do ERP
+- **TGFVAR populada no INSERT** — descoberto em investigação Mai/2026: Sankhya nativo popula TGFVAR JÁ no INSERT da TOP 36 (12 de 13 STATUSNOTA='A' têm TGFVAR par). Replicar fielmente é o caminho que o ERP espera
+- **AD_NUMPEDIDOORIG=NULL na TOP 36** — Sankhya nativo deixa NULL em 100% das devoluções. Vínculo real vive em TGFVAR. IAgro mantém o mesmo padrão (a função `inserir_cabecalho_nota_banco` substitui NULL por NUNOTA próprio, gerando discrepância cosmética com Sankhya — inocua na operação, documentada como pendência menor)
+- **CODAGREGACAO preservado** dos itens da nota origem — diferente do Sankhya nativo, que geralmente perde o vínculo de lote. IAgro pre­serva pra rastreabilidade
+- **Trava anti-devolução-excessiva** via `consultar_devolucoes_anteriores_de_nota` que soma TGFVAR.QTDATENDIDA por SEQUENCIAORIG (inclui STATUSNOTA='A' e 'L' — devolução em aberto também bloqueia novo cliente)
+
+### Gotcha refinado
+
+O gotcha "TGFVAR é populada via trigger Sankhya — NÃO escrever direto" foi escrito no contexto do Rastreio Fase 2 (criar vínculo de lote artificial sem criar devolução). Aqui estamos criando uma **devolução real**, exatamente como o Sankhya nativo cria. **Não é trapaça, é replicação fiel**. A cascata em TGMTRA disparada por `TRG_INC_TGFVAR` acontece igual em qualquer cenário — o ERP foi feito pra esse caminho.
+
+---
+
+## Histórico do Lote — Mai/2026
+
+Tela de consulta: "pegue um lote e veja tudo que aconteceu com ele".
+
+### Fluxo
+
+1. Operador clica `🔍 Histórico` na toolbar
+2. Modal `#historicoLoteModal` abre com input de CODAGREGACAO
+3. GET `/sankhya/venda/api/lote/historico/?lote=X` → `obter_historico_lote`
+4. Backend: lê TGFITE+TGFCAB+TGFPAR de um CODAGREGACAO, ordenado por DTNEG ASC
+5. Frontend renderiza timeline vertical com nós coloridos por TOP:
+   - Verde agro = TOP 11/13/26 (entradas)
+   - Verde NFe = TOP 35/37 (vendas)
+   - Vermelho = TOP 36 (devolução)
+   - Cinza/escuro = TOP 30 (avaria)
+6. Cada nó mostra: TOP+nome, NUNOTA, NUMNOTA, parceiro, produto, qtd, valor, status
+
+### Dados consultados
+
+- Inclui só STATUSNOTA <> 'E' (descarta notas excluídas)
+- Não consulta TGFVAR — usa apenas CODAGREGACAO em TGFITE pra montar a timeline
+- Função pública `obter_historico_lote` é leitura pura, sem efeitos colaterais
+
+---
+
 ## Pendências
 
 - **Vínculo lote ↔ item dentro do modal** — hoje fica para o Rastreio. Avaliação: manter assim (recomendação) ou adicionar typeahead com saldo de lote.

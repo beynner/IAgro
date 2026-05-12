@@ -1055,6 +1055,388 @@ class FaturarPedidoVendaTest(TestCase):
         self.assertIn('aguarde', body['error'].lower())
 
 
+# ===========================================================================
+# AVARIA (TOP 30) + DEVOLUÇÃO (TOP 36) + HISTÓRICO DE LOTE — Mai/2026
+# ===========================================================================
+
+class CriarAvariaEndpointTest(TestCase):
+    """Endpoint /sankhya/venda/api/avaria/criar/"""
+
+    def setUp(self):
+        self.client = Client()
+        _login_session(self.client, grupos=['10'])
+        self.url = reverse('api_criar_avaria')
+
+    def _post(self, payload):
+        return self.client.post(self.url, data=json.dumps(payload),
+                                content_type='application/json')
+
+    def test_sem_sessao_redireciona(self):
+        client = Client()  # sem login
+        response = client.post(self.url, data=json.dumps({}),
+                               content_type='application/json')
+        self.assertEqual(response.status_code, 302)
+
+    def test_grupo_operacao_redireciona(self):
+        client = Client()
+        _login_session(client, grupos=['8'])
+        response = client.post(self.url, data=json.dumps({'codemp': 10}),
+                               content_type='application/json')
+        self.assertEqual(response.status_code, 302)
+
+    def test_payload_invalido_400(self):
+        response = self._post({'invalido': True})
+        # JSON inválido / faltando campos vira 400; o service valida o resto
+        self.assertIn(response.status_code, (400, 500))
+
+    @patch('sankhya_integration.views.criar_avaria_top30_banco',
+           return_value={'ok': True, 'executed': True, 'nunota': 99999,
+                         'codnat': 20010200, 'vlrnota': 250.00})
+    @patch('sankhya_integration.views.verificar_permissao_escrita',
+           return_value=True)
+    def test_sucesso(self, _mp, _mock_svc):
+        response = self._post({
+            'codemp': 10, 'codparc': 566, 'codagregacao': '12345S01D260507',
+            'codprod': 358, 'qtdneg': 50.0, 'codvol': 'KG',
+        })
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.content)
+        self.assertTrue(body['ok'])
+        self.assertEqual(body['nunota'], 99999)
+        self.assertEqual(body['codnat'], 20010200)
+
+    @patch('sankhya_integration.views.criar_avaria_top30_banco',
+           return_value={'ok': False, 'error': 'Saldo insuficiente no lote X.'})
+    @patch('sankhya_integration.views.verificar_permissao_escrita',
+           return_value=True)
+    def test_saldo_insuficiente_400(self, _mp, _mock_svc):
+        response = self._post({
+            'codemp': 10, 'codparc': 566, 'codagregacao': 'X',
+            'codprod': 1, 'qtdneg': 99999.0,
+        })
+        self.assertEqual(response.status_code, 400)
+        body = json.loads(response.content)
+        self.assertFalse(body['ok'])
+        self.assertIn('Saldo insuficiente', body['error'])
+
+    @patch('sankhya_integration.views.verificar_permissao_escrita',
+           return_value=False)
+    def test_escrita_desabilitada_403(self, _mp):
+        response = self._post({'codemp': 10, 'codparc': 566})
+        self.assertEqual(response.status_code, 403)
+
+    @patch('sankhya_integration.views.criar_avaria_top30_banco',
+           side_effect=Exception('ORA-00054 recurso ocupado'))
+    @patch('sankhya_integration.views.verificar_permissao_escrita',
+           return_value=True)
+    def test_excecao_humanizada(self, _mp, _mock_svc):
+        response = self._post({
+            'codemp': 10, 'codparc': 566, 'codagregacao': 'X',
+            'codprod': 1, 'qtdneg': 1.0,
+        })
+        self.assertEqual(response.status_code, 500)
+        body = json.loads(response.content)
+        self.assertNotIn('ORA-00054', body['error'])
+
+
+class ObterNotaParaDevolucaoEndpointTest(TestCase):
+    """Endpoint /sankhya/venda/api/devolucao/preparar/?nunota=X"""
+
+    def setUp(self):
+        self.client = Client()
+        _login_session(self.client, grupos=['10'])
+        self.url = reverse('api_obter_nota_para_devolucao')
+
+    def test_sem_nunota_400(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 400)
+
+    @patch('sankhya_integration.views.consultar_nota_para_devolucao',
+           return_value={'ok': False, 'error': 'Nota não encontrada'})
+    def test_nota_inexistente_400(self, _mock):
+        response = self.client.get(self.url, {'nunota': 99999})
+        self.assertEqual(response.status_code, 400)
+
+    @patch('sankhya_integration.views.consultar_nota_para_devolucao',
+           return_value={
+               'ok': True,
+               'cabecalho': {'nunota': 111971, 'numnota': 6266,
+                             'codemp': 10, 'codparc': 244,
+                             'codtipoper': 35, 'statusnota': 'L',
+                             'vlrnota': 100.0, 'codtipvenda': 2,
+                             'dtneg': '2026-05-09', 'nomeparc': 'CLIENTE X'},
+               'itens': [
+                   {'sequencia': 1, 'codprod': 21, 'descrprod': 'TOMATE',
+                    'codagregacao': '12345S01D260507', 'codvol': 'KG',
+                    'qtdneg': 10.0, 'vlrunit': 5.0, 'vlrtot': 50.0,
+                    'qtd_ja_devolvida': 2.0, 'qtd_devolvivel': 8.0},
+               ],
+           })
+    def test_sucesso(self, _mock):
+        response = self.client.get(self.url, {'nunota': 111971})
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.content)
+        self.assertTrue(body['ok'])
+        self.assertEqual(body['cabecalho']['nunota'], 111971)
+        self.assertEqual(len(body['itens']), 1)
+        self.assertEqual(body['itens'][0]['qtd_devolvivel'], 8.0)
+
+
+class CriarDevolucaoEndpointTest(TestCase):
+    """Endpoint /sankhya/venda/api/devolucao/criar/"""
+
+    def setUp(self):
+        self.client = Client()
+        _login_session(self.client, grupos=['10'])
+        self.url = reverse('api_criar_devolucao')
+
+    def _post(self, payload):
+        return self.client.post(self.url, data=json.dumps(payload),
+                                content_type='application/json')
+
+    @patch('sankhya_integration.views.criar_devolucao_top36_banco',
+           return_value={'ok': True, 'executed': True, 'nunota': 111999,
+                         'codnat': 10020100, 'vlrnota': 80.0})
+    @patch('sankhya_integration.views.verificar_permissao_escrita',
+           return_value=True)
+    def test_sucesso(self, _mp, _mock_svc):
+        response = self._post({
+            'nunota_origem': 111971,
+            'itens': [{'sequencia_origem': 1, 'qtd_devolver': 8.0}],
+            'observacao': 'cliente recusou',
+        })
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.content)
+        self.assertTrue(body['ok'])
+        self.assertEqual(body['nunota'], 111999)
+        self.assertEqual(body['codnat'], 10020100)
+
+    @patch('sankhya_integration.views.criar_devolucao_top36_banco',
+           return_value={'ok': False, 'error': 'Quantidade excessiva no item SEQ=1 (TOMATE). Já devolvido: 8.000 · Saldo devolvível: 2.000 · Solicitado: 5.000.'})
+    @patch('sankhya_integration.views.verificar_permissao_escrita',
+           return_value=True)
+    def test_qtd_excessiva_400(self, _mp, _mock_svc):
+        response = self._post({
+            'nunota_origem': 111971,
+            'itens': [{'sequencia_origem': 1, 'qtd_devolver': 5.0}],
+        })
+        self.assertEqual(response.status_code, 400)
+        body = json.loads(response.content)
+        self.assertIn('Quantidade excessiva', body['error'])
+
+    @patch('sankhya_integration.views.verificar_permissao_escrita',
+           return_value=False)
+    def test_escrita_desabilitada_403(self, _mp):
+        response = self._post({'nunota_origem': 111971,
+                               'itens': [{'sequencia_origem': 1, 'qtd_devolver': 1.0}]})
+        self.assertEqual(response.status_code, 403)
+
+    def test_payload_invalido_400(self):
+        response = self.client.post(self.url, data='não-json',
+                                    content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+
+
+class HistoricoLoteEndpointTest(TestCase):
+    """Endpoint /sankhya/venda/api/lote/historico/?lote=X"""
+
+    def setUp(self):
+        self.client = Client()
+        _login_session(self.client, grupos=['10'])
+        self.url = reverse('api_historico_lote')
+
+    def test_sem_lote_400(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 400)
+
+    @patch('sankhya_integration.views.obter_historico_lote',
+           return_value={'ok': True, 'lote': '12345S01D260507', 'timeline': []})
+    def test_lote_inexistente_retorna_timeline_vazia(self, _mock):
+        response = self.client.get(self.url, {'lote': '12345S01D260507'})
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.content)
+        self.assertTrue(body['ok'])
+        self.assertEqual(body['timeline'], [])
+
+    @patch('sankhya_integration.views.obter_historico_lote',
+           return_value={
+               'ok': True, 'lote': '12345S01D260507',
+               'timeline': [
+                   {'nunota': 100, 'numnota': 5000, 'codtipoper': 11,
+                    'top_nome': 'Compra (Entrada)', 'statusnota': 'L',
+                    'dtneg': '2026-04-01', 'codparc': 100, 'nomeparc': 'FOR.',
+                    'codprod': 358, 'descrprod': 'TOMATE', 'qtdneg': 1000.0,
+                    'codvol': 'KG', 'vlrunit': 3.0, 'vlrtot': 3000.0,
+                    'sequencia': 1, 'ad_qtdavaria': 0,
+                    'is_baixa': False, 'is_entrada': True, 'is_devolucao': False},
+                   {'nunota': 200, 'numnota': 6000, 'codtipoper': 35,
+                    'top_nome': 'Venda com NFe', 'statusnota': 'L',
+                    'dtneg': '2026-05-01', 'codparc': 500, 'nomeparc': 'CLI.',
+                    'codprod': 358, 'descrprod': 'TOMATE', 'qtdneg': 200.0,
+                    'codvol': 'KG', 'vlrunit': 5.0, 'vlrtot': 1000.0,
+                    'sequencia': 1, 'ad_qtdavaria': 0,
+                    'is_baixa': True, 'is_entrada': False, 'is_devolucao': False},
+               ],
+           })
+    def test_timeline_completa(self, _mock):
+        response = self.client.get(self.url, {'lote': '12345S01D260507'})
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.content)
+        self.assertEqual(len(body['timeline']), 2)
+        # Ordem cronológica preservada
+        self.assertEqual(body['timeline'][0]['codtipoper'], 11)
+        self.assertEqual(body['timeline'][1]['codtipoper'], 35)
+
+    def test_sem_sessao_redireciona(self):
+        client = Client()
+        response = client.get(self.url, {'lote': 'X'})
+        self.assertEqual(response.status_code, 302)
+
+
+class CriarAvariaServiceTest(TestCase):
+    """Testa direto a função criar_avaria_top30_banco (sem passar pela view)."""
+
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=False)
+    def test_escrita_desabilitada(self, _mp):
+        from sankhya_integration.services.oracle_conn import criar_avaria_top30_banco
+        res = criar_avaria_top30_banco({})
+        self.assertFalse(res['ok'])
+        self.assertIn('desabilitada', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_payload_faltando_campos(self, _mp):
+        from sankhya_integration.services.oracle_conn import criar_avaria_top30_banco
+        res = criar_avaria_top30_banco({'codemp': 10})  # falta codparc, lote, etc
+        self.assertFalse(res['ok'])
+        self.assertIn('obrigatórios', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_qtd_negativa(self, _mp):
+        """qtdneg=0 é bloqueada pela validação 'obrigatórios' (0 é falsy);
+        qtdneg<0 passa a primeira validação e cai no '> 0' explícito."""
+        from sankhya_integration.services.oracle_conn import criar_avaria_top30_banco
+        res = criar_avaria_top30_banco({
+            'codemp': 10, 'codparc': 566,
+            'codagregacao': 'X', 'codprod': 1, 'qtdneg': -1,
+        })
+        self.assertFalse(res['ok'])
+        self.assertIn('maior que zero', res['error'].lower())
+
+
+class CriarDevolucaoServiceTest(TestCase):
+    """Testa direto a função criar_devolucao_top36_banco."""
+
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=False)
+    def test_escrita_desabilitada(self, _mp):
+        from sankhya_integration.services.oracle_conn import criar_devolucao_top36_banco
+        res = criar_devolucao_top36_banco({})
+        self.assertFalse(res['ok'])
+
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_sem_nunota_origem(self, _mp):
+        from sankhya_integration.services.oracle_conn import criar_devolucao_top36_banco
+        res = criar_devolucao_top36_banco({'itens': [{'sequencia_origem': 1, 'qtd_devolver': 1.0}]})
+        self.assertFalse(res['ok'])
+        self.assertIn('nunota_origem', res['error'])
+
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_itens_vazios(self, _mp):
+        from sankhya_integration.services.oracle_conn import criar_devolucao_top36_banco
+        res = criar_devolucao_top36_banco({'nunota_origem': 111971, 'itens': []})
+        self.assertFalse(res['ok'])
+        self.assertIn('item', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.consultar_nota_para_devolucao',
+           return_value={'ok': False, 'error': 'Nota não encontrada'})
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_nota_origem_inexistente(self, _mp, _mock_consulta):
+        from sankhya_integration.services.oracle_conn import criar_devolucao_top36_banco
+        res = criar_devolucao_top36_banco({
+            'nunota_origem': 99999,
+            'itens': [{'sequencia_origem': 1, 'qtd_devolver': 1.0}],
+        })
+        self.assertFalse(res['ok'])
+        self.assertIn('não encontrada', res['error'])
+
+    @patch('sankhya_integration.services.oracle_conn.consultar_nota_para_devolucao',
+           return_value={
+               'ok': True,
+               'cabecalho': {'nunota': 111971, 'numnota': 6266,
+                             'codemp': 10, 'codparc': 244,
+                             'codtipoper': 35, 'statusnota': 'L',
+                             'vlrnota': 100.0, 'codtipvenda': 2,
+                             'dtneg': '2026-05-09', 'nomeparc': 'CLI'},
+               'itens': [{'sequencia': 1, 'codprod': 21, 'descrprod': 'TOMATE',
+                          'codagregacao': 'L1', 'codvol': 'KG',
+                          'qtdneg': 10.0, 'vlrunit': 5.0, 'vlrtot': 50.0,
+                          'qtd_ja_devolvida': 8.0, 'qtd_devolvivel': 2.0}],
+           })
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_qtd_excessiva_bloqueada(self, _mp, _mock_consulta):
+        from sankhya_integration.services.oracle_conn import criar_devolucao_top36_banco
+        res = criar_devolucao_top36_banco({
+            'nunota_origem': 111971,
+            'itens': [{'sequencia_origem': 1, 'qtd_devolver': 5.0}],
+        })
+        self.assertFalse(res['ok'])
+        self.assertIn('excessiva', res['error'].lower())
+        self.assertIn('2.', res['error'])  # devolvível formatado
+
+
+class HistoricoLoteServiceTest(TestCase):
+    """Testa direto a função obter_historico_lote."""
+
+    def test_lote_vazio(self):
+        from sankhya_integration.services.oracle_conn import obter_historico_lote
+        res = obter_historico_lote('')
+        self.assertFalse(res['ok'])
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_lote_inexistente_retorna_timeline_vazia(self, mock_conn):
+        from sankhya_integration.services.oracle_conn import obter_historico_lote
+        cur_mock = MagicMock()
+        cur_mock.fetchall.return_value = []
+        conn_mock = MagicMock()
+        conn_mock.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn_mock
+
+        res = obter_historico_lote('NAO_EXISTE')
+        self.assertTrue(res['ok'])
+        self.assertEqual(res['timeline'], [])
+        self.assertEqual(res['lote'], 'NAO_EXISTE')
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_lote_com_eventos(self, mock_conn):
+        from sankhya_integration.services.oracle_conn import obter_historico_lote
+        # 2 eventos: TOP 11 (compra) → TOP 35 (venda)
+        cur_mock = MagicMock()
+        cur_mock.fetchall.return_value = [
+            (100, 5000, 11, 'L', '2026-04-01', 100, 'FOR.', 358,
+             'TOMATE', 1000.0, 'KG', 3.0, 3000.0, 1, 0.0),
+            (200, 6000, 35, 'L', '2026-05-01', 500, 'CLI.', 358,
+             'TOMATE', 200.0, 'KG', 5.0, 1000.0, 1, 0.0),
+        ]
+        conn_mock = MagicMock()
+        conn_mock.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn_mock
+
+        res = obter_historico_lote('12345S01D260507')
+        self.assertTrue(res['ok'])
+        self.assertEqual(len(res['timeline']), 2)
+        self.assertEqual(res['timeline'][0]['top_nome'], 'Compra (Entrada)')
+        self.assertTrue(res['timeline'][0]['is_entrada'])
+        self.assertEqual(res['timeline'][1]['top_nome'], 'Venda com NFe')
+        self.assertTrue(res['timeline'][1]['is_baixa'])
+
+
 # ---------------------------------------------------------------------------
 # Helper compartilhado adicional
 # ---------------------------------------------------------------------------
