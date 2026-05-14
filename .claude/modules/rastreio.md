@@ -35,7 +35,7 @@ A alocação de lote a pedido é feita gravando `CODAGREGACAO` no `TGFITE` do pe
 | `/sankhya/rastreio/api/fabricantes/` | GET | Typeahead distinct |
 | `/sankhya/rastreio/api/lote-vinculos/` | GET | Pedidos/vendas que usam um lote |
 
-**Acesso:** Grupos `1`, `6`, `8`, `9`, `10` (decorator `@exige_grupo('rastreio')`).
+**Acesso:** Grupos `1`, `6`, `8`, `10` (decorator `@exige_grupo('rastreio')`). _Comercial (9) perdeu acesso em 2026-05-14 — eles veem rastreio só via relatório._
 
 ---
 

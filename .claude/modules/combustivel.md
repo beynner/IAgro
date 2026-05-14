@@ -2,7 +2,7 @@
 
 Controle integral de estoque de combustível: compra (TOP 10 + TGFFIN em aberto), requisição interna (TOP 53 — frota/maquinário/freteiro) e abastecimento externo (TOP 53 + TGFFIN contra posto, **não desconta tanque**). Visual de tanques SVG, lista de veículos com lightbox de foto, listagem unificada de movimentações com Total km/Média de consumo, CRUD completo (criar/editar/excluir) de entrada e requisição, relatório de consumo por veículo.
 
-**Status (Mai/2026, 2026-05-13)**: ✅ ponta-a-ponta funcional em produção. Falta apenas atribuir usuários ao grupo TSIGRU=11 (PACKING_FROTA) e cadastrar veículos faltantes em TGFVEI.
+**Status (Mai/2026, 2026-05-13)**: ✅ ponta-a-ponta funcional em produção. Falta apenas atribuir usuários ao grupo TSIGRU=11 (IAGRO_FROTA) e cadastrar veículos faltantes em TGFVEI.
 
 ---
 
@@ -26,7 +26,7 @@ Referências TOP 26 que **permaneceram intocadas**: módulo de Classificação (
 
 | Tabela | Coluna | Código | Nome | Função |
 |---|---|---|---|---|
-| **TSIGRU** | `CODGRUPO` | **11** | `PACKING_FROTA` | Grupo de **usuário** — usado por `@exige_grupo('combustivel')` em `decorators.py` |
+| **TSIGRU** | `CODGRUPO` | **11** | `IAGRO_FROTA` | Grupo de **usuário** — usado por `@exige_grupo('combustivel')` em `decorators.py` |
 | **TGFGRU** | `CODGRUPOPROD` | **200400** | `COMBUSTÍVEIS` | Grupo de **produto** — view `ANDRE_IAGRO_SALDO_COMBUSTIVEL` e `consultar_produtos_combustivel` |
 
 Constante Python `CODGRUPOPROD_COMBUSTIVEL = 200400` em `oracle_conn.py`. Hierarquia: `200000 (MEF) → 200400 (COMBUSTÍVEIS)` [analítico, ativo].
@@ -115,7 +115,7 @@ Constante Python `CODGRUPOPROD_COMBUSTIVEL = 200400` em `oracle_conn.py`. Hierar
 | `/api/ultimo-preco/?codprod=N` | GET | VLRUNIT do último abastecimento — auto-fill em requisições internas |
 | `/api/prazo-tipvenda/?codtipvenda=N` | GET | Prazo do TGFTPV (BASEPRAZO + regex `\d+ DIAS` na DESCRTIPVENDA como fallback) |
 
-**Acesso**: Grupos `1` (Diretoria), `6` (TI), `11` (PACKING_FROTA). Decorator `@exige_grupo('combustivel')`.
+**Acesso**: Grupos `1` (Diretoria), `6` (TI), `10` (IAGRO_ADMINISTRATIVO), `11` (IAGRO_FROTA). Decorator `@exige_grupo('combustivel')`. _Administrativo ganhou acesso em 2026-05-14 — faz lançamento de combustível também._
 
 ---
 
@@ -280,6 +280,6 @@ Smokes reais (`apply_*.py` ou inline via `manage.py shell`) feitos no Oracle de 
 | Listagem 9 colunas (Total km + Média + EXTERNA badge) | ✅ |
 
 ### Pré-requisitos restantes (cadastro humano no Sankhya)
-1. Atribuir usuários ao grupo TSIGRU=11 (PACKING_FROTA) ⚠ aguarda
+1. Atribuir usuários ao grupo TSIGRU=11 (IAGRO_FROTA) ⚠ aguarda
 2. Cadastrar máquinas/tratores faltantes em TGFVEI (PROPRIO='S') ⚠ aguarda
 3. Cadastrar veículos de freteiros em TGFVEI (PROPRIO='N') ⚠ aguarda

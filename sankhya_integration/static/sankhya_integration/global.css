@@ -636,6 +636,16 @@ body.app-shell {
   background: var(--cor-content-bg);
 }
 
+/* Mai/2026 — durante o carregamento inicial da página, desativa as
+   transitions da sidebar pra eliminar qualquer piscada (200px → 56px)
+   na navegação entre módulos. A classe `preload` é removida no evento
+   `load` (vide base.html), liberando a animação suave nos toggles
+   manuais do usuário pelo chevron. */
+body.app-shell.preload > .sidebar,
+body.app-shell.preload > .sidebar * {
+  transition: none !important;
+}
+
 /* Sidebar lateral fixa. Usa `>` (filho direto do body) pra escopar com
    precisão e não afetar `<aside class="sidebar">` que módulos legados
    usam internamente (ex: Comercial). */
@@ -781,9 +791,18 @@ body.app-shell > .sidebar.collapsed .sidebar-collapse-btn {
   flex-shrink: 0;
 }
 
-.nav-icon .material-symbols-outlined {
-  font-size: 17px;
-  font-variation-settings: 'wght' 400;
+/* Phosphor Icons na sidebar (Mai/2026) */
+.nav-icon .ph {
+  font-size: 19px;
+  line-height: 1;
+}
+
+/* Item ativo: troca pro peso `fill` (preenchido) pra destacar visualmente.
+   Funciona porque tanto `ph-regular/style.css` quanto `ph-fill/style.css`
+   carregam o mesmo conjunto de classes `ph-xxx`, e `fill` tem prioridade
+   no item ativo via seletor mais específico. */
+.nav-item.active .ph::before {
+  font-family: 'Phosphor-Fill';
 }
 
 .nav-label {

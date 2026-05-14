@@ -15,19 +15,19 @@
 
     const WIDGETS = [
         {
-            key: 'sem_lote', icon: '🔗', href: '/sankhya/rastreio/', cta: 'Ir ao Rastreio →',
+            key: 'sem_lote', icon: '<i class="ph ph-link"></i>', href: '/sankhya/rastreio/', cta: 'Ir ao Rastreio →',
             corPorContagem: (n) => n === 0 ? 'ok' : (n <= 5 ? 'warn' : 'danger'),
         },
         {
-            key: 'aguardando_classif', icon: '🌾', href: '/sankhya/compras/classificacao/', cta: 'Ir à Classificação →',
+            key: 'aguardando_classif', icon: '<i class="ph ph-plant"></i>', href: '/sankhya/compras/classificacao/', cta: 'Ir à Classificação →',
             corPorContagem: (n) => n === 0 ? 'ok' : (n <= 10 ? 'info' : 'warn'),
         },
         {
-            key: 'vales_abertos', icon: '📊', href: '/sankhya/comercial/', cta: 'Ir ao Comercial →',
+            key: 'vales_abertos', icon: '<i class="ph ph-currency-circle-dollar"></i>', href: '/sankhya/comercial/', cta: 'Ir ao Comercial →',
             corPorContagem: (n) => n === 0 ? 'neutral' : 'info',
         },
         {
-            key: 'tanques_criticos', icon: '⛽', href: '/sankhya/combustivel/', cta: 'Ir ao Combustível →',
+            key: 'tanques_criticos', icon: '<i class="ph ph-gas-pump"></i>', href: '/sankhya/combustivel/', cta: 'Ir ao Combustível →',
             corPorContagem: (n) => n === 0 ? 'ok' : 'danger',
             renderDetalhes: (d) => {
                 if (!d.detalhes || !d.detalhes.length) return '';
@@ -37,11 +37,11 @@
             },
         },
         {
-            key: 'prontos_faturar', icon: '🧾', href: '/sankhya/venda/portal/', cta: 'Ir à Venda →',
+            key: 'prontos_faturar', icon: '<i class="ph ph-receipt"></i>', href: '/sankhya/venda/portal/', cta: 'Ir à Venda →',
             corPorContagem: (n) => n === 0 ? 'neutral' : 'ok',
         },
         {
-            key: 'lotes_envelhecidos', icon: '⏳', href: '/sankhya/rastreio/', cta: 'Ver no Rastreio →',
+            key: 'lotes_envelhecidos', icon: '<i class="ph ph-hourglass"></i>', href: '/sankhya/rastreio/', cta: 'Ver no Rastreio →',
             corPorContagem: (n) => n === 0 ? 'ok' : (n <= 5 ? 'warn' : 'danger'),
         },
     ];
@@ -109,7 +109,7 @@
         if (!grid) return;
         grid.innerHTML = `
             <article class="widget" data-status="danger" style="grid-column: 1 / -1;">
-                <div class="widget-header"><span class="widget-icon">⚠</span></div>
+                <div class="widget-header"><span class="widget-icon"><i class="ph ph-warning"></i></span></div>
                 <div class="widget-value is-error">Falha ao carregar indicadores</div>
                 <div class="widget-label">${escapeHtml(msg || 'Tente atualizar em alguns segundos.')}</div>
             </article>

@@ -2297,6 +2297,12 @@ def api_listar_vendas(request: HttpRequest) -> JsonResponse:
         linhas = listar_vendas_paginado(**filtros)
         vendas = []
         for r in linhas:
+            obs_raw = r[8] if len(r) > 8 else None
+            if obs_raw is not None and hasattr(obs_raw, 'read'):
+                try:
+                    obs_raw = obs_raw.read()
+                except Exception:
+                    obs_raw = ''
             vendas.append({
                 "nunota": r[0],
                 "top": r[1],
@@ -2305,7 +2311,8 @@ def api_listar_vendas(request: HttpRequest) -> JsonResponse:
                 "total": float(r[4] or 0),
                 "status_lote": r[5],
                 "numnota": r[6] or "", # Nº Nota
-                "emp": r[7]            # CODEMP
+                "emp": r[7],           # CODEMP
+                "observacao": (obs_raw or '').strip() if isinstance(obs_raw, str) else (obs_raw or ''),
             })
         return JsonResponse({"ok": True, "vendas": vendas})
     except Exception as e:
@@ -4482,8 +4489,8 @@ def api_email_confirmar(request: HttpRequest, recebido_id: int) -> JsonResponse:
 # =============================================================================
 # MÓDULO CONTROLE DE COMBUSTÍVEL (Mai/2026)
 # TOP 10 entrada (Sankhya) + TOP 26 requisição (IAgro com STATUSNOTA NULL)
-# Grupo de produto: TGFGRU.CODGRUPOPROD = 11 (PACKING_FROTA)
-# Grupo de usuário: TSIGRU.CODGRUPO = 11 (PACKING_FROTA)
+# Grupo de produto: TGFGRU.CODGRUPOPROD = 11 (IAGRO_FROTA)
+# Grupo de usuário: TSIGRU.CODGRUPO = 11 (IAGRO_FROTA)
 # =============================================================================
 
 @exige_grupo('combustivel')

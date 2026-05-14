@@ -111,7 +111,7 @@
             case 'INTERNA_FROTA':       return 'Frota';
             case 'INTERNA_MAQUINARIO':  return 'Máquina';
             case 'EXTERNA_FRETE':       return 'Freteiro';
-            case 'EXTERNA_POSTO':       return '🌐 Externo';
+            case 'EXTERNA_POSTO':       return '<i class="ph ph-globe"></i> Externo';
             default:                    return '—';
         }
     }
@@ -132,7 +132,7 @@
     }
 
     function rotuloMov(mov) {
-        return mov === 'ENTRADA' ? '📥 Entrada' : '📋 Requisição';
+        return mov === 'ENTRADA' ? '<i class="ph ph-tray-arrow-down"></i> Entrada' : '<i class="ph ph-clipboard-text"></i> Requisição';
     }
 
     // =========================================================================
@@ -429,11 +429,11 @@
                     ? (r.marcamodelo ? `${r.placa} — ${r.marcamodelo}` : (it.nomeparc || ''))
                     : (it.nomeparc || '');
 
-                // Badge MOV. — pra EXTERNA_POSTO, mostra só "🌐 EXTERNA" laranja
-                // (em vez do par "📋 Requisição" + "🌐 Externo").
+                // Badge MOV. — pra EXTERNA_POSTO, mostra só "EXTERNA" laranja
+                // (em vez do par "Requisição" + "Externo").
                 let movLabel;
                 if (ehExterno) {
-                    movLabel = `<span class="cb-badge cb-badge-externo">🌐 EXTERNA</span>`;
+                    movLabel = `<span class="cb-badge cb-badge-externo"><i class="ph ph-globe"></i> EXTERNA</span>`;
                 } else {
                     movLabel = `<span class="${classeMov(it.tipo_movimento)}">${rotuloMov(it.tipo_movimento)}</span>`;
                     if (ehReq && r.tipo) {
@@ -457,13 +457,13 @@
                 const btnEditar = podeEditar ? `
                     <button class="cb-btn-acao cb-btn-acao--editar"
                             data-acao="editar" data-tipo="${tipoAcao}" data-nunota="${it.nunota}"
-                            title="Editar ${labelAcao}">✏</button>` : '';
+                            title="Editar ${labelAcao}"><i class="ph ph-pencil-simple"></i></button>` : '';
                 // Lixeira em qualquer requisição (interna ou externa). Entrada exclui pelo modal.
                 const btnExcluir = podeReq ? `
                     <button class="cb-btn-acao cb-btn-acao--excluir"
                             data-acao="excluir" data-tipo="${tipoAcao}" data-nunota="${it.nunota}"
                             data-resumo="${it.descrprod} · ${formatNumero(it.qtdneg_item, 2)} ${it.codvol || ''} · ${r.placa || ''}"
-                            title="Excluir ${labelAcao}">🗑</button>` : '';
+                            title="Excluir ${labelAcao}"><i class="ph ph-trash"></i></button>` : '';
                 const acoes = btnEditar + btnExcluir;
 
                 // Total km + Média (só faz sentido em REQUISIÇÃO com veículo + hodômetro).
@@ -684,7 +684,7 @@
         const header = document.querySelector('#modalNovaReq .cb-modal-header strong');
         const btn = document.getElementById('btnConfirmarReq');
         if (requisicaoEditandoNunota) {
-            if (header) header.textContent = `✏ Editar requisição NUNOTA ${requisicaoEditandoNunota}`;
+            if (header) header.innerHTML = `<i class="ph ph-pencil-simple"></i> Editar requisição NUNOTA ${requisicaoEditandoNunota}`;
             if (btn) btn.textContent = 'Salvar alterações';
         } else {
             if (header) header.textContent = 'Nova requisição de combustível';
@@ -1394,7 +1394,7 @@
         tbody.innerHTML = abastecimentos.map(a => {
             const ehExterno = a.tipo === 'EXTERNA_POSTO';
             const movLabel = ehExterno
-                ? `<span class="cb-badge cb-badge-externo">🌐 EXTERNA</span>`
+                ? `<span class="cb-badge cb-badge-externo"><i class="ph ph-globe"></i> EXTERNA</span>`
                 : `<span class="${classeMov('REQUISICAO')}">${rotuloMov('REQUISICAO')}</span>`
                   + (a.tipo ? ` <span class="${classeTipo(a.tipo)}" style="margin-left:4px;">${rotuloTipo(a.tipo)}</span>` : '');
             const parceiroOuVei = v.placa || '—';
@@ -1406,11 +1406,11 @@
             const acoes = podeEditar ? `
                 <button class="cb-btn-acao cb-btn-acao--editar"
                         data-acao="editar" data-nunota="${a.nunota}"
-                        title="Editar ${labelAcao}">✏</button>
+                        title="Editar ${labelAcao}"><i class="ph ph-pencil-simple"></i></button>
                 <button class="cb-btn-acao cb-btn-acao--excluir"
                         data-acao="excluir" data-nunota="${a.nunota}"
                         data-resumo="${a.descrprod} · ${formatNumero(a.qtd, 2)} ${a.codvol || ''} · ${v.placa || ''}"
-                        title="Excluir ${labelAcao}">🗑</button>` : '';
+                        title="Excluir ${labelAcao}"><i class="ph ph-trash"></i></button>` : '';
 
             // Total km + Média já vêm calculados pelo backend (consultar_consumo_por_veiculo)
             const celKm = (a.km_percorridos != null)
@@ -1493,8 +1493,8 @@
     function abrirModalExcluirReq(nunota, resumo) {
         requisicaoExcluindoNunota = nunota;
         entradaExcluindoNunota = null;
-        document.querySelector('#modalExcluirReq .cb-modal-header strong').textContent =
-            '🗑 Excluir requisição';
+        document.querySelector('#modalExcluirReq .cb-modal-header strong').innerHTML =
+            '<i class="ph ph-trash"></i> Excluir requisição';
         document.getElementById('excluirReqResumo').textContent =
             `NUNOTA ${nunota}${resumo ? ' · ' + resumo : ''}`;
         document.getElementById('excluirMotivo').value = '';
@@ -1507,8 +1507,8 @@
     function abrirModalExcluirEntrada(nunota, resumo) {
         entradaExcluindoNunota = nunota;
         requisicaoExcluindoNunota = null;
-        document.querySelector('#modalExcluirReq .cb-modal-header strong').textContent =
-            '🗑 Excluir entrada (compra)';
+        document.querySelector('#modalExcluirReq .cb-modal-header strong').innerHTML =
+            '<i class="ph ph-trash"></i> Excluir entrada (compra)';
         document.getElementById('excluirReqResumo').textContent =
             `NUNOTA ${nunota}${resumo ? ' · ' + resumo : ''}`;
         document.getElementById('excluirMotivo').value = '';
@@ -1761,11 +1761,11 @@
         const btn = document.getElementById('btnConfirmarEntrada');
         const btnExcluir = document.getElementById('btnExcluirEntradaModal');
         if (entEditandoNunota) {
-            if (h) h.textContent = `✏ Editar entrada NUNOTA ${entEditandoNunota}`;
+            if (h) h.innerHTML = `<i class="ph ph-pencil-simple"></i> Editar entrada NUNOTA ${entEditandoNunota}`;
             if (btn) btn.textContent = 'Salvar alterações';
             if (btnExcluir) btnExcluir.classList.remove('hidden');
         } else {
-            if (h) h.textContent = '📥 Nova entrada de combustível (compra)';
+            if (h) h.innerHTML = '<i class="ph ph-tray-arrow-down"></i> Nova entrada de combustível (compra)';
             if (btn) btn.textContent = 'Salvar entrada';
             if (btnExcluir) btnExcluir.classList.add('hidden');
         }

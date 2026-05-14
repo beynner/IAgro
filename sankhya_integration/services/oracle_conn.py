@@ -2781,14 +2781,15 @@ def listar_vendas_paginado(limite: int = 50, offset: int = 0, **kwargs):
 
     # Restante da SQL permanece o mesmo...
     sql_base = f"""
-        SELECT 
+        SELECT
             c.NUNOTA, c.CODTIPOPER, c.DTNEG, p.NOMEPARC, c.VLRNOTA,
-            CASE 
-                WHEN EXISTS (SELECT 1 FROM TGFITE i WHERE i.NUNOTA = c.NUNOTA AND i.CODAGREGACAO IS NULL) 
+            CASE
+                WHEN EXISTS (SELECT 1 FROM TGFITE i WHERE i.NUNOTA = c.NUNOTA AND i.CODAGREGACAO IS NULL)
                 THEN 'PENDENTE' ELSE 'OK'
             END AS STATUS_LOTE,
             c.NUMNOTA,
-            c.CODEMP
+            c.CODEMP,
+            c.OBSERVACAO
         FROM TGFCAB c
         LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC
         WHERE {' AND '.join(where)}
@@ -5731,7 +5732,7 @@ def obter_historico_lote(codagregacao: str) -> dict:
 # Validado em produção Mai/2026:
 #   - CODGRUPOPROD=200400 → DESCRGRUPOPROD='COMBUSTÍVEIS' (pai=200000 'MEF')
 #   - Produtos atuais: 392 Diesel S10, 1373 Diesel S500, 391 Gasolina, 550 Óleo de Motor
-# Não confundir com TSIGRU.CODGRUPO=11 (PACKING_FROTA), que é grupo de USUÁRIO.
+# Não confundir com TSIGRU.CODGRUPO=11 (IAGRO_FROTA), que é grupo de USUÁRIO.
 CODGRUPOPROD_COMBUSTIVEL = 200400
 
 # Capacidade física dos tanques de combustível (litros). Filtra também quais

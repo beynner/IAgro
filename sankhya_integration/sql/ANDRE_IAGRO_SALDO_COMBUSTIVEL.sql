@@ -18,7 +18,7 @@
 --   Produtos atuais: Diesel S10 (392), Diesel S500 (1373), Gasolina (391),
 --   Oleo de Motor (550). CODVOL='LT' (litros).
 --
--- Importante: NAO confundir com TSIGRU.CODGRUPO=11 (PACKING_FROTA), que e o
+-- Importante: NAO confundir com TSIGRU.CODGRUPO=11 (IAGRO_FROTA), que e o
 -- grupo de USUARIO usado pelo decorator @exige_grupo('combustivel').
 --
 -- Segregacao versus modulo Classificacao (Mai/2026)

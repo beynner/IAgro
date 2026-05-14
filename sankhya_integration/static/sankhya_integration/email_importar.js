@@ -207,12 +207,12 @@ document.addEventListener('DOMContentLoaded', function () {
         if (origemBadge) {
             const modelo = (p.llm_modelo || '').toLowerCase();
             if (modelo.startsWith('regex_')) {
-                origemBadge.textContent = '⚡ Regex';
+                origemBadge.innerHTML = '<i class="ph ph-lightning"></i> Regex';
                 origemBadge.className = 'email-origem-badge email-origem-regex';
                 origemBadge.title = `Extraído via parser regex (${p.llm_modelo})`;
                 origemBadge.classList.remove('hidden');
             } else if (modelo) {
-                origemBadge.textContent = '🧠 LLM';
+                origemBadge.innerHTML = '<i class="ph ph-brain"></i> LLM';
                 origemBadge.className = 'email-origem-badge email-origem-llm';
                 origemBadge.title = `Extraído via LLM (${p.llm_modelo})`;
                 origemBadge.classList.remove('hidden');
@@ -357,7 +357,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // amarelo = fuzzy alta (confira), vermelho = fuzzy fraca.
             let badgeHtml = '';
             if (it.codprod_final) {
-                badgeHtml = '<span class="email-match-badge confirmado" title="Confirmado pelo operador">✓</span>';
+                badgeHtml = '<span class="email-match-badge confirmado" title="Confirmado pelo operador"><i class="ph ph-check"></i></span>';
             } else if (it.codprod_sugerido) {
                 if (conf >= 1.0) {
                     badgeHtml = '<span class="email-match-badge alias" title="Alias histórico — confirmado em pedido anterior. Se estiver errado, edite e confirme: o sistema sobrescreve.">alias</span>';
@@ -395,16 +395,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 <td class="text-right email-it-total" title="Qtd × Preço unitário">—</td>
                 <td class="email-it-acoes">
                     <button type="button" class="email-restore-btn" title="Restaurar este item ao valor original do LLM" data-item-id="${it.id}">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                            <path d="M3 12a9 9 0 1 0 3-6.7"></path>
-                            <polyline points="3 4 3 10 9 10"></polyline>
-                        </svg>
+                        <i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i>
                     </button>
                     <button type="button" class="email-trash-btn" title="Remover item" data-item-id="${it.id}">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                            <polyline points="3 6 5 6 21 6"></polyline>
-                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
-                        </svg>
+                        <i class="ph ph-trash" aria-hidden="true"></i>
                     </button>
                 </td>
             `;
@@ -527,11 +521,11 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!okValor) msg.push(`valor: diff R$ ${fmtValor(diff)}`);
         }
         if (okItens && okValor) {
-            elChip.textContent = '✓ Bate com PDF';
+            elChip.innerHTML = '<i class="ph ph-check"></i> Bate com PDF';
             elChip.className = 'email-conferencia-chip email-conferencia-ok';
             elChip.title = 'Totais calculados batem com os declarados no PDF';
         } else {
-            elChip.textContent = '⚠ Diverge';
+            elChip.innerHTML = '<i class="ph ph-warning"></i> Diverge';
             elChip.className = 'email-conferencia-chip email-conferencia-diverge';
             elChip.title = msg.join(' · ');
         }

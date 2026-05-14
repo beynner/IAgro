@@ -58,7 +58,7 @@ window.ComercialUtils = {
         toast.id = 'agromilToast';
         
         const corFundo = tipo === 'sucesso' ? '#22c55e' : '#ef4444'; 
-        const icone = tipo === 'sucesso' ? '✓' : '⚠️';
+        const icone = tipo === 'sucesso' ? '<i class="ph ph-check"></i>' : '<i class="ph ph-warning"></i>';
 
         toast.style.cssText = `
             position: fixed; bottom: 24px; right: 24px;
@@ -179,11 +179,7 @@ window.ComercialLista = (function() {
                 <td style="padding:6px 4px; text-align:right;">
                     <span class="lista-vale-ico" data-nunota="${nun}" role="button" 
                         style="cursor:pointer; color:#0ea5e9; display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:50%; background:rgba(14,165,233,0.1);">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" 
-                            stroke-width="2" style="pointer-events: none;"> <circle cx="9" cy="21" r="1"></circle>
-                            <circle cx="20" cy="21" r="1"></circle>
-                            <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h7.72a2 2 0 0 0 2-1.61L23 6H6"/>
-                        </svg>
+                        <i class="ph ph-shopping-cart-simple" style="pointer-events: none; font-size: 16px;" aria-hidden="true"></i>
                     </span>
                 </td>
             </tr>`;
@@ -198,7 +194,7 @@ window.ComercialLista = (function() {
         const counterEl = document.getElementById('agromilListCounter');
         if (counterEl) {
             const uniqueVales = new Set(filteredRows.map(r => r.nunota)).size;
-            counterEl.innerHTML = `<span>📋 <b>${uniqueVales}</b> Vale(s) exibido(s)</span>`;
+            counterEl.innerHTML = `<span><i class="ph ph-clipboard-text"></i> <b>${uniqueVales}</b> Vale(s) exibido(s)</span>`;
         }
 
         if (!filteredRows.length) {
@@ -862,7 +858,7 @@ window.ComercialEntrada = (function() {
 
                     } catch (err) {
                         console.error("Erro ao salvar:", err);
-                        window.ComercialUtils.mostrarToast("⚠️ Erro ao salvar: " + err.message, "erro");
+                        window.ComercialUtils.mostrarToast("Erro ao salvar: " + err.message, "erro");
                         // Volta o valor antigo em caso de erro real de banco
                         DOM.card.dataset[attrName] = valorAntigo;
                         display.textContent = displayId.includes('Preco') ? fmt.moeda(valorAntigo) : fmt.inteiro(valorAntigo);

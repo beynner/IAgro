@@ -134,7 +134,7 @@
                 const response = await postJSON('/sankhya/item/update_descarte_lote/', { lote, valor, operacao });
 
                 if (response && response.ok) {
-                    window.mostrarToast("Descarte do Lote atualizado! ✅", "success");
+                    window.mostrarToast("Descarte do Lote atualizado!", "success");
 
                     const campoModal = document.getElementById('descarteTotal') ||
                         document.querySelector('[name="descarteTotal"]') ||
@@ -377,7 +377,7 @@
 
         // 👇 NOVO: Trava de Segurança "PESO CX" Obrigatório 👇
         if (peso <= 0 || isNaN(peso)) {
-            if (window.mostrarToast) window.mostrarToast("⚠️ O preenchimento do PESO CX é obrigatório!", "warning");
+            if (window.mostrarToast) window.mostrarToast("O preenchimento do PESO CX é obrigatório!", "warning");
 
             // Dá um destaque visual no campo para o usuário ver onde errou
             const campoPeso = document.getElementById(ids.peso);
@@ -472,7 +472,7 @@
             const itemResponse = await (window.postJSON || postJSON)(endpoint, payloadItem);
 
             if (itemResponse && itemResponse.ok) {
-                window.mostrarToast("Item Salvo com sucesso! ✅", "success");
+                window.mostrarToast("Item Salvo com sucesso!", "success");
 
                 // Limpa os campos
                 document.getElementById(ids.prod).value = '';
@@ -813,8 +813,8 @@
             }
 
             const formatQty = (val) => Number(val || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
-            const editSvg = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>`;
-            const trashSvg = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>`;
+            const editSvg = `<i class="ph ph-pencil-simple icon" aria-hidden="true"></i>`;
+            const trashSvg = `<i class="ph ph-trash icon" aria-hidden="true"></i>`;
 
             itemsBody.innerHTML = classificacoes.map(item => `
                 <tr class="item-row" data-seq="${item.sequencia}" data-nunota="${item.nunota}" data-lote="${agregados ? agregados.lote : ''}" style="cursor: pointer; transition: background-color 0.2s;" title="Clique para selecionar, Duplo clique para editar">
@@ -888,7 +888,7 @@
                         document.body.appendChild(seqInput);
                     }
                     seqInput.value = item.sequencia;
-                    if (window.mostrarToast) window.mostrarToast("Modo Edição Ativado ✏️", "success");
+                    if (window.mostrarToast) window.mostrarToast("Modo Edição Ativado", "success");
                 }
             };
 
@@ -921,7 +921,7 @@
                             });
 
                             if (deleteResponse && deleteResponse.ok) {
-                                if (window.mostrarToast) window.mostrarToast("Item excluído com sucesso! 🗑️", "success");
+                                if (window.mostrarToast) window.mostrarToast("Item excluído com sucesso!", "success");
 
                                 if (deleteResponse.body && deleteResponse.body.cabecalho_excluido) {
                                     const nunotaInput = document.getElementById('items_nunota');
@@ -1199,7 +1199,7 @@
                     }
 
                     if (response && response.ok) {
-                        window.mostrarToast("Classificação finalizada com sucesso! ✅", "success");
+                        window.mostrarToast("Classificação finalizada com sucesso!", "success");
                         if (typeof window.aplicarTravaDeSeguranca === 'function') window.aplicarTravaDeSeguranca(isChecked);
                         if (typeof setClassificacaoFinalizada === 'function') setClassificacaoFinalizada(isChecked);
                         if (typeof window.atualizarStatusNaListaLateral === 'function') window.atualizarStatusNaListaLateral(loteAtual, isChecked);

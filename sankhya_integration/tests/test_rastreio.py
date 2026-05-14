@@ -59,10 +59,12 @@ class RastreioPaginaAcessoTest(TestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
 
-    def test_comercial_acessa_pagina(self):
+    def test_comercial_NAO_acessa_pagina(self):
+        # 2026-05-14 — Comercial (CODGRUPO=9) perdeu acesso ao Rastreio. Eles
+        # acompanham rastreio pelo módulo Relatórios (não pode alterar lotes).
         _login_session(self.client, grupos=['9'])
         response = self.client.get(self.url)
-        self.assertEqual(response.status_code, 200)
+        self.assertRedirects(response, reverse('home'), fetch_redirect_response=False)
 
     def test_vendas_acessa_pagina(self):
         _login_session(self.client, grupos=['10'])

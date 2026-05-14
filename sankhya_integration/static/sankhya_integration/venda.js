@@ -185,7 +185,7 @@ document.addEventListener('DOMContentLoaded', function() {
             salvarFiltrosNoLocalStorage();
             atualizarResumoListagem();
             renderChipsFiltros();
-            tbodyVendas.innerHTML = '<tr><td colspan="7" class="text-center ia-muted">Buscando no banco de dados...</td></tr>';
+            tbodyVendas.innerHTML = '<tr><td colspan="8" class="text-center ia-muted">Buscando no banco de dados...</td></tr>';
             document.getElementById('vendaItemsBody').innerHTML = '<tr><td colspan="4" class="ia-placeholder">Selecione uma venda</td></tr>';
             pedidoSelecionado = null;
             const btnDel = document.getElementById('btnDeleteVenda');
@@ -202,7 +202,7 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             const trLoading = document.createElement('tr');
             trLoading.id = 'loading-row';
-            trLoading.innerHTML = '<td colspan="7" class="text-center ia-muted">Carregando mais pedidos...</td>';
+            trLoading.innerHTML = '<td colspan="8" class="text-center ia-muted">Carregando mais pedidos...</td>';
             tbodyVendas.appendChild(trLoading);
         }
 
@@ -258,13 +258,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 tr.dataset.nunota = v.nunota;
 
                 const valorFormatado = v.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
-                const topLabel = topNum === 34 ? '34' :
-                                 topNum === 35 ? '35-NFe' :
-                                 topNum === 37 ? '37-S/NFe' :
-                                 topNum === 36 ? '36-Dev' :
-                                 topNum === 30 ? '30-Avaria' :
+                const topLabel = topNum === 34 ? '34 - PDV' :
+                                 topNum === 35 ? '35 - NFe' :
+                                 topNum === 37 ? '37 - S/NFe' :
+                                 topNum === 36 ? '36 - Dev' :
+                                 topNum === 30 ? '30 - AVA' :
                                  String(topNum);
                 const statusDot = `<span class="venda-status-dot venda-status-dot--${statusKey}" title="${statusTitulo}" aria-label="${statusTitulo}"></span>`;
+
+                const obsTxt = (v.observacao || '').toString();
+                const obsEscaped = obsTxt
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                const obsCell = obsTxt
+                    ? `<span class="ia-truncate" title="${obsEscaped}">${obsEscaped}</span>`
+                    : '<span class="ia-muted">—</span>';
 
                 tr.innerHTML = `
                     <td>${statusDot}${v.nunota}</td>
@@ -273,6 +281,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td><span class="top-badge top-${topNum}">${topLabel}</span></td>
                     <td>${v.data ? v.data.substring(0,5) : ''}</td>
                     <td class="ia-truncate" title="${v.parceiro}">${v.parceiro}</td>
+                    <td class="venda-obs-cell">${obsCell}</td>
                     <td class="text-right">${valorFormatado}</td>
                 `;
 
@@ -319,7 +328,7 @@ document.addEventListener('DOMContentLoaded', function() {
             offsetAtual += limite;
         } catch (error) {
             console.error("Erro Backend:", error);
-            if (!append) tbodyVendas.innerHTML = `<tr><td colspan="7" class="text-center" style="color:#ef4444;">Erro: ${error.message}</td></tr>`;
+            if (!append) tbodyVendas.innerHTML = `<tr><td colspan="8" class="text-center" style="color:#ef4444;">Erro: ${error.message}</td></tr>`;
         } finally {
             carregando = false;
         }
@@ -432,7 +441,7 @@ document.addEventListener('DOMContentLoaded', function() {
     /** Empty state amigável quando o filtro não retorna nada. */
     function renderEmptyStateLista() {
         tbodyVendas.innerHTML = `
-            <tr><td colspan="7">
+            <tr><td colspan="8">
                 <div class="ia-empty-state">
                     <div class="ia-empty-titulo">Nenhum pedido encontrado</div>
                     <div class="ia-empty-msg">Tente ajustar a data ou os filtros, ou crie um novo pedido.</div>
@@ -689,10 +698,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 <td class="text-right">${total}</td>
                 <td class="text-center">
                     <button class="icon-btn-mini btn-edit-item" title="Editar item" data-seq="${item.seq}">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                        <i class="ph ph-pencil-simple" aria-hidden="true"></i>
                     </button>
                     <button class="icon-btn-mini btn-rm-item" title="Remover item" data-seq="${item.seq}">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                        <i class="ph ph-trash" aria-hidden="true"></i>
                     </button>
                 </td>
             `;
@@ -1128,7 +1137,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('dev_nota_info').classList.add('hidden');
         document.getElementById('dev_itens_wrap').classList.add('hidden');
         document.getElementById('dev_itens_body').innerHTML =
-            '<tr><td colspan="7" class="ia-placeholder">Carregando itens...</td></tr>';
+            '<tr><td colspan="8" class="ia-placeholder">Carregando itens...</td></tr>';
         document.getElementById('dev_dtneg').value = _hoje();
         document.getElementById('dev_observacao').value = '';
         _devNotaCarregada = null;
@@ -1167,7 +1176,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const body = document.getElementById('dev_itens_body');
             if (!d.itens.length) {
-                body.innerHTML = '<tr><td colspan="7" class="ia-placeholder">Nota sem itens.</td></tr>';
+                body.innerHTML = '<tr><td colspan="8" class="ia-placeholder">Nota sem itens.</td></tr>';
             } else {
                 body.innerHTML = d.itens.map(it => {
                     const sem_saldo = it.qtd_devolvivel <= 0;
@@ -1654,7 +1663,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (semLote.length > 0) {
             faturarValidEl.classList.remove('hidden');
             faturarValidEl.innerHTML = `
-                <strong>⚠ Não é possível faturar este pedido ainda.</strong><br>
+                <strong><i class="ph ph-warning"></i> Não é possível faturar este pedido ainda.</strong><br>
                 ${semLote.length} ${semLote.length === 1 ? 'item está' : 'itens estão'} sem lote vinculado.
                 Vincule os lotes pelo módulo <strong>Rastreio</strong> antes de faturar.`;
             const btnConf = document.getElementById('btnConfirmarFaturar');

@@ -440,7 +440,7 @@ Em produção (Mai/2026): 32 veículos cadastrados, todos `PROPRIO='S'`. Terceir
 
 Grupo de combustível: **`CODGRUPOPROD = 200400` (`DESCRGRUPOPROD = 'COMBUSTÍVEIS'`)** — pai `200000 (MEF)`. Validado Mai/2026 em produção: 4 produtos (Diesel S10 392, Diesel S500 1373, Gasolina 391, Óleo de Motor 550), CODVOL='LT'.
 
-⚠ **Não confundir** com `TSIGRU.CODGRUPO=11` (PACKING_FROTA), que é o grupo de **usuário** referenciado em `decorators.py`.
+⚠ **Não confundir** com `TSIGRU.CODGRUPO=11` (IAGRO_FROTA), que é o grupo de **usuário** referenciado em `decorators.py`.
 
 ### View dedicada `ANDRE_IAGRO_SALDO_COMBUSTIVEL`
 

@@ -199,11 +199,35 @@ Tentativa anterior de mover os filtros para o header inline do card de Pedidos f
 
 `venda.js` salva todos os campos do form em `localStorage` na chave **`iagro:venda:filtros:v1`** a cada `carregarVendas(false)`. Restaura no boot; se as datas vierem ausentes, cai em `inicializarDatas()` (hoje). `btnClear` apaga o storage além de zerar os campos. Para adicionar um campo novo, atualizar `CAMPOS_FILTRO_PERSISTIDOS` no topo do `venda.js`. **Mudança de formato → bumpar para `v2`** (ver gotchas).
 
+### Tabela "Pedidos de Venda" — colunas (Mai/2026, 2026-05-14)
+
+| # | Header | Largura | Origem | Notas |
+|---|---|---|---|---|
+| 1 | Pedido | 90px | `NUNOTA` | Status dot + número, click = selecionar, dblclick = abrir edição (só TOP 34) |
+| 2 | Nº Nota | 70px | `NUMNOTA` | `—` quando ainda não faturado |
+| 3 | Emp. | 40px | `CODEMP` | Numérico curto |
+| 4 | TOP | 80px | `CODTIPOPER` | Badge colorido com label legível |
+| 5 | Data | 60px | `DTNEG` | Formato DD/MM |
+| 6 | Parceiro | auto | `NOMEPARC` | Truncamento com `title` no hover |
+| 7 | Observação | 180px | `OBSERVACAO` | Truncamento + tooltip; `—` cinza quando vazia |
+| 8 | Total | 110px | `VLRNOTA` | Alinhamento à direita |
+
+**Labels do badge TOP** (texto literal — `text-transform: none`):
+
+| TOP | Label | Cor |
+|---|---|---|
+| 34 | `34 - PDV` | Azul (`#dbeafe / #1e40af`) |
+| 35 | `35 - NFe` | Verde (`#d1fae5 / #065f46`) |
+| 37 | `37 - S/NFe` | Amarelo (`#fef3c7 / #92400e`) |
+| 36 | `36 - Dev` | Laranja (`#fed7aa / #9a3412`) |
+| 30 | `30 - AVA` | **Vermelho forte** (`#fecaca / #7f1d1d`, font-weight 700) |
+
 ### CSS específico
 
 - `:root` com 7 variáveis aliasadas
 - Mantidos como específicos: `--cor-fundo-cabecalho-tabela`, `--cor-texto-primario-escuro`, `--cor-texto-secundario-cinza`, `--cor-borda-dropdown-ativa`
 - Override `.main-layout { gap: 12px; padding: 10px 20px }`
+- `.top-badge` — `text-transform: none` (Mai/2026) preserva mixed-case "NFe"
 
 ---
 

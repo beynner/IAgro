@@ -880,7 +880,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 : '';
             containerLotes.innerHTML = `
                 <div class="ras-empty">
-                    <div class="ras-empty-icone">📦</div>
+                    <div class="ras-empty-icone"><i class="ph ph-package"></i></div>
                     <div class="ras-empty-titulo">${titulo}</div>
                     <div class="ras-empty-msg">${msg}</div>
                     ${acao}
@@ -911,7 +911,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // Fase 2.13 — alerta de lote envelhecido (DTNEG_ORIGEM > 60 dias)
             const idadeDias = _idadeDiasFromBR(l.dtneg_origem);
             const badgeIdade = idadeDias > DIAS_ALERTA_LOTE
-                ? `<span class="badge-idade-lote" title="Lote com ${idadeDias} dias desde a entrada">⚠ ${idadeDias}d</span>`
+                ? `<span class="badge-idade-lote" title="Lote com ${idadeDias} dias desde a entrada"><i class="ph ph-warning"></i> ${idadeDias}d</span>`
                 : '';
             if (idadeDias > DIAS_ALERTA_LOTE) card.classList.add('lote-envelhecido');
 
@@ -923,20 +923,15 @@ document.addEventListener('DOMContentLoaded', function () {
             const encaixaExato = faltaCodprod > 0.001 &&
                                  Math.abs(faltaCodprod - Number(qtd)) < 0.001;
             const badgeEncaixa = encaixaExato
-                ? `<span class="badge-encaixa-exato" title="Saldo deste lote (${fmtQtd(qtd)}) bate exatamente com a falta total deste produto nos pedidos visíveis. Atribuição em 1 passo, sem split.">✨ encaixa</span>`
+                ? `<span class="badge-encaixa-exato" title="Saldo deste lote (${fmtQtd(qtd)}) bate exatamente com a falta total deste produto nos pedidos visíveis. Atribuição em 1 passo, sem split."><i class="ph ph-sparkle"></i> encaixa</span>`
                 : '';
             if (encaixaExato) card.classList.add('lote-encaixa-exato');
 
             // Lotes listados aqui já são vendáveis (qtd_disponivel > 0).
             const podeArmar = Number(l.qtd_disponivel) > 0;
-            // Ícones SVG inline — substituem os emojis 🔗 e 👁 e permitem
-            // animação/cor consistentes via CSS quando a linha é selecionada.
             const armarBtn = podeArmar
                 ? `<button class="btn-armar btn-acao-linha" title="Selecionar este lote para vincular num pedido (clique no produto-linha do pedido em seguida)" type="button">
-                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                           <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-                           <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-                       </svg>
+                       <i class="ph ph-link" aria-hidden="true"></i>
                    </button>`
                 : '';
 
@@ -966,10 +961,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 <span class="col-qtd">${fmtQtd(qtd)} ${badgeEncaixa}</span>
                 ${armarBtn}
                 <button class="btn-olho btn-acao-linha" title="Ver pedidos/vendas que usam este lote" type="button">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
-                        <circle cx="12" cy="12" r="3"/>
-                    </svg>
+                    <i class="ph ph-eye" aria-hidden="true"></i>
                 </button>
             `;
 
@@ -1189,16 +1181,16 @@ document.addEventListener('DOMContentLoaded', function () {
             let titulo, msg, icone, acao = '';
             if (temFiltro) {
                 titulo = 'Nenhum pedido encontrado com os filtros atuais';
-                icone  = '🔍';
+                icone  = '<i class="ph ph-magnifying-glass"></i>';
                 msg    = 'Os filtros ativos não retornaram pedidos. Limpe-os ou amplie o período pra ver mais resultados.';
                 acao   = '<button type="button" class="ras-empty-action" data-action="limpar-tudo">Limpar filtros</button>';
             } else if (!mostrarPendentes && !mostrarFaturados) {
                 titulo = 'Nenhum status selecionado';
-                icone  = '⚠️';
+                icone  = '<i class="ph ph-warning"></i>';
                 msg    = 'Selecione <strong>Pendente</strong> ou <strong>Faturado</strong> no toggle de status pra ver pedidos.';
             } else {
                 titulo = 'Sem pedidos no período';
-                icone  = '📋';
+                icone  = '<i class="ph ph-clipboard-text"></i>';
                 msg    = 'Não há pedidos no período com os status escolhidos. Tente aumentar o período ou ligar <strong>Faturado</strong>.';
             }
             containerPedidos.innerHTML = `
@@ -1308,7 +1300,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const checkAttr = estadoCheck === 'all' ? 'checked' : '';
 
         const checkOk = completo
-            ? '<span class="pb-check" title="Todos os produtos vinculados">✓</span>'
+            ? '<span class="pb-check" title="Todos os produtos vinculados"><i class="ph ph-check"></i></span>'
             : '';
 
         // Mai/2026 — 5 estados visuais (ver _rotuloPedido):
@@ -1358,9 +1350,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 <span class="ras-row-check-box"></span>
             </label>
             <button type="button" class="pb-chevron" aria-label="${colapsado ? 'Expandir' : 'Colapsar'} produtos" title="${colapsado ? 'Expandir' : 'Colapsar'} produtos do pedido">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <polyline points="6 9 12 15 18 9"/>
-                </svg>
+                <i class="ph ph-caret-down" aria-hidden="true"></i>
             </button>
             ${_avatarFornecedor(pedido.nomeparc || '—')}
             <span class="pb-parc">${escapeHtml(pedido.nomeparc || '—')}</span>
@@ -1506,9 +1496,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 <span class="ras-row-check-box"></span>
             </label>
             <span class="grupo-chevron" aria-label="${colapsado ? 'Expandir' : 'Recolher'} grupo">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <polyline points="6 9 12 15 18 9"/>
-                </svg>
+                <i class="ph ph-caret-down" aria-hidden="true"></i>
             </span>
             ${_avatarFornecedor(nomeProduto)}
             <span class="pb-parc">${escapeHtml(nomeProduto)}</span>
@@ -1565,16 +1553,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const checkAttr = selected ? 'checked' : '';
         const tagFalta = completo
-            ? '<span class="tag-atribuido-mini">✓ OK</span>'
+            ? '<span class="tag-atribuido-mini"><i class="ph ph-check"></i> OK</span>'
             : `<span class="tag-falta">falta ${fmtInt(prod.qtd_falta)}</span>`;
 
         const temVinculos = prod.lotes_vinculados && prod.lotes_vinculados.length > 0;
         const olhoBtn = temVinculos
             ? `<button class="btn-olho btn-acao-linha" title="Ver lotes vinculados" type="button">
-                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                       <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
-                       <circle cx="12" cy="12" r="3"/>
-                   </svg>
+                   <i class="ph ph-eye" aria-hidden="true"></i>
                </button>`
             : '';
         const setaAlvo = ehAlvo
@@ -1672,16 +1657,13 @@ document.addEventListener('DOMContentLoaded', function () {
         linha.dataset.codprod = prod.codprod;
 
         const tagFalta = completo
-            ? '<span class="tag-atribuido-mini">✓ OK</span>'
+            ? '<span class="tag-atribuido-mini"><i class="ph ph-check"></i> OK</span>'
             : `<span class="tag-falta">falta ${fmtInt(prod.qtd_falta)}</span>`;
 
         const temVinculos = prod.lotes_vinculados && prod.lotes_vinculados.length > 0;
         const olhoBtn = temVinculos
             ? `<button class="btn-olho btn-acao-linha" title="Ver lotes vinculados" type="button">
-                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                       <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
-                       <circle cx="12" cy="12" r="3"/>
-                   </svg>
+                   <i class="ph ph-eye" aria-hidden="true"></i>
                </button>`
             : '';
 
@@ -2122,7 +2104,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 <td>${escapeHtml(lv.lote_nomeparc || '—')}</td>
                 <td>${escapeHtml(lv.descrprod || prod.descrprod || '')}</td>
                 <td class="vnum">${fmtQtd(lv.qtd)}</td>
-                <td class="vacao"><button class="btn-desvincular" type="button" title="Desvincular este lote do pedido">🗑</button></td>
+                <td class="vacao"><button class="btn-desvincular" type="button" title="Desvincular este lote do pedido"><i class="ph ph-trash"></i></button></td>
             </tr>
         `).join('');
         const html = `
@@ -2168,7 +2150,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 const ehNotaSankhya = top === 35 || top === 37;
                 const podeDesvincular = top === 34 && v.statusnota !== 'E';
                 const acaoHtml = podeDesvincular
-                    ? '<button class="btn-desvincular" type="button" title="Desvincular este lote do pedido">🗑</button>'
+                    ? '<button class="btn-desvincular" type="button" title="Desvincular este lote do pedido"><i class="ph ph-trash"></i></button>'
                     : '';
                 const tipNomeTop = top === 35
                     ? 'Venda com NFe'

@@ -59,11 +59,12 @@ class PortalCombustivelAcessoTest(TestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
 
-    def test_grupo_vendas_NAO_acessa(self):
-        # Combustível é exclusivo de Diretoria / TI / Frota
+    def test_grupo_administrativo_acessa(self):
+        # 2026-05-14 — IAGRO_ADMINISTRATIVO (CODGRUPO=10) ganhou acesso ao
+        # Combustível pra fazer lançamento junto com o pessoal da frota.
         _login_session(self.client, grupos=['10'])
         response = self.client.get(self.url)
-        self.assertRedirects(response, reverse('home'), fetch_redirect_response=False)
+        self.assertEqual(response.status_code, 200)
 
 
 # ---------------------------------------------------------------------------

@@ -16,10 +16,10 @@ logger = logging.getLogger(__name__)
 # Grupos atualmente mapeados:
 #   '1'  → DIRETORIA          — acesso irrestrito a todos os módulos
 #   '6'  → SUPORTE (TI)       — acesso irrestrito para manutenção e suporte
-#   '8'  → PACKING_ENTRADA    — acesso aos módulos de Entrada e Classificação
-#   '9'  → PACKING_COMERCIAL  — acesso exclusivo ao módulo Comercial
-#   '10' → PACKING_VENDAS     — acesso exclusivo ao módulo de Vendas
-#   '11' → PACKING_FROTA      — acesso exclusivo ao módulo de Controle de Combustível
+#   '8'  → IAGRO_PACKING        — acesso aos módulos de Entrada e Classificação
+#   '9'  → IAGRO_COMERCIAL      — acesso exclusivo ao módulo Comercial
+#   '10' → IAGRO_ADMINISTRATIVO — acesso exclusivo ao módulo de Vendas
+#   '11' → IAGRO_FROTA          — acesso exclusivo ao módulo de Controle de Combustível
 #                                ⚠ ESTE é o grupo de USUÁRIO (TSIGRU.CODGRUPO=11).
 #                                Não confundir com TGFGRU.CODGRUPOPROD=200400, que é
 #                                o grupo do PRODUTO combustível (constante
@@ -29,12 +29,13 @@ logger = logging.getLogger(__name__)
 # Para alterar permissões: edite as listas abaixo — não é necessário
 # modificar nenhuma outra parte do código.
 GRUPOS_PERMITIDOS = {
-    'entrada':       ['1', '6', '8'],
-    'classificacao': ['1', '6', '8'],
-    'comercial':     ['1', '6', '9'],
-    'venda':         ['1', '6', '10'],
-    'rastreio':      ['1', '6', '8', '9', '10'],
-    'combustivel':   ['1', '6', '11'],
+    'entrada':       ['1', '6', '8'],          # DIRETORIA + SUPORTE + PACKING
+    'classificacao': ['1', '6', '8'],          # DIRETORIA + SUPORTE + PACKING
+    'comercial':     ['1', '6', '9'],          # DIRETORIA + SUPORTE + COMERCIAL
+    'venda':         ['1', '6', '10'],         # DIRETORIA + SUPORTE + ADMINISTRATIVO
+    'rastreio':      ['1', '6', '8', '10'],    # DIRETORIA + SUPORTE + PACKING + ADMINISTRATIVO
+    'combustivel':   ['1', '6', '10', '11'],   # DIRETORIA + SUPORTE + ADMINISTRATIVO + FROTA
+    'relatorios':    ['1', '6', '9'],          # DIRETORIA + SUPORTE + COMERCIAL (módulo futuro)
 }
 
 def _get_json_payload(request: HttpRequest) -> dict:

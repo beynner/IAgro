@@ -501,17 +501,17 @@
     border-radius: 3px;
     font-size: 10px;
     font-weight: 600;
-    text-transform: uppercase;
+    text-transform: none;       /* Mai/2026 — preservar "NFe" mixed-case */
     letter-spacing: 0.3px;
     background: #e5e7eb;
     color: #374151;
     white-space: nowrap;
 }
-.top-badge.top-34 { background: #dbeafe; color: #1e40af; }
-.top-badge.top-35 { background: #d1fae5; color: #065f46; }
-.top-badge.top-37 { background: #fef3c7; color: #92400e; }
-.top-badge.top-30 { background: #fee2e2; color: #991b1b; }   /* Vermelho avaria — Mai/2026 */
-.top-badge.top-36 { background: #fef3c7; color: #92400e; }   /* Amarelo devolução — Mai/2026 */
+.top-badge.top-34 { background: #dbeafe; color: #1e40af; }                  /* Azul — Pedido */
+.top-badge.top-35 { background: #d1fae5; color: #065f46; }                  /* Verde — NFe */
+.top-badge.top-37 { background: #fef3c7; color: #92400e; }                  /* Amarelo — s/NFe */
+.top-badge.top-30 { background: #fecaca; color: #7f1d1d; font-weight: 700; }/* Vermelho forte — Avaria (Mai/2026) */
+.top-badge.top-36 { background: #fed7aa; color: #9a3412; }                  /* Laranja — Devolução */
 
 /* ==========================================================================
    MÓDULO 7: BOTÕES DE AÇÃO POR LINHA NOS ITENS DO MODAL (edit/remove)
@@ -675,8 +675,30 @@
 }
 
 /* Utilitários de largura para colunas específicas */
-.col-w-70 { width: 70px; }
-.col-w-40 { width: 40px; }
+.col-w-40  { width: 40px;  }
+.col-w-60  { width: 60px;  }
+.col-w-70  { width: 70px;  }
+.col-w-90  { width: 90px;  }
+.col-w-110 { width: 110px; }
+.col-w-180 { width: 180px; }
+
+/* Garante alinhamento à direita no header e nas células da coluna Total. */
+#vendasTable th.text-right,
+#vendasTable td.text-right { text-align: right; }
+
+/* Célula de Observação — truncamento com tooltip via <span class="ia-truncate"> */
+#vendasTable td.venda-obs-cell {
+    max-width: 180px;
+    overflow: hidden;
+}
+#vendasTable td.venda-obs-cell .ia-truncate {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+}
 
 
 /* ==========================================================================

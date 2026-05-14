@@ -152,10 +152,10 @@ def api_criar_cabecalho_venda(request):
 |---|---|---|
 | `1` | DIRETORIA | Irrestrito a todos os módulos |
 | `6` | SUPORTE | Irrestrito (manutenção e suporte) |
-| `8` | PACKING_ENTRADA | Entrada e Classificação |
-| `9` | PACKING_COMERCIAL | Comercial |
-| `10` | PACKING_VENDAS | Vendas |
-| `11` | PACKING_FROTA | Combustível (Mai/2026) — ⚠ não confundir com TGFGRU.CODGRUPOPROD=200400 que é o grupo do **produto** combustível |
+| `8` | IAGRO_PACKING | Entrada e Classificação (renomeado de IAGRO_ENTRADA em 2026-05-14) |
+| `9` | IAGRO_COMERCIAL | Comercial |
+| `10` | IAGRO_ADMINISTRATIVO | Vendas (renomeado de IAGRO_VENDAS em 2026-05-14) |
+| `11` | IAGRO_FROTA | Combustível (Mai/2026 — renomeado de PACKING_FROTA em 2026-05-14) — ⚠ não confundir com TGFGRU.CODGRUPOPROD=200400 que é o grupo do **produto** combustível |
 
 Consulta no Sankhya: `SELECT CODGRUPO, NOMEGRUPO FROM TSIGRU ORDER BY CODGRUPO`.
 
@@ -171,8 +171,9 @@ Consulta no Sankhya: `SELECT CODGRUPO, NOMEGRUPO FROM TSIGRU ORDER BY CODGRUPO`.
 | Classificação | 1, 6, 8 |
 | Comercial | 1, 6, 9 |
 | Venda | 1, 6, 10 |
-| Rastreio | 1, 6, 8, 9, 10 |
-| Combustível | 1, 6, 11 |
+| Rastreio | 1, 6, 8, 10 _(Comercial perdeu acesso em 2026-05-14)_ |
+| Combustível | 1, 6, 10, 11 _(Administrativo ganhou acesso em 2026-05-14)_ |
+| Relatórios _(módulo futuro)_ | 1, 6, 9 |
 
 ---
 

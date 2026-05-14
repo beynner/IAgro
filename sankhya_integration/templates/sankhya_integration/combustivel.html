@@ -16,16 +16,12 @@
   <aside class="cb-col cb-col-estoque" id="cardEstoque">
     <div class="cb-card-header">
       <div class="cb-card-title">
-        <span class="cb-icon">⛽</span>
+        <span class="cb-icon"><i class="ph ph-gas-pump"></i></span>
         <span>Estoque de Combustível</span>
       </div>
       <div class="cb-card-actions">
         <button id="btnAtualizarEstoque" class="cb-btn cb-btn-icon" title="Atualizar">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 4 23 10 17 10"></polyline>
-            <polyline points="1 20 1 14 7 14"></polyline>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-          </svg>
+          <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
         </button>
       </div>
     </div>
@@ -41,15 +37,15 @@
         <div id="veiculosListaWrap">
           <div class="cb-veiculos-header">
             <div class="cb-veiculos-title">
-              <span class="cb-icon">🚚</span>
+              <span class="cb-icon"><i class="ph ph-truck"></i></span>
               <span>Veículos</span>
             </div>
             <div class="cb-veiculos-toggle">
               <button class="cb-toggle-btn active" data-filtro="COM" title="Frota com motor de combustão">
-                🚐 Frota
+                <i class="ph ph-van"></i> Frota
               </button>
               <button class="cb-toggle-btn" data-filtro="MAQ" title="Maquinário (trator, colheitadeira)">
-                🚜 Maquinário
+                <i class="ph ph-tractor"></i> Maquinário
               </button>
             </div>
           </div>
@@ -62,10 +58,7 @@
         <div id="veiculosDetalheWrap" class="cb-veiculos-detalhe hidden">
           <div class="cb-detalhe-header">
             <button id="btnVoltarVeiculos" class="cb-btn cb-btn-icon" title="Voltar à lista">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="19" y1="12" x2="5" y2="12"></line>
-                <polyline points="12 19 5 12 12 5"></polyline>
-              </svg>
+              <i class="ph ph-arrow-left" aria-hidden="true"></i>
               <span>Voltar</span>
             </button>
             <div class="cb-detalhe-periodo">
@@ -93,7 +86,7 @@
   <section class="cb-col cb-col-requisicoes" id="cardMovimentacoes">
     <div class="cb-card-header">
       <div class="cb-card-title">
-        <span class="cb-icon">📋</span>
+        <span class="cb-icon"><i class="ph ph-clipboard-text"></i></span>
         <span>Movimentações</span>
       </div>
       <div class="cb-card-actions">
@@ -114,17 +107,13 @@
           <option value="EXTERNA_FRETE">Veículo de freteiro</option>
         </select>
         <button id="btnAtualizarReqs" class="cb-btn cb-btn-icon" title="Atualizar">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 4 23 10 17 10"></polyline>
-            <polyline points="1 20 1 14 7 14"></polyline>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-          </svg>
+          <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
         </button>
         <button id="btnNovaEntrada" class="cb-btn" title="Nova entrada de combustível">
-          📥 <span>Entrada</span>
+          <i class="ph ph-tray-arrow-down"></i> <span>Entrada</span>
         </button>
         <button id="btnNovaRequisicao" class="cb-btn cb-btn-primary" title="Nova requisição">
-          📋 <span>Requisição</span>
+          <i class="ph ph-clipboard-text"></i> <span>Requisição</span>
         </button>
       </div>
     </div>
@@ -166,23 +155,23 @@
         <div class="cb-tipo-pills">
           <label class="cb-pill">
             <input type="radio" name="cbTipo" value="INTERNA_FROTA" checked />
-            <span>🚐 Frota própria</span>
+            <span><i class="ph ph-van"></i> Frota própria</span>
           </label>
           <label class="cb-pill">
             <input type="radio" name="cbTipo" value="INTERNA_MAQUINARIO" />
-            <span>🚜 Maquinário fazenda</span>
+            <span><i class="ph ph-tractor"></i> Maquinário fazenda</span>
           </label>
           <label class="cb-pill">
             <input type="radio" name="cbTipo" value="EXTERNA_FRETE" />
-            <span>🚛 Veículo de freteiro</span>
+            <span><i class="ph ph-truck"></i> Veículo de freteiro</span>
           </label>
           <label class="cb-pill cb-pill--externo">
             <input type="radio" name="cbTipo" value="EXTERNA_POSTO" />
-            <span>🌐 Posto externo</span>
+            <span><i class="ph ph-globe"></i> Posto externo</span>
           </label>
         </div>
         <div class="cb-hint cb-hint-externo hidden" id="reqExternoAviso">
-          ⚠ Abastecimento no posto não desconta saldo dos tanques internos.
+          <i class="ph ph-warning"></i> Abastecimento no posto não desconta saldo dos tanques internos.
           Gera lançamento financeiro contra o posto.
         </div>
       </div>
@@ -342,7 +331,7 @@
 <div id="modalNovaEntrada" class="cb-modal-overlay hidden">
   <div class="cb-modal-card">
     <div class="cb-modal-header">
-      <strong id="entModalTitle">📥 Nova entrada de combustível (compra)</strong>
+      <strong id="entModalTitle"><i class="ph ph-tray-arrow-down"></i> Nova entrada de combustível (compra)</strong>
       <button id="modalNovaEntradaFechar" class="cb-btn-fechar" title="Fechar">×</button>
     </div>
     <div class="cb-modal-body">
@@ -458,7 +447,7 @@
       <button id="btnExcluirEntradaModal" class="cb-btn hidden"
               style="background: var(--cb-perigo); color: #fff; border-color: var(--cb-perigo); margin-right: auto;"
               title="Excluir esta entrada inteira (todos os itens)">
-        🗑 Excluir entrada
+<i class="ph ph-trash"></i> Excluir entrada
       </button>
       <button id="btnCancelarEntrada" class="cb-btn">Cancelar</button>
       <button id="btnConfirmarEntrada" class="cb-btn cb-btn-primary">Salvar entrada</button>
@@ -470,7 +459,7 @@
 <div id="modalExcluirReq" class="cb-modal-overlay hidden">
   <div class="cb-modal-card" style="width: 460px;">
     <div class="cb-modal-header">
-      <strong>🗑 Excluir requisição</strong>
+      <strong><i class="ph ph-trash"></i> Excluir requisição</strong>
       <button id="modalExcluirReqFechar" class="cb-btn-fechar" title="Fechar">×</button>
     </div>
     <div class="cb-modal-body">
@@ -483,7 +472,7 @@
                   placeholder="Ex: lançamento de teste, qtd errada, veículo trocado…" maxlength="300"></textarea>
       </div>
       <div class="cb-hint" style="color: var(--cb-aviso);">
-        ⚠ A exclusão é definitiva. O saldo do combustível volta automaticamente.
+<i class="ph ph-warning"></i> A exclusão é definitiva. O saldo do combustível volta automaticamente.
       </div>
       <div id="excluirMensagem" class="cb-mensagem"></div>
     </div>

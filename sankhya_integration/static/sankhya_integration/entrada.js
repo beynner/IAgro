@@ -1618,8 +1618,8 @@ console.debug('showItemsModal resolved nunota', resolved);
         const prodInput = document.getElementById('item_prod_vis');
         const toggleBtns = document.querySelectorAll('#itemClassificaToggle .tri-toggle__btn');
         if(!btn) return;
-        const plusSvg = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">\n  <circle cx="12" cy="12" r="9"></circle>\n  <line x1="12" y1="8" x2="12" y2="16"></line>\n  <line x1="8" y1="12" x2="16" y2="12"></line>\n</svg>';
-        const checkSvg = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">\n  <circle cx="12" cy="12" r="9"></circle>\n  <polyline points="8 12 11 15 16 9"></polyline>\n</svg>';
+        const plusSvg = '<i class="ph ph-plus-circle icon" style="color:#16a34a;" aria-hidden="true"></i>';
+        const checkSvg = '<i class="ph ph-check-circle icon" aria-hidden="true"></i>';
         if (mode === 'edit'){
           btn.dataset.mode = 'edit';
           btn.setAttribute('title','Atualizar');
@@ -1835,13 +1835,7 @@ console.debug('showItemsModal resolved nunota', resolved);
         <td class="text-right">${pesoFormatted}</td>
         <td class="text-right">${totalWithUnit}</td>
         <td><button class="icon-btn item-del" data-seq="${it.sequencia || ''}" aria-label="Excluir">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polyline points="3 6 5 6 21 6"></polyline>
-            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
-            <path d="M10 11v6"></path>
-            <path d="M14 11v6"></path>
-            <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
-          </svg>
+          <i class="ph ph-trash icon" style="color:#dc2626;" aria-hidden="true"></i>
         </button></td>
       `;
 

@@ -20,12 +20,7 @@
         <span>Fila de revisão <span id="emailFilaContador" class="email-fila-contador"></span></span>
         <div class="email-fila-actions">
           <button type="button" id="emailImportarTextoBtn" class="email-icon-btn" title="Importar pedido por texto livre (WhatsApp, paste manual)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="9" y="2" width="6" height="4" rx="1"/>
-              <rect x="4" y="6" width="16" height="16" rx="2"/>
-              <line x1="8" y1="11" x2="16" y2="11"/>
-              <line x1="8" y1="15" x2="14" y2="15"/>
-            </svg>
+            <i class="ph ph-clipboard-text" aria-hidden="true"></i>
           </button>
           <select id="emailStatusFiltro" class="email-select" title="Filtrar por status">
             <option value="PENDENTE_REVISAO" selected>Pendentes</option>
@@ -35,9 +30,7 @@
             <option value="DESCARTADO">Descartados</option>
           </select>
           <button type="button" id="emailRefreshBtn" class="email-icon-btn" title="Atualizar">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>
-            </svg>
+            <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
           </button>
         </div>
       </header>
@@ -56,10 +49,7 @@
 
       <div class="email-detalhe-body" id="emailDetalheBody">
         <div class="email-empty-detail">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-            <polyline points="22,6 12,13 2,6"/>
-          </svg>
+          <i class="ph ph-envelope" style="font-size: 48px;" aria-hidden="true"></i>
           <p>Selecione um pré-pedido na fila à esquerda para revisar.</p>
         </div>
 
