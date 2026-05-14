@@ -595,3 +595,47 @@ Necessário porque a classe legada `.btn-olho` tem mesma especificidade. Ao remo
 ### `:has()` CSS no Rastreio
 
 Estilização dependente de checkbox. **Requer Chrome 105+, Safari 15.4+, Firefox 121+.** Consistente com público alvo (operadores em desktops corporativos), mas validar antes de aplicar em outros módulos.
+
+---
+
+## Phosphor font-icon dentro de `.btn-acao-linha` precisa `font-size` explícito
+
+`.btn-acao-linha` em `rastreio.css` tem `font-size: 0` (legado pra zerar emojis antigos). SVGs (`.btn-armar svg`, `.btn-olho svg`) usam `width/height` próprios — escapam. **Phosphor font-icons (`<i class="ph ph-xxx">`) dependem de `font-size` pra renderizar** — caem no reset e ficam invisíveis.
+
+**Fix aplicado (Mai/2026):**
+```css
+.btn-acao-linha .ph {
+    font-size: 14px;
+    line-height: 1;
+}
+.rastreio-card.compacto.linha-ativa .btn-acao-linha .ph,
+.produto-linha.linha-ativa .btn-acao-linha .ph {
+    font-size: 17px;
+}
+```
+
+**Regra:** ao adicionar novo botão de ação na linha do Rastreio com Phosphor, garantir que o `.ph` herda font-size do bloco acima. Se for botão sempre visível (como `.btn-etiqueta`), sobrescrever `opacity: 1 !important` pra escapar do default oculto.
+
+---
+
+## QTDFIXADA em pedidos antigos é NULL — operador re-vincula com peso
+
+Etiquetas SafeTrace/IAgro (Mai/2026) calculam nº de cópias via `qtdneg / qtdfixada`. Pedidos atribuídos **antes** do campo "Peso da caixa" existir no modal têm `TGFITE.QTDFIXADA = NULL` → backend retorna 400.
+
+**Resolução operacional (pra cada pedido antigo):** desvincular o lote (lixeira no modal de vínculos) → re-armar o lote → re-vincular informando o peso. Função `atribuir_lote_item_pedido` agora aceita `qtdfixada` como parâmetro obrigatório do frontend.
+
+**Backfill via SQL é possível mas é Cat B** — antes de rodar UPDATE em massa, abrir plano Cat B dedicado.
+
+---
+
+## Service Windows (NSSM) não recarrega Python automaticamente
+
+Em produção, o IAgro roda como serviço Windows via NSSM. Quando código `.py` muda, **o serviço precisa restart explícito**:
+
+```cmd
+nssm.exe restart IAgro
+```
+
+Sintoma típico: mensagem de erro antiga continua aparecendo mesmo depois de "consertar" o código. Cobra restart antes de assumir que o fix não funcionou.
+
+Mudanças em **HTML/CSS/JS** não exigem restart — só `Ctrl+F5` no navegador (alguns arquivos usam `?v=N` querystring que precisa ser bumpado quando muda).

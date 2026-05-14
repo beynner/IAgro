@@ -34,6 +34,7 @@ A alocação de lote a pedido é feita gravando `CODAGREGACAO` no `TGFITE` do pe
 | `/sankhya/rastreio/api/desvincular-lote/` | POST | Remove vínculo (audit) |
 | `/sankhya/rastreio/api/fabricantes/` | GET | Typeahead distinct |
 | `/sankhya/rastreio/api/lote-vinculos/` | GET | Pedidos/vendas que usam um lote |
+| `/sankhya/rastreio/api/etiqueta-pdf/?nunota=X[&codprod=Y]` | GET | PDF 100×50mm de etiquetas SafeTrace (Mai/2026) |
 
 **Acesso:** Grupos `1`, `6`, `8`, `10` (decorator `@exige_grupo('rastreio')`). _Comercial (9) perdeu acesso em 2026-05-14 — eles veem rastreio só via relatório._
 
@@ -59,10 +60,12 @@ A alocação de lote a pedido é feita gravando `CODAGREGACAO` no `TGFITE` do pe
 |---|---|
 | `consultar_saldo_lote_disponivel(filtros, limite, offset)` | Lê da view |
 | `consultar_pedidos_abertos_para_atribuicao(filtros, limite, offset)` | TOP 34 paginado por cabeçalho |
-| `atribuir_lote_item_pedido(nunota, sequencia, codagregacao, qtd=None)` | UPDATE total ou SPLIT (UPDATE qtd reduzida + INSERT nova linha) |
-| `desvincular_lote_item_pedido(nunota, sequencia)` | `UPDATE TGFITE SET CODAGREGACAO=NULL` |
+| `atribuir_lote_item_pedido(nunota, sequencia, codagregacao, qtd=None, qtdfixada=None)` | UPDATE total ou SPLIT. Grava `QTDFIXADA` (peso da caixa pra etiqueta — Mai/2026) com valor digitado pelo operador no modal. NULL/0/inválido → grava NULL. |
+| `desvincular_lote_item_pedido(nunota, sequencia)` | `UPDATE TGFITE SET CODAGREGACAO=NULL, QTDFIXADA=NULL` (caminho CLEAR) ou MERGE com pendente do mesmo CODPROD |
 | `consultar_fabricantes_disponiveis(termo, limite)` | Typeahead `SELECT DISTINCT FABRICANTE` |
 | `consultar_vinculos_de_lote(codagregacao)` | Pedidos/vendas que usam o lote |
+| `consultar_dados_etiqueta_pedido(nunota, codprod=None)` | Leitura — JOIN TGFCAB+TGFITE+TGFPAR+TGFPRO+TSIEMP. Inclui só itens com `CODAGREGACAO != NULL`. Detecta colunas opcionais (ENDERECO/LOGRADOURO/CEP) via `_existe_coluna()` |
+| `calcular_qtd_etiquetas(qtd_kg, peso_caixa_kg)` | `math.ceil(qtd/peso)`. Retorna 0 se algum for ≤ 0 — frontend bloqueia impressão |
 
 ---
 
@@ -438,3 +441,84 @@ Para o caso da nota órfã que **não tem pedido pareável** no banco (caso real
 ### Histórico — Fase 2 com TGFVAR (aposentada em 2026-05-11)
 
 Houve uma primeira implementação que escrevia em TGFITE dos dois lados (pedido + nota) propagando via `_localizar_par_via_tgfvar()`. Funcionava pra atribuir/desvincular total, mas **não suportava SPLIT** porque exigiria INSERT em TGFVAR (tabela populada por trigger Sankhya — análise das 6 triggers `TRG_*_TGFVAR` mostrou cascata em TGMTRA, metas e orçamento). Foi aposentada no mesmo mês quando ficou claro que (a) o caso de uso real exige SPLIT e (b) o XML da NFe não exige `<rastro>` — então não precisa propagar pra nota de forma alguma. Funções `atribuir_lote_pedido_finalizado`, `desvincular_lote_pedido_finalizado` e helper `_localizar_par_via_tgfvar` foram removidos.
+
+---
+
+## Etiquetas SafeTrace/IAgro (Mai/2026)
+
+Impressão de etiquetas de rastreabilidade 100×50mm landscape pra impressora térmica **Zebra ZD220**. 1 etiqueta = 1 caixa do pedido. Operador imprime no momento da expedição (todos os pedidos com lote vinculado).
+
+### Layout da etiqueta
+
+```
++---------------------------------------------+
+| NOME DO PRODUTO (bold 11pt)        | IAgro  |
+| Fornecedor: ...                    | rastreio
+| CNPJ/CPF: 21.297.713/0001-39       | [QR]   |
+| LAT: ...    LONG: ...              |        |
+| Endereco: ... | CEP: ...           |        |
+| Codigo do Fornecedor: ...          |        |
+| Peso Liquido: 16 KG                |        |
+| Data de Producao/Consolidacao: ... |        |
+| Lote: 112327S01D260512             |        |
+| Origem: BRASIL                     |        |
+|                                             |
+|        [EAN13 barcode — TGFPRO.REFERENCIA]  |
+| ◀◀  PRODUTO COM ORIGEM RASTREADA  ▶▶        |
++---------------------------------------------+
+```
+
+- **Esquerda**: bloco texto com dados do produto + empresa emissora (`TSIEMP`) + lote
+- **Sup. direita**: texto "IAgro / rastreio" + QR code apontando pra `URL_RASTREIO_PUBLICA` no `.env` (placeholder até definir URL pública real)
+- **Meio direita**: código de barras EAN13 do produto (de `TGFPRO.REFERENCIA`). Se vazio/inválido, etiqueta sai sem barcode
+- **Rodapé**: faixa preta com texto branco entre setas
+
+### Fluxo de impressão
+
+1. Operador no Rastreio vê os pedidos com lote vinculado
+2. Botão 🖨 (verde Agromil, `.btn-etiqueta`) aparece no **header do pedido** (todos os itens) **e em cada produto-linha** (subset) — só quando `qtd_atribuida > 0`
+3. Click → `window.open('/sankhya/rastreio/api/etiqueta-pdf/?nunota=X[&codprod=Y]', '_blank')` → PDF abre em aba nova
+4. Operador `Ctrl+P` → escolhe Zebra ZD220 (na primeira vez; depois fica salva)
+
+Cálculo do nº de etiquetas: `math.ceil(qtd_total_kg / peso_caixa_kg)`. Ex: 300 kg ÷ caixa de 10 kg = 30 etiquetas; 305 kg ÷ 10 = 31 (a última caixa fracionária também rotula).
+
+### Captura do peso da caixa (QTDFIXADA)
+
+**Operador digita no modal de atribuição** (Mai/2026 — campo obrigatório). A função `atribuir_lote_item_pedido` recebe `qtdfixada` no payload e grava no `TGFITE.QTDFIXADA` da TOP 34 (UPDATE total ou INSERT do SPLIT).
+
+Validação:
+- Frontend bloqueia submit se vazio ou ≤ 0 (toast "Informe o peso da caixa…")
+- Backend `int(qtdfixada)` aceita só valores `> 0`; outros viram NULL (defesa em profundidade)
+- Desvinculação limpa `QTDFIXADA = NULL` junto com `CODAGREGACAO = NULL`
+
+**Pedidos vinculados antes desta feature** ficam com `QTDFIXADA = NULL` e não imprimem etiqueta. Pra resolver: operador desvincula e re-vincula informando o peso. (Backfill via SQL é possível mas é Cat B e precisa de plano dedicado.)
+
+### Arquivos
+
+| Arquivo | Função |
+|---|---|
+| `services/etiqueta_lote.py` | `gerar_pdf_etiquetas(pedido, itens_com_copias) -> bytes`. Reportlab + qrcode + Ean13BarcodeWidget |
+| `services/oracle_conn.py` | `consultar_dados_etiqueta_pedido` (leitura) + `calcular_qtd_etiquetas` (helper) + alterações em `atribuir_lote_item_pedido`/`desvincular_lote_item_pedido` |
+| `views.py` | `api_rastreio_etiqueta_pdf` — retorna `HttpResponse(content_type='application/pdf')` inline |
+| `urls.py` | rota `/sankhya/rastreio/api/etiqueta-pdf/` |
+| `rastreio.html` | modal de transferência ganhou campo `inputQtdFixadaTransfer` (obrigatório) |
+| `rastreio.js` | helpers `_renderEtiquetaBtn`, listeners do botão 🖨 e validação do peso |
+| `rastreio.css` | `.btn-etiqueta` (verde Agromil, sempre visível) + `.input-group-pesoCx` (estilo do campo) |
+| `tests/test_etiqueta_lote.py` | 17 tests: helper, render, view, regressão B1/B2 |
+
+### Configuração
+
+```dotenv
+# .env
+URL_RASTREIO_PUBLICA=http://localhost:8000/rastreio-publico/{lote}
+```
+
+`{lote}` é substituído pelo `CODAGREGACAO` em runtime. Quando a URL pública existir (Agromil definir hostname), trocar o `.env` + restart NSSM — nenhuma mudança de código.
+
+### Dependência
+
+```text
+qrcode>=7.4.2
+```
+
+`reportlab` já é dependência do projeto.

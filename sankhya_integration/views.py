@@ -49,7 +49,11 @@ from .services.oracle_conn import (
     # Auditoria — Lote A (leitura paginada da tela)
     consultar_auditoria_paginada,
     listar_filtros_distintos_auditoria,
+    # Etiquetas SafeTrace/IAgro (Rastreio — Mai/2026)
+    consultar_dados_etiqueta_pedido,
+    calcular_qtd_etiquetas,
 )
+from .services.etiqueta_lote import gerar_pdf_etiquetas
 
 from django.contrib import messages
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -3428,7 +3432,8 @@ def api_rastreio_atribuir_lote(request: HttpRequest) -> JsonResponse:
     nunota       = _converter_para_inteiro(dados.get('nunota'))
     sequencia    = _converter_para_inteiro(dados.get('sequencia'))
     codagregacao = (dados.get('codagregacao') or '').strip()
-    qtd          = _converter_para_float(dados.get('qtd'))  # opcional
+    qtd          = _converter_para_float(dados.get('qtd'))         # opcional
+    qtdfixada    = _converter_para_float(dados.get('qtdfixada'))   # opcional (Mai/2026 — peso da caixa pra etiqueta)
 
     if not nunota or not sequencia or not codagregacao:
         return JsonResponse(
@@ -3442,6 +3447,7 @@ def api_rastreio_atribuir_lote(request: HttpRequest) -> JsonResponse:
             sequencia=sequencia,
             codagregacao=codagregacao,
             qtd=qtd,
+            qtdfixada=qtdfixada,
         )
         if not res.get('ok'):
             res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao atribuir lote')
@@ -3485,6 +3491,90 @@ def api_rastreio_atribuir_lote(request: HttpRequest) -> JsonResponse:
     except Exception as e:
         logger.exception("Erro em api_rastreio_atribuir_lote")
         return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+
+# ==============================================================================
+# 🏷  ETIQUETAS SAFE TRACE / IAGRO (Mai/2026)
+# Gera PDF 100×50mm landscape com 1 etiqueta por caixa. Operador clica
+# 🖨 no header do pedido (todos os itens) ou na linha de cada produto.
+# Nº de etiquetas = QTDNEG (kg) / QTDFIXADA (kg por caixa), arredondado pra cima.
+# ==============================================================================
+
+@require_http_methods(["GET"])
+@exige_grupo('rastreio')
+def api_rastreio_etiqueta_pdf(request: HttpRequest):
+    """Gera PDF de etiquetas de rastreabilidade de um pedido.
+
+    Query params:
+        ?nunota=X (obrigatório): NUNOTA do pedido (TOP 34/35/37)
+        ?codprod=Y (opcional):  limita etiquetas a este CODPROD
+
+    Cada item gera ``calcular_qtd_etiquetas(qtdneg, qtdfixada)`` páginas.
+    Itens sem ``QTDFIXADA`` são pulados silenciosamente (operador percebe
+    pelo nº de páginas). Se nenhum item gerar etiqueta, retorna 400.
+    """
+    try:
+        nunota = int(request.GET.get('nunota') or 0)
+    except (TypeError, ValueError):
+        return JsonResponse(
+            {'ok': False, 'error': 'NUNOTA inválido'}, status=400,
+        )
+    if nunota <= 0:
+        return JsonResponse(
+            {'ok': False, 'error': 'NUNOTA obrigatório'}, status=400,
+        )
+
+    codprod = None
+    codprod_raw = request.GET.get('codprod')
+    if codprod_raw:
+        try:
+            codprod = int(codprod_raw)
+        except (TypeError, ValueError):
+            codprod = None
+
+    try:
+        dados = consultar_dados_etiqueta_pedido(nunota, codprod=codprod)
+    except Exception as e:
+        logger.exception("Erro em api_rastreio_etiqueta_pdf")
+        return JsonResponse(
+            {'ok': False, 'error': humanizar_erro_oracle(e)}, status=500,
+        )
+
+    pedido = dados.get('pedido')
+    itens  = dados.get('itens') or []
+    if not pedido or not itens:
+        return JsonResponse({
+            'ok': False,
+            'error': ('Nenhum item com lote vinculado encontrado neste pedido. '
+                      'Vincule lotes antes de imprimir etiquetas.'),
+        }, status=404)
+
+    # Calcula nº de cópias por item; pula itens sem peso da caixa
+    itens_com_copias: list[tuple[dict, int]] = []
+    for it in itens:
+        n = calcular_qtd_etiquetas(it.get('qtdneg', 0), it.get('qtdfixada', 0))
+        if n > 0:
+            itens_com_copias.append((it, n))
+
+    if not itens_com_copias:
+        return JsonResponse({
+            'ok': False,
+            'error': ('Nenhum item tem peso da caixa definido — sem ele '
+                      'não dá pra calcular quantas etiquetas imprimir. '
+                      'Desvincule o lote e vincule de novo, dessa vez '
+                      'preenchendo o campo "Peso da caixa (kg)" no modal.'),
+        }, status=400)
+
+    pdf_bytes = gerar_pdf_etiquetas(pedido, itens_com_copias)
+
+    fname = f'etiquetas-pedido-{pedido.get("nunota")}'
+    if codprod:
+        fname += f'-prod-{codprod}'
+    fname += '.pdf'
+
+    response = HttpResponse(pdf_bytes, content_type='application/pdf')
+    response['Content-Disposition'] = f'inline; filename="{fname}"'
+    return response
 
 
 # ==============================================================================

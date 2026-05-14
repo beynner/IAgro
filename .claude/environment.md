@@ -43,6 +43,12 @@ O arquivo `.env` fica na raiz do projeto e é carregado pelo `python-dotenv` no 
 | `SANKHYA_DB_USER` | Usuário do Oracle |
 | `SANKHYA_DB_PASSWORD` | Senha do Oracle |
 
+### Opcionais (módulos novos — Mai/2026)
+
+| Variável | Default | Descrição |
+|---|---|---|
+| `URL_RASTREIO_PUBLICA` | `http://localhost:8000/rastreio-publico/{lote}` | URL embarcada no QR code das etiquetas SafeTrace/IAgro. `{lote}` é substituído pelo CODAGREGACAO em runtime. Quando Agromil definir hostname público, ajustar aqui sem mexer em código |
+
 ### Opcionais (segurança HTTPS — produção)
 
 | Variável | Descrição |

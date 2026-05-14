@@ -6,7 +6,7 @@
   <title>IAgro · Login</title>
   {% load static %}
   <meta name="app-version" content="{{ APP_VERSION }}">
-  <link rel="stylesheet" href="{% static 'sankhya_integration/home.css' %}?v=3">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/home.css' %}?v=5">
 </head>
 <body class="login-page">
 
@@ -39,6 +39,22 @@
         setTimeout(() => inp.classList.remove('highlight-error'), 600);
       });
     }
+
+    // Spinner + bloqueio do botão ao submeter — evita double-click enquanto
+    // o servidor processa o login. Submit normal (sem AJAX); a página vai
+    // navegar pra outro endereço ou recarregar com erro, descartando este JS.
+    (function () {
+      var form = document.getElementById('inline-login-form');
+      var btn  = form && form.querySelector('.btn-login');
+      if (!form || !btn) return;
+      form.addEventListener('submit', function () {
+        if (btn.disabled) return;
+        btn.disabled = true;
+        btn.classList.add('loading');
+        btn.dataset.originalText = btn.textContent;
+        btn.textContent = 'Entrando…';
+      });
+    })();
     // Sincronização entre abas — quando logar aqui, outras abas recarregam
     try {
       if (localStorage.getItem('ia_auth_sync') !== 'LOGGED_OUT') {

@@ -3510,10 +3510,15 @@ def desvincular_lote_item_pedido(nunota: int, sequencia: int) -> dict:
                 """, n=int(nunota), s=int(sequencia))
                 operacao = 'MERGE'
             else:
-                # Não há outra linha pendente — só limpa o lote desta
+                # Não há outra linha pendente — só limpa o lote desta.
+                # QTDFIXADA também é zerada (Mai/2026): sem lote, não há mais
+                # caixa de origem pra peso da etiqueta. Mantém coerência com
+                # atribuir_lote_item_pedido que popula os dois juntos.
                 cur.execute("""
-                    UPDATE TGFITE SET CODAGREGACAO = NULL
-                    WHERE NUNOTA = :n AND SEQUENCIA = :s
+                    UPDATE TGFITE
+                       SET CODAGREGACAO = NULL,
+                           QTDFIXADA    = NULL
+                     WHERE NUNOTA = :n AND SEQUENCIA = :s
                 """, n=int(nunota), s=int(sequencia))
                 operacao = 'CLEAR'
 
@@ -3532,7 +3537,8 @@ def desvincular_lote_item_pedido(nunota: int, sequencia: int) -> dict:
 
 
 def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
-                              qtd: float | None = None) -> dict:
+                              qtd: float | None = None,
+                              qtdfixada: float | None = None) -> dict:
     """Atribui um lote a um item de pedido TOP 34 (em aberto OU já faturado).
 
     Mai/2026: aceita TOP 34 STATUSNOTA='L' (pedido já faturado pelo Sankhya).
@@ -3653,24 +3659,42 @@ def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
                         f'Reduza a quantidade ou desvincule alguma atribuição '
                         f'existente deste lote (clique no olho do card de lote pra ver quem usa).'}
 
-            # 3) Aplica a atribuição
+            # 3) Normaliza qtdfixada vindo do frontend (Mai/2026):
+            #    operador digita o peso da caixa no modal de atribuição.
+            #    Valores inválidos (None / 0 / negativo / não-numérico) viram
+            #    None e o UPDATE/INSERT grava NULL. Etiqueta detecta depois.
+            qtdfixada_final = None
+            if qtdfixada is not None:
+                try:
+                    qf_val = float(qtdfixada)
+                    if qf_val > 0:
+                        qtdfixada_final = qf_val
+                except (ValueError, TypeError):
+                    pass
+
+            # 4) Aplica a atribuição
             if abs(qtd_atribuir - qtd_item_f) < 1e-6:
-                # 3a) Atribuição total — UPDATE simples
+                # 4a) Atribuição total — UPDATE simples (CODAGREGACAO + QTDFIXADA)
                 cur.execute("""
-                    UPDATE TGFITE SET CODAGREGACAO = :l
-                    WHERE NUNOTA = :n AND SEQUENCIA = :s
-                """, l=str(codagregacao), n=int(nunota), s=int(sequencia))
+                    UPDATE TGFITE
+                       SET CODAGREGACAO = :l,
+                           QTDFIXADA    = :qf
+                     WHERE NUNOTA = :n AND SEQUENCIA = :s
+                """, l=str(codagregacao), qf=qtdfixada_final,
+                     n=int(nunota), s=int(sequencia))
                 operacao = 'UPDATE'
                 nova_seq = None
             else:
-                # 3b) Atribuição parcial — divide a linha
+                # 4b) Atribuição parcial — divide a linha
                 cur.execute(
                     "SELECT NVL(MAX(SEQUENCIA), 0) + 1 FROM TGFITE WHERE NUNOTA = :n",
                     n=int(nunota),
                 )
                 nova_seq = int(cur.fetchone()[0])
 
-                # Reduz qtd da linha original e recalcula seu VLRTOT
+                # Reduz qtd da linha original e recalcula seu VLRTOT.
+                # QTDFIXADA da linha original NÃO é tocada — ela continua
+                # representando a "linha sem lote" do pedido.
                 cur.execute("""
                     UPDATE TGFITE
                        SET QTDNEG = QTDNEG - :q,
@@ -3678,20 +3702,23 @@ def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
                      WHERE NUNOTA = :n AND SEQUENCIA = :s
                 """, q=qtd_atribuir, n=int(nunota), s=int(sequencia))
 
-                # Cria nova linha com o lote atribuído (espelha campos da original)
+                # Cria nova linha com o lote atribuído (espelha campos da
+                # original) e popula QTDFIXADA com o valor digitado pelo
+                # operador (ou NULL se não foi informado).
                 cur.execute("""
                     INSERT INTO TGFITE (
                         NUNOTA, SEQUENCIA, CODEMP, CODPROD, QTDNEG,
                         VLRUNIT, VLRTOT, CODVOL, CODLOCALORIG, CODAGREGACAO,
-                        AD_NUMPEDIDOORIG
+                        QTDFIXADA, AD_NUMPEDIDOORIG
                     )
                     SELECT :n_dest, :s_dest, CODEMP, CODPROD, :q,
                            VLRUNIT, NVL(VLRUNIT, 0) * :q, CODVOL, CODLOCALORIG, :l,
-                           AD_NUMPEDIDOORIG
+                           :qf, AD_NUMPEDIDOORIG
                       FROM TGFITE
                      WHERE NUNOTA = :n_orig AND SEQUENCIA = :s_orig
                 """, n_dest=int(nunota), s_dest=nova_seq, q=qtd_atribuir,
-                     l=str(codagregacao), n_orig=int(nunota), s_orig=int(sequencia))
+                     l=str(codagregacao), qf=qtdfixada_final,
+                     n_orig=int(nunota), s_orig=int(sequencia))
                 operacao = 'SPLIT'
 
             # 4) Recalcula totais do cabeçalho
@@ -8653,3 +8680,136 @@ def listar_filtros_distintos_auditoria():
     except Exception as exc:
         logger.warning("Falha em listar_filtros_distintos_auditoria: %s", exc)
     return out
+
+
+# ==============================================================================
+# 🏷  ETIQUETAS SAFE TRACE / IAGRO (Mai/2026)
+# Leitura pura dos dados pra renderizar etiquetas 100×50mm de rastreabilidade.
+# Estrutura: 1 etiqueta por CAIXA do pedido. Operador clica "Imprimir" no
+# header do pedido (todos os itens) ou na linha de cada produto (subset).
+# Peso da caixa vem de TGFITE.QTDFIXADA, populada por atribuir_lote_item_pedido
+# a partir da TOP 11 origem do lote.
+# ==============================================================================
+
+def consultar_dados_etiqueta_pedido(nunota: int, codprod: int | None = None) -> dict:
+    """Retorna dados pra renderizar etiquetas de rastreabilidade de um pedido.
+
+    Filtros:
+        - ``nunota`` obrigatório (TGFCAB do pedido — pode ser TOP 34/35/37).
+        - ``codprod`` opcional: limita aos itens daquele CODPROD específico
+          (botão "imprimir etiquetas deste produto" na produto-linha).
+
+    Inclui apenas itens com ``CODAGREGACAO`` ≠ NULL — sem lote, sem
+    rastreabilidade, sem etiqueta. Itens sem ``QTDFIXADA`` (peso da caixa)
+    vão no retorno mas o frontend detecta e mostra aviso ao operador.
+
+    Retorna:
+        {
+          'pedido': {
+            'nunota', 'numnota', 'dtneg', 'codemp',
+            'empresa': {'razao', 'nome_fantasia', 'cgc',
+                        'latitude', 'longitude', 'endereco', 'cep'},
+          },
+          'itens': [
+            {'sequencia', 'codprod', 'descrprod', 'codvol',
+             'qtdneg', 'qtdfixada', 'codagregacao', 'referencia_ean'},
+            ...
+          ]
+        }
+        ou {'pedido': None, 'itens': []} se nada bater no filtro.
+    """
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+
+        # TSIEMP varia entre instalações Sankhya — algumas colunas de endereço
+        # podem não existir. Detectamos via _existe_coluna (cacheado 1× por
+        # processo) e montamos o SELECT incluindo só o que existe; o resto
+        # vira NULL explícito pra preservar a ordem dos índices.
+        col_endereco = None
+        for cand in ('ENDERECO', 'NOMEEND', 'LOGRADOURO'):
+            if _existe_coluna(cur, 'TSIEMP', cand):
+                col_endereco = cand
+                break
+        tem_cep = _existe_coluna(cur, 'TSIEMP', 'CEP')
+
+        sel_endereco = f"e.{col_endereco}" if col_endereco else "NULL"
+        sel_cep      = "e.CEP"             if tem_cep      else "NULL"
+
+        sql = f"""
+            SELECT
+                c.NUNOTA, c.NUMNOTA, c.DTNEG, c.CODEMP,
+                e.RAZAOSOCIAL, e.NOMEFANTASIA, e.CGC,
+                e.LATITUDE, e.LONGITUDE,
+                {sel_endereco}, {sel_cep},
+                i.SEQUENCIA, i.CODPROD,
+                pr.DESCRPROD, i.CODVOL,
+                NVL(i.QTDNEG, 0), NVL(i.QTDFIXADA, 0),
+                i.CODAGREGACAO, pr.REFERENCIA
+              FROM TGFCAB c
+              LEFT JOIN TSIEMP e  ON e.CODEMP = c.CODEMP
+              JOIN TGFITE i       ON i.NUNOTA = c.NUNOTA
+              LEFT JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
+             WHERE c.NUNOTA = :n
+               AND i.CODAGREGACAO IS NOT NULL
+        """
+        params: dict = {'n': int(nunota)}
+        if codprod is not None:
+            sql += " AND i.CODPROD = :p"
+            params['p'] = int(codprod)
+        sql += " ORDER BY i.SEQUENCIA"
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+
+    if not rows:
+        return {'pedido': None, 'itens': []}
+
+    r0 = rows[0]
+    pedido = {
+        'nunota':  int(r0[0]) if r0[0] is not None else None,
+        'numnota': int(r0[1]) if r0[1] is not None else None,
+        'dtneg':   r0[2],
+        'codemp':  int(r0[3]) if r0[3] is not None else None,
+        'empresa': {
+            'razao':         r0[4] or '',
+            'nome_fantasia': r0[5] or '',
+            'cgc':           r0[6] or '',
+            'latitude':      float(r0[7])  if r0[7]  is not None else None,
+            'longitude':     float(r0[8])  if r0[8]  is not None else None,
+            'endereco':      r0[9]  or '',
+            'cep':           r0[10] or '',
+        },
+    }
+    itens = [{
+        'sequencia':      int(r[11]) if r[11] is not None else None,
+        'codprod':        int(r[12]) if r[12] is not None else None,
+        'descrprod':      r[13] or '',
+        'codvol':         r[14] or 'KG',
+        'qtdneg':         float(r[15] or 0),
+        'qtdfixada':      float(r[16] or 0),
+        'codagregacao':   str(r[17]) if r[17] is not None else None,
+        'referencia_ean': r[18] or '',
+    } for r in rows]
+
+    return {'pedido': pedido, 'itens': itens}
+
+
+def calcular_qtd_etiquetas(qtd_total_kg: float, peso_caixa_kg: float) -> int:
+    """Calcula quantas etiquetas imprimir pra um item.
+
+    Arredonda pra cima — caixa fracionária também recebe etiqueta porque
+    fisicamente é uma caixa diferenciada que sai do galpão.
+
+    Exemplos:
+        300 kg ÷ caixa 10 kg = 30 etiquetas
+        1000 kg ÷ caixa 20 kg = 50 etiquetas
+        305 kg ÷ caixa 10 kg = 31 etiquetas (a última caixa tem 5 kg)
+
+    Retorna 0 se algum dos valores for ≤ 0 ou inválido — frontend trata
+    como "peso da caixa não definido" e bloqueia impressão com aviso.
+    """
+    import math
+    qtd  = float(qtd_total_kg or 0)
+    peso = float(peso_caixa_kg or 0)
+    if peso <= 0 or qtd <= 0:
+        return 0
+    return math.ceil(qtd / peso)

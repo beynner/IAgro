@@ -202,6 +202,13 @@
                     Disp: <span id="maxLote">0</span> | Falta: <span id="maxPedido">0</span>
                 </div>
             </div>
+            <div class="input-group-pesoCx">
+                <label for="inputQtdFixadaTransfer">Peso da caixa (kg) <span class="obrigatorio">*</span>:</label>
+                <input type="number" id="inputQtdFixadaTransfer" step="0.001" min="0.001" class="ras-input" placeholder="ex: 10" required />
+                <div class="helper-text">
+                    Necessário pra imprimir etiquetas SafeTrace. Ex: REPOLHO = 16, TOMATE = 20, PIMENTÃO = 10.
+                </div>
+            </div>
             <div class="modal-footer-flex">
                 <button id="btnCancelarTransfer" class="btn btn-clear">Cancelar</button>
                 <button id="btnConfirmarTransfer" class="btn btn-success">Vincular lote</button>

@@ -150,6 +150,8 @@ urlpatterns = [
     path('rastreio/api/vinculo/criar-pedido-retroativo/', views.api_rastreio_vinculo_criar_pedido_retroativo, name='api_rastreio_vinculo_criar_pedido_retroativo'),
     # Fluxo unificado A+B (Mai/2026): backend decide vincular ou criar
     path('rastreio/api/vinculo/resolver/',                views.api_rastreio_vinculo_resolver,                 name='api_rastreio_vinculo_resolver'),
+    # Etiquetas SafeTrace/IAgro (Mai/2026): PDF 100×50mm pra impressora Zebra ZD220
+    path('rastreio/api/etiqueta-pdf/',                    views.api_rastreio_etiqueta_pdf,                     name='api_rastreio_etiqueta_pdf'),
 
 # ==============================================================================
 # 📧 MÓDULO IMPORTAÇÃO POR E-MAIL (PEDIDOS COM PDF + LLM LOCAL)

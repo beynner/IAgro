@@ -8,7 +8,7 @@
 ## Identidade
 
 - **Nome:** IAgro
-- **Versão:** 1.2.0
+- **Versão:** 1.1.0
 - **Tipo:** Sistema interno de gestão operacional integrado ao ERP Sankhya
 - **Organização:** NexusGTi / HF Semear
 - **Domínio:** Central de beneficiamento de produtos agrícolas (antigo "Packing House")
@@ -22,7 +22,7 @@ O sistema integra dados do Sankhya via Oracle e oferece **nove módulos operacio
 | Classificação | 26 | Triagem de lotes por qualidade, com controle de descartes |
 | Comercial | 13 | Faturamento de vales, precificação, geração de financeiro |
 | Venda | 34 → 35/37 | Pedidos, edição de itens, faturamento (NFe ou s/ NFe), avaria (TOP 30) e devolução (TOP 36) |
-| Rastreio (WMS) | — | Vínculo de lotes a pedidos com auditoria e lock pessimista. Suporta vínculo manual pedido↔nota órfã e pedido retroativo |
+| Rastreio (WMS) | — | Vínculo de lotes a pedidos com auditoria e lock pessimista. Suporta vínculo manual pedido↔nota órfã e pedido retroativo. **Etiquetas SafeTrace 100×50mm** com QR + EAN13 (Mai/2026 — Zebra ZD220) |
 | E-mail (importação) | 34 (após confirmação) | Coleta IMAP de pedidos com PDF anexo, parser via LLM local (Ollama), revisão humana |
 | Combustível (Frota) | 10 → 53 | Entrada de combustível (TOP 10) e requisições internas (TOP 53 — frota/maquinário/freteiro/posto externo). Discrimina frota própria + maquinário + freteiros. Inclui abastecimento externo (não desconta tanque interno) |
 | **Auditoria Universal** | — | Tela `/sankhya/auditoria/` (restrita Diretoria/Suporte) consolidando AD_AUDITORIA_GERAL — todo evento de escrita do IAgro com snapshot antes/depois em JSON. 36 funções instrumentadas. Tela tem diff inteligente "antes→depois" + JSON técnico |

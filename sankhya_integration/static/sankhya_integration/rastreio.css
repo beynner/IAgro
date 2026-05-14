@@ -389,6 +389,47 @@
     margin: 20px 0;
 }
 
+/* Peso da caixa (etiqueta) — campo menor e discreto, sob o input gigante.
+   Mai/2026. */
+.input-group-pesoCx {
+    margin: 12px 0 4px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.input-group-pesoCx label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--texto-principal);
+}
+.input-group-pesoCx label .obrigatorio {
+    color: #dc2626;
+    font-weight: 700;
+    margin-left: 2px;
+}
+.input-group-pesoCx .ras-input {
+    width: 100%;
+    height: 36px;
+    padding: 6px 10px;
+    border: 1px solid var(--cor-borda, #cbd5e1);
+    border-radius: var(--borda-raio-md, 6px);
+    font-size: 14px;
+    font-family: inherit;
+    text-align: right;
+    outline: none;
+    box-sizing: border-box;
+}
+.input-group-pesoCx .ras-input:focus {
+    border-color: var(--ras-primary, #5e7e4a);
+    box-shadow: 0 0 0 2px rgba(94, 126, 74, 0.15);
+}
+.input-group-pesoCx .helper-text {
+    font-size: 0.75rem;
+    text-align: left;
+    margin-top: 0;
+    font-weight: 400;
+}
+
 .huge-input {
     width: 100%;
     font-size: 2.5rem !important; /* Número gigante para touch */
@@ -908,6 +949,31 @@
 .pedido-bloco-header .pb-btn-acao-mini:hover {
     background: var(--ras-primary, #5e7e4a);
     color:      #fff;
+}
+
+/* Botão impressora no header do pedido — mais sutil que `.pb-btn-acao-mini`,
+   só ícone. Mai/2026 — etiquetas SafeTrace/IAgro. */
+.pedido-bloco-header .pb-btn-etiqueta {
+    margin-left:   6px;
+    width:         24px;
+    height:        24px;
+    padding:       0;
+    background:    transparent;
+    color:         var(--ras-primary, #5e7e4a);
+    border:        1px solid var(--ras-primary, #5e7e4a);
+    border-radius: 6px;
+    cursor:        pointer;
+    display:       inline-flex;
+    align-items:   center;
+    justify-content: center;
+    transition:    all 0.12s ease;
+}
+.pedido-bloco-header .pb-btn-etiqueta:hover {
+    background: var(--ras-primary, #5e7e4a);
+    color:      #fff;
+}
+.pedido-bloco-header .pb-btn-etiqueta .ph {
+    font-size: 14px;
 }
 
 /* Explicação e seção manual no modal de vínculo */
@@ -2386,6 +2452,13 @@
     transition: width 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
                 height 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
+/* Phosphor font-icon dentro do botão — o .btn-acao-linha tem font-size: 0
+   (pra zerar emojis legados), então precisamos restaurar pro .ph. */
+.btn-acao-linha .ph {
+    font-size: 14px;
+    line-height: 1;
+    transition: font-size 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
 
 /* Hover discreto — convida a clicar */
 .btn-acao-linha:hover {
@@ -2408,6 +2481,10 @@
 .produto-linha.linha-ativa .btn-acao-linha svg {
     width: 17px;
     height: 17px;
+}
+.rastreio-card.compacto.linha-ativa .btn-acao-linha .ph,
+.produto-linha.linha-ativa .btn-acao-linha .ph {
+    font-size: 17px;
 }
 
 /* Cores quando linha-ativa — sólidas/sóbrias, sem gradientes saturados.
@@ -2434,6 +2511,34 @@
 .rastreio-card.compacto.linha-ativa .btn-olho:hover,
 .produto-linha.linha-ativa .btn-olho:hover {
     background: #6b4d2e !important;
+    transform: translateY(-1px) scale(1.05);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+}
+
+/* Botão impressora (etiqueta) — sempre visível porque é ação primária,
+   independente de linha-ativa/hover. Mai/2026. */
+.btn-etiqueta {
+    opacity: 1 !important;
+    transform: scale(1) !important;
+    color: var(--ras-primary, #5e7e4a) !important;
+    border: 1px solid var(--ras-primary, #5e7e4a) !important;
+}
+.btn-etiqueta:hover {
+    background: var(--ras-primary, #5e7e4a) !important;
+    color: #fff !important;
+    border-color: var(--ras-primary-dk, #4a633a) !important;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.12);
+}
+.rastreio-card.compacto.linha-ativa .btn-etiqueta,
+.produto-linha.linha-ativa .btn-etiqueta {
+    background: var(--ras-primary, #5e7e4a) !important;
+    color: #fff !important;
+    border-color: var(--ras-primary-dk, #4a633a) !important;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.12);
+}
+.rastreio-card.compacto.linha-ativa .btn-etiqueta:hover,
+.produto-linha.linha-ativa .btn-etiqueta:hover {
+    background: var(--ras-primary-dk, #4a633a) !important;
     transform: translateY(-1px) scale(1.05);
     box-shadow: 0 3px 8px rgba(0,0,0,0.15);
 }

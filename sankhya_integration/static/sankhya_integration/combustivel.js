@@ -531,12 +531,15 @@
 
     function _addItemReqExt(item) {
         _reqExtSeq += 1;
+        const qt = item ? (parseFloat(item.qtd) || 0) : 0;
+        const vu = item ? (parseFloat(item.vlrunit) || 0) : 0;
         reqExtItens.push({
             _seq: _reqExtSeq,
             codprod:   item ? item.codprod   : null,
             descrprod: item ? item.descrprod : '',
-            qtd:       item ? item.qtd       : 0,
-            vlrunit:   item ? item.vlrunit   : 0,
+            qtd:       qt,
+            vlrunit:   vu,
+            vlrtot:    qt * vu,
         });
         _renderReqExtItens();
     }
@@ -548,14 +551,32 @@
     }
 
     function _atualizarTotalReqExt() {
+        // Soma vlrtot (que é o valor "real" do item — pode ter sido editado
+        // direto pelo operador pra fugir de dízima, ou foi calculado de
+        // qtd × vlrunit). _recalcularItem mantém vlrtot consistente.
         let total = 0;
         reqExtItens.forEach(it => {
-            const qt = parseFloat(it.qtd) || 0;
-            const vu = parseFloat(it.vlrunit) || 0;
-            total += qt * vu;
+            total += parseFloat(it.vlrtot) || 0;
         });
         const lbl = document.getElementById('reqExtTotalCalculado');
         if (lbl) lbl.innerHTML = `Total da Nota: <strong>${formatBRL(total) || 'R$ 0,00'}</strong>`;
+    }
+
+    // Recálculo automático entre qtd / vlrunit / vlrtot. qtd NUNCA é
+    // recalculada — quantidade vem da bomba e é verdade absoluta.
+    //
+    //   editou qtd     → recalcula vlrtot  (mantém vlrunit)
+    //   editou vlrunit → recalcula vlrtot  (mantém qtd)
+    //   editou vlrtot  → recalcula vlrunit (mantém qtd)  ← caso de dízima
+    function _recalcularItem(item, campoEditado) {
+        const qt = parseFloat(item.qtd)     || 0;
+        const vu = parseFloat(item.vlrunit) || 0;
+        const vt = parseFloat(item.vlrtot)  || 0;
+        if (campoEditado === 'qtd' || campoEditado === 'vlrunit') {
+            if (qt > 0 && vu > 0) item.vlrtot = qt * vu;
+        } else if (campoEditado === 'vlrtot') {
+            if (qt > 0) item.vlrunit = vt / qt;
+        }
     }
 
     function _renderReqExtItens() {
@@ -568,6 +589,7 @@
             const idProdDD  = `reqExtItemProdDD_${it._seq}`;
             const idQtd     = `reqExtItemQtd_${it._seq}`;
             const idVlu     = `reqExtItemVlu_${it._seq}`;
+            const idTot     = `reqExtItemTot_${it._seq}`;
             return `
             <tr data-seq="${it._seq}">
                 <td style="position: relative;">
@@ -588,8 +610,11 @@
                            data-seq="${it._seq}" step="0.0001" min="0"
                            value="${it.vlrunit || ''}" placeholder="0,0000" />
                 </td>
-                <td class="cb-item-total" data-seq="${it._seq}">
-                    ${formatBRL((parseFloat(it.qtd) || 0) * (parseFloat(it.vlrunit) || 0)) || 'R$ 0,00'}
+                <td>
+                    <input id="${idTot}" type="number" class="cb-input cb-input-right cb-input-reqext-tot"
+                           data-seq="${it._seq}" step="0.01" min="0"
+                           value="${it.vlrtot ? (Math.round(it.vlrtot * 100) / 100) : ''}"
+                           placeholder="0,00" title="Pode editar — recalcula o campo que está fora da edição" />
                 </td>
                 <td>
                     <button type="button" class="cb-item-remove" data-seq="${it._seq}"
@@ -598,21 +623,45 @@
             </tr>`;
         }).join('');
 
-        // Eventos qtd/vlrunit
-        tbody.querySelectorAll('.cb-input-reqext-qtd, .cb-input-reqext-vlu').forEach(inp => {
+        // Helper: atualiza os 2 campos que NÃO estão em foco (sem perder
+        // o caret do input que o operador está digitando). Arredondamentos:
+        //   qtd     → 3 casas
+        //   vlrunit → 4 casas
+        //   vlrtot  → 2 casas
+        function _sincronizarInputs(seq, campoEditado) {
+            const item = reqExtItens.find(it => it._seq === seq);
+            if (!item) return;
+            const round = (n, casas) => {
+                const m = Math.pow(10, casas);
+                return Math.round((parseFloat(n) || 0) * m) / m;
+            };
+            const inpQtd = tbody.querySelector(`#reqExtItemQtd_${seq}`);
+            const inpVlu = tbody.querySelector(`#reqExtItemVlu_${seq}`);
+            const inpTot = tbody.querySelector(`#reqExtItemTot_${seq}`);
+            if (inpQtd && campoEditado !== 'qtd')      inpQtd.value = round(item.qtd, 3)      || '';
+            if (inpVlu && campoEditado !== 'vlrunit')  inpVlu.value = round(item.vlrunit, 4)  || '';
+            if (inpTot && campoEditado !== 'vlrtot')   inpTot.value = round(item.vlrtot, 2)   || '';
+        }
+
+        // Eventos qtd / vlrunit / vlrtot — comportamento triangular
+        tbody.querySelectorAll('.cb-input-reqext-qtd, .cb-input-reqext-vlu, .cb-input-reqext-tot').forEach(inp => {
             inp.addEventListener('input', (e) => {
                 const seq = parseInt(e.target.dataset.seq, 10);
                 const item = reqExtItens.find(it => it._seq === seq);
                 if (!item) return;
+                let campoEditado;
                 if (e.target.classList.contains('cb-input-reqext-qtd')) {
                     item.qtd = parseFloat(e.target.value) || 0;
-                } else {
+                    campoEditado = 'qtd';
+                } else if (e.target.classList.contains('cb-input-reqext-vlu')) {
                     item.vlrunit = parseFloat(e.target.value) || 0;
+                    campoEditado = 'vlrunit';
+                } else {
+                    item.vlrtot = parseFloat(e.target.value) || 0;
+                    campoEditado = 'vlrtot';
                 }
-                const cell = tbody.querySelector(`.cb-item-total[data-seq="${seq}"]`);
-                if (cell) {
-                    cell.textContent = formatBRL(item.qtd * item.vlrunit) || 'R$ 0,00';
-                }
+                _recalcularItem(item, campoEditado);
+                _sincronizarInputs(seq, campoEditado);
                 _atualizarTotalReqExt();
             });
         });
@@ -770,17 +819,23 @@
                 _reqExtSeq = 0;
                 itens.forEach(it => {
                     _reqExtSeq += 1;
+                    const qt = parseFloat(it.QTDNEG)  || 0;
+                    const vu = parseFloat(it.VLRUNIT) || 0;
                     reqExtItens.push({
                         _seq: _reqExtSeq,
                         codprod:   it.CODPROD,
                         descrprod: it.DESCRPROD,
-                        qtd:       it.QTDNEG,
-                        vlrunit:   it.VLRUNIT,
+                        qtd:       qt,
+                        vlrunit:   vu,
+                        vlrtot:    qt * vu,
                     });
                 });
                 if (reqExtItens.length === 0) {
                     _reqExtSeq += 1;
-                    reqExtItens.push({_seq: _reqExtSeq, codprod: null, descrprod: '', qtd: 0, vlrunit: 0});
+                    reqExtItens.push({
+                        _seq: _reqExtSeq, codprod: null, descrprod: '',
+                        qtd: 0, vlrunit: 0, vlrtot: 0,
+                    });
                 }
                 // Render explícito final — garante DOM atualizado mesmo se
                 // houve repaints intermediários durante o fluxo async.
@@ -1047,11 +1102,23 @@
             const dtn = document.getElementById('reqExternoDtNeg').value;
             const dtv = document.getElementById('reqExternoDtVenc').value;
             if (dtn && dtv && dtv < dtn) erros.push('Vencimento não pode ser anterior à data do abastecimento.');
-            // Pelo menos 1 item completo na tabela
+            // Pelo menos 1 item completo na tabela — os 3 valores
+            // (qtd, vlrunit, vlrtot) precisam estar preenchidos. Operador
+            // deve digitar 2 e deixar o 3º calcular automaticamente.
             const itensValidos = reqExtItens.filter(it =>
-                it.codprod && (parseFloat(it.qtd) || 0) > 0 && (parseFloat(it.vlrunit) || 0) > 0);
+                it.codprod
+                && (parseFloat(it.qtd)     || 0) > 0
+                && (parseFloat(it.vlrunit) || 0) > 0
+                && (parseFloat(it.vlrtot)  || 0) > 0);
+            // Diagnóstico mais útil: aponta exatamente o que falta
+            const itensIncompletos = reqExtItens.filter(it => it.codprod).filter(it =>
+                (parseFloat(it.qtd)     || 0) <= 0
+                || (parseFloat(it.vlrunit) || 0) <= 0
+                || (parseFloat(it.vlrtot)  || 0) <= 0);
             if (itensValidos.length === 0) {
-                erros.push('Adicione ao menos 1 item com combustível, qtd e valor.');
+                erros.push('Adicione ao menos 1 item com combustível, qtd, valor unit. e valor total.');
+            } else if (itensIncompletos.length > 0) {
+                erros.push('Há item(ns) com qtd, valor unit. ou valor total em branco. Preencha os 3 (digite 2 e o terceiro calcula).');
             }
         } else {
             // Single-item (interno ou EXTERNA_FRETE)

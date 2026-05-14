@@ -90,10 +90,16 @@
     <script>
         (function () {
             try {
-                if (localStorage.getItem('iagro:sidebar:collapsed:v1') === '1'
-                    && window.innerWidth > 900) {
-                    var s = document.getElementById('appSidebar');
-                    if (s) s.classList.add('collapsed');
+                // Default: sidebar começa RETRAÍDA (Mai/2026). Se o operador
+                // tiver explicitamente expandido (gravou '0'), respeita.
+                // Em mobile/tablet (≤900px) sempre fica off-canvas.
+                if (window.innerWidth > 900) {
+                    var pref = localStorage.getItem('iagro:sidebar:collapsed:v1');
+                    var deveColapsar = (pref === null) || (pref === '1');
+                    if (deveColapsar) {
+                        var s = document.getElementById('appSidebar');
+                        if (s) s.classList.add('collapsed');
+                    }
                 }
             } catch (e) {}
         })();

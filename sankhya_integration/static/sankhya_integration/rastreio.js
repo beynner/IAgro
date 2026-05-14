@@ -288,6 +288,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const transferLoteName    = document.getElementById('transferLoteName');
     const transferDestino     = document.getElementById('transferDestino');
     const inputQtdTransfer    = document.getElementById('inputQtdTransfer');
+    const inputQtdFixadaTransfer = document.getElementById('inputQtdFixadaTransfer');
     const maxLoteSpan         = document.getElementById('maxLote');
     const maxPedidoSpan       = document.getElementById('maxPedido');
     const btnFecharModal      = document.getElementById('btnFecharModal');
@@ -1342,6 +1343,15 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         if (ehFinalizado || ehOrfa) header.classList.add('pedido-finalizado');
 
+        // Botão de impressão de etiquetas do pedido inteiro — só aparece quando
+        // já há pelo menos 1 atribuição (qtdAtribuida > 0). Cada item gera
+        // qtdneg / qtdfixada etiquetas (arredondado pra cima) no PDF.
+        const btnEtiquetaPedido = qtdAtribuida > 0
+            ? `<button type="button" class="pb-btn-etiqueta" title="Imprimir todas as etiquetas deste pedido (PDF abre em nova aba)">
+                   <i class="ph ph-printer" aria-hidden="true"></i>
+               </button>`
+            : '';
+
         // Layout: [check] [chevron] avatar  parceiro · data ··· progresso · NUNOTA
         // O check fica antes do chevron para alinhar com os checks das produto-linhas.
         header.innerHTML = `
@@ -1356,6 +1366,7 @@ document.addEventListener('DOMContentLoaded', function () {
             <span class="pb-parc">${escapeHtml(pedido.nomeparc || '—')}</span>
             <span class="pb-data">${escapeHtml(pedido.dtneg || '')}</span>
             ${badgeFaturado}
+            ${btnEtiquetaPedido}
             <span class="pb-spacer"></span>
             <span class="pb-progresso" title="${pct}% vinculado (${fmtInt(prodCompletos)}/${fmtInt(pedido.produtos.length)} produtos completos)">
                 ${_renderProgressBar(qtdAtribuida, qtdTotal)}
@@ -1402,6 +1413,15 @@ document.addEventListener('DOMContentLoaded', function () {
               ?.addEventListener('click', async (e) => {
                   e.stopPropagation();
                   await resolverNotaOrfaFluxo(pedido);
+              });
+        // Botão "Imprimir etiquetas do pedido" (Mai/2026) — abre PDF em nova aba
+        header.querySelector('.pb-btn-etiqueta')
+              ?.addEventListener('click', (e) => {
+                  e.stopPropagation();
+                  window.open(
+                      `/sankhya/rastreio/api/etiqueta-pdf/?nunota=${encodeURIComponent(pedido.nunota)}`,
+                      '_blank',
+                  );
               });
         // Botão "Desfazer" (vínculo manual)
         header.querySelector('.btn-desfazer-vinculo')
@@ -1562,6 +1582,12 @@ document.addEventListener('DOMContentLoaded', function () {
                    <i class="ph ph-eye" aria-hidden="true"></i>
                </button>`
             : '';
+        // Botão de impressão só deste produto (linha compacta agrupada por produto)
+        const etiquetaBtn = (Number(prod.qtd_atribuida) || 0) > 0
+            ? `<button class="btn-etiqueta btn-acao-linha" title="Imprimir etiquetas só deste produto" type="button">
+                   <i class="ph ph-printer" aria-hidden="true"></i>
+               </button>`
+            : '';
         const setaAlvo = ehAlvo
             ? '<span class="ras-arrow-alvo" title="Solte aqui para vincular">←</span>'
             : '';
@@ -1584,6 +1610,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 </span>
             </span>
             <span class="lpc-tag">${tagFalta}</span>
+            ${etiquetaBtn}
             ${olhoBtn}
             <span class="lpc-nunota">${(() => { const r = _rotuloPedido(pedido); return r.label + ' ' + escapeHtml(r.num); })()}</span>
         `;
@@ -1594,6 +1621,14 @@ document.addEventListener('DOMContentLoaded', function () {
             olhoEl.addEventListener('click', (e) => {
                 e.stopPropagation();
                 abrirModalVinculosDeProduto(pedido, prod);
+            });
+        }
+        const etiquetaEl = linha.querySelector('.btn-etiqueta');
+        if (etiquetaEl) {
+            etiquetaEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const url = `/sankhya/rastreio/api/etiqueta-pdf/?nunota=${encodeURIComponent(pedido.nunota)}&codprod=${encodeURIComponent(prod.codprod)}`;
+                window.open(url, '_blank');
             });
         }
         const checkEl = linha.querySelector('.ras-row-check');
@@ -1666,6 +1701,13 @@ document.addEventListener('DOMContentLoaded', function () {
                    <i class="ph ph-eye" aria-hidden="true"></i>
                </button>`
             : '';
+        // Botão de impressão só deste produto (Mai/2026) — visível só quando
+        // já há atribuição (sem lote, não há etiqueta pra imprimir).
+        const etiquetaBtn = (Number(prod.qtd_atribuida) || 0) > 0
+            ? `<button class="btn-etiqueta btn-acao-linha" title="Imprimir etiquetas só deste produto" type="button">
+                   <i class="ph ph-printer" aria-hidden="true"></i>
+               </button>`
+            : '';
 
         // Indicador de "linha-alvo" quando há lote armado compatível
         const setaAlvo = ehAlvo
@@ -1690,7 +1732,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     <span class="qtd-vinculada">${fmtInt(prod.qtd_atribuida)}</span>/<span class="qtd-total">${fmtInt(prod.qtd_total)}</span>
                 </span>
             </span>
-            <span class="col-tag">${tagFalta}${olhoBtn}</span>
+            <span class="col-tag">${tagFalta}${etiquetaBtn}${olhoBtn}</span>
         `;
 
         // Click no olho → modal com lotes vinculados (sem fetch — usa o que já temos)
@@ -1699,6 +1741,15 @@ document.addEventListener('DOMContentLoaded', function () {
             olhoEl.addEventListener('click', (e) => {
                 e.stopPropagation();
                 abrirModalVinculosDeProduto(pedido, prod);
+            });
+        }
+        // Click no botão impressora → abre PDF de etiquetas só desse produto
+        const etiquetaEl = linha.querySelector('.btn-etiqueta');
+        if (etiquetaEl) {
+            etiquetaEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const url = `/sankhya/rastreio/api/etiqueta-pdf/?nunota=${encodeURIComponent(pedido.nunota)}&codprod=${encodeURIComponent(prod.codprod)}`;
+                window.open(url, '_blank');
             });
         }
 
@@ -1823,6 +1874,9 @@ document.addEventListener('DOMContentLoaded', function () {
         // Trava: nunca aceita vincular mais do que o pedido pediu
         inputQtdTransfer.max      = faltaProd;
         inputQtdTransfer.min      = 0.01;
+        // Peso da caixa — opcional, sempre começa vazio. Operador digita
+        // pra etiqueta ter peso. (Mai/2026)
+        if (inputQtdFixadaTransfer) inputQtdFixadaTransfer.value = '';
 
         modalTransfer.classList.remove('hidden');
         modalTransfer.style.display = 'flex';
@@ -1845,6 +1899,24 @@ document.addEventListener('DOMContentLoaded', function () {
             inputQtdTransfer.focus();
             return;
         }
+
+        // Peso da caixa (Mai/2026) — obrigatório. Sem ele, etiqueta SafeTrace
+        // não funciona (precisa dividir qtd total pelo peso da caixa pra saber
+        // quantas etiquetas imprimir).
+        let qtdfixadaPayload = null;
+        const qfRaw = inputQtdFixadaTransfer ? inputQtdFixadaTransfer.value.trim() : '';
+        if (qfRaw === '') {
+            showToast('Informe o peso da caixa (kg) — obrigatório pra etiqueta SafeTrace.', 'warning');
+            if (inputQtdFixadaTransfer) inputQtdFixadaTransfer.focus();
+            return;
+        }
+        const qf = parseFloat(qfRaw);
+        if (!isFinite(qf) || qf <= 0) {
+            showToast('Peso da caixa precisa ser um número maior que zero.', 'warning');
+            inputQtdFixadaTransfer.focus();
+            return;
+        }
+        qtdfixadaPayload = qf;
         const dispLote  = Number(lote.qtd_disponivel) || 0;
         const faltaProd = Number(prod.qtd_falta)      || 0;
         if (qtdRestante > dispLote + 1e-6) {
@@ -1889,6 +1961,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     sequencia:    linha.sequencia,
                     codagregacao: lote.codagregacao,
                     qtd:          qtdParaLinha,
+                    qtdfixada:    qtdfixadaPayload,   // Mai/2026 — peso da caixa
                 });
                 if (!res.ok || !res.body || !res.body.ok) {
                     erro = (res.body && res.body.error) || 'Falha ao atribuir lote.';

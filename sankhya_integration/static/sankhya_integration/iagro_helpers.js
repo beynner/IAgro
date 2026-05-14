@@ -551,11 +551,15 @@
     const btnCollapse = document.getElementById('btnSidebarCollapse');
     const btnMobile   = document.getElementById('btnSidebarToggleMobile');
 
-    // 1) Restaura estado recolhido (desktop) do localStorage
+    // 1) Aplica estado recolhido (desktop). Default: RETRAÍDA (Mai/2026).
+    //    Operador que explicitamente expandiu (gravou '0') tem preferência.
+    //    Em ≤900px é off-canvas — não aplica collapsed aqui.
     const STORAGE_KEY = 'iagro:sidebar:collapsed:v1';
     try {
-      if (localStorage.getItem(STORAGE_KEY) === '1' && window.innerWidth > 900) {
-        sidebar.classList.add('collapsed');
+      if (window.innerWidth > 900) {
+        const pref = localStorage.getItem(STORAGE_KEY);
+        const deveColapsar = (pref === null) || (pref === '1');
+        if (deveColapsar) sidebar.classList.add('collapsed');
       }
     } catch (_) { /* localStorage indisponível */ }
 

@@ -18,6 +18,8 @@ ollama>=0.3.0
 rapidfuzz>=3.0.0
 # Split físico de PDF multi-pedido (1 PDF Assaí com 3 lojas → 3 arquivos)
 pypdf>=5.0.0
+# Etiquetas SafeTrace/IAgro (Rastreio) — QR code embarcado no PDF 100×50mm
+qrcode>=7.4.2
 # Note: cx_Oracle is intentionally not installed on Windows/Python 3.13.
 # The project uses python-oracledb (oracledb) as a fallback in
 # sankhya_integration/services/oracle_conn.py, which is the modern,

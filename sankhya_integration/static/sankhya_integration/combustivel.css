@@ -997,6 +997,12 @@
     padding-right: 6px;
 }
 
+/* Total editável (abastecimento externo) — destaque visual leve pra
+   manter o "peso" do campo total mesmo agora que é input editável. */
+.cb-input-reqext-tot {
+    font-weight: 600;
+}
+
 .cb-item-remove {
     width: 24px;
     height: 24px;
