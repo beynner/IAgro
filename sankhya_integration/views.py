@@ -24,6 +24,31 @@ from .services.oracle_conn import (
     atualizar_pedido_email_item,
     deletar_pedido_email_item,
     vincular_nunota_pedido_email,
+    # Controle de Combustível (Mai/2026 — funções de leitura + escrita)
+    consultar_saldo_combustivel,
+    consultar_veiculos_disponiveis,
+    listar_requisicoes_combustivel,
+    obter_requisicao_combustivel,
+    consultar_produtos_combustivel,
+    consultar_consumo_por_veiculo,
+    listar_movimentacoes_combustivel,
+    criar_requisicao_combustivel_banco,
+    editar_requisicao_combustivel_banco,
+    excluir_requisicao_combustivel_banco,
+    criar_entrada_combustivel_banco,
+    editar_entrada_combustivel_banco,
+    excluir_entrada_combustivel_banco,
+    obter_entrada_combustivel,
+    consultar_prazo_tipvenda,
+    consultar_ultimo_preco_combustivel,
+    criar_abastecimento_externo_banco,
+    # Dashboard executivo (Mai/2026)
+    consultar_indicadores_dashboard,
+    # Auditoria universal (Mai/2026 — B1)
+    registrar_auditoria,
+    # Auditoria — Lote A (leitura paginada da tela)
+    consultar_auditoria_paginada,
+    listar_filtros_distintos_auditoria,
 )
 
 from django.contrib import messages
@@ -191,7 +216,112 @@ def _converter_para_float(val, default=None):
 # ==============================================================================
 
 def home(request: HttpRequest) -> HttpResponse:
-    return render(request, "sankhya_integration/home.html")
+    """Home: usuário logado vê o dashboard (estende base.html com sidebar);
+    não-logado vê tela de login standalone (sem sidebar)."""
+    if request.session.get('codusu'):
+        return render(request, "sankhya_integration/home.html")
+    return render(request, "sankhya_integration/home_login.html")
+
+
+def api_dashboard_indicadores(request: HttpRequest) -> JsonResponse:
+    """Endpoint do dashboard executivo da home — Mai/2026.
+
+    Retorna JSON com os 6 indicadores de saúde do sistema. Acesso restrito
+    a usuários autenticados (qualquer grupo). Cada indicador é tolerante a
+    falha individual — se o Oracle quebrar 1 query, o restante volta.
+    """
+    if not request.session.get('codusu'):
+        return JsonResponse({'ok': False, 'error': 'Sessão expirada.'}, status=401)
+    try:
+        indicadores = consultar_indicadores_dashboard()
+        return JsonResponse({'ok': True, 'indicadores': indicadores})
+    except Exception as exc:
+        logger.exception("Falha em api_dashboard_indicadores")
+        return JsonResponse(
+            {'ok': False, 'error': humanizar_erro_oracle(exc)},
+            status=500,
+        )
+
+
+# ==============================================================================
+# 📋 TELA DE AUDITORIA UNIVERSAL — Mai/2026 (Lote A — leitura)
+# Restrito a grupos 1 (Diretoria) e 6 (Suporte). Não usa @exige_grupo pra
+# evitar colisão com mapeamento existente — validação direta no corpo.
+# ==============================================================================
+
+_GRUPOS_AUDITORIA = ('1', '6')
+
+
+def _pode_ver_auditoria(request: HttpRequest) -> bool:
+    """Diretoria (1) e Suporte (6) têm acesso à tela de Auditoria."""
+    grupos = request.session.get('grupos') or []
+    return any(str(g) in _GRUPOS_AUDITORIA for g in grupos)
+
+
+@ensure_csrf_cookie
+def view_auditoria_painel(request: HttpRequest) -> HttpResponse:
+    """Renderiza a tela de Auditoria (timeline + filtros)."""
+    if not request.session.get('codusu'):
+        return redirect('home')
+    if not _pode_ver_auditoria(request):
+        messages.error(request, 'Acesso restrito à Diretoria e ao Suporte.')
+        return redirect('home')
+    return render(request, "sankhya_integration/auditoria.html")
+
+
+def api_auditoria_listar(request: HttpRequest) -> JsonResponse:
+    """Lista paginada de eventos da AD_AUDITORIA_GERAL com filtros.
+
+    Querystring:
+      modulo, operacao, codusu, registro_id, busca,
+      data_ini='YYYY-MM-DD', data_fim='YYYY-MM-DD',
+      limite=50 (max 500), offset=0
+    """
+    if not request.session.get('codusu'):
+        return JsonResponse({'ok': False, 'error': 'Sessão expirada.'}, status=401)
+    if not _pode_ver_auditoria(request):
+        return JsonResponse({'ok': False, 'error': 'Acesso restrito.'}, status=403)
+
+    filtros = {
+        'modulo':      (request.GET.get('modulo') or '').strip() or None,
+        'operacao':    (request.GET.get('operacao') or '').strip() or None,
+        'codusu':      _converter_para_inteiro(request.GET.get('codusu')),
+        'registro_id': (request.GET.get('registro_id') or '').strip() or None,
+        'busca':       (request.GET.get('busca') or '').strip() or None,
+        'data_ini':    (request.GET.get('data_ini') or '').strip() or None,
+        'data_fim':    (request.GET.get('data_fim') or '').strip() or None,
+    }
+    try:
+        limite = int(request.GET.get('limite') or 50)
+    except Exception:
+        limite = 50
+    try:
+        offset = int(request.GET.get('offset') or 0)
+    except Exception:
+        offset = 0
+    try:
+        dados = consultar_auditoria_paginada(filtros, limite=limite, offset=offset)
+        return JsonResponse({'ok': True, **dados})
+    except Exception as exc:
+        logger.exception("Falha em api_auditoria_listar")
+        return JsonResponse(
+            {'ok': False, 'error': humanizar_erro_oracle(exc)},
+            status=500,
+        )
+
+
+def api_auditoria_filtros(request: HttpRequest) -> JsonResponse:
+    """Retorna listas distintas pra popular os filtros da tela
+    (módulos, operações, usuários)."""
+    if not request.session.get('codusu'):
+        return JsonResponse({'ok': False, 'error': 'Sessão expirada.'}, status=401)
+    if not _pode_ver_auditoria(request):
+        return JsonResponse({'ok': False, 'error': 'Acesso restrito.'}, status=403)
+    try:
+        return JsonResponse({'ok': True, **listar_filtros_distintos_auditoria()})
+    except Exception as exc:
+        logger.exception("Falha em api_auditoria_filtros")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
 
 def health(request: HttpRequest) -> HttpResponse:
     """Healthcheck profundo: ping do Oracle + checagem da view de saldo do Rastreio.
@@ -751,13 +881,38 @@ def api_salvar_item_nota(request: HttpRequest) -> JsonResponse:
     else:
         payload['CODVOL'] = vol_digitado
     
-    with obter_conexao_oracle() as conn: 
+    with obter_conexao_oracle() as conn:
         try:
             nunota = _converter_para_inteiro(payload.get('NUNOTA'))
             seq = _converter_para_inteiro(payload.get('SEQUENCIA'))
-            
+
             if not nunota or not payload.get('CODPROD'):
                 return JsonResponse({"ok": False, "error": "NUNOTA e CODPROD são obrigatórios"}, status=400)
+
+            # Snapshot ANTES (best-effort) — só em UPDATE
+            snapshot_antes = None
+            if seq:
+                try:
+                    cur_snap = conn.cursor()
+                    cur_snap.execute("""
+                        SELECT CODPROD, QTDNEG, PESO, CODVOL, CODVOLPARC, QTDCONFERIDA, OBSERVACAO
+                        FROM TGFITE WHERE NUNOTA = :n AND SEQUENCIA = :s
+                    """, n=nunota, s=seq)
+                    rsnap = cur_snap.fetchone()
+                    if rsnap:
+                        snapshot_antes = {
+                            'NUNOTA':       nunota,
+                            'SEQUENCIA':    seq,
+                            'CODPROD':      int(rsnap[0]) if rsnap[0] is not None else None,
+                            'QTDNEG':       float(rsnap[1]) if rsnap[1] is not None else None,
+                            'PESO':         float(rsnap[2]) if rsnap[2] is not None else None,
+                            'CODVOL':       rsnap[3],
+                            'CODVOLPARC':   rsnap[4],
+                            'QTDCONFERIDA': float(rsnap[5]) if rsnap[5] is not None else None,
+                            'OBSERVACAO':   rsnap[6],
+                        }
+                except Exception:
+                    logger.warning("Falha snapshot ANTES item entrada NUNOTA=%s SEQ=%s", nunota, seq)
 
             if seq:
                 # =========================================================================
@@ -837,12 +992,36 @@ def api_salvar_item_nota(request: HttpRequest) -> JsonResponse:
 
             # Recalcula totais da nota após inserir/editar
             recalculo = recalcular_totais_nota_banco(nunota, conexao_existente=conn)
-            conn.commit() 
+            conn.commit()
             plano.update(recalculo)
+
+            # Audit — distingue criar vs editar pelo seq
+            seq_final = int(seq) if seq else plano.get('sequencia')
+            snap_d = {
+                'NUNOTA':       nunota,
+                'SEQUENCIA':    seq_final,
+                'CODPROD':      _converter_para_inteiro(payload.get('CODPROD')),
+                'QTDNEG':       float(payload.get('QTDNEG') or 0),
+                'PESO':         float(payload.get('PESO') or 0),
+                'CODVOL':       payload.get('CODVOL'),
+                'CODVOLPARC':   payload.get('CODVOLPARC'),
+                'QTDCONFERIDA': float(payload.get('QTDCONFERIDA') or payload.get('QTDNEG') or 0),
+                'OBSERVACAO':   payload.get('OBSERVACAO'),
+            }
+            registrar_auditoria(
+                modulo='entrada',
+                operacao='EDITAR_ITEM_NOTA' if seq else 'CRIAR_ITEM_NOTA',
+                tabela_alvo='TGFITE',
+                registro_id=f"{nunota}/{seq_final}",
+                codusu=request.session.get('codusu'),
+                nomeusu=request.session.get('nomeusu'),
+                snapshot_antes=snapshot_antes,
+                snapshot_depois=snap_d,
+            )
             return JsonResponse(plano, status=200)
 
         except Exception as e:
-            conn.rollback() 
+            conn.rollback()
             return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
 def api_excluir_itens_nota(request: HttpRequest) -> JsonResponse:
@@ -911,14 +1090,37 @@ def api_excluir_itens_nota(request: HttpRequest) -> JsonResponse:
 
             # --- EXECUTA A EXCLUSÃO REAL ---
             seqs_inteiras = [int(s) for s in sequencias]
+
+            # Snapshot ANTES (best-effort) — coleta itens que vão sumir
+            snapshot_antes = {'NUNOTA': nunota, 'CODTIPOPER': top_atual, 'ITENS': []}
+            try:
+                placeholders = ','.join(f':s{i}' for i in range(len(seqs_inteiras)))
+                binds_snap = {'n': nunota, **{f's{i}': s for i, s in enumerate(seqs_inteiras)}}
+                cur.execute(
+                    f"""SELECT SEQUENCIA, CODPROD, QTDNEG, PESO, CODVOL, CODAGREGACAO
+                        FROM TGFITE WHERE NUNOTA = :n AND SEQUENCIA IN ({placeholders})""",
+                    binds_snap,
+                )
+                for r in cur.fetchall():
+                    snapshot_antes['ITENS'].append({
+                        'SEQUENCIA':    int(r[0]),
+                        'CODPROD':      int(r[1]) if r[1] is not None else None,
+                        'QTDNEG':       float(r[2]) if r[2] is not None else None,
+                        'PESO':         float(r[3]) if r[3] is not None else None,
+                        'CODVOL':       r[4],
+                        'CODAGREGACAO': r[5],
+                    })
+            except Exception:
+                logger.warning("Falha snapshot ANTES de excluir itens NUNOTA=%s", nunota)
+
             binds = {'nunota': nunota}
             chaves_bind = []
             for i, s in enumerate(seqs_inteiras):
                 chave = f'seq{i}'; chaves_bind.append(f':{chave}'); binds[chave] = s
-            
+
             sql_excluir = f"DELETE FROM TGFITE WHERE NUNOTA = :nunota AND SEQUENCIA IN ({', '.join(chaves_bind)})"
             cur.execute(sql_excluir, binds)
-            
+
             cur.execute("SELECT COUNT(*) FROM TGFITE WHERE NUNOTA = :n", n=nunota)
             cab_excluido = False
             if cur.fetchone()[0] == 0:
@@ -926,7 +1128,19 @@ def api_excluir_itens_nota(request: HttpRequest) -> JsonResponse:
                 cab_excluido = True
 
             conn.commit()
-            
+
+        registrar_auditoria(
+            modulo='classificacao' if top_atual == 26 else 'entrada',
+            operacao='EXCLUIR_ITENS_NOTA',
+            tabela_alvo='TGFITE',
+            registro_id=nunota,
+            codusu=request.session.get('codusu'),
+            nomeusu=request.session.get('nomeusu'),
+            snapshot_antes=snapshot_antes,
+            observacao=f"{len(seqs_inteiras)} item(ns) excluído(s)" + (
+                ' — cabeçalho também removido (último item)' if cab_excluido else ''
+            ),
+        )
         resposta = {'ok': True, 'message': 'Item excluído.', 'cabecalho_excluido': cab_excluido}
         return JsonResponse(resposta)
         
@@ -937,26 +1151,60 @@ def api_finalizar_nota_compra(request: HttpRequest) -> JsonResponse:
     """Carimba a nota como 'Finalizada' (Muda STATUSNOTA para 'L' e preenche a DTFATUR)."""
     if request.method != 'POST': return JsonResponse({"ok": False, "error": "Use POST"}, status=405)
     payload = _get_json_payload(request)
-    
+
     nunota = _converter_para_inteiro(payload.get('nunota'))
     if not nunota: return JsonResponse({"ok": False, "error": "Informe o NUNOTA para finalizar"}, status=400)
-    
+
     if not verificar_permissao_escrita(): return JsonResponse({"ok": False, "error": "Escrita desabilitada no sistema"}, status=403)
-    
+
     try:
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
+            # Snapshot ANTES — captura CODTIPOPER e STATUSNOTA pré-UPDATE
+            snapshot_antes = None
+            try:
+                cur.execute("""
+                    SELECT CODTIPOPER, STATUSNOTA, DTFATUR
+                    FROM TGFCAB WHERE NUNOTA = :n
+                """, n=nunota)
+                rsnap = cur.fetchone()
+                if rsnap:
+                    snapshot_antes = {
+                        'NUNOTA':     nunota,
+                        'CODTIPOPER': int(rsnap[0]) if rsnap[0] is not None else None,
+                        'STATUSNOTA': rsnap[1],
+                        'DTFATUR':    rsnap[2].strftime('%Y-%m-%d') if rsnap[2] else None,
+                    }
+            except Exception:
+                logger.warning("Falha snapshot ANTES de finalizar NUNOTA=%s", nunota)
+
             cur.execute("""
-                UPDATE TGFCAB 
+                UPDATE TGFCAB
                 SET DTFATUR = SYSDATE, STATUSNOTA = 'L', DTALTER = SYSDATE
                 WHERE NUNOTA = :nunota
             """, nunota=nunota)
-            
+
             linhas_afetadas = cur.rowcount
             conn.commit()
-            
+
+            mod = 'classificacao' if (snapshot_antes and snapshot_antes.get('CODTIPOPER') == 26) else 'entrada'
+            registrar_auditoria(
+                modulo=mod,
+                operacao='FINALIZAR_NOTA',
+                tabela_alvo='TGFCAB',
+                registro_id=nunota,
+                codusu=request.session.get('codusu'),
+                nomeusu=request.session.get('nomeusu'),
+                snapshot_antes=snapshot_antes,
+                snapshot_depois={
+                    'NUNOTA':     nunota,
+                    'STATUSNOTA': 'L',
+                    'DTFATUR':    'SYSDATE',
+                },
+                observacao='Nota carimbada como finalizada (STATUSNOTA=L)',
+            )
             return JsonResponse({"ok": True, "nunota": nunota, "rows_updated": linhas_afetadas, "message": "Nota finalizada com sucesso."})
-            
+
     except Exception as e:
         logger.exception('Erro ao finalizar a nota de compra')
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
@@ -995,7 +1243,56 @@ def api_excluir_nota_compra(request: HttpRequest) -> JsonResponse:
     # =========================================================================
     # Passou pela trava e NÃO é só checagem: Executa a exclusão real
     # =========================================================================
+
+    # Snapshot ANTES (best-effort) — cabeçalho + lista de itens
+    snapshot_antes = None
+    try:
+        with obter_conexao_oracle() as conn_snap:
+            cur = conn_snap.cursor()
+            cur.execute("""
+                SELECT CODTIPOPER, CODEMP, CODPARC, DTNEG, NUMNOTA
+                FROM TGFCAB WHERE NUNOTA = :n
+            """, n=nunota)
+            r = cur.fetchone()
+            if r:
+                snapshot_antes = {
+                    'NUNOTA':     nunota,
+                    'CODTIPOPER': int(r[0]) if r[0] is not None else None,
+                    'CODEMP':     int(r[1]) if r[1] is not None else None,
+                    'CODPARC':    int(r[2]) if r[2] is not None else None,
+                    'DTNEG':      r[3].strftime('%Y-%m-%d') if r[3] else None,
+                    'NUMNOTA':    int(r[4]) if r[4] is not None else None,
+                    'ITENS':      [],
+                }
+                cur.execute("""
+                    SELECT SEQUENCIA, CODPROD, QTDNEG, PESO, CODVOL, CODAGREGACAO
+                    FROM TGFITE WHERE NUNOTA = :n ORDER BY SEQUENCIA
+                """, n=nunota)
+                for it in cur.fetchall():
+                    snapshot_antes['ITENS'].append({
+                        'SEQUENCIA':    int(it[0]),
+                        'CODPROD':      int(it[1]) if it[1] is not None else None,
+                        'QTDNEG':       float(it[2]) if it[2] is not None else None,
+                        'PESO':         float(it[3]) if it[3] is not None else None,
+                        'CODVOL':       it[4],
+                        'CODAGREGACAO': it[5],
+                    })
+    except Exception:
+        logger.warning("Falha snapshot ANTES de excluir nota compra NUNOTA=%s", nunota)
+
     resposta = excluir_nota_completa_banco(nunota, simulacao=False)
+    if resposta.get('ok'):
+        mod = 'classificacao' if (snapshot_antes and snapshot_antes.get('CODTIPOPER') == 26) else 'entrada'
+        registrar_auditoria(
+            modulo=mod,
+            operacao='EXCLUIR_NOTA_COMPRA',
+            tabela_alvo='TGFCAB',
+            registro_id=nunota,
+            codusu=request.session.get('codusu'),
+            nomeusu=request.session.get('nomeusu'),
+            snapshot_antes=snapshot_antes,
+            observacao='Nota de compra excluída (cabeçalho + itens)',
+        )
     return JsonResponse(resposta, status=200 if resposta.get('ok') else 400)
 
 
@@ -1326,10 +1623,10 @@ def api_update_descarte_lote(request):
 def api_finaliza_classificacao_toggle(request):
     try:
         dados = json.loads(request.body)
-        
+
         # O JS envia nunota_origem, nunota_class e pendente ('N' ou 'S')
         nunota_class = dados.get('nunota_class')
-        status_pendente = dados.get('pendente') 
+        status_pendente = dados.get('pendente')
 
         if not nunota_class or not status_pendente:
             return JsonResponse({"ok": False, "error": "NUNOTA da TOP 26 ou Status ausentes."}, status=400)
@@ -1337,6 +1634,19 @@ def api_finaliza_classificacao_toggle(request):
         # Conecta no Oracle e faz o UPDATE direto na nota
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
+
+            # Snapshot ANTES — PENDENTE atual + lotes agregados
+            snapshot_antes = None
+            try:
+                cur.execute("SELECT PENDENTE FROM TGFCAB WHERE NUNOTA = :n", n=nunota_class)
+                rsnap = cur.fetchone()
+                if rsnap:
+                    snapshot_antes = {
+                        'NUNOTA':   int(nunota_class),
+                        'PENDENTE': rsnap[0],
+                    }
+            except Exception:
+                logger.warning("Falha snapshot ANTES de toggle classificação NUNOTA=%s", nunota_class)
 
             # 🔍 DEBUG: lista lotes que esta TGFCAB agrupa (para o front mostrar no console)
             cur.execute("""
@@ -1357,6 +1667,24 @@ def api_finaliza_classificacao_toggle(request):
             # Confirma a gravação no banco
             conn.commit()
 
+        registrar_auditoria(
+            modulo='classificacao',
+            operacao='TOGGLE_PENDENTE',
+            tabela_alvo='TGFCAB',
+            registro_id=int(nunota_class),
+            codusu=request.session.get('codusu'),
+            nomeusu=request.session.get('nomeusu'),
+            snapshot_antes=snapshot_antes,
+            snapshot_depois={
+                'NUNOTA':         int(nunota_class),
+                'PENDENTE':       status_pendente,
+                'LOTES_AFETADOS': lotes_afetados,
+            },
+            observacao=(
+                f"Classificação marcada como '{'pendente' if status_pendente == 'S' else 'concluída'}' "
+                f"({len(lotes_afetados)} lote(s) afetado(s))"
+            ),
+        )
         return JsonResponse({
             "ok": True,
             "debug": {
@@ -1471,15 +1799,37 @@ def api_salvar_vale_comercial(request: HttpRequest) -> JsonResponse:
     """Recebe o payload da tela de Distribuição e orquestra a criação do Vale 13."""
     try:
         payload = json.loads(request.body)
-        
+
         # Importa a função nova que você acabou de colar no oracle_conn.py
         from sankhya_integration.services.oracle_conn import salvar_vale_compra_banco
-        
+
         resultado = salvar_vale_compra_banco(payload)
         status_code = 200 if resultado.get('ok') else 400
-        
+
+        if resultado.get('ok'):
+            registrar_auditoria(
+                modulo='comercial',
+                operacao='SALVAR_VALE',
+                tabela_alvo='TGFCAB',
+                registro_id=resultado.get('nunota_13') or resultado.get('nunota'),
+                codusu=request.session.get('codusu'),
+                nomeusu=request.session.get('nomeusu'),
+                snapshot_depois={
+                    'NUNOTA_13':      resultado.get('nunota_13'),
+                    'NUNOTA_ORIGEM':  payload.get('nunota_origem'),
+                    'LOTE':           payload.get('lote'),
+                    'QTD_EXTRA':      payload.get('qtd_extra'),
+                    'QTD_MEDIO':      payload.get('qtd_medio'),
+                    'QTD_DESCARTE':   payload.get('qtd_descarte'),
+                    'PRECO_EXTRA':    payload.get('preco_extra'),
+                    'PRECO_MEDIO':    payload.get('preco_medio'),
+                    'CODPARC':        payload.get('codparc'),
+                },
+                observacao='Vale TOP 13 gerado a partir da Classificação',
+            )
+
         return JsonResponse(resultado, status=status_code)
-        
+
     except Exception as e:
         logger.exception("Erro em api_salvar_vale_comercial")
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
@@ -1497,10 +1847,24 @@ def api_zerar_negociacao(request: HttpRequest) -> JsonResponse:
 
         from sankhya_integration.services.oracle_conn import zerar_negociacao_banco
         resultado = zerar_negociacao_banco(nunota, lote)
-        
+
         status_code = 200 if resultado.get('ok') else 400
+        if resultado.get('ok'):
+            registrar_auditoria(
+                modulo='comercial',
+                operacao='ZERAR_NEGOCIACAO',
+                tabela_alvo='TGFCAB',
+                registro_id=f"{nunota}/{lote}",
+                codusu=request.session.get('codusu'),
+                nomeusu=request.session.get('nomeusu'),
+                snapshot_antes={
+                    'NUNOTA_ORIGEM': nunota,
+                    'LOTE':          lote,
+                },
+                observacao='Negociação zerada — desfaz o faturamento do vale TOP 13',
+            )
         return JsonResponse(resultado, status=status_code)
-        
+
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
 
@@ -1544,13 +1908,28 @@ def api_salvar_simulacao(request: HttpRequest) -> JsonResponse:
         nunota = payload.get('nunota')
         lote = payload.get('lote')
         sim_data = payload.get('sim_data', {})
-        
+
         if not nunota or not lote:
             return JsonResponse({"ok": False, "error": "Parâmetros de nota ou lote inválidos"})
-        
+
         from sankhya_integration.services.oracle_conn import atualizar_simulacao_item_banco
         res = atualizar_simulacao_item_banco(nunota, lote, sim_data)
-        
+
+        if res.get('ok'):
+            registrar_auditoria(
+                modulo='comercial',
+                operacao='SALVAR_SIMULACAO',
+                tabela_alvo='TGFITE',
+                registro_id=f"{nunota}/{lote}",
+                codusu=request.session.get('codusu'),
+                nomeusu=request.session.get('nomeusu'),
+                snapshot_depois={
+                    'NUNOTA':   nunota,
+                    'LOTE':     lote,
+                    'SIM_DATA': sim_data,
+                },
+                observacao='Simulação comercial salva no item',
+            )
         return JsonResponse(res)
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)})
@@ -1561,17 +1940,36 @@ def api_desmembrar_pedido_classificacao(request):
             dados = json.loads(request.body)
             nunota_origem = dados.get('nunota_origem')
             lote = dados.get('lote')
-            
+
             if not nunota_origem or not lote:
                 return JsonResponse({'ok': False, 'error': 'Pedido original ou Lote não informados.'})
-                
+
             # Chama a super função que criamos no oracle_conn
             resultado = desmembrar_pedido_classificacao(int(nunota_origem), lote)
+            if resultado.get('ok'):
+                registrar_auditoria(
+                    modulo='classificacao',
+                    operacao='DESMEMBRAR_PEDIDO',
+                    tabela_alvo='TGFCAB',
+                    registro_id=f"{nunota_origem}/{lote}",
+                    codusu=request.session.get('codusu'),
+                    nomeusu=request.session.get('nomeusu'),
+                    snapshot_antes={
+                        'NUNOTA_ORIGEM': int(nunota_origem),
+                        'LOTE':          lote,
+                    },
+                    snapshot_depois={
+                        'NUNOTA_ORIGEM':   int(nunota_origem),
+                        'LOTE':            lote,
+                        'NUNOTA_NOVO':     resultado.get('nunota_novo') or resultado.get('nunota_destino'),
+                    },
+                    observacao='Lote desmembrado em novo pedido TOP 11',
+                )
             return JsonResponse(resultado)
-            
+
         except Exception as e:
             return JsonResponse({'ok': False, 'error': str(e)})
-            
+
     return JsonResponse({'ok': False, 'error': 'Método inválido.'})
 
 def api_listar_pedidos_unificacao(request):
@@ -1644,14 +2042,33 @@ def api_unificar_pedido_classificacao(request):
             nunota_origem = dados.get('nunota_origem')
             lote = dados.get('lote')
             nunota_destino = dados.get('nunota_destino')
-            
+
             if not all([nunota_origem, lote, nunota_destino]):
                 return JsonResponse({'ok': False, 'error': 'Faltam parâmetros para unificar.'})
 
             # 🚀 FIX: Caminho de importação corrigido aqui também!
             from sankhya_integration.services.oracle_conn import unificar_pedido_classificacao
-            
+
             resultado = unificar_pedido_classificacao(int(nunota_origem), lote, int(nunota_destino))
+            if resultado.get('ok'):
+                registrar_auditoria(
+                    modulo='classificacao',
+                    operacao='UNIFICAR_PEDIDO',
+                    tabela_alvo='TGFCAB',
+                    registro_id=f"{nunota_origem}->{nunota_destino}",
+                    codusu=request.session.get('codusu'),
+                    nomeusu=request.session.get('nomeusu'),
+                    snapshot_antes={
+                        'NUNOTA_ORIGEM':  int(nunota_origem),
+                        'LOTE':           lote,
+                        'NUNOTA_DESTINO': int(nunota_destino),
+                    },
+                    snapshot_depois={
+                        'NUNOTA_DESTINO': int(nunota_destino),
+                        'LOTE':           lote,
+                    },
+                    observacao=f"Lote {lote} unificado do pedido {nunota_origem} para {nunota_destino}",
+                )
             return JsonResponse(resultado)
         except Exception as e:
             return JsonResponse({'ok': False, 'error': str(e)})
@@ -1701,21 +2118,42 @@ def api_gerar_financeiro_banco(request: HttpRequest) -> JsonResponse:
         payload = json.loads(request.body)
         nunota_13 = int(payload.get('nunota_13'))
         inss = bool(payload.get('descontar_inss', False))
-        
+
         historico = payload.get('historico', '')
         vlrinss = float(payload.get('vlrinss', 0.0))
-        
+
         # 🚀 Captura os valores exatos da tela
         vlr_forcar_liquido = payload.get('vlr_forcar_liquido')
         vlr_forcar_bruto = payload.get('vlr_forcar_bruto')
         if vlr_forcar_liquido is not None: vlr_forcar_liquido = float(vlr_forcar_liquido)
         if vlr_forcar_bruto is not None: vlr_forcar_bruto = float(vlr_forcar_bruto)
-        
+
         logger.debug("Faturando NUNOTA %s | Líquido: %s | Bruto: %s", nunota_13, vlr_forcar_liquido, vlr_forcar_bruto)
-        
+
         from sankhya_integration.services.oracle_conn import gerar_financeiro_banco
         res = gerar_financeiro_banco(nunota_13, inss, historico, vlrinss, vlr_forcar_liquido, vlr_forcar_bruto)
-        
+
+        if res.get('ok'):
+            registrar_auditoria(
+                modulo='comercial',
+                operacao='GERAR_FINANCEIRO',
+                tabela_alvo='TGFFIN',
+                registro_id=nunota_13,
+                codusu=request.session.get('codusu'),
+                nomeusu=request.session.get('nomeusu'),
+                snapshot_depois={
+                    'NUNOTA_13':           nunota_13,
+                    'NUFIN':               res.get('nufin'),
+                    'QTDE_FIN':            res.get('qtde_fin'),
+                    'VLR_TOTAL_FIN':       res.get('vlr_total'),
+                    'DESCONTAR_INSS':      inss,
+                    'VLRINSS':             vlrinss,
+                    'VLR_FORCAR_LIQUIDO':  vlr_forcar_liquido,
+                    'VLR_FORCAR_BRUTO':    vlr_forcar_bruto,
+                    'HISTORICO':           historico,
+                },
+                observacao='Vale faturado — TGFFIN gerado',
+            )
         return JsonResponse(res)
     except Exception as e:
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
@@ -1725,13 +2163,33 @@ def api_atualizar_preco_modalFaturamento(request):
     try:
         data = json.loads(request.body)
         from sankhya_integration.services.oracle_conn import upsert_preco_in_natura_modalFaturamento
-        
+
+        nunota_origem = int(data['nunota_origem'])
+        nunota_13 = int(data.get('nunota_13', 0))
+        codprod = int(data['codprod'])
+        novo_preco = float(data['preco'])
         res = upsert_preco_in_natura_modalFaturamento(
-            nunota_origem=int(data['nunota_origem']),
-            nunota_13=int(data.get('nunota_13', 0)), # 🚀 Adicionamos isso
-            codprod=int(data['codprod']),
-            novo_preco=float(data['preco'])
+            nunota_origem=nunota_origem,
+            nunota_13=nunota_13,
+            codprod=codprod,
+            novo_preco=novo_preco,
         )
+        if res.get('ok'):
+            registrar_auditoria(
+                modulo='comercial',
+                operacao='ATUALIZAR_PRECO_VALE',
+                tabela_alvo='TGFITE',
+                registro_id=f"{nunota_13}/{codprod}" if nunota_13 else f"{nunota_origem}/{codprod}",
+                codusu=request.session.get('codusu'),
+                nomeusu=request.session.get('nomeusu'),
+                snapshot_depois={
+                    'NUNOTA_ORIGEM': nunota_origem,
+                    'NUNOTA_13':     nunota_13,
+                    'CODPROD':       codprod,
+                    'NOVO_PRECO':    novo_preco,
+                },
+                observacao='Preço in-natura atualizado no modal de faturamento',
+            )
         return JsonResponse(res)
     except Exception as e:
         return JsonResponse({'ok': False, 'error': str(e)})
@@ -1742,9 +2200,23 @@ def api_atualizar_desconto_inss_vale(request):
         data = json.loads(request.body)
         nunota_13 = int(data.get('nunota_13', 0))
         valor = float(data.get('valor', 0))
-        
+
         from sankhya_integration.services.oracle_conn import atualizar_desconto_inss_vale
         res = atualizar_desconto_inss_vale(nunota_13, valor)
+        if res.get('ok'):
+            registrar_auditoria(
+                modulo='comercial',
+                operacao='ATUALIZAR_INSS_VALE',
+                tabela_alvo='TGFCAB',
+                registro_id=nunota_13,
+                codusu=request.session.get('codusu'),
+                nomeusu=request.session.get('nomeusu'),
+                snapshot_depois={
+                    'NUNOTA_13': nunota_13,
+                    'VLROUTROS': valor,
+                },
+                observacao=f'Desconto INSS atualizado para R$ {valor:.2f}',
+            )
         return JsonResponse(res)
     except Exception as e:
         return JsonResponse({'ok': False, 'error': str(e)})
@@ -1755,7 +2227,27 @@ def api_desfaturar_vale(request):
         payload = json.loads(request.body)
         nunota_13 = int(payload.get('nunota_13'))
         from sankhya_integration.services.oracle_conn import desfaturar_comercial_banco
-        return JsonResponse(desfaturar_comercial_banco(nunota_13))
+        res = desfaturar_comercial_banco(nunota_13)
+        if res.get('ok'):
+            registrar_auditoria(
+                modulo='comercial',
+                operacao='DESFATURAR_VALE',
+                tabela_alvo='TGFFIN',
+                registro_id=nunota_13,
+                codusu=request.session.get('codusu'),
+                nomeusu=request.session.get('nomeusu'),
+                snapshot_antes={
+                    'NUNOTA_13':   nunota_13,
+                    'STATUSNOTA':  'L',
+                },
+                snapshot_depois={
+                    'NUNOTA_13':   nunota_13,
+                    'STATUSNOTA':  None,
+                    'NUFIN_REMOVIDOS': res.get('nufin_removidos') or res.get('removidos'),
+                },
+                observacao='Reversão de faturamento — vale volta a estar em aberto',
+            )
+        return JsonResponse(res)
     except Exception as e:
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
@@ -1883,7 +2375,27 @@ def api_criar_cabecalho_venda(request: HttpRequest) -> JsonResponse:
             status=400,
         )
 
-    return JsonResponse({"ok": True, "nunota": plano.get('nunota')}, status=200)
+    nunota_novo = plano.get('nunota')
+    registrar_auditoria(
+        modulo='venda',
+        operacao='CRIAR_PEDIDO',
+        tabela_alvo='TGFCAB',
+        registro_id=nunota_novo,
+        codusu=request.session.get('codusu'),
+        nomeusu=request.session.get('nomeusu'),
+        snapshot_depois={
+            'NUNOTA':     nunota_novo,
+            'CODEMP':     payload['CODEMP'],
+            'CODPARC':    payload['CODPARC'],
+            'CODTIPOPER': 34,
+            'CODNAT':     payload['CODNAT'],
+            'CODTIPVENDA': payload['CODTIPVENDA'],
+            'DTNEG':      payload['DTNEG'],
+            'OBSERVACAO': payload.get('OBSERVACAO'),
+        },
+    )
+
+    return JsonResponse({"ok": True, "nunota": nunota_novo}, status=200)
 
 
 @require_http_methods(["POST"])
@@ -1939,7 +2451,26 @@ def api_salvar_item_venda(request: HttpRequest) -> JsonResponse:
         logger.exception("Erro ao salvar item de venda")
         return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
-    resposta = {"ok": True, "sequencia": plano.get('sequencia')}
+    sequencia_nova = plano.get('sequencia')
+    registrar_auditoria(
+        modulo='venda',
+        operacao='ADICIONAR_ITEM',
+        tabela_alvo='TGFITE',
+        registro_id=f"{nunota}/{sequencia_nova}",
+        codusu=codusu,
+        nomeusu=request.session.get('nomeusu'),
+        snapshot_depois={
+            'NUNOTA':       nunota,
+            'SEQUENCIA':    sequencia_nova,
+            'CODPROD':      payload['CODPROD'],
+            'QTDNEG':       payload['QTDNEG'],
+            'VLRUNIT':      payload['VLRUNIT'],
+            'CODVOL':       payload['CODVOL'],
+            'CODAGREGACAO': payload.get('CODAGREGACAO'),
+        },
+    )
+
+    resposta = {"ok": True, "sequencia": sequencia_nova}
     if 'vlrnota' in recalculo: resposta['vlrnota'] = recalculo['vlrnota']
     if 'qtdvol'  in recalculo: resposta['qtdvol']  = recalculo['qtdvol']
     return JsonResponse(resposta, status=200)
@@ -1955,26 +2486,68 @@ def api_excluir_pedido_venda(request: HttpRequest) -> JsonResponse:
     if not nunota:
         return JsonResponse({"ok": False, "error": "NUNOTA obrigatório"}, status=400)
 
+    # Snapshot ANTES (cabeçalho + lista de itens). Coleta best-effort.
+    snapshot_antes = None
     try:
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT CODTIPOPER FROM TGFCAB WHERE NUNOTA = :n", n=nunota)
+            cur.execute("""
+                SELECT CODTIPOPER, CODEMP, CODPARC, CODTIPVENDA, DTNEG, OBSERVACAO,
+                       VLRNOTA, QTDVOL
+                FROM TGFCAB WHERE NUNOTA = :n
+            """, n=nunota)
             row = cur.fetchone()
+            if row:
+                snapshot_antes = {
+                    'NUNOTA':      nunota,
+                    'CODTIPOPER':  int(row[0]) if row[0] is not None else None,
+                    'CODEMP':      int(row[1]) if row[1] is not None else None,
+                    'CODPARC':     int(row[2]) if row[2] is not None else None,
+                    'CODTIPVENDA': int(row[3]) if row[3] is not None else None,
+                    'DTNEG':       row[4].strftime('%Y-%m-%d') if row[4] else None,
+                    'OBSERVACAO':  row[5],
+                    'VLRNOTA':     float(row[6]) if row[6] is not None else None,
+                    'QTDVOL':      float(row[7]) if row[7] is not None else None,
+                    'ITENS':       [],
+                }
+                cur.execute("""
+                    SELECT SEQUENCIA, CODPROD, QTDNEG, VLRUNIT, CODVOL, CODAGREGACAO
+                    FROM TGFITE WHERE NUNOTA = :n ORDER BY SEQUENCIA
+                """, n=nunota)
+                for r in cur.fetchall():
+                    snapshot_antes['ITENS'].append({
+                        'SEQUENCIA':    int(r[0]) if r[0] is not None else None,
+                        'CODPROD':      int(r[1]) if r[1] is not None else None,
+                        'QTDNEG':       float(r[2]) if r[2] is not None else None,
+                        'VLRUNIT':      float(r[3]) if r[3] is not None else None,
+                        'CODVOL':       r[4],
+                        'CODAGREGACAO': r[5],
+                    })
     except Exception as e:
-        logger.exception("Erro ao consultar TOP do pedido para exclusão")
+        logger.exception("Erro ao consultar TOP/snapshot do pedido para exclusão")
         return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
-    if not row:
+    if not snapshot_antes:
         return JsonResponse({"ok": False, "error": "Pedido não encontrado"}, status=404)
-    if int(row[0]) != 34:
+    if snapshot_antes['CODTIPOPER'] != 34:
         return JsonResponse(
-            {"ok": False, "error": f"Operação permitida apenas para TOP 34 (esta é {int(row[0])})"},
+            {"ok": False, "error": f"Operação permitida apenas para TOP 34 (esta é {snapshot_antes['CODTIPOPER']})"},
             status=403,
         )
 
     resposta = excluir_nota_completa_banco(nunota, simulacao=False)
     if not resposta.get('ok') and resposta.get('errors'):
         resposta['error'] = humanizar_erro_oracle('; '.join(resposta['errors']))
+    else:
+        registrar_auditoria(
+            modulo='venda',
+            operacao='EXCLUIR_PEDIDO',
+            tabela_alvo='TGFCAB',
+            registro_id=nunota,
+            codusu=request.session.get('codusu'),
+            nomeusu=request.session.get('nomeusu'),
+            snapshot_antes=snapshot_antes,
+        )
     return JsonResponse(resposta, status=200 if resposta.get('ok') else 400)
 
 
@@ -2029,6 +2602,24 @@ def api_atualizar_cabecalho_venda(request: HttpRequest) -> JsonResponse:
         'OBSERVACAO':  dados_json.get('obs') or None,
     }
 
+    # Snapshot ANTES (para auditoria) — captura o estado pré-UPDATE
+    snapshot_antes = None
+    try:
+        linha_antes = consultar_cabecalho_venda_oracle(nunota)
+        if linha_antes:
+            ce, ne, cp, np_, ctp, dtp, dtn, obs_ = linha_antes
+            snapshot_antes = {
+                'NUNOTA':      nunota,
+                'CODEMP':      int(ce) if ce is not None else None,
+                'CODPARC':     int(cp) if cp is not None else None,
+                'CODTIPVENDA': int(ctp) if ctp is not None else None,
+                'DTNEG':       dtn.strftime('%Y-%m-%d') if dtn else None,
+                'OBSERVACAO':  obs_ or None,
+            }
+    except Exception:
+        # Snapshot antes é "best effort" — se falhar, audit segue sem ele
+        logger.warning("Falha ao capturar snapshot ANTES de NUNOTA=%s", nunota)
+
     try:
         plano = atualizar_cabecalho_venda_banco(payload, simulacao=False)
     except Exception as e:
@@ -2044,6 +2635,24 @@ def api_atualizar_cabecalho_venda(request: HttpRequest) -> JsonResponse:
             {"ok": False, "error": humanizar_erro_oracle(plano.get('error') or 'Falha ao atualizar pedido')},
             status=400,
         )
+
+    registrar_auditoria(
+        modulo='venda',
+        operacao='EDITAR_CABECALHO',
+        tabela_alvo='TGFCAB',
+        registro_id=nunota,
+        codusu=request.session.get('codusu'),
+        nomeusu=request.session.get('nomeusu'),
+        snapshot_antes=snapshot_antes,
+        snapshot_depois={
+            'NUNOTA':      nunota,
+            'CODEMP':      payload['CODEMP'],
+            'CODPARC':     payload['CODPARC'],
+            'CODTIPVENDA': payload['CODTIPVENDA'],
+            'DTNEG':       payload['DTNEG'],
+            'OBSERVACAO':  payload.get('OBSERVACAO'),
+        },
+    )
 
     return JsonResponse({"ok": True, "nunota": nunota}, status=200)
 
@@ -2151,6 +2760,30 @@ def api_atualizar_item_venda(request: HttpRequest) -> JsonResponse:
     if 'CODVOL' in payload and 'CODVOLPARC' not in payload:
         payload['CODVOLPARC'] = payload['CODVOL']
 
+    # Snapshot ANTES do UPDATE (best effort — se falhar, audit segue sem ele)
+    snapshot_antes = None
+    try:
+        with obter_conexao_oracle() as conn_snap:
+            cur = conn_snap.cursor()
+            cur.execute("""
+                SELECT CODPROD, QTDNEG, VLRUNIT, CODVOL, CODAGREGACAO, OBSERVACAO
+                FROM TGFITE WHERE NUNOTA = :n AND SEQUENCIA = :s
+            """, n=nunota, s=sequencia)
+            r = cur.fetchone()
+            if r:
+                snapshot_antes = {
+                    'NUNOTA':       nunota,
+                    'SEQUENCIA':    sequencia,
+                    'CODPROD':      int(r[0]) if r[0] is not None else None,
+                    'QTDNEG':       float(r[1]) if r[1] is not None else None,
+                    'VLRUNIT':      float(r[2]) if r[2] is not None else None,
+                    'CODVOL':       r[3],
+                    'CODAGREGACAO': r[4],
+                    'OBSERVACAO':   r[5],
+                }
+    except Exception:
+        logger.warning("Falha snapshot ANTES item NUNOTA=%s SEQ=%s", nunota, sequencia)
+
     try:
         with obter_conexao_oracle() as conn:
             try:
@@ -2176,6 +2809,21 @@ def api_atualizar_item_venda(request: HttpRequest) -> JsonResponse:
     except Exception as e:
         logger.exception("Erro ao atualizar item de venda")
         return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+    snapshot_depois = {'NUNOTA': nunota, 'SEQUENCIA': sequencia}
+    for k in ('CODPROD','QTDNEG','VLRUNIT','CODVOL','CODAGREGACAO','OBSERVACAO'):
+        if k in payload:
+            snapshot_depois[k] = payload[k]
+    registrar_auditoria(
+        modulo='venda',
+        operacao='EDITAR_ITEM',
+        tabela_alvo='TGFITE',
+        registro_id=f"{nunota}/{sequencia}",
+        codusu=request.session.get('codusu'),
+        nomeusu=request.session.get('nomeusu'),
+        snapshot_antes=snapshot_antes,
+        snapshot_depois=snapshot_depois,
+    )
 
     resposta = {"ok": True, "sequencia": sequencia}
     if 'vlrnota' in recalculo: resposta['vlrnota'] = recalculo['vlrnota']
@@ -2206,6 +2854,7 @@ def api_remover_item_venda(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"ok": False, "error": "Escrita desabilitada"}, status=403)
 
     # Trava — só pedido TOP 34 não-faturado
+    snapshot_antes = None
     try:
         with obter_conexao_oracle() as conn:
             try:
@@ -2226,6 +2875,23 @@ def api_remover_item_venda(request: HttpRequest) -> JsonResponse:
                         {"ok": False, "error": "Pedido já foi faturado — não é mais editável"},
                         status=403,
                     )
+                # Snapshot do item ANTES do DELETE (rastreabilidade do que sumiu)
+                cur.execute("""
+                    SELECT CODPROD, QTDNEG, VLRUNIT, CODVOL, CODAGREGACAO, OBSERVACAO
+                    FROM TGFITE WHERE NUNOTA = :n AND SEQUENCIA = :s
+                """, n=nunota, s=sequencia)
+                rsnap = cur.fetchone()
+                if rsnap:
+                    snapshot_antes = {
+                        'NUNOTA':       nunota,
+                        'SEQUENCIA':    sequencia,
+                        'CODPROD':      int(rsnap[0]) if rsnap[0] is not None else None,
+                        'QTDNEG':       float(rsnap[1]) if rsnap[1] is not None else None,
+                        'VLRUNIT':      float(rsnap[2]) if rsnap[2] is not None else None,
+                        'CODVOL':       rsnap[3],
+                        'CODAGREGACAO': rsnap[4],
+                        'OBSERVACAO':   rsnap[5],
+                    }
                 cur.execute("""
                     DELETE FROM TGFITE WHERE NUNOTA = :n AND SEQUENCIA = :s
                 """, n=nunota, s=sequencia)
@@ -2245,6 +2911,19 @@ def api_remover_item_venda(request: HttpRequest) -> JsonResponse:
     except Exception as e:
         logger.exception("Erro ao remover item de venda")
         return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+    obs_audit = 'Cabeçalho deletado automaticamente (último item removido)' \
+        if recalculo.get('cab_deleted') else None
+    registrar_auditoria(
+        modulo='venda',
+        operacao='REMOVER_ITEM',
+        tabela_alvo='TGFITE',
+        registro_id=f"{nunota}/{sequencia}",
+        codusu=request.session.get('codusu'),
+        nomeusu=request.session.get('nomeusu'),
+        snapshot_antes=snapshot_antes,
+        observacao=obs_audit,
+    )
 
     resposta = {"ok": True, "sequencia": sequencia,
                 "cab_deleted": bool(recalculo.get('cab_deleted'))}
@@ -2289,6 +2968,27 @@ def api_faturar_pedido_venda(request: HttpRequest) -> JsonResponse:
     if not res.get('ok'):
         res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao faturar pedido')
         return JsonResponse(res, status=400)
+
+    registrar_auditoria(
+        modulo='venda',
+        operacao='FATURAR_PEDIDO',
+        tabela_alvo='TGFCAB',
+        registro_id=nunota,
+        codusu=request.session.get('codusu'),
+        nomeusu=request.session.get('nomeusu'),
+        snapshot_antes={
+            'NUNOTA':     nunota,
+            'CODTIPOPER': 34,
+            'STATUSNOTA': None,
+        },
+        snapshot_depois={
+            'NUNOTA':     nunota,
+            'CODTIPOPER': nova_top,
+            'NUMNOTA':    res.get('numnota'),
+            'STATUSNOTA': 'L',
+        },
+        observacao='Faturado com NFe' if nova_top == 35 else 'Faturado sem NFe',
+    )
     return JsonResponse(res, status=200)
 
 
@@ -2328,6 +3028,28 @@ def api_criar_avaria(request: HttpRequest) -> JsonResponse:
     if not res.get('ok'):
         res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao registrar avaria')
         return JsonResponse(res, status=400)
+
+    registrar_auditoria(
+        modulo='venda',
+        operacao='CRIAR_AVARIA',
+        tabela_alvo='TGFCAB',
+        registro_id=res.get('nunota'),
+        codusu=request.session.get('codusu'),
+        nomeusu=request.session.get('nomeusu'),
+        snapshot_depois={
+            'NUNOTA':       res.get('nunota'),
+            'CODTIPOPER':   30,
+            'CODEMP':       payload.get('codemp'),
+            'CODPARC':      payload.get('codparc'),
+            'CODAGREGACAO': payload.get('codagregacao'),
+            'CODPROD':      payload.get('codprod'),
+            'QTDNEG':       payload.get('qtdneg'),
+            'CODVOL':       payload.get('codvol'),
+            'VLRUNIT':      payload.get('vlrunit'),
+            'NUMNOTA_REF':  payload.get('numnota_ref'),
+        },
+        observacao=payload.get('observacao') or 'Avaria interna',
+    )
     return JsonResponse(res, status=200)
 
 
@@ -2387,6 +3109,27 @@ def api_criar_devolucao(request: HttpRequest) -> JsonResponse:
     if not res.get('ok'):
         res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao criar devolução')
         return JsonResponse(res, status=400)
+
+    registrar_auditoria(
+        modulo='venda',
+        operacao='CRIAR_DEVOLUCAO',
+        tabela_alvo='TGFCAB',
+        registro_id=res.get('nunota'),
+        codusu=request.session.get('codusu'),
+        nomeusu=request.session.get('nomeusu'),
+        snapshot_antes={
+            'NUNOTA_ORIGEM': payload.get('nunota_origem'),
+        },
+        snapshot_depois={
+            'NUNOTA':        res.get('nunota'),
+            'CODTIPOPER':    36,
+            'STATUSNOTA':    'A',
+            'NUNOTA_ORIGEM': payload.get('nunota_origem'),
+            'ITENS':         payload.get('itens', []),
+            'DTNEG':         payload.get('dtneg'),
+        },
+        observacao=payload.get('observacao') or 'Devolução criada (aguarda confirmação no Sankhya)',
+    )
     return JsonResponse(res, status=200)
 
 
@@ -2629,13 +3372,33 @@ def api_rastreio_desvincular_lote(request: HttpRequest) -> JsonResponse:
         if not res.get('ok'):
             res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao desvincular lote')
             return JsonResponse(res, status=400)
-        # Audit log: usuário/quando/o quê
+        # Audit log SQLite (legado — mantém Django Admin funcionando)
         _registrar_audit_rastreio(
             request, acao='DESVINCULAR',
             nunota=nunota, sequencia=sequencia,
             codagregacao=res.get('codagregacao_removido'),
             qtd=None,
             extra={'operacao': res.get('operacao')},
+        )
+        # Audit Oracle universal (B4 — Mai/2026)
+        registrar_auditoria(
+            modulo='rastreio',
+            operacao='DESVINCULAR_LOTE',
+            tabela_alvo='TGFITE',
+            registro_id=f"{nunota}/{sequencia}",
+            codusu=request.session.get('codusu'),
+            nomeusu=request.session.get('nomeusu'),
+            snapshot_antes={
+                'NUNOTA':       nunota,
+                'SEQUENCIA':    sequencia,
+                'CODAGREGACAO': res.get('codagregacao_removido'),
+            },
+            snapshot_depois={
+                'NUNOTA':       nunota,
+                'SEQUENCIA':    sequencia,
+                'CODAGREGACAO': None,
+            },
+            observacao=f"Operação: {res.get('operacao') or 'UPDATE'}",
         )
         return JsonResponse(res)
     except Exception as e:
@@ -2676,7 +3439,7 @@ def api_rastreio_atribuir_lote(request: HttpRequest) -> JsonResponse:
         if not res.get('ok'):
             res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao atribuir lote')
             return JsonResponse(res, status=400)
-        # Audit log — registra qual lote foi atribuído a qual item por quem
+        # Audit log SQLite (legado)
         _registrar_audit_rastreio(
             request, acao='ATRIBUIR',
             nunota=nunota, sequencia=sequencia,
@@ -2686,6 +3449,30 @@ def api_rastreio_atribuir_lote(request: HttpRequest) -> JsonResponse:
                 'operacao':       res.get('operacao'),
                 'nova_sequencia': res.get('nova_sequencia'),
             },
+        )
+        # Audit Oracle universal (B4 — Mai/2026)
+        op_realizada = (res.get('operacao') or 'UPDATE').upper()
+        registrar_auditoria(
+            modulo='rastreio',
+            operacao='ATRIBUIR_LOTE',
+            tabela_alvo='TGFITE',
+            registro_id=f"{nunota}/{sequencia}",
+            codusu=request.session.get('codusu'),
+            nomeusu=request.session.get('nomeusu'),
+            snapshot_antes={
+                'NUNOTA':       nunota,
+                'SEQUENCIA':    sequencia,
+                'CODAGREGACAO': None,
+            },
+            snapshot_depois={
+                'NUNOTA':         nunota,
+                'SEQUENCIA':      sequencia,
+                'CODAGREGACAO':   codagregacao,
+                'QTD_ATRIBUIDA':  res.get('qtd_atribuida') or qtd,
+                'OPERACAO':       op_realizada,
+                'NOVA_SEQUENCIA': res.get('nova_sequencia'),
+            },
+            observacao=f"SPLIT (nova SEQ={res.get('nova_sequencia')})" if op_realizada == 'SPLIT' else 'UPDATE total',
         )
         return JsonResponse(res)
     except Exception as e:
@@ -2757,6 +3544,21 @@ def api_rastreio_vinculo_criar(request: HttpRequest) -> JsonResponse:
                 'origem':        'VINCULADO',
             },
         )
+        registrar_auditoria(
+            modulo='rastreio',
+            operacao='VINCULAR_PEDIDO_NOTA',
+            tabela_alvo='AD_VINCULO_PEDIDO_NOTA',
+            registro_id=res.get('id'),
+            codusu=int(codusu),
+            nomeusu=nomeusu,
+            snapshot_depois={
+                'NUNOTA_PEDIDO': nunota_pedido,
+                'NUNOTA_NOTA':   nunota_nota,
+                'ORIGEM':        'VINCULADO',
+                'VINCULO_ID':    res.get('id'),
+            },
+            observacao=observacao or 'Leva A — vínculo manual de pedido pré-existente',
+        )
         return JsonResponse(res)
     except Exception as e:
         logger.exception("Erro em api_rastreio_vinculo_criar")
@@ -2800,6 +3602,23 @@ def api_rastreio_vinculo_criar_pedido_retroativo(request: HttpRequest) -> JsonRe
                 'qtd_itens':          res.get('qtd_itens'),
                 'origem':             'PEDIDO_RETROATIVO',
             },
+        )
+        registrar_auditoria(
+            modulo='rastreio',
+            operacao='CRIAR_PEDIDO_RETROATIVO',
+            tabela_alvo='AD_VINCULO_PEDIDO_NOTA',
+            registro_id=res.get('vinculo_id'),
+            codusu=int(codusu),
+            nomeusu=nomeusu,
+            snapshot_antes={'NUNOTA_NOTA': nunota_nota},
+            snapshot_depois={
+                'NUNOTA_PEDIDO_NOVO': res.get('nunota_pedido'),
+                'NUNOTA_NOTA':        nunota_nota,
+                'ORIGEM':             'PEDIDO_RETROATIVO',
+                'VINCULO_ID':         res.get('vinculo_id'),
+                'QTD_ITENS':          res.get('qtd_itens'),
+            },
+            observacao='Leva B — IAgro criou pedido TOP 34 retroativo a partir da nota órfã',
         )
         return JsonResponse(res)
     except Exception as e:
@@ -2848,7 +3667,7 @@ def api_rastreio_vinculo_resolver(request: HttpRequest) -> JsonResponse:
         if not res.get('ok'):
             res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao resolver nota órfã')
             return JsonResponse(res, status=400)
-        # Audit unificado
+        # Audit unificado (SQLite legado)
         acao_executada = res.get('acao')
         _registrar_audit_rastreio(
             request,
@@ -2863,6 +3682,24 @@ def api_rastreio_vinculo_resolver(request: HttpRequest) -> JsonResponse:
                 'acao_executada':  acao_executada,
                 'acao_solicitada': acao,
             },
+        )
+        # Audit Oracle universal
+        registrar_auditoria(
+            modulo='rastreio',
+            operacao=f'RESOLVER_NOTA_ORFA_{acao_executada}',
+            tabela_alvo='AD_VINCULO_PEDIDO_NOTA',
+            registro_id=res.get('vinculo_id'),
+            codusu=int(codusu),
+            nomeusu=nomeusu,
+            snapshot_antes={'NUNOTA_NOTA': nunota_nota, 'ACAO_SOLICITADA': acao},
+            snapshot_depois={
+                'NUNOTA_PEDIDO':  res.get('nunota_pedido'),
+                'NUNOTA_NOTA':    nunota_nota,
+                'VINCULO_ID':     res.get('vinculo_id'),
+                'QTD_ITENS':      res.get('qtd_itens'),
+                'ACAO_EXECUTADA': acao_executada,
+            },
+            observacao=f"Fluxo unificado: backend decidiu '{acao_executada}' (solicitado '{acao}')",
         )
         return JsonResponse(res)
     except Exception as e:
@@ -2903,6 +3740,19 @@ def api_rastreio_vinculo_remover(request: HttpRequest) -> JsonResponse:
                 'nunota_nota':   nunota_nota,
                 'removidos':     res.get('removidos'),
             },
+        )
+        registrar_auditoria(
+            modulo='rastreio',
+            operacao='DESFAZER_VINCULO',
+            tabela_alvo='AD_VINCULO_PEDIDO_NOTA',
+            registro_id=nunota_nota or nunota_pedido,
+            codusu=request.session.get('codusu'),
+            nomeusu=request.session.get('nomeusu'),
+            snapshot_antes={
+                'NUNOTA_PEDIDO': nunota_pedido,
+                'NUNOTA_NOTA':   nunota_nota,
+            },
+            observacao=f"DELETE em AD_VINCULO_PEDIDO_NOTA (removidos={res.get('removidos')}); AD_NUMPEDIDOORIG da nota volta a NULL",
         )
         return JsonResponse(res)
     except Exception as e:
@@ -3629,3 +4479,815 @@ def api_email_confirmar(request: HttpRequest, recebido_id: int) -> JsonResponse:
     return JsonResponse({"ok": True, "nunota": nunota}, status=200)
 
 
+# =============================================================================
+# MÓDULO CONTROLE DE COMBUSTÍVEL (Mai/2026)
+# TOP 10 entrada (Sankhya) + TOP 26 requisição (IAgro com STATUSNOTA NULL)
+# Grupo de produto: TGFGRU.CODGRUPOPROD = 11 (PACKING_FROTA)
+# Grupo de usuário: TSIGRU.CODGRUPO = 11 (PACKING_FROTA)
+# =============================================================================
+
+@exige_grupo('combustivel')
+@ensure_csrf_cookie
+def view_portal_combustivel(request: HttpRequest) -> HttpResponse:
+    """Renderiza o portal do módulo Controle de Combustível."""
+    return render(request, 'sankhya_integration/combustivel.html')
+
+
+@require_http_methods(["GET"])
+@exige_grupo('combustivel')
+def api_listar_estoque_combustivel(request: HttpRequest) -> JsonResponse:
+    """Lista saldo dos tanques de combustível mapeados em CAPACIDADE_TANQUE.
+    Retorna saldo (soma de SALDO_INICIAL_TANQUE + view), capacidade física e
+    % de preenchimento pra renderizar medidor visual.
+    Filtro opcional: q (busca em DESCRPROD).
+    """
+    try:
+        filtros = {
+            'q': (request.GET.get('q') or '').strip() or None,
+        }
+        rows = consultar_saldo_combustivel(filtros)
+        itens = [{
+            'codprod':        int(r[0]) if r[0] is not None else None,
+            'descrprod':      r[1] or '',
+            'codvol':         r[2] or '',
+            'qtd_entrada':    float(r[3]) if r[3] is not None else 0.0,
+            'qtd_saida':      float(r[4]) if r[4] is not None else 0.0,
+            'qtd_disponivel': float(r[5]) if r[5] is not None else 0.0,
+            'capacidade_lt':  float(r[6]) if r[6] is not None else 0.0,
+            'saldo_inicial':  float(r[7]) if r[7] is not None else 0.0,
+            'percentual':     float(r[8]) if r[8] is not None else 0.0,
+            'formato':        r[9] if len(r) > 9 else 'CILINDRO_HORIZONTAL',
+        } for r in rows]
+        return JsonResponse({'ok': True, 'items': itens})
+    except Exception as exc:
+        logger.exception("Falha em api_listar_estoque_combustivel")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('combustivel')
+def api_listar_veiculos(request: HttpRequest) -> JsonResponse:
+    """Typeahead de veículos da TGFVEI. Filtros opcionais: q (texto),
+    tipo (INTERNA_FROTA | INTERNA_MAQUINARIO | EXTERNA_FRETE), limit.
+    """
+    try:
+        termo = (request.GET.get('q') or '').strip() or None
+        tipo = (request.GET.get('tipo') or '').strip().upper() or None
+        try: limite = int(request.GET.get('limit') or 30)
+        except (TypeError, ValueError): limite = 30
+        rows = consultar_veiculos_disponiveis(termo=termo, tipo=tipo, limite=limite)
+        itens = [{
+            'codveiculo': int(r[0]),
+            'placa': r[1] or '',
+            'marcamodelo': r[2] or '',
+            'especietipo': r[3] or '',
+            'proprio': r[4] or '',
+            'combustivel': r[5] or '',
+            'codparc': int(r[6]) if r[6] is not None else None,
+            'nomeparc': r[7] or '',
+            'codcencus': int(r[8]) if r[8] is not None else None,
+            'codfunc': int(r[9]) if r[9] is not None else None,
+            'codmotorista': int(r[10]) if r[10] is not None else None,
+            'ativo': r[11] or '',
+        } for r in rows]
+        return JsonResponse({'ok': True, 'results': itens})
+    except Exception as exc:
+        logger.exception("Falha em api_listar_veiculos")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('combustivel')
+def api_listar_produtos_combustivel(request: HttpRequest) -> JsonResponse:
+    """Typeahead de produtos de combustível (CODGRUPOPROD=11). Filtros: q, limit."""
+    try:
+        termo = (request.GET.get('q') or '').strip() or None
+        try: limite = int(request.GET.get('limit') or 30)
+        except (TypeError, ValueError): limite = 30
+        rows = consultar_produtos_combustivel(termo=termo, limite=limite)
+        itens = [{
+            'codprod': int(r[0]),
+            'descrprod': r[1] or '',
+            'codvol': r[2] or '',
+        } for r in rows]
+        return JsonResponse({'ok': True, 'results': itens})
+    except Exception as exc:
+        logger.exception("Falha em api_listar_produtos_combustivel")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('combustivel')
+def api_listar_movimentacoes_combustivel(request: HttpRequest) -> JsonResponse:
+    """Listagem unificada: entradas (TOP 10 CODGRUPOPROD=11) + requisições
+    (TOP 26 com AD_REQUISICAO_COMBUSTIVEL). Filtros: codemp, codveiculo, tipo,
+    codparc, status (aberto|confirmado), date_start, date_end,
+    mov (ENTRADA|REQUISICAO). Paginação: page (1-based), limit.
+    """
+    try:
+        try: page = max(1, int(request.GET.get('page') or 1))
+        except (TypeError, ValueError): page = 1
+        try: limite = int(request.GET.get('limit') or 100)
+        except (TypeError, ValueError): limite = 100
+        offset = (page - 1) * limite
+
+        filtros = {
+            'codemp':     _converter_para_inteiro(request.GET.get('codemp')),
+            'codveiculo': _converter_para_inteiro(request.GET.get('codveiculo')),
+            'tipo':       (request.GET.get('tipo') or '').strip().upper() or None,
+            'codparc':    _converter_para_inteiro(request.GET.get('codparc')),
+            'status':     (request.GET.get('status') or '').strip().lower() or None,
+            'mov':        (request.GET.get('mov') or '').strip().upper() or None,
+            'date_start': request.GET.get('date_start'),
+            'date_end':   request.GET.get('date_end'),
+        }
+        rows = listar_movimentacoes_combustivel(filtros, limite=limite, offset=offset)
+        itens = [{
+            'tipo_movimento': r[0],
+            'nunota':         int(r[1]),
+            'numnota':        int(r[2]) if r[2] is not None else None,
+            'codemp':         int(r[3]) if r[3] is not None else None,
+            'codparc':        int(r[4]) if r[4] is not None else None,
+            'nomeparc':       r[5] or '',
+            'dtneg':          r[6].strftime('%Y-%m-%d') if r[6] else None,
+            'statusnota':     r[7],
+            'vlrnota':        float(r[8]) if r[8] is not None else 0.0,
+            'qtdvol':         float(r[9]) if r[9] is not None else 0.0,
+            'requisicao': {
+                'id':            int(r[10]) if r[10] is not None else None,
+                'tipo':          r[11],
+                'codveiculo':    int(r[12]) if r[12] is not None else None,
+                'placa':         r[13] or '',
+                'marcamodelo':   r[14] or '',
+                'hodometro_km':  float(r[15]) if r[15] is not None else None,
+                'horimetro_h':   float(r[16]) if r[16] is not None else None,
+                'doc_frete_ref': r[17] or '',
+            } if r[0] == 'REQUISICAO' else None,
+            'sequencia':      int(r[18]) if r[18] is not None else None,
+            'codprod':        int(r[19]) if r[19] is not None else None,
+            'descrprod':      r[20] or '',
+            'codvol':         r[21] or '',
+            'qtdneg_item':    float(r[22]) if r[22] is not None else 0.0,
+            'vlrtot_item':    float(r[23]) if r[23] is not None else 0.0,
+        } for r in rows]
+        return JsonResponse({'ok': True, 'items': itens, 'page': page, 'limit': limite})
+    except Exception as exc:
+        logger.exception("Falha em api_listar_movimentacoes_combustivel")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('combustivel')
+def api_listar_requisicoes_combustivel(request: HttpRequest) -> JsonResponse:
+    """Lista requisições de combustível (TOP 26 com linha em AD_REQUISICAO_COMBUSTIVEL).
+    Filtros: codemp, codveiculo, tipo, codparc, status (aberto|confirmado),
+    date_start, date_end. Paginação: page (1-based), limit.
+    """
+    try:
+        try: page = max(1, int(request.GET.get('page') or 1))
+        except (TypeError, ValueError): page = 1
+        try: limite = int(request.GET.get('limit') or 50)
+        except (TypeError, ValueError): limite = 50
+        offset = (page - 1) * limite
+
+        filtros = {
+            'codemp': _converter_para_inteiro(request.GET.get('codemp')),
+            'codveiculo': _converter_para_inteiro(request.GET.get('codveiculo')),
+            'tipo': (request.GET.get('tipo') or '').strip().upper() or None,
+            'codparc': _converter_para_inteiro(request.GET.get('codparc')),
+            'status': (request.GET.get('status') or '').strip().lower() or None,
+            'date_start': request.GET.get('date_start'),
+            'date_end': request.GET.get('date_end'),
+        }
+        rows = listar_requisicoes_combustivel(filtros, limite=limite, offset=offset)
+        itens = [{
+            'nunota': int(r[0]),
+            'numnota': int(r[1]) if r[1] is not None else None,
+            'codemp': int(r[2]) if r[2] is not None else None,
+            'codparc': int(r[3]) if r[3] is not None else None,
+            'nomeparc': r[4] or '',
+            'dtneg': r[5].strftime('%Y-%m-%d') if r[5] else None,
+            'statusnota': r[6],
+            'vlrnota': float(r[7]) if r[7] is not None else 0.0,
+            'qtdvol': float(r[8]) if r[8] is not None else 0.0,
+            'requisicao': {
+                'id': int(r[9]) if r[9] is not None else None,
+                'tipo': r[10],
+                'codveiculo': int(r[11]) if r[11] is not None else None,
+                'placa': r[12] or '',
+                'marcamodelo': r[13] or '',
+                'hodometro_km': float(r[14]) if r[14] is not None else None,
+                'horimetro_h':  float(r[15]) if r[15] is not None else None,
+                'doc_frete_ref': r[16] or '',
+                'observacao': r[17] or '',
+                'nomeusu': r[18] or '',
+                'criado_em': r[19].strftime('%Y-%m-%d %H:%M:%S') if r[19] else None,
+            },
+            'codprod': int(r[20]) if r[20] is not None else None,
+            'descrprod': r[21] or '',
+            'codvol': r[22] or '',
+            'qtdneg_total': float(r[23]) if r[23] is not None else 0.0,
+        } for r in rows]
+        return JsonResponse({'ok': True, 'items': itens, 'page': page, 'limit': limite})
+    except Exception as exc:
+        logger.exception("Falha em api_listar_requisicoes_combustivel")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('combustivel')
+def api_obter_requisicao_combustivel(request: HttpRequest, nunota: int) -> JsonResponse:
+    """Detalhe de uma requisição (cabeçalho + itens + metadata IAgro)."""
+    try:
+        dados = obter_requisicao_combustivel(nunota)
+        if not dados:
+            return JsonResponse({'ok': False, 'error': 'Requisição não encontrada.'}, status=404)
+
+        def _fmt(d):
+            if d is None: return None
+            try: return d.strftime('%Y-%m-%d %H:%M:%S') if hasattr(d, 'strftime') else str(d)
+            except Exception: return str(d)
+
+        cab = dict(dados['cabecalho'])
+        cab['DTNEG'] = _fmt(cab.get('DTNEG'))
+        cab['DTMOV'] = _fmt(cab.get('DTMOV'))
+        req = dados.get('requisicao')
+        if req:
+            req = dict(req)
+            req['CRIADO_EM'] = _fmt(req.get('CRIADO_EM'))
+        return JsonResponse({
+            'ok': True,
+            'cabecalho': cab,
+            'itens': dados.get('itens') or [],
+            'requisicao': req,
+        })
+    except Exception as exc:
+        logger.exception("Falha em api_obter_requisicao_combustivel")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('combustivel')
+def api_criar_requisicao_combustivel(request: HttpRequest) -> JsonResponse:
+    """Cria nova requisição TOP 26 + linha em AD_REQUISICAO_COMBUSTIVEL.
+
+    Payload:
+      {
+        codveiculo: int,
+        codprod: int,
+        qtd: float (litros),
+        vlrunit: float (opcional),
+        tipo: 'INTERNA_FROTA' | 'INTERNA_MAQUINARIO' | 'EXTERNA_FRETE',
+        hodometro_km: float (obrigatório em INTERNA_FROTA),
+        horimetro_h:  float (obrigatório em INTERNA_FROTA),
+        codcencus: int,
+        doc_frete_ref: str (obrigatório se tipo=EXTERNA_FRETE),
+        observacao: str (opcional)
+      }
+    """
+    try:
+        payload = _get_json_payload(request) or {}
+        codusu = request.session.get('codusu')
+        nomeusu = request.session.get('nomeusu') or ''
+        if not codusu:
+            return JsonResponse({'ok': False, 'error': 'Sessão expirada.'}, status=401)
+
+        resultado = criar_requisicao_combustivel_banco(
+            dados=payload, codusu=int(codusu), nomeusu=str(nomeusu)
+        )
+        if not resultado.get('ok'):
+            return JsonResponse(resultado, status=400)
+
+        registrar_auditoria(
+            modulo='combustivel',
+            operacao='CRIAR_REQUISICAO',
+            tabela_alvo='AD_REQUISICAO_COMBUSTIVEL',
+            registro_id=resultado.get('nunota'),
+            codusu=int(codusu),
+            nomeusu=str(nomeusu),
+            snapshot_depois={
+                'NUNOTA':       resultado.get('nunota'),
+                'TIPO':         payload.get('tipo'),
+                'CODVEICULO':   payload.get('codveiculo'),
+                'CODPROD':      payload.get('codprod'),
+                'QTD':          payload.get('qtd'),
+                'VLRUNIT':      payload.get('vlrunit'),
+                'HODOMETRO_KM': payload.get('hodometro_km'),
+                'HORIMETRO_H':  payload.get('horimetro_h'),
+                'CODCENCUS':    payload.get('codcencus'),
+                'DOC_FRETE_REF': payload.get('doc_frete_ref'),
+            },
+            observacao=payload.get('observacao'),
+        )
+        return JsonResponse(resultado, status=201)
+    except Exception as exc:
+        logger.exception("Falha em api_criar_requisicao_combustivel")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('combustivel')
+def api_criar_abastecimento_externo(request: HttpRequest) -> JsonResponse:
+    """B8 (Mai/2026) — Cria abastecimento externo (posto): TGFCAB TOP 26 STATUSNOTA='L'
+    + TGFITE + AD_REQUISICAO_COMBUSTIVEL (TIPO='EXTERNA_POSTO') + TGFFIN (despesa
+    contra o posto). Não desconta do saldo dos tanques internos.
+
+    Payload:
+      {
+        codveiculo: int,
+        codparc: int (posto: Allianz, 1=Semear, 572=Agromil),
+        codprod: int (CODGRUPOPROD=200400),
+        qtd: float (litros, > 0),
+        vlrunit: float (> 0),
+        codcencus: int,
+        hodometro_km: float (obrigatório),
+        horimetro_h:  float (opcional),
+        doc_frete_ref: str (opcional — nº da nota fiscal/boleto),
+        observacao: str (opcional),
+        dtneg:  'YYYY-MM-DD' (opcional, default hoje),
+        dtvenc: 'YYYY-MM-DD' (opcional, default = dtneg = à vista),
+        historico: str (opcional — TGFFIN.HISTORICO)
+      }
+    """
+    try:
+        payload = _get_json_payload(request) or {}
+        codusu = request.session.get('codusu')
+        nomeusu = request.session.get('nomeusu') or ''
+        if not codusu:
+            return JsonResponse({'ok': False, 'error': 'Sessão expirada.'}, status=401)
+
+        resultado = criar_abastecimento_externo_banco(
+            dados=payload, codusu=int(codusu), nomeusu=str(nomeusu)
+        )
+        if not resultado.get('ok'):
+            return JsonResponse(resultado, status=400)
+
+        registrar_auditoria(
+            modulo='combustivel',
+            operacao='CRIAR_ABASTECIMENTO_EXTERNO',
+            tabela_alvo='AD_REQUISICAO_COMBUSTIVEL',
+            registro_id=resultado.get('nunota'),
+            codusu=int(codusu),
+            nomeusu=str(nomeusu),
+            snapshot_depois={
+                'NUNOTA':         resultado.get('nunota'),
+                'TIPO':           'EXTERNA_POSTO',
+                'CODVEICULO':     payload.get('codveiculo'),
+                'CODPARC':        payload.get('codparc'),
+                'CODPROD':        payload.get('codprod'),
+                'QTD':            payload.get('qtd'),
+                'VLRUNIT':        payload.get('vlrunit'),
+                'ITENS':          payload.get('itens'),
+                'HODOMETRO_KM':   payload.get('hodometro_km'),
+                'HORIMETRO_H':    payload.get('horimetro_h'),
+                'CODCENCUS':      payload.get('codcencus'),
+                'DOC_FRETE_REF':  payload.get('doc_frete_ref'),
+                'DTNEG':          payload.get('dtneg'),
+                'DTVENC':         payload.get('dtvenc'),
+                'NUFIN_GERADO':   resultado.get('nufin'),
+            },
+            observacao=payload.get('observacao') or 'Abastecimento em posto externo (não desconta tanque interno)',
+        )
+        return JsonResponse(resultado, status=201)
+    except Exception as exc:
+        logger.exception("Falha em api_criar_abastecimento_externo")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('combustivel')
+def api_editar_requisicao_combustivel(request: HttpRequest, nunota: int) -> JsonResponse:
+    """Edita uma requisição em aberto (STATUSNOTA != 'L' e != 'E').
+
+    Payload mesmo da criação (todos opcionais — campos ausentes preservam):
+      codveiculo, codprod, qtd, vlrunit, tipo, codcencus,
+      hodometro_km, horimetro_h, doc_frete_ref, observacao
+    """
+    try:
+        payload = _get_json_payload(request) or {}
+        codusu = request.session.get('codusu')
+        nomeusu = request.session.get('nomeusu') or ''
+        if not codusu:
+            return JsonResponse({'ok': False, 'error': 'Sessão expirada.'}, status=401)
+
+        # Snapshot ANTES (best-effort) — captura estado pré-UPDATE
+        snapshot_antes = None
+        try:
+            snapshot_antes = obter_requisicao_combustivel(int(nunota))
+        except Exception:
+            logger.warning("Falha ao capturar snapshot ANTES de requisição NUNOTA=%s", nunota)
+
+        resultado = editar_requisicao_combustivel_banco(
+            nunota=int(nunota), dados=payload,
+            codusu=int(codusu), nomeusu=str(nomeusu),
+        )
+        if not resultado.get('ok'):
+            return JsonResponse(resultado, status=400)
+
+        registrar_auditoria(
+            modulo='combustivel',
+            operacao='EDITAR_REQUISICAO',
+            tabela_alvo='AD_REQUISICAO_COMBUSTIVEL',
+            registro_id=int(nunota),
+            codusu=int(codusu),
+            nomeusu=str(nomeusu),
+            snapshot_antes=snapshot_antes,
+            snapshot_depois={'NUNOTA': int(nunota), **payload},
+        )
+        return JsonResponse(resultado, status=200)
+    except Exception as exc:
+        logger.exception("Falha em api_editar_requisicao_combustivel")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('combustivel')
+def api_excluir_requisicao_combustivel(request: HttpRequest, nunota: int) -> JsonResponse:
+    """Exclui logicamente uma requisição em aberto.
+
+    Payload: {motivo: str obrigatório}
+    Trava: bloqueia se STATUSNOTA='L' (já confirmada no Sankhya).
+    """
+    try:
+        payload = _get_json_payload(request) or {}
+        motivo = (payload.get('motivo') or '').strip()
+        codusu = request.session.get('codusu')
+        nomeusu = request.session.get('nomeusu') or ''
+        if not codusu:
+            return JsonResponse({'ok': False, 'error': 'Sessão expirada.'}, status=401)
+        if not motivo:
+            return JsonResponse({'ok': False, 'error': 'Motivo da exclusão é obrigatório.'},
+                                status=400)
+
+        # Snapshot ANTES do DELETE — captura estado completo da requisição
+        snapshot_antes = None
+        try:
+            snapshot_antes = obter_requisicao_combustivel(int(nunota))
+        except Exception:
+            logger.warning("Falha ao capturar snapshot ANTES de DELETE requisicao NUNOTA=%s", nunota)
+
+        resultado = excluir_requisicao_combustivel_banco(
+            nunota=int(nunota), motivo=motivo,
+            codusu=int(codusu), nomeusu=str(nomeusu),
+        )
+        if not resultado.get('ok'):
+            return JsonResponse(resultado, status=400)
+
+        registrar_auditoria(
+            modulo='combustivel',
+            operacao='EXCLUIR_REQUISICAO',
+            tabela_alvo='AD_REQUISICAO_COMBUSTIVEL',
+            registro_id=int(nunota),
+            codusu=int(codusu),
+            nomeusu=str(nomeusu),
+            snapshot_antes=snapshot_antes,
+            observacao=motivo,
+        )
+        return JsonResponse(resultado, status=200)
+    except Exception as exc:
+        logger.exception("Falha em api_excluir_requisicao_combustivel")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('combustivel')
+def api_relatorio_consumo_veiculo(request: HttpRequest) -> JsonResponse:
+    """Relatório de consumo por veículo.
+
+    Querystring:
+      codveiculo: int (obrigatório)
+      date_start: 'YYYY-MM-DD' (opcional — default: -30 dias)
+      date_end:   'YYYY-MM-DD' (opcional — default: hoje)
+
+    Retorna JSON com {veiculo, periodo, abastecimentos, totais}.
+    """
+    try:
+        codveiculo = _converter_para_inteiro(request.GET.get('codveiculo'))
+        if not codveiculo:
+            return JsonResponse({'ok': False, 'error': 'codveiculo obrigatório.'},
+                                status=400)
+        date_start = (request.GET.get('date_start') or '').strip() or None
+        date_end   = (request.GET.get('date_end')   or '').strip() or None
+
+        dados = consultar_consumo_por_veiculo(codveiculo, date_start=date_start,
+                                              date_end=date_end)
+        if not dados:
+            return JsonResponse({'ok': False, 'error': 'Veículo não encontrado.'},
+                                status=404)
+        return JsonResponse({'ok': True, **dados})
+    except Exception as exc:
+        logger.exception("Falha em api_relatorio_consumo_veiculo")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)},
+                            status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('combustivel')
+def api_criar_entrada_combustivel(request: HttpRequest) -> JsonResponse:
+    """Cria entrada de combustível (compra) TOP 10 + TGFITE + TGFFIN.
+
+    Payload:
+      {
+        codemp: int,
+        codparc: int (fornecedor),
+        codprod: int,
+        qtd: float (litros, > 0),
+        vlrunit: float (> 0),
+        codcencus: int,
+        dtneg: str 'YYYY-MM-DD' (opcional — default hoje),
+        dtvenc: str 'YYYY-MM-DD' (opcional — default = dtneg = à vista),
+        codbco: int (opcional — default 70),
+        codctabcoint: int (opcional — default 1),
+        codtiptit: int (opcional — default 2),
+        historico: str (opcional),
+        observacao: str (opcional)
+      }
+    """
+    try:
+        payload = _get_json_payload(request) or {}
+        codusu = request.session.get('codusu')
+        nomeusu = request.session.get('nomeusu') or ''
+        if not codusu:
+            return JsonResponse({'ok': False, 'error': 'Sessão expirada.'}, status=401)
+
+        resultado = criar_entrada_combustivel_banco(
+            dados=payload, codusu=int(codusu), nomeusu=str(nomeusu)
+        )
+        if not resultado.get('ok'):
+            return JsonResponse(resultado, status=400)
+
+        registrar_auditoria(
+            modulo='combustivel',
+            operacao='CRIAR_ENTRADA',
+            tabela_alvo='TGFCAB',
+            registro_id=resultado.get('nunota'),
+            codusu=int(codusu),
+            nomeusu=str(nomeusu),
+            snapshot_depois={
+                'NUNOTA':       resultado.get('nunota'),
+                'CODTIPOPER':   10,
+                'CODEMP':       payload.get('codemp'),
+                'CODPARC':      payload.get('codparc'),
+                'NUMNOTA':      payload.get('numnota'),
+                'SERIENOTA':    payload.get('serienota'),
+                'DTNEG':        payload.get('dtneg'),
+                'DTVENC':       payload.get('dtvenc'),
+                'CODCENCUS':    payload.get('codcencus'),
+                'CODNAT':       payload.get('codnat'),
+                'CODTIPVENDA':  payload.get('codtipvenda'),
+                'ITENS':        payload.get('itens') or [{
+                    'CODPROD':  payload.get('codprod'),
+                    'QTD':      payload.get('qtd'),
+                    'VLRUNIT':  payload.get('vlrunit'),
+                }],
+                'NUFIN_GERADO': resultado.get('nufin'),
+            },
+            observacao=payload.get('observacao') or payload.get('historico'),
+        )
+        return JsonResponse(resultado, status=201)
+    except Exception as exc:
+        logger.exception("Falha em api_criar_entrada_combustivel")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('combustivel')
+def api_obter_entrada_combustivel(request: HttpRequest, nunota: int) -> JsonResponse:
+    """B14 (Mai/2026) — Retorna cabeçalho + itens + financeiro de uma entrada
+    de combustível (TOP 10). Usado pelo modal em modo edição."""
+    try:
+        dados = obter_entrada_combustivel(int(nunota))
+        if not dados:
+            return JsonResponse({'ok': False, 'error': 'Entrada não encontrada.'}, status=404)
+        return JsonResponse({'ok': True, **dados})
+    except Exception as exc:
+        logger.exception("Falha em api_obter_entrada_combustivel")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('combustivel')
+def api_editar_entrada_combustivel(request: HttpRequest, nunota: int) -> JsonResponse:
+    """B14 (Mai/2026) — Edita entrada de combustível (TOP 10) com multi-itens.
+
+    Payload mesmo formato do criar (com `itens` lista) — campos ausentes
+    preservam valor atual. Bloqueia se TGFFIN baixado.
+    """
+    try:
+        payload = _get_json_payload(request) or {}
+        codusu = request.session.get('codusu')
+        nomeusu = request.session.get('nomeusu') or ''
+        if not codusu:
+            return JsonResponse({'ok': False, 'error': 'Sessão expirada.'}, status=401)
+
+        # Snapshot ANTES — captura cabeçalho + itens + financeiro pré-UPDATE
+        snapshot_antes = None
+        try:
+            snapshot_antes = obter_entrada_combustivel(int(nunota))
+        except Exception:
+            logger.warning("Falha snapshot ANTES de entrada NUNOTA=%s", nunota)
+
+        resultado = editar_entrada_combustivel_banco(
+            nunota=int(nunota), dados=payload,
+            codusu=int(codusu), nomeusu=str(nomeusu),
+        )
+        if not resultado.get('ok'):
+            return JsonResponse(resultado, status=400)
+
+        registrar_auditoria(
+            modulo='combustivel',
+            operacao='EDITAR_ENTRADA',
+            tabela_alvo='TGFCAB',
+            registro_id=int(nunota),
+            codusu=int(codusu),
+            nomeusu=str(nomeusu),
+            snapshot_antes=snapshot_antes,
+            snapshot_depois={'NUNOTA': int(nunota), **payload},
+        )
+        return JsonResponse(resultado, status=200)
+    except Exception as exc:
+        logger.exception("Falha em api_editar_entrada_combustivel")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('combustivel')
+def api_excluir_entrada_combustivel(request: HttpRequest, nunota: int) -> JsonResponse:
+    """B15 (Mai/2026) — Exclui FISICAMENTE uma entrada (DELETE em cascata
+    TGFFIN → TGFITE → TGFCAB). Payload: {motivo: str obrigatório}.
+    Bloqueia se TGFFIN baixado."""
+    try:
+        payload = _get_json_payload(request) or {}
+        motivo = (payload.get('motivo') or '').strip()
+        codusu = request.session.get('codusu')
+        nomeusu = request.session.get('nomeusu') or ''
+        if not motivo:
+            return JsonResponse({'ok': False, 'error': 'Motivo é obrigatório.'}, status=400)
+        if not codusu:
+            return JsonResponse({'ok': False, 'error': 'Sessão expirada.'}, status=401)
+        # Snapshot ANTES do DELETE cascata — captura tudo antes de sumir
+        snapshot_antes = None
+        try:
+            snapshot_antes = obter_entrada_combustivel(int(nunota))
+        except Exception:
+            logger.warning("Falha snapshot ANTES de excluir entrada NUNOTA=%s", nunota)
+
+        resultado = excluir_entrada_combustivel_banco(
+            nunota=int(nunota), motivo=motivo,
+            codusu=int(codusu), nomeusu=str(nomeusu),
+        )
+        if not resultado.get('ok'):
+            return JsonResponse(resultado, status=400)
+
+        registrar_auditoria(
+            modulo='combustivel',
+            operacao='EXCLUIR_ENTRADA',
+            tabela_alvo='TGFCAB',
+            registro_id=int(nunota),
+            codusu=int(codusu),
+            nomeusu=str(nomeusu),
+            snapshot_antes=snapshot_antes,
+            observacao=motivo,
+        )
+        return JsonResponse(resultado, status=200)
+    except Exception as exc:
+        logger.exception("Falha em api_excluir_entrada_combustivel")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('combustivel')
+def api_foto_veiculo(request: HttpRequest, placa: str) -> HttpResponse:
+    """Mai/2026 — Serve a foto de um veículo.
+
+    Resolução de arquivo:
+      - Procura `static/sankhya_integration/img/veiculos/<PLACA>.{jpg,jpeg,png,webp}`
+      - Case-insensitive (placa normalizada pra UPPER, alfanum apenas)
+      - Fallback: `_placeholder.svg`
+
+    Query param `?size=thumb` (Mai/2026 - 2026-05-13):
+      - Pillow redimensiona pra 240x180 com filtro LANCZOS, cacheia em
+        `_cache/<PLACA>.jpg`. Invalida automaticamente se o original mudar
+        (mtime check). SVG não é redimensionado (servido direto).
+      - Sem o param: serve original (full resolution) — usado em detalhe + lightbox.
+
+    Cache do browser: 1 dia (Cache-Control: max-age=86400).
+    """
+    import os
+    import mimetypes
+    from django.http import FileResponse, HttpResponseNotFound
+    from django.conf import settings
+
+    placa_norm = ''.join(c for c in str(placa).upper() if c.isalnum())
+    if not placa_norm:
+        return HttpResponseNotFound()
+
+    base_dir = os.path.join(
+        settings.BASE_DIR, 'sankhya_integration', 'static',
+        'sankhya_integration', 'img', 'veiculos',
+    )
+
+    # Localiza o arquivo original
+    original_path = None
+    extensoes = ['.jpg', '.jpeg', '.png', '.webp', '.JPG', '.JPEG', '.PNG', '.WEBP']
+    for ext in extensoes:
+        caminho = os.path.join(base_dir, placa_norm + ext)
+        if os.path.isfile(caminho):
+            original_path = caminho
+            break
+
+    if not original_path:
+        placeholder = os.path.join(base_dir, '_placeholder.svg')
+        if os.path.isfile(placeholder):
+            r = FileResponse(open(placeholder, 'rb'), content_type='image/svg+xml')
+            r['Cache-Control'] = 'public, max-age=86400'
+            return r
+        return HttpResponseNotFound()
+
+    quer_thumb = (request.GET.get('size') or '').lower() == 'thumb'
+
+    if quer_thumb:
+        # Tenta servir do cache ou gera com Pillow
+        cache_dir = os.path.join(base_dir, '_cache')
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_path = os.path.join(cache_dir, placa_norm + '.jpg')
+
+        # Cache invalida se original foi modificado depois do cache
+        precisa_gerar = (
+            not os.path.isfile(cache_path)
+            or os.path.getmtime(cache_path) < os.path.getmtime(original_path)
+        )
+        if precisa_gerar:
+            try:
+                from PIL import Image
+                with Image.open(original_path) as img:
+                    # Converte pra RGB pra salvar em JPG (PNG com transparência viraria preto)
+                    if img.mode in ('RGBA', 'LA', 'P'):
+                        fundo = Image.new('RGB', img.size, (241, 245, 249))  # #f1f5f9
+                        fundo.paste(img, mask=img.split()[-1] if 'A' in img.mode else None)
+                        img = fundo
+                    elif img.mode != 'RGB':
+                        img = img.convert('RGB')
+                    img.thumbnail((480, 360), Image.Resampling.LANCZOS)  # 2x da thumb visível (60×44 @ DPR 2)
+                    img.save(cache_path, format='JPEG', quality=85, optimize=True)
+            except Exception:
+                logger.exception("Falha gerando thumb veículo placa=%s", placa_norm)
+                # Cai pro original em caso de erro
+                ctype, _ = mimetypes.guess_type(original_path)
+                r = FileResponse(open(original_path, 'rb'),
+                                 content_type=ctype or 'application/octet-stream')
+                r['Cache-Control'] = 'public, max-age=86400'
+                return r
+
+        r = FileResponse(open(cache_path, 'rb'), content_type='image/jpeg')
+        r['Cache-Control'] = 'public, max-age=86400'
+        return r
+
+    # Original full resolution
+    ctype, _ = mimetypes.guess_type(original_path)
+    r = FileResponse(open(original_path, 'rb'),
+                     content_type=ctype or 'application/octet-stream')
+    r['Cache-Control'] = 'public, max-age=86400'
+    return r
+
+
+@require_http_methods(["GET"])
+@exige_grupo('combustivel')
+def api_ultimo_preco_combustivel(request: HttpRequest) -> JsonResponse:
+    """Mai/2026 — Retorna VLRUNIT do último abastecimento (TOP 10) de um
+    combustível. Usado pelo modal de Requisição: ao escolher o produto, o
+    campo "Valor unit." é preenchido automaticamente.
+
+    Query: ?codprod=N
+    Retorna: {ok, codprod, vlrunit, dtneg, nunota} ou 404 se sem entradas.
+    """
+    try:
+        codprod = request.GET.get('codprod')
+        if not codprod:
+            return JsonResponse({'ok': False, 'error': 'codprod obrigatório.'}, status=400)
+        dados = consultar_ultimo_preco_combustivel(int(codprod))
+        if not dados:
+            return JsonResponse({'ok': False,
+                                 'error': 'Nenhum abastecimento encontrado pra este combustível.'},
+                                status=404)
+        return JsonResponse({'ok': True, **dados})
+    except Exception as exc:
+        logger.exception("Falha em api_ultimo_preco_combustivel")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('combustivel')
+def api_prazo_tipvenda(request: HttpRequest) -> JsonResponse:
+    """Mai/2026 — Retorna prazo padrão de TGFTPV pra auto-cálculo de DTVENC."""
+    try:
+        codtipvenda = request.GET.get('codtipvenda')
+        if not codtipvenda:
+            return JsonResponse({'ok': False, 'error': 'codtipvenda obrigatório.'}, status=400)
+        dados = consultar_prazo_tipvenda(int(codtipvenda))
+        if not dados:
+            return JsonResponse({'ok': False, 'error': 'Tipo de negociação não encontrado.'}, status=404)
+        return JsonResponse({'ok': True, **dados})
+    except Exception as exc:
+        logger.exception("Falha em api_prazo_tipvenda")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)

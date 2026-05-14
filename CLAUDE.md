@@ -13,16 +13,29 @@
 - **Organização:** NexusGTi / HF Semear
 - **Domínio:** Central de beneficiamento de produtos agrícolas (antigo "Packing House")
 
-O sistema integra dados do Sankhya via Oracle para controlar cinco fluxos:
+O sistema integra dados do Sankhya via Oracle e oferece **nove módulos operacionais**:
 
 | Fluxo | TOP | Descrição |
 |---|---|---|
+| **Painel (Dashboard)** | — | Home com 6 indicadores de saúde (pedidos sem lote, lotes aguardando classif., vales abertos, tanques críticos, prontos pra faturar, lotes envelhecidos). Polling 5min |
 | Entrada | 11 | Recebimento e conferência de notas de compra com pesagem |
 | Classificação | 26 | Triagem de lotes por qualidade, com controle de descartes |
 | Comercial | 13 | Faturamento de vales, precificação, geração de financeiro |
-| Venda | 34 → 35/37 | Pedidos, edição de itens, faturamento (NFe ou s/ NFe) |
-| Rastreio (WMS) | — | Vínculo de lotes a pedidos com auditoria e lock pessimista |
+| Venda | 34 → 35/37 | Pedidos, edição de itens, faturamento (NFe ou s/ NFe), avaria (TOP 30) e devolução (TOP 36) |
+| Rastreio (WMS) | — | Vínculo de lotes a pedidos com auditoria e lock pessimista. Suporta vínculo manual pedido↔nota órfã e pedido retroativo |
 | E-mail (importação) | 34 (após confirmação) | Coleta IMAP de pedidos com PDF anexo, parser via LLM local (Ollama), revisão humana |
+| Combustível (Frota) | 10 → 53 | Entrada de combustível (TOP 10) e requisições internas (TOP 53 — frota/maquinário/freteiro/posto externo). Discrimina frota própria + maquinário + freteiros. Inclui abastecimento externo (não desconta tanque interno) |
+| **Auditoria Universal** | — | Tela `/sankhya/auditoria/` (restrita Diretoria/Suporte) consolidando AD_AUDITORIA_GERAL — todo evento de escrita do IAgro com snapshot antes/depois em JSON. 36 funções instrumentadas. Tela tem diff inteligente "antes→depois" + JSON técnico |
+
+### Layout v2 — Sidebar + Content (Mai/2026)
+
+Todas as telas autenticadas usam o **novo layout**: sidebar lateral fixa (200px expand / 56px collapse / off-canvas em ≤900px) + content-header (título + ações + user-badge + sair) + main-layout (área de conteúdo). Tela de login é standalone (`home_login.html`).
+
+**Responsivo aplicado a todos os módulos** com breakpoints `1024 / 900 / 520px` — vide [`conventions.md`](.claude/conventions.md) → "Responsivo".
+
+### Backlog planejado
+
+- **Módulo Relatórios** — tela `/sankhya/relatorios/` ainda não iniciada. Backlog mapeado com 6 eixos (Financeiro / Vendas / Compras-Estoque / Rastreio-WMS / Combustível-Frota / Auditoria-Produtividade) e MVP recomendado de 5 relatórios. Detalhes em [`roadmap.md`](.claude/roadmap.md) → "Módulo Relatórios — Backlog planejado".
 
 ---
 
@@ -71,3 +84,4 @@ Os arquivos abaixo são carregados automaticamente como parte deste documento.
 @.claude/modules/venda.md
 @.claude/modules/rastreio.md
 @.claude/modules/email.md
+@.claude/modules/combustivel.md

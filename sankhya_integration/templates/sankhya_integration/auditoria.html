@@ -1,0 +1,149 @@
+{% extends "sankhya_integration/base.html" %}
+{% load static %}
+
+{% block title %}Auditoria · IAgro{% endblock %}
+{% block active_module %}auditoria{% endblock %}
+{% block header_title %}AUDITORIA{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/auditoria.css' %}?v=3">
+{% endblock %}
+
+{% block header_actions %}
+  <span class="audit-counter" id="auditCounter">—</span>
+  <button id="btnAuditRefresh" class="audit-btn-refresh" title="Atualizar">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="23 4 23 10 17 10"></polyline>
+      <polyline points="1 20 1 14 7 14"></polyline>
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+    </svg>
+    <span>Atualizar</span>
+  </button>
+{% endblock %}
+
+{% block content %}
+<div class="audit-layout">
+
+  {# Sidebar de filtros #}
+  <aside class="audit-filtros" id="auditFiltros">
+    <div class="audit-filtros-header">
+      <h2>Filtros</h2>
+      <button id="btnAuditLimpar" class="audit-btn-link" title="Limpar todos os filtros">Limpar</button>
+    </div>
+
+    <div class="audit-form-row">
+      <label for="fltBusca">Busca livre</label>
+      <input type="search" id="fltBusca" placeholder="Nome, observação, lote, NUMNOTA…" />
+    </div>
+
+    <div class="audit-form-row">
+      <label for="fltRegistroId">Registro (NUNOTA / ID)</label>
+      <input type="text" id="fltRegistroId" placeholder="Ex: 12345 ou 12345/7" />
+    </div>
+
+    <div class="audit-form-row">
+      <label for="fltModulo">Módulo</label>
+      <select id="fltModulo">
+        <option value="">Todos</option>
+      </select>
+    </div>
+
+    <div class="audit-form-row">
+      <label for="fltOperacao">Operação</label>
+      <select id="fltOperacao">
+        <option value="">Todas</option>
+      </select>
+    </div>
+
+    <div class="audit-form-row">
+      <label for="fltUsuario">Usuário</label>
+      <select id="fltUsuario">
+        <option value="">Todos</option>
+      </select>
+    </div>
+
+    <div class="audit-form-row audit-row-grid">
+      <div>
+        <label for="fltDataIni">De</label>
+        <input type="date" id="fltDataIni" />
+      </div>
+      <div>
+        <label for="fltDataFim">Até</label>
+        <input type="date" id="fltDataFim" />
+      </div>
+    </div>
+
+    <div class="audit-form-row">
+      <button id="btnAuditAplicar" class="audit-btn-primary">Aplicar filtros</button>
+    </div>
+
+    <div class="audit-chips" id="auditChips"></div>
+  </aside>
+
+  {# Timeline principal #}
+  <section class="audit-timeline" id="auditTimeline">
+    <div class="audit-empty" id="auditEmpty">Carregando…</div>
+    <div class="audit-events" id="auditEvents"></div>
+    <div class="audit-pager" id="auditPager" hidden>
+      <button id="btnAuditMais" class="audit-btn-secondary">Carregar mais 50 eventos</button>
+    </div>
+  </section>
+
+</div>
+
+{# Modal de detalhe (antes / depois) #}
+<div id="auditModal" class="audit-modal hidden" role="dialog" aria-modal="true" aria-labelledby="auditModalTitulo">
+  <div class="audit-modal-card">
+    <header class="audit-modal-header">
+      <strong id="auditModalTitulo">Detalhes do evento</strong>
+      <button id="btnAuditModalFechar" class="audit-modal-fechar" aria-label="Fechar">×</button>
+    </header>
+    <div class="audit-modal-body">
+      <dl class="audit-modal-meta" id="auditModalMeta"></dl>
+
+      {# Resumo de mudanças — tabela amigável só com campos alterados #}
+      <section class="audit-resumo-mudancas" id="auditResumoMudancas">
+        <header class="audit-resumo-header">
+          <h3>Mudanças detectadas</h3>
+          <span class="audit-resumo-count" id="auditResumoCount"></span>
+        </header>
+        <div class="audit-resumo-tabela-wrap">
+          <table class="audit-resumo-tabela" id="auditResumoTabela">
+            <thead>
+              <tr>
+                <th class="col-campo">Campo</th>
+                <th class="col-antes">Antes</th>
+                <th class="col-arrow"></th>
+                <th class="col-depois">Depois</th>
+              </tr>
+            </thead>
+            <tbody id="auditResumoBody"></tbody>
+          </table>
+        </div>
+        <p class="audit-resumo-vazio" id="auditResumoVazio" hidden>
+          Nenhuma diferença de campo identificada (operação pode ser CRIAR/EXCLUIR completos — ver JSONs abaixo).
+        </p>
+      </section>
+
+      {# JSON completo — informação técnica integral #}
+      <details class="audit-modal-detalhe-tecnico">
+        <summary>JSON técnico completo (antes / depois)</summary>
+        <div class="audit-modal-diff">
+          <div class="audit-modal-coluna">
+            <h3>Antes</h3>
+            <pre id="auditModalAntes" class="audit-json"></pre>
+          </div>
+          <div class="audit-modal-coluna">
+            <h3>Depois</h3>
+            <pre id="auditModalDepois" class="audit-json"></pre>
+          </div>
+        </div>
+      </details>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'sankhya_integration/auditoria.js' %}?v=3"></script>
+{% endblock %}

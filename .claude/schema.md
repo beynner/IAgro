@@ -139,14 +139,16 @@ CODNAT_POR_TOP = {
 
 | TOP | CODNAT | Descrição | Origem | Observações |
 |---|---|---|---|---|
+| 10 | 30070200 | Entrada de Combustível | Compra de combustível pelo IAgro ou Sankhya (Mai/2026) | Itens com CODAGREGACAO=NULL e CODGRUPOPROD=200400 (COMBUSTÍVEIS). Alimenta saldo da view `ANDRE_IAGRO_SALDO_COMBUSTIVEL` |
 | 11 | — | Compra (Entrada) | Recebimento de fornecedor | Gera lote com `CODAGREGACAO = NUNOTAS{SEQ}D{YYMMDD}` |
 | 13 | — | Vale de Compra (Comercial) | Faturamento de vales | Gera financeiro em TGFFIN |
-| 26 | — | Classificação confirmada | Triagem de qualidade | Discriminador de lote `CLASSIFICADO` no WMS |
+| 26 | — | Classificação confirmada | **EXCLUSIVA da Classificação (hortifrúti)** | CODAGREGACAO≠NULL + grupo hortifrúti → discriminador `CLASSIFICADO` no WMS. **Antes de Mai/2026 (2026-05-13) também era usada pelo módulo Combustível — migrado pra TOP 53.** |
 | 30 | 20010200 | Avaria interna (perda) | Módulo Venda IAgro (Mai/2026) | STATUSNOTA='L' direto. CODAGREGACAO obrigatório (rastreabilidade). Perna D no WMS |
 | 34 | 10010100 | Pedido de Venda (em aberto) | Módulo Venda | TOP base para edição/atribuição de lote |
 | 35 | 10010100 | Venda com NFe | Faturamento da Venda | Emissão real de NFe é tarefa do Sankhya |
 | 36 | 10020100 | Devolução de venda | Módulo Venda IAgro (Mai/2026) | STATUSNOTA='A' em aberto. TGFVAR populada no INSERT. Operador confirma no Sankhya |
 | 37 | 10010200 | Venda sem NFe | Faturamento da Venda | TOP alternativo para venda s/ documento fiscal |
+| **53** | 30070200 | **Requisição interna (combustível)** | Módulo Combustível IAgro (Mai/2026 — 2026-05-13) | `TIPMOV='Q'`. CODAGREGACAO=NULL + CODGRUPOPROD=200400 + linha em `AD_REQUISICAO_COMBUSTIVEL`. **Tipos**: INTERNA_FROTA / INTERNA_MAQUINARIO / EXTERNA_FRETE (em aberto, STATUSNOTA=NULL) ou EXTERNA_POSTO (STATUSNOTA='L' direto + TGFFIN despesa contra posto). View `ANDRE_IAGRO_SALDO_COMBUSTIVEL` filtra `NOT EXISTS EXTERNA_POSTO`. |
 | 99 | 10010400 | (a confirmar) | — | Não usado no MVP |
 
 ---
@@ -403,6 +405,138 @@ Registra vínculos manuais pedido↔nota feitos pelo IAgro quando o Sankhya não
 - Ao desfazer: volta pra NULL
 
 **Por que tabela auxiliar e não TGFVAR:** TGFVAR é populada por trigger interna Sankhya (TRG_INC_TGFVAR), com cascata em TGMTRA (movimentação financeira/meta-orçamento) e TGFITE.QTDENTREGUE. INSERT manual é risco grande sem ambiente de homologação — ver gotchas.md "TGFVAR é populada via trigger Sankhya". A tabela auxiliar IAgro vive paralela e é lida em UNION com TGFVAR na consulta principal.
+
+---
+
+## 7.7 Módulo Controle de Combustível — TGFVEI, view + tabela auxiliar (Mai/2026)
+
+Pacote de schema do módulo Combustível. Detalhes completos em [`.claude/modules/combustivel.md`](modules/combustivel.md).
+
+### Cadastro nativo Sankhya — `TGFVEI`
+
+Tabela de veículos do Sankhya — reusada sem alteração. Campos relevantes pro IAgro:
+
+| Coluna | Tipo | Função |
+|---|---|---|
+| `CODVEICULO` | NUMBER PK | Identificador único |
+| `PLACA` | VARCHAR2(10) | Placa visível |
+| `MARCAMODELO` | VARCHAR2(30) | Descrição humana ("FIAT STRADA", "MERCEDS 2544") |
+| `ESPECIETIPO` | VARCHAR2(22) | Categoria ("CAVALO", "CARGA CAMINHAO") |
+| `PROPRIO` | VARCHAR2(1) | **`S` = frota própria + maquinário; `N` = veículo de terceiro** |
+| `COMBUSTIVEL` | VARCHAR2(1) | Combustível típico (D=diesel, G=gasolina, F=flex) |
+| `CODPARC` | NUMBER NOT NULL | Parceiro proprietário (empresa Agromil em próprios, freteiro em terceiros) |
+| `CODCENCUS` | NUMBER NULL | Centro de resultado default do veículo |
+| `ATIVO` | VARCHAR2(1) NOT NULL | S/N |
+
+Em produção (Mai/2026): 32 veículos cadastrados, todos `PROPRIO='S'`. Terceiros serão cadastrados conforme aparecem.
+
+### Tabela `TGFGRU` (grupos de produto)
+
+| Coluna | Tipo | Função |
+|---|---|---|
+| `CODGRUPOPROD` | NUMBER PK | Identificador do grupo |
+| `DESCRGRUPOPROD` | VARCHAR2(30) | Nome do grupo |
+| `CODGRUPAI` | NUMBER | Hierarquia |
+
+Grupo de combustível: **`CODGRUPOPROD = 200400` (`DESCRGRUPOPROD = 'COMBUSTÍVEIS'`)** — pai `200000 (MEF)`. Validado Mai/2026 em produção: 4 produtos (Diesel S10 392, Diesel S500 1373, Gasolina 391, Óleo de Motor 550), CODVOL='LT'.
+
+⚠ **Não confundir** com `TSIGRU.CODGRUPO=11` (PACKING_FROTA), que é o grupo de **usuário** referenciado em `decorators.py`.
+
+### View dedicada `ANDRE_IAGRO_SALDO_COMBUSTIVEL`
+
+DDL em [`sankhya_integration/sql/ANDRE_IAGRO_SALDO_COMBUSTIVEL.sql`](../sankhya_integration/sql/ANDRE_IAGRO_SALDO_COMBUSTIVEL.sql).
+
+**Fórmula** (Mai/2026 — estoque único, sem segregação por CODEMP):
+```
+QTD_DISPONIVEL = GREATEST( Σ TOP 10 entradas (STATUSNOTA <> 'E')
+                          − Σ TOP 26 saídas    (STATUSNOTA <> 'E'),  0 )
+WHERE pr.CODGRUPOPROD = 200400
+agrupado por CODPROD
+```
+
+**Razão**: combustível é despesa operacional compartilhada entre as empresas do grupo (Agromil/Semear/etc) — não faz sentido segregar estoque por CODEMP. A CODEMP da TGFCAB TOP 26 da requisição é apenas metadata escritural (herdada da última entrada do produto).
+
+**Segregação total versus Classificação**: a Classificação também grava TOP 26, mas seus itens têm `CODAGREGACAO IS NOT NULL` + produtos do grupo hortifrúti. Combustível grava `CODAGREGACAO IS NULL` + `CODGRUPOPROD=200400`. View `ANDRE_IAGRO_SALDO_LOTE` exige `IS NOT NULL` → zero interferência.
+
+### Tabela auxiliar `AD_REQUISICAO_COMBUSTIVEL` (aplicada Mai/2026, ampliada 2026-05-13)
+
+| Coluna | Tipo | Função |
+|---|---|---|
+| `ID` | NUMBER PK | Sequence `SEQ_AD_REQUISICAO_COMBUSTIVEL` |
+| `NUNOTA` | NUMBER UNIQUE NOT NULL | FK lógica TGFCAB TOP **53** (era TOP 26 até 2026-05-13) |
+| `TIPO` | VARCHAR2(20) CHECK | `INTERNA_FROTA` \| `INTERNA_MAQUINARIO` \| `EXTERNA_FRETE` \| **`EXTERNA_POSTO`** (B7 Mai/2026) |
+| `CATEGORIA` | VARCHAR2(20) DEFAULT 'COMBUSTIVEL' NOT NULL CHECK | `COMBUSTIVEL` \| `MANUTENCAO` (preparado pro módulo futuro de manutenção da frota) |
+| `CODVEICULO` | NUMBER NOT NULL | FK lógica TGFVEI |
+| `CODPARC` | NUMBER NULL | **Obrigatório se TIPO='EXTERNA_POSTO'** — CODPARC do posto/fornecedor (Allianz, Semear, Agromil) |
+| `NUFIN_GERADO` | NUMBER NULL | Audit do NUFIN criado (só em EXTERNA_POSTO) |
+| `HODOMETRO_KM` | NUMBER(15,2) | km do veículo (obrigatório em INTERNA_FROTA + EXTERNA_POSTO; opcional em INTERNA_MAQUINARIO; NULL em EXTERNA_FRETE) |
+| `HORIMETRO_H` | NUMBER(15,2) | h da bomba (mesma regra de obrigatoriedade) |
+| `DOC_FRETE_REF` | VARCHAR2(50) | NF/boleto. Obrigatório se TIPO=EXTERNA_FRETE; opcional em EXTERNA_POSTO |
+| `OBSERVACAO` | VARCHAR2(500) | Texto livre |
+| `CODUSU`, `NOMEUSU`, `CRIADO_EM` | — | Audit |
+
+**Constraints** (Oracle 11g — nomes ≤30 chars):
+- `CK_AD_REQ_COMBUST_TIPO` — `TIPO IN ('INTERNA_FROTA','INTERNA_MAQUINARIO','EXTERNA_FRETE','EXTERNA_POSTO')`
+- `CK_AD_REQ_COMBUST_EXTPOSTO` — `TIPO <> 'EXTERNA_POSTO' OR CODPARC IS NOT NULL`
+- `CK_AD_REQ_COMBUST_CATEG` — `CATEGORIA IN ('COMBUSTIVEL','MANUTENCAO')`
+
+**Histórico de migrations**:
+- B1 (Mai/2026 inicial): DDL original com `MEDIDOR_ATUAL` + `MEDIDOR_TIPO`.
+- **B4 (Mai/2026)**: ALTER trocou pra 2 colunas dedicadas (`HODOMETRO_KM` + `HORIMETRO_H`) — frota própria precisa AMBOS simultaneamente.
+- **B7 (Mai/2026, 2026-05-13)** [[`AD_REQUISICAO_COMBUSTIVEL_MIGRATION_EXTERNO.sql`](../sankhya_integration/sql/AD_REQUISICAO_COMBUSTIVEL_MIGRATION_EXTERNO.sql)]: ADD `CATEGORIA`+`CODPARC`+`NUFIN_GERADO`, CHECK ampliado pra `EXTERNA_POSTO`. Suporta abastecimento externo (posto) sem desconto do tanque interno.
+
+### Constantes Python de configuração (em `oracle_conn.py`)
+
+```python
+CODGRUPOPROD_COMBUSTIVEL = 200400   # TGFGRU.CODGRUPOPROD do grupo COMBUSTÍVEIS
+
+# Capacidade física dos tanques. Filtra também quais produtos do grupo 200400
+# aparecem no card "Estoque" do frontend.
+CAPACIDADE_TANQUE = {
+    392:  10000.0,   # DIESEL S10
+    1373: 5000.0,    # DIESEL S500
+    1374: 1000.0,    # ARLA 32
+}
+
+# Saldo pré-existente nos tanques antes do IAgro registrar TOP 10.
+# Somado em Python ao saldo da view (NÃO usar QTD_DISPONIVEL da view direto —
+# GREATEST(0) corrompe quando entrada_view=0 + saída>0; ver gotchas.md).
+SALDO_INICIAL_TANQUE = {
+    392:  300.0,
+    1373: 3150.0,
+    1374: 300.0,
+}
+
+# Formato visual do tanque (renderização SVG no frontend)
+FORMATO_TANQUE = {
+    392:  'CILINDRO_HORIZONTAL',
+    1373: 'CILINDRO_HORIZONTAL',
+    1374: 'CAIXA_QUADRADA',     # ARLA 32 — IBC industrial
+}
+
+# Ordem visual dos tanques no card de Estoque (esquerda → direita)
+ORDEM_TANQUE = {
+    1374: 1,   # ARLA 32      (1ª)
+    1373: 2,   # DIESEL S500  (2ª)
+    392:  3,   # DIESEL S10   (3ª)
+}
+```
+
+### Funções service (`oracle_conn.py`)
+
+| Função | Operação | Cat |
+|---|---|:-:|
+| `consultar_saldo_combustivel(filtros)` | SELECT view + TGFPRO; calcula disponível em Python (não usa GREATEST da view) | A |
+| `consultar_veiculos_disponiveis(termo, tipo, ativo, limite)` | SELECT TGFVEI + TGFPAR | A |
+| `consultar_produtos_combustivel(termo, limite)` | SELECT TGFPRO CODGRUPOPROD=200400 | A |
+| `consultar_consumo_por_veiculo(codveiculo, date_start, date_end)` | Relatório: SELECT abastecimentos do veículo no período + calcula km/L e L/h entre consecutivos | A |
+| `listar_movimentacoes_combustivel(filtros, limite, offset)` | UNION (TOP 10 c/ CODGRUPOPROD=200400) ∪ (TOP 26 c/ AD_REQ); **JOIN com TGFITE — 1 linha por item** | A |
+| `listar_requisicoes_combustivel(filtros, limite, offset)` | SELECT só saídas TOP 26 (legado) | A |
+| `obter_requisicao_combustivel(nunota)` | SELECT detalhe (cab + itens + req) | A |
+| `criar_requisicao_combustivel_banco(dados, codusu, nomeusu)` | INSERT TGFCAB TOP 26 + TGFITE + AD_REQUISICAO_COMBUSTIVEL (STATUSNOTA=NULL em aberto) | **B2** (aplicada) |
+| `editar_requisicao_combustivel_banco(nunota, dados, codusu, nomeusu)` | UPDATE atômico TGFCAB + TGFITE + AD_REQ; re-valida saldo "devolvendo" qtd antiga | **B5** (aplicada) |
+| `excluir_requisicao_combustivel_banco(nunota, motivo, codusu, nomeusu)` | **DELETE físico** AD_REQ + TGFITE + TGFCAB (UPDATE STATUSNOTA='E' bloqueado pelo trigger Sankhya) | **B6** (aplicada) |
+| `criar_entrada_combustivel_banco(dados, codusu, nomeusu)` | INSERT TGFCAB TOP 10 + TGFITE + TGFFIN; UPDATE STATUSNOTA='L'. Padrão à vista (DHBAIXA=DTNEG). Defaults TGFFIN modelo NUFIN=438989: CODBCO=70, CODCTABCOINT=1, CODTIPTIT=2, CODTIPOPER=1, ORIGEM='F' | **B3** (aplicada) |
 
 ---
 

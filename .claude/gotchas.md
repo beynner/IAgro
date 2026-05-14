@@ -251,6 +251,210 @@ E o `hide()` reseta os styles inline pra deixar limpo.
 
 ---
 
+## ORA-20101 é genérico — mascarava mensagem real do trigger
+
+Antes de Mai/2026 (2026-05-13), `humanizar_erro_oracle()` mapeava `ORA-20101` → `"Tipo de negociação inativo ou inválido."` (mensagem fixa). Mas **ORA-20101 é o código de `RAISE_APPLICATION_ERROR` usado por dezenas de triggers Sankhya** — não só TIPVENDA. Mensagens reais que apareciam mascaradas em produção:
+
+- "Baixa sem ligação com TGFMBC. Financeiro de Nro único: NNN."
+- "Só é permitido preencher o NUNOTA para financeiros com origem 'E'."
+- "Informe o valor da baixa e Código de operação de baixa simultaneamente..."
+- "A TOP da Baixa deve ser informada."
+- "A única atualização permitida para o Status da Nota é a passagem deste para L."
+
+Operador caçava problema inexistente porque o erro real era encoberto.
+
+**Fix em `humanizar_erro_oracle`**: case especial pra `ORA-20101` que extrai a mensagem real via regex (`ORA-20101:\s*(.+?)(?:\n|ORA-\d|$)`) **antes** de cair no fallback genérico. Quando o texto extraído tem ≤240 chars, repassa direto. Senão, fallback "Regra do banco rejeitou a operação. Verifique os dados informados."
+
+Ao adicionar mapping novo de `ORA-XXXXX` em `_MAPA_ORA_HUMANIZADO`, **considere se o código é genérico (vários triggers) ou específico**. Códigos genéricos como 20101 devem deixar a mensagem original passar pra UI.
+
+---
+
+## TGFFIN nasce SEMPRE em aberto — 3 triggers Sankhya bloqueiam baixa automática
+
+Ao criar TGFFIN via IAgro pra entrada de combustível (TOP 10) ou abastecimento externo (TOP 53), **NUNCA marcar baixa automática** (DHBAIXA, VLRBAIXA, CODTIPOPERBAIXA). 3 triggers Sankhya impedem em cascata, mascarados como ORA-20101:
+
+| Trigger | Erro | Causa |
+|---|---|---|
+| `TRG_UPT_TGFFIN_NUBCO` | "Baixa sem ligação com TGFMBC" | INSERT com `DHBAIXA NOT NULL` mas sem registro paralelo em TGFMBC (movimentação bancária real). Sankhya nativo gera TGFMBC quando operador clica "Baixar" no painel. |
+| `TRG_INC_TGFFIN` | "Só é permitido preencher NUNOTA para financeiros com origem 'E'" | INSERT com `NUNOTA` preenchido exige `ORIGEM='E'` (Entrada de Nota). `ORIGEM='F'` (Financeiro avulso) **não pode ter NUNOTA**. |
+| `TRG_INC_TGFFIN` / `TRG_UPT_TGFFIN` | "Informe o valor da baixa e Código de operação de baixa simultaneamente" / "A TOP da Baixa deve ser informada" | `VLRBAIXA > 0` exige `CODTIPOPERBAIXA > 0`, e vice-versa. Ou os dois zerados ou os dois preenchidos. |
+
+**Padrão correto** (aplicado em `criar_entrada_combustivel_banco` + `criar_abastecimento_externo_banco` + UPDATE TGFFIN em `editar_*`):
+
+```python
+# Modelo NUFIN em aberto (Mai/2026)
+ORIGEM = 'E'                              # Sempre 'E' quando NUNOTA preenchido
+VLRBAIXA = 0                              # Sempre 0
+DHBAIXA = NULL                            # Sempre NULL
+CODEMPBAIXA = NULL
+CODUSUBAIXA = NULL
+CODTIPOPERBAIXA = 0                       # Coerente com VLRBAIXA=0
+DHTIPOPERBAIXA = TO_DATE('01/01/1998','DD/MM/YYYY')  # Padrão Sankhya em aberto
+```
+
+Operador baixa pelo Sankhya quando paga (Sankhya cria TGFMBC + preenche CODTIPOPERBAIXA corretamente).
+
+**Como descobri**: smoke real após cada fix mostrou um trigger atrás do outro. Cada erro só aparece DEPOIS de corrigir o anterior — sem dump dos 3 triggers de uma vez, só sequencial.
+
+---
+
+## `gerar_proxima_sequencia_item` abria nova conexão — quebrava transações multi-INSERT
+
+Função `gerar_proxima_sequencia_item(nunota)` (chamada por `inserir_item_nota_banco`) abria **conexão Oracle paralela** (`with obter_conexao_oracle() as conn:`). Em fluxos transacionais onde múltiplos `inserir_item_nota_banco` rodam antes do commit (ex: edição de entrada multi-itens em B14), a conexão paralela **não enxerga** os INSERTs anteriores nem o DELETE pendente da transação principal → SEQUENCIA duplicada → **ORA-00001 PK violation**.
+
+**Fix em Mai/2026 (2026-05-13)**: assinatura ganhou `conexao_existente: Optional[Connection] = None`. Quando o caller passa, usa a mesma conexão (enxerga estado pendente).
+
+```python
+def gerar_proxima_sequencia_item(nunota, conexao_existente=None):
+    sql = "SELECT NVL(MAX(SEQUENCIA),0) + 1 FROM TGFITE WHERE NUNOTA = :nunota"
+    if conexao_existente is not None:
+        cur = conexao_existente.cursor()
+        cur.execute(sql, nunota=nunota)
+        return int(cur.fetchone()[0])
+    # fallback antigo (nova conexão)
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, nunota=nunota)
+        return int(cur.fetchone()[0])
+```
+
+`inserir_item_nota_banco` passa `conexao_existente=conn` adiante. Backward-compat preservada: callers que não passam continuam funcionando.
+
+**Estratégia complementar**: em edição de entrada/requisição multi-itens (B11/B14), o **UPDATE diferencial** reusa SEQUENCIAs existentes (UPDATE in-place) e só faz INSERT pros adicionais — minimiza chances de conflito.
+
+---
+
+## TOP 53 = REQUISIÇÃO INTERNA (não TOP 26)
+
+Reservar **TOP 26 exclusivamente pro módulo de Classificação** (hortifrúti). Módulos novos que precisem de saída/requisição devem usar **TOP 53 — REQUISIÇÃO INTERNA** (`TIPMOV='Q'`, ativa). Antes de Mai/2026 (2026-05-13), o módulo Combustível usava TOP 26 — bug histórico corrigido em refator amplo (todas as funções de criar/editar/excluir + queries de leitura + view `ANDRE_IAGRO_SALDO_COMBUSTIVEL`).
+
+⚠ **Cuidado com `where_comum` em queries UNION**: a `listar_movimentacoes_combustivel` tinha `where_comum = ["c.CODTIPOPER IN (10, 26)"]` que ficava AND-conjugado com `c.CODTIPOPER = 53` da perna de requisição → condição impossível, 0 resultados. Quando trocar TOP em queries UNION, conferir TODAS as listas de WHERE.
+
+---
+
+## Trigger `TRG_UPD_TGFCAB` bloqueia `UPDATE STATUSNOTA='E'` — exclusão é DELETE físico
+
+Descoberto em Mai/2026 (2026-05-12) durante desenvolvimento do B6 do módulo Combustível (excluir requisição). A mensagem oficial do trigger Sankhya (linha 979):
+
+> `ORA-20101: A única atualização permitida para o Status da Nota é a passagem deste para L. Nota de Nro único: NNNNN`
+
+Significa que **não existe "exclusão lógica" via STATUSNOTA='E' no Sankhya**. Apesar do filtro `STATUSNOTA <> 'E'` aparecer em queries da view `ANDRE_IAGRO_SALDO_*` (sugerindo que 'E' é estado válido), o ERP **não permite criar esse estado via UPDATE manual**. As notas com STATUSNOTA='E' que aparecem em produção foram criadas por algum fluxo nativo do Sankhya (provavelmente exclusões via UI do ERP que disparam um path específico do trigger).
+
+**Implicação prática**: pra "excluir" uma nota TGFCAB via IAgro, o caminho é **DELETE físico em cascata**:
+
+```sql
+DELETE FROM TGFITE WHERE NUNOTA = :n;   -- itens primeiro (FK)
+DELETE FROM TGFCAB WHERE NUNOTA = :n;   -- cabeçalho depois
+-- (dispara TRG_DLT_TGFCAB_* nativas do ERP que fazem auditoria/limpeza)
+```
+
+**Quando aplicar**:
+- ✅ Requisição de combustível (TGFCAB TOP 26 do módulo Combustível) — B6 implementado assim
+- ⚠ Outras TOP IAgro que precisem "cancelar" — pensar caso a caso. Pode haver triggers nativas de DELETE que disparam efeitos colaterais (financeiro, contábil, estoque)
+
+**Quando NÃO aplicar**:
+- ❌ TGFCAB com `STATUSNOTA='L'` (confirmada) — bloquear no IAgro e mandar operador estornar pelo Sankhya, que reverte financeiro/contábil corretamente
+- ❌ TGFCAB com TGFFIN/TGMTRA já gerados — DELETE pode quebrar relações financeiras
+
+**Auditoria**: como o DELETE apaga o registro, qualquer rastro de quem excluiu precisa ser preservado **antes** do DELETE. No B6 do Combustível, gravamos motivo+usuário em `logger.info` antes dos 3 DELETEs (AD_REQ → TGFITE → TGFCAB).
+
+Test de regressão: `test_views_combustivel.py::ExcluirRequisicaoServiceTest::test_fluxo_feliz_delete_fisico` verifica explicitamente que o código não usa mais `UPDATE STATUSNOTA='E'`.
+
+---
+
+## View `ANDRE_IAGRO_SALDO_COMBUSTIVEL` — `GREATEST(0)` corrompe saldo quando saldo inicial > 0
+
+Descoberto em Mai/2026 (2026-05-12). A view tem:
+
+```sql
+GREATEST(NVL(e.QTD_ENTRADA, 0) - NVL(s.QTD_SAIDA, 0), 0) AS QTD_DISPONIVEL
+```
+
+Quando o tanque tem `entrada_view = 0` (só saldo inicial — produto sem TOP 10 ainda no IAgro) + `saída > 0`, a view força QTD_DISPONIVEL=0 (cortando o saldo negativo). Se o código somar `SALDO_INICIAL_TANQUE` em cima de QTD_DISPONIVEL, ignora completamente a saída.
+
+Exemplo: tanque com saldo_inicial=300, entrada_view=0, saída=100:
+- View retorna QTD_DISPONIVEL = `max(0 - 100, 0)` = 0
+- Código (errado) faria 0 + 300 = **300** (ignora saída!)
+- Conta correta: 0 + 300 - 100 = **200**
+
+**Fix** em `consultar_saldo_combustivel`: NÃO usar `QTD_DISPONIVEL` da view. Sempre calcular em Python:
+
+```python
+qtd_entrada_total = qtd_entrada_view + saldo_inicial
+qtd_disponivel    = qtd_entrada_total - qtd_saida
+if qtd_disponivel < 0:
+    qtd_disponivel = 0.0
+```
+
+Test de regressão: `ConsultarSaldoCombustivelServiceTest.test_disponivel_desconta_saida_quando_entrada_view_zero`.
+
+**Generalização pra views futuras**: ao introduzir "saldo inicial" externo somado fora da view, **NÃO usar campos com GREATEST 0 da view** — eles cortam matemática antes do offset entrar. Calcular tudo em Python ou ajustar a view pra aceitar saldo inicial como parâmetro.
+
+---
+
+## `int(dados.get(K, default))` quebra quando a chave existe com valor None
+
+Padrão recorrente em código IAgro:
+
+```python
+codlocalorig = int(dados.get('CODLOCALORIG', 101))  # ❌ quebra se chave existe com None
+```
+
+Quando o caller passa explicitamente `'CODLOCALORIG': None` no dict, `dict.get(K, default)` **retorna None (não o default)** — `.get()` só usa o default quando a chave **não existe**. Aí `int(None)` levanta `TypeError: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'`.
+
+**Manifestação real (Mai/2026)**: B2 `criar_requisicao_combustivel_banco` chamava `inserir_item_nota_banco` passando `'CODLOCALORIG': None` explícito → quebrou em produção com mensagem genérica `int() argument...`, mascarada como "Falha de conexão" no frontend (bug do `IAgro.postJSON`).
+
+**Soluções**:
+1. **Omitir a chave** do dict em vez de passar None (`inserir_item_nota_banco` usa default 101 quando ausente). Foi o fix aplicado em B2/B3 do Combustível
+2. **Validar antes** do `int()`: `int(dados.get(K) or 101)` — funciona pra valores falsy
+3. **Adicionar default no caller**: `dados.setdefault('CODLOCALORIG', 101)` antes do INSERT
+
+Test de regressão: `CriarRequisicaoServiceTest.test_payload_inserir_item_nao_passa_codlocalorig_none` — valida que o payload do `inserir_item_nota_banco` NÃO tem `CODLOCALORIG=None`.
+
+---
+
+## `IAgro.postJSON` retorna `{ok, status, body}`, NÃO uma Response do fetch
+
+Descoberto em Mai/2026 (2026-05-12) — chamadas a `IAgro.postJSON` nos modais do Combustível mascaravam erros HTTP 400 do backend como "Falha de conexão".
+
+A função em `iagro_helpers.js:32`:
+
+```js
+async function postJSON(url, data) {
+    try {
+        const response = await fetch(url, { ... });
+        const responseBody = await response.json();
+        return { ok: response.ok, status: response.status, body: responseBody };
+    } catch (error) {
+        return { ok: false, status: 0, body: { error: 'Erro de comunicação' } };
+    }
+}
+```
+
+**Uso correto** no caller:
+
+```js
+const resp = await IAgro.postJSON(url, payload);
+const data = resp.body || {};                     // ← body já é o JSON parseado
+if (!resp.ok || !data.ok) {
+    msg.textContent = data.error || `Erro ${resp.status}`;
+}
+```
+
+**Uso ERRADO** (que gerou o bug):
+
+```js
+const resp = await IAgro.postJSON(url, payload);
+const data = await resp.json();   // ❌ resp não é Response — não tem método .json()
+                                   // TypeError → catch → "Falha de conexão"
+```
+
+Resultado: qualquer erro HTTP (400, 500, etc.) virava `"Falha de conexão"` no frontend, perdendo a mensagem real do backend.
+
+**Convenção pra qualquer nova chamada**: sempre tratar como `{ok, status, body}`, NÃO como Response.
+
+---
+
 ## `TGFVAR` é populada via trigger Sankhya — NÃO escrever direto (**exceção: devolução TOP 36 Mai/2026**)
 
 A tabela `TGFVAR` é a **fonte canônica do vínculo entre notas geradas** no Sankhya (pedido↔nota, compra↔vale, devolução↔venda, etc). Estrutura: `NUNOTA, SEQUENCIA, NUNOTAORIG, SEQUENCIAORIG, QTDATENDIDA, ...`.

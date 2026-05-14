@@ -99,7 +99,12 @@ def verificar_permissao_escrita() -> bool:
 # ==============================================================================
 _MAPA_ORA_HUMANIZADO = (
     # (substring buscada, mensagem amigável)
-    ('ORA-20101',  'Tipo de negociação inativo ou inválido. Selecione outro tipo.'),
+    # ORA-20101 é o código de RAISE_APPLICATION_ERROR usado por MUITAS triggers
+    # Sankhya (não só "Tipo de negociação inativo"). O humanizar_erro_oracle
+    # tem case especial pra ORA-20101 (logo abaixo) que extrai a mensagem real
+    # do trigger ANTES de cair no fallback genérico. Esta entrada só serve de
+    # fallback quando a extração falhar.
+    ('ORA-20101',  'Regra do banco rejeitou a operação. Verifique os dados informados.'),
     ('ORA-00001',  'Já existe um registro com esses dados (chave duplicada).'),
     ('ORA-02291',  'Referência inválida — algum código informado não existe no banco.'),
     ('ORA-02292',  'Não é possível remover este registro porque ele tem dependências.'),
@@ -131,6 +136,18 @@ def humanizar_erro_oracle(exc_or_msg) -> str:
     msg = str(exc_or_msg)
     if not msg:
         return 'Falha desconhecida.'
+
+    # Case especial: ORA-20101 é genérico (usado por dezenas de triggers Sankhya).
+    # Tenta extrair a mensagem real do trigger antes do mapping genérico.
+    # Formato típico Oracle: "ORA-20101: <mensagem do trigger>\nORA-06512: at ..."
+    if 'ORA-20101' in msg:
+        import re
+        m = re.search(r'ORA-20101:\s*(.+?)(?:\n|ORA-\d|$)', msg, re.DOTALL)
+        if m:
+            real = m.group(1).strip().rstrip('.').strip()
+            if real and len(real) <= 240:
+                return real
+
     for chave, amigavel in _MAPA_ORA_HUMANIZADO:
         if chave in msg:
             return amigavel
@@ -483,9 +500,20 @@ def gerar_proximo_numero_unico_cabecalho(conn) -> int:
     mx = int(cur.fetchone()[0] or 0)
     return mx + 1
 
-def gerar_proxima_sequencia_item(nunota: int) -> int:
-    """Consulta a TGFITE e retorna MAX(SEQUENCIA) + 1 para uma nota específica."""
+def gerar_proxima_sequencia_item(nunota: int, conexao_existente=None) -> int:
+    """Consulta a TGFITE e retorna MAX(SEQUENCIA) + 1 para uma nota específica.
+
+    Mai/2026 (2026-05-13): aceita `conexao_existente` opcional. Sem ele, abre
+    NOVA conexão (default histórico) — que NÃO vê transação pendente do caller.
+    Em fluxos transacionais (ex: edição de entrada B14, onde múltiplos INSERTs
+    sucessivos acontecem antes do commit), passar `conexao_existente=conn`
+    garante que a SEQUENCIA enxergue os INSERTs anteriores da mesma transação.
+    """
     sql = "SELECT NVL(MAX(SEQUENCIA),0) + 1 FROM TGFITE WHERE NUNOTA = :nunota"
+    if conexao_existente is not None:
+        cur = conexao_existente.cursor()
+        cur.execute(sql, nunota=nunota)
+        return int(cur.fetchone()[0])
     with obter_conexao_oracle() as conn:
         cur = conn.cursor()
         cur.execute(sql, nunota=nunota)
@@ -883,7 +911,11 @@ def inserir_item_nota_banco(dados: dict, simulacao: bool = False, conexao_existe
             return resultado
             
         codemp, dtneg, codparc, ad_numpedidoorig = cab
-        sequencia = gerar_proxima_sequencia_item(nunota)
+        # Mai/2026 (2026-05-13): passa a conexão atual pra `gerar_proxima_sequencia_item`
+        # — necessário em fluxos transacionais onde múltiplos INSERTs precedem commit
+        # (ex: edição de entrada B14). Sem isso, função abre nova conexão que não
+        # enxerga os INSERTs anteriores e gera SEQUENCIAs duplicadas (ORA-00001).
+        sequencia = gerar_proxima_sequencia_item(nunota, conexao_existente=conn)
         
         peso = dados.get('PESO') or 0
         codvol = str(dados.get('CODVOL', 'UN')).strip().upper()
@@ -1681,7 +1713,7 @@ def atualizar_preco_inicial_entrada(nunota: int, sequencia: int, preco_inicial: 
                                 'CODNAT': cab_origem[2] or 20010100, 'CODCENCUS': cab_origem[3] or 10100,
                                 'DTNEG': cab_origem[4].strftime('%d/%m/%Y') if cab_origem[4] else _date.today().strftime('%d/%m/%Y'),
                                 'CODTIPOPER': 13, 'NUMNOTA': nunota,
-                                'OBSERVACAO': 'Faturamento automático via SIG (Sistema Integrado de Gestão)',
+                                'OBSERVACAO': 'Faturamento automático via IAgro',
                                 'AD_NUMPEDIDOORIG': cab_origem[5] or nunota
                             }
                             res_cab = inserir_cabecalho_nota_banco(dados_novo_cab, simulacao=False, conexao_existente=conn)
@@ -1908,7 +1940,7 @@ def salvar_vale_compra_banco(payload: dict) -> dict:
                     'DTNEG': cab_origem[4].strftime('%d/%m/%Y') if cab_origem[4] else _date.today().strftime('%d/%m/%Y'),
                     'CODTIPOPER': 13,
                     'NUMNOTA': nunota_origem,
-                    'OBSERVACAO': f'Faturamento gerado via Painel SIG(Sistema Integrado de Gestão)',
+                    'OBSERVACAO': f'Faturamento via IAgro',
                     'AD_NUMPEDIDOORIG': cab_origem[5] or nunota_origem
                 }
                 res_cab = inserir_cabecalho_nota_banco(dados_novo_cab, simulacao=False, conexao_existente=conn)
@@ -2363,7 +2395,7 @@ def upsert_preco_in_natura_modalFaturamento(nunota_origem: int, nunota_13: int, 
                     'CODNAT': cab_origem[2] or 20010100, 'CODCENCUS': cab_origem[3] or 10100,
                     'DTNEG': cab_origem[4].strftime('%d/%m/%Y') if cab_origem[4] else _date.today().strftime('%d/%m/%Y'),
                     'CODTIPOPER': 13, 'NUMNOTA': nunota_origem,
-                    'OBSERVACAO': 'Faturamento automático via SIG (Sistema Integrado de Gestão)',
+                    'OBSERVACAO': 'Faturamento via IAgro',
                     'AD_NUMPEDIDOORIG': cab_origem[5] or nunota_origem
                 }
                 res_cab = inserir_cabecalho_nota_banco(dados_novo_cab, simulacao=False, conexao_existente=conn)
@@ -5686,3 +5718,2937 @@ def obter_historico_lote(codagregacao: str) -> dict:
     except Exception as exc:
         logger.exception("Erro em obter_historico_lote")
         return {'ok': False, 'error': str(exc)}
+
+
+# =============================================================================
+# MÓDULO CONTROLE DE COMBUSTÍVEL (TOP 10 entrada Sankhya + TOP 26 requisição IAgro)
+# Mai/2026 — Funções aditivas SOMENTE LEITURA.
+# A função de escrita criar_requisicao_combustivel_banco vive em bloco separado
+# (Categoria B — aguarda aprovação ponto-a-ponto).
+# =============================================================================
+
+# Grupo de produto que identifica combustíveis em TGFGRU.CODGRUPOPROD.
+# Validado em produção Mai/2026:
+#   - CODGRUPOPROD=200400 → DESCRGRUPOPROD='COMBUSTÍVEIS' (pai=200000 'MEF')
+#   - Produtos atuais: 392 Diesel S10, 1373 Diesel S500, 391 Gasolina, 550 Óleo de Motor
+# Não confundir com TSIGRU.CODGRUPO=11 (PACKING_FROTA), que é grupo de USUÁRIO.
+CODGRUPOPROD_COMBUSTIVEL = 200400
+
+# Capacidade física dos tanques de combustível (litros). Filtra também quais
+# produtos do grupo 200400 aparecem no card "Estoque" do portal — produtos sem
+# tanque mapeado aqui (Gasolina, Óleo de Motor) não são exibidos.
+# Mai/2026: Agromil tem 2 tanques físicos. Pra adicionar Arla32 ou outro,
+# cadastre o produto em TGFPRO (CODGRUPOPROD=200400, CODVOL='LT') e adicione
+# uma linha aqui com o CODPROD e a capacidade.
+CAPACIDADE_TANQUE = {
+    392:  10000.0,   # DIESEL S10  — tanque cilíndrico horizontal 10.000 LT
+    1373: 5000.0,    # DIESEL S500 — tanque cilíndrico horizontal 5.000 LT
+    1374: 1000.0,    # ARLA32      — IBC quadrado 1.000 LT
+}
+
+# Saldo pré-existente nos tanques antes do IAgro começar a registrar entradas
+# TOP 10. Soma ao QTD_DISPONIVEL da view ANDRE_IAGRO_SALDO_COMBUSTIVEL.
+# Mai/2026: Agromil tinha 300 LT de S10 e 3.150 LT de S500 nos tanques quando
+# o módulo entrou em produção. Quando esses saldos forem consumidos, esses
+# valores podem ser zerados aqui (mas não há urgência — view continua somando
+# corretamente entradas/saídas IAgro daqui pra frente).
+SALDO_INICIAL_TANQUE = {
+    392:  300.0,
+    1373: 3150.0,
+    1374: 300.0,   # ARLA 32 — saldo pré-existente no IBC ao entrar em produção
+}
+
+# Formato visual do tanque pra renderização SVG no frontend.
+# Mai/2026: Diesel S10 e S500 são cilindros horizontais; Arla 32 é caixa
+# quadrada (IBC/contêiner industrial). Pra adicionar um produto novo,
+# inclua aqui o CODPROD com 'CILINDRO_HORIZONTAL' ou 'CAIXA_QUADRADA'.
+# Default: CILINDRO_HORIZONTAL se ausente.
+FORMATO_TANQUE = {
+    392:  'CILINDRO_HORIZONTAL',
+    1373: 'CILINDRO_HORIZONTAL',
+    1374: 'CAIXA_QUADRADA',     # ARLA 32 — IBC industrial
+}
+
+# Ordem visual dos tanques no card de Estoque (esquerda → direita).
+# Pra reordenar, edite os valores aqui. Tanques sem entrada vão pro fim.
+ORDEM_TANQUE = {
+    1374: 1,   # ARLA 32      (1ª posição)
+    1373: 2,   # DIESEL S500  (2ª posição)
+    392:  3,   # DIESEL S10   (3ª posição)
+}
+
+
+def consultar_saldo_combustivel(filtros: dict = None):
+    """Lista saldo de combustível dos tanques mapeados em CAPACIDADE_TANQUE.
+    Soma SALDO_INICIAL_TANQUE ao saldo da view + retorna capacidade física e
+    percentual de preenchimento pra renderizar medidor visual no frontend.
+
+    Mai/2026: combustível é despesa operacional compartilhada — não segrega
+    por CODEMP. Produtos do grupo 200400 que NÃO estão em CAPACIDADE_TANQUE
+    (ex: Gasolina, Óleo de Motor) não aparecem aqui — fora do escopo de
+    controle de tanque.
+
+    Aceita filtros opcionais:
+      - q: str — UPPER LIKE em DESCRPROD
+
+    Retorna lista de tuplas:
+      (CODPROD, DESCRPROD, CODVOL,
+       QTD_ENTRADA, QTD_SAIDA, QTD_DISPONIVEL,
+       CAPACIDADE_LT, SALDO_INICIAL_LT, PERCENTUAL_CHEIO,
+       FORMATO_TANQUE)
+    """
+    filtros = filtros or {}
+    codprods_mapeados = list(CAPACIDADE_TANQUE.keys())
+    if not codprods_mapeados:
+        return []
+
+    # Bind list explícito (Oracle não aceita IN :lista direto)
+    placeholders = ','.join(f':p{i}' for i in range(len(codprods_mapeados)))
+    binds_prod = {f'p{i}': cp for i, cp in enumerate(codprods_mapeados)}
+
+    sql_view = f"""
+        SELECT CODPROD, DESCRPROD, CODVOL,
+               QTD_ENTRADA, QTD_SAIDA, QTD_DISPONIVEL
+        FROM SANKHYA.ANDRE_IAGRO_SALDO_COMBUSTIVEL
+        WHERE CODPROD IN ({placeholders})
+    """
+    binds_view = dict(binds_prod)
+    if filtros.get('q'):
+        sql_view += " AND UPPER(DESCRPROD) LIKE :q"
+        binds_view['q'] = f"%{str(filtros['q']).upper()}%"
+
+    # SELECT auxiliar pra trazer DESCRPROD/CODVOL de tanques sem movimentação
+    # (a view não retorna linha pra produtos sem TGFITE). Sem isso, o card
+    # aparece como "Produto N" no frontend.
+    sql_prod = f"""
+        SELECT CODPROD, DESCRPROD, CODVOL
+        FROM TGFPRO
+        WHERE CODPROD IN ({placeholders})
+    """
+
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(sql_view, binds_view)
+        rows_view = {int(r[0]): r for r in cur.fetchall()}
+        cur.execute(sql_prod, binds_prod)
+        nomes_prod = {int(r[0]): (r[1] or '', r[2] or 'LT') for r in cur.fetchall()}
+
+    # Garante 1 linha por tanque mapeado, mesmo sem registro na view (tanque
+    # ainda sem movimentação aparece com saldo = SALDO_INICIAL_TANQUE).
+    resultado = []
+    for codprod, capacidade in CAPACIDADE_TANQUE.items():
+        saldo_inicial = float(SALDO_INICIAL_TANQUE.get(codprod, 0))
+        row = rows_view.get(codprod)
+        nome_canonico, vol_canonico = nomes_prod.get(codprod, ('', 'LT'))
+        if row:
+            descrprod = row[1] or nome_canonico
+            codvol    = row[2] or vol_canonico or 'LT'
+            qtd_entrada_view = float(row[3] or 0)
+            qtd_saida = float(row[4] or 0)
+        else:
+            # Tanque mapeado mas sem TGFITE — usa nome de TGFPRO + saldo inicial
+            descrprod = nome_canonico
+            codvol = vol_canonico or 'LT'
+            qtd_entrada_view = 0.0
+            qtd_saida = 0.0
+
+        # IMPORTANTE: a view ANDRE_IAGRO_SALDO_COMBUSTIVEL usa
+        # GREATEST(entrada - saida, 0). Quando o tanque só tem saldo inicial
+        # (entrada_view=0) e tem saída, GREATEST força a 0 e somar saldo
+        # inicial dá um saldo inflado. Recalculo aqui usando a saída literal.
+        qtd_entrada_total = qtd_entrada_view + saldo_inicial
+        qtd_disponivel = qtd_entrada_total - qtd_saida
+        if qtd_disponivel < 0:
+            qtd_disponivel = 0.0
+        percentual = (qtd_disponivel / capacidade * 100.0) if capacidade > 0 else 0.0
+        if percentual > 100:
+            percentual = 100.0
+
+        # Filtro de busca por descrição (aplicado em memória pra cobrir tanques
+        # sem movimentação que vieram do dicionário, não da view)
+        if filtros.get('q'):
+            termo = str(filtros['q']).upper()
+            if termo not in descrprod.upper():
+                continue
+
+        formato = FORMATO_TANQUE.get(codprod, 'CILINDRO_HORIZONTAL')
+        resultado.append((
+            codprod, descrprod, codvol,
+            qtd_entrada_total, qtd_saida, qtd_disponivel,
+            capacidade, saldo_inicial, round(percentual, 2),
+            formato,
+        ))
+
+    # Ordena conforme ORDEM_TANQUE (CODPROD → posição). Tanques sem ordem
+    # mapeada vão pro fim e desempatam por descrição.
+    resultado.sort(key=lambda r: (ORDEM_TANQUE.get(r[0], 999), r[1]))
+    return resultado
+
+
+def consultar_veiculos_disponiveis(termo: str = None, somente_ativos: bool = True,
+                                   tipo: str = None, limite: int = 50):
+    """Lista veículos da TGFVEI com JOIN em TGFPAR pra trazer NOMEPARC.
+    Filtros:
+      - termo: busca em PLACA, MARCAMODELO, ESPECIETIPO (UPPER LIKE)
+      - somente_ativos: filtra ATIVO='S'
+      - tipo: 'INTERNA_FROTA' | 'INTERNA_MAQUINARIO' | 'EXTERNA_FRETE'
+              (mapeado para TGFVEI.PROPRIO — INTERNA_* exige PROPRIO='S';
+               EXTERNA_FRETE exige PROPRIO='N')
+    Retorna: (CODVEICULO, PLACA, MARCAMODELO, ESPECIETIPO, PROPRIO,
+              COMBUSTIVEL, CODPARC, NOMEPARC, CODCENCUS, CODFUNC,
+              CODMOTORISTA, ATIVO).
+    """
+    sql = """
+        SELECT v.CODVEICULO, v.PLACA, v.MARCAMODELO, v.ESPECIETIPO,
+               v.PROPRIO, v.COMBUSTIVEL, v.CODPARC, p.NOMEPARC,
+               v.CODCENCUS, v.CODFUNC, v.CODMOTORISTA, v.ATIVO
+        FROM TGFVEI v
+        LEFT JOIN TGFPAR p ON p.CODPARC = v.CODPARC
+        WHERE 1 = 1
+    """
+    binds = {}
+    if somente_ativos:
+        sql += " AND v.ATIVO = 'S'"
+    if tipo == 'EXTERNA_FRETE':
+        sql += " AND v.PROPRIO = 'N'"
+    elif tipo in ('INTERNA_FROTA', 'INTERNA_MAQUINARIO'):
+        sql += " AND v.PROPRIO = 'S'"
+    if termo:
+        sql += (" AND (UPPER(v.PLACA) LIKE :q"
+                "      OR UPPER(NVL(v.MARCAMODELO, '')) LIKE :q"
+                "      OR UPPER(NVL(v.ESPECIETIPO, '')) LIKE :q)")
+        binds['q'] = f"%{str(termo).upper()}%"
+    sql += " ORDER BY v.PLACA"
+    sql = f"SELECT * FROM ({sql}) WHERE ROWNUM <= :lim"
+    binds['lim'] = max(1, int(limite))
+
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, binds)
+        return cur.fetchall()
+
+
+def listar_requisicoes_combustivel(filtros: dict = None, limite: int = 50, offset: int = 0):
+    """Lista requisições de combustível (TOP 26 com linha em
+    AD_REQUISICAO_COMBUSTIVEL). Filtros:
+      - codemp: int
+      - codveiculo: int
+      - tipo: str ('INTERNA_FROTA' | 'INTERNA_MAQUINARIO' | 'EXTERNA_FRETE')
+      - codparc: int
+      - status: 'aberto' (STATUSNOTA NULL ou diferente de L) | 'confirmado' (L) | None (todos)
+      - date_start / date_end: 'YYYY-MM-DD'
+
+    Retorna lista de tuplas:
+      (NUNOTA, NUMNOTA, CODEMP, CODPARC, NOMEPARC, DTNEG, STATUSNOTA,
+       VLRNOTA, QTDVOL, AD_ID, AD_TIPO, AD_CODVEICULO, AD_PLACA,
+       AD_MARCAMODELO, AD_HODOMETRO_KM, AD_HORIMETRO_H,
+       AD_DOC_FRETE_REF, AD_OBSERVACAO, AD_NOMEUSU, AD_CRIADO_EM,
+       CODPROD, DESCRPROD, CODVOL, QTDNEG_TOTAL)
+    Paginação compatível com Oracle 11g (ROW_NUMBER + BETWEEN).
+    """
+    filtros = filtros or {}
+    where = ["c.CODTIPOPER = 53", "EXISTS (SELECT 1 FROM AD_REQUISICAO_COMBUSTIVEL r WHERE r.NUNOTA = c.NUNOTA)"]
+    binds = {}
+
+    if filtros.get('codemp'):
+        where.append("c.CODEMP = :codemp")
+        binds['codemp'] = int(filtros['codemp'])
+    if filtros.get('codveiculo'):
+        where.append("EXISTS (SELECT 1 FROM AD_REQUISICAO_COMBUSTIVEL r2 WHERE r2.NUNOTA = c.NUNOTA AND r2.CODVEICULO = :codvei)")
+        binds['codvei'] = int(filtros['codveiculo'])
+    if filtros.get('tipo'):
+        where.append("EXISTS (SELECT 1 FROM AD_REQUISICAO_COMBUSTIVEL r3 WHERE r3.NUNOTA = c.NUNOTA AND r3.TIPO = :tipo)")
+        binds['tipo'] = str(filtros['tipo']).upper()
+    if filtros.get('codparc'):
+        where.append("c.CODPARC = :codparc")
+        binds['codparc'] = int(filtros['codparc'])
+    if filtros.get('status') == 'aberto':
+        where.append("(c.STATUSNOTA IS NULL OR c.STATUSNOTA NOT IN ('L', 'E'))")
+    elif filtros.get('status') == 'confirmado':
+        where.append("c.STATUSNOTA = 'L'")
+    else:
+        where.append("c.STATUSNOTA <> 'E'")
+    if filtros.get('date_start') and filtros.get('date_end'):
+        where.append("TRUNC(c.DTNEG) BETWEEN TO_DATE(:dstart, 'YYYY-MM-DD') AND TO_DATE(:dend, 'YYYY-MM-DD')")
+        binds['dstart'] = filtros['date_start']
+        binds['dend'] = filtros['date_end']
+
+    sql_base = f"""
+        SELECT
+          c.NUNOTA, c.NUMNOTA, c.CODEMP, c.CODPARC,
+          p.NOMEPARC, c.DTNEG, c.STATUSNOTA, c.VLRNOTA, c.QTDVOL,
+          r.ID, r.TIPO, r.CODVEICULO, v.PLACA, v.MARCAMODELO,
+          r.HODOMETRO_KM, r.HORIMETRO_H, r.DOC_FRETE_REF, r.OBSERVACAO,
+          r.NOMEUSU, r.CRIADO_EM,
+          (SELECT MIN(i.CODPROD)
+             FROM TGFITE i WHERE i.NUNOTA = c.NUNOTA)            AS CODPROD,
+          (SELECT MIN(pr.DESCRPROD)
+             FROM TGFITE i JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
+             WHERE i.NUNOTA = c.NUNOTA)                          AS DESCRPROD,
+          (SELECT MIN(i.CODVOL)
+             FROM TGFITE i WHERE i.NUNOTA = c.NUNOTA)            AS CODVOL,
+          (SELECT NVL(SUM(i.QTDNEG), 0)
+             FROM TGFITE i WHERE i.NUNOTA = c.NUNOTA)            AS QTDNEG_TOTAL
+        FROM TGFCAB c
+        LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC
+        LEFT JOIN AD_REQUISICAO_COMBUSTIVEL r ON r.NUNOTA = c.NUNOTA
+        LEFT JOIN TGFVEI v ON v.CODVEICULO = r.CODVEICULO
+        WHERE {' AND '.join(where)}
+    """
+    sql_paginado = f"""
+        SELECT * FROM (
+          SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.DTNEG DESC, t.NUNOTA DESC) AS RN
+          FROM ({sql_base}) t
+        ) WHERE RN BETWEEN :ini AND :fim
+    """
+    inicio = int(offset) + 1
+    fim = int(offset) + int(limite)
+    binds['ini'] = inicio
+    binds['fim'] = fim
+
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(sql_paginado, binds)
+        return cur.fetchall()
+
+
+def obter_requisicao_combustivel(nunota: int):
+    """Carrega uma requisição específica + itens. Retorna dict com:
+       {cabecalho: {...}, itens: [{...}, ...], requisicao: {...}}
+       ou None se não existir requisição IAgro.
+    """
+    nunota = int(nunota)
+    sql_cab = """
+        SELECT c.NUNOTA, c.NUMNOTA, c.CODEMP, c.CODPARC, p.NOMEPARC,
+               c.CODTIPOPER, c.CODNAT, c.CODCENCUS, c.STATUSNOTA,
+               c.DTNEG, c.DTMOV, c.VLRNOTA, c.QTDVOL, c.OBSERVACAO, c.CODUSU,
+               r.ID, r.TIPO, r.CODVEICULO, v.PLACA, v.MARCAMODELO, v.ESPECIETIPO,
+               v.PROPRIO, v.COMBUSTIVEL, v.CODCENCUS AS VEI_CODCENCUS,
+               r.HODOMETRO_KM, r.HORIMETRO_H, r.DOC_FRETE_REF,
+               r.OBSERVACAO, r.CODUSU, r.NOMEUSU, r.CRIADO_EM,
+               r.CODPARC AS REQ_CODPARC, r.CATEGORIA, r.NUFIN_GERADO
+        FROM TGFCAB c
+        LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC
+        LEFT JOIN AD_REQUISICAO_COMBUSTIVEL r ON r.NUNOTA = c.NUNOTA
+        LEFT JOIN TGFVEI v ON v.CODVEICULO = r.CODVEICULO
+        WHERE c.NUNOTA = :nun
+    """
+    sql_itens = """
+        SELECT i.SEQUENCIA, i.CODPROD, pr.DESCRPROD, i.CODVOL,
+               i.QTDNEG, i.VLRUNIT, i.VLRTOT, pr.CODGRUPOPROD
+        FROM TGFITE i
+        LEFT JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
+        WHERE i.NUNOTA = :nun
+        ORDER BY i.SEQUENCIA
+    """
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(sql_cab, nun=nunota)
+        row = cur.fetchone()
+        if not row:
+            return None
+        cab = {
+            'NUNOTA': int(row[0]),
+            'NUMNOTA': int(row[1]) if row[1] is not None else None,
+            'CODEMP': int(row[2]) if row[2] is not None else None,
+            'CODPARC': int(row[3]) if row[3] is not None else None,
+            'NOMEPARC': row[4] or '',
+            'CODTIPOPER': int(row[5]) if row[5] is not None else None,
+            'CODNAT': int(row[6]) if row[6] is not None else None,
+            'CODCENCUS': int(row[7]) if row[7] is not None else None,
+            'STATUSNOTA': row[8],
+            'DTNEG': row[9],
+            'DTMOV': row[10],
+            'VLRNOTA': float(row[11]) if row[11] is not None else 0.0,
+            'QTDVOL': float(row[12]) if row[12] is not None else 0.0,
+            'OBSERVACAO': row[13] or '',
+            'CODUSU': int(row[14]) if row[14] is not None else None,
+        }
+        req = None
+        if row[15] is not None:
+            req = {
+                'ID': int(row[15]),
+                'TIPO': row[16],
+                'CODVEICULO': int(row[17]) if row[17] is not None else None,
+                'PLACA': row[18] or '',
+                'MARCAMODELO': row[19] or '',
+                'ESPECIETIPO': row[20] or '',
+                'PROPRIO': row[21],
+                'COMBUSTIVEL': row[22],
+                'VEI_CODCENCUS': int(row[23]) if row[23] is not None else None,
+                'HODOMETRO_KM': float(row[24]) if row[24] is not None else None,
+                'HORIMETRO_H':  float(row[25]) if row[25] is not None else None,
+                'DOC_FRETE_REF': row[26] or '',
+                'OBSERVACAO': row[27] or '',
+                'CODUSU': int(row[28]) if row[28] is not None else None,
+                'NOMEUSU': row[29] or '',
+                'CRIADO_EM': row[30],
+                'CODPARC': int(row[31]) if row[31] is not None else None,
+                'CATEGORIA': row[32] or 'COMBUSTIVEL',
+                'NUFIN_GERADO': int(row[33]) if row[33] is not None else None,
+            }
+        cur.execute(sql_itens, nun=nunota)
+        itens = []
+        for r in cur.fetchall():
+            itens.append({
+                'SEQUENCIA': int(r[0]),
+                'CODPROD': int(r[1]),
+                'DESCRPROD': r[2] or '',
+                'CODVOL': r[3] or '',
+                'QTDNEG': float(r[4]) if r[4] is not None else 0.0,
+                'VLRUNIT': float(r[5]) if r[5] is not None else 0.0,
+                'VLRTOT': float(r[6]) if r[6] is not None else 0.0,
+                'CODGRUPOPROD': int(r[7]) if r[7] is not None else None,
+            })
+        return {'cabecalho': cab, 'itens': itens, 'requisicao': req}
+
+
+def consultar_consumo_por_veiculo(codveiculo: int, date_start: str = None, date_end: str = None):
+    """Relatório de consumo por veículo (Mai/2026).
+
+    Lista todas as requisições (TOP 26 com STATUSNOTA <> 'E') do veículo no
+    período, com hodômetro/horímetro de cada uma, ordenadas por data. Calcula
+    o consumo entre abastecimentos consecutivos:
+      - km/L  → (hodometro_atual - hodometro_anterior) / qtd_anterior
+      - L/h   → qtd_anterior / (horimetro_atual - horimetro_anterior)
+
+    A qtd do abastecimento ANTERIOR é o combustível consumido pra rodar até
+    o ATUAL — daí a métrica vem amarrada ao "anterior".
+
+    Args:
+      codveiculo: int — TGFVEI.CODVEICULO
+      date_start: 'YYYY-MM-DD' ou None (default: últimos 30 dias)
+      date_end:   'YYYY-MM-DD' ou None (default: hoje)
+
+    Retorna:
+      {
+        'veiculo': {'codveiculo', 'placa', 'marcamodelo', 'especietipo',
+                    'codparc', 'nomeparc', 'proprio'},
+        'periodo': {'inicio': 'YYYY-MM-DD', 'fim': 'YYYY-MM-DD'},
+        'abastecimentos': [
+            {'nunota', 'numnota', 'dtneg', 'statusnota', 'tipo',
+             'codprod', 'descrprod', 'qtd', 'codvol', 'vlrtot',
+             'hodometro_km', 'horimetro_h',
+             'km_percorridos', 'h_trabalhadas',
+             'consumo_kmlt', 'consumo_lth',
+             'doc_frete_ref', 'observacao'}, ...
+        ],
+        'totais': {
+            'qtd_abastecimentos', 'total_litros', 'total_vlr',
+            'km_total', 'h_total',
+            'consumo_medio_kmlt', 'consumo_medio_lth',
+            'periodo_dias',
+        }
+      }
+    """
+    codveiculo = int(codveiculo)
+
+    # Períodos default
+    from datetime import date as _date_class, timedelta as _td
+    hoje = _date_class.today()
+    if not date_end:
+        date_end = hoje.strftime('%Y-%m-%d')
+    if not date_start:
+        date_start = (hoje - _td(days=30)).strftime('%Y-%m-%d')
+
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+
+        # 1) Dados do veículo
+        cur.execute("""
+            SELECT v.CODVEICULO, v.PLACA, v.MARCAMODELO, v.ESPECIETIPO,
+                   v.CODPARC, p.NOMEPARC, v.PROPRIO
+            FROM TGFVEI v
+            LEFT JOIN TGFPAR p ON p.CODPARC = v.CODPARC
+            WHERE v.CODVEICULO = :cv
+        """, cv=codveiculo)
+        row_vei = cur.fetchone()
+        if not row_vei:
+            return None
+        veiculo = {
+            'codveiculo': int(row_vei[0]),
+            'placa': row_vei[1] or '',
+            'marcamodelo': row_vei[2] or '',
+            'especietipo': row_vei[3] or '',
+            'codparc': int(row_vei[4]) if row_vei[4] is not None else None,
+            'nomeparc': row_vei[5] or '',
+            'proprio': row_vei[6] or '',
+        }
+
+        # 2) Abastecimentos no período (TOP 26 + AD_REQ filtrados por veículo).
+        # JOIN com TGFITE pra trazer cada item (1 linha por item — uma req
+        # normalmente tem 1 item, mas suporta multi-item).
+        cur.execute("""
+            SELECT c.NUNOTA, c.NUMNOTA, c.DTNEG, c.STATUSNOTA, c.VLRNOTA,
+                   r.TIPO, r.HODOMETRO_KM, r.HORIMETRO_H,
+                   r.DOC_FRETE_REF, r.OBSERVACAO,
+                   i.CODPROD, pr.DESCRPROD, i.QTDNEG, i.CODVOL, i.VLRTOT
+            FROM TGFCAB c
+            JOIN AD_REQUISICAO_COMBUSTIVEL r ON r.NUNOTA = c.NUNOTA
+            JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+            JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
+            WHERE c.CODTIPOPER = 53
+              AND c.STATUSNOTA <> 'E'
+              AND r.CODVEICULO = :cv
+              AND TRUNC(c.DTNEG) BETWEEN TO_DATE(:ds, 'YYYY-MM-DD')
+                                     AND TO_DATE(:de, 'YYYY-MM-DD')
+            ORDER BY c.DTNEG ASC, c.NUNOTA ASC, i.SEQUENCIA ASC
+        """, cv=codveiculo, ds=date_start, de=date_end)
+
+        rows = cur.fetchall()
+
+    # Monta abastecimentos + calcula consumo entre consecutivos
+    abastecimentos = []
+    hod_anterior = None
+    hor_anterior = None
+    qtd_anterior = None
+
+    total_litros = 0.0
+    total_vlr = 0.0
+    km_total = 0.0
+    h_total = 0.0
+    soma_kmlt = 0.0
+    n_kmlt = 0
+    soma_lth = 0.0
+    n_lth = 0
+
+    for r in rows:
+        nunota   = int(r[0])
+        numnota  = int(r[1]) if r[1] is not None else None
+        dtneg    = r[2]
+        status   = r[3]
+        vlrnota  = float(r[4] or 0)
+        tipo_req = r[5]
+        hod      = float(r[6]) if r[6] is not None else None
+        hor      = float(r[7]) if r[7] is not None else None
+        doc      = r[8] or ''
+        obs      = r[9] or ''
+        codprod  = int(r[10]) if r[10] is not None else None
+        descrp   = r[11] or ''
+        qtd      = float(r[12] or 0)
+        codvol   = r[13] or 'LT'
+        vlrtot   = float(r[14] or 0)
+
+        km_perc = None
+        h_trab = None
+        consumo_kmlt = None
+        consumo_lth = None
+
+        # Consumo entre o ATUAL e o ANTERIOR. A qtd ANTERIOR foi consumida
+        # pra rodar até aqui.
+        if qtd_anterior and qtd_anterior > 0:
+            if hod is not None and hod_anterior is not None and hod > hod_anterior:
+                km_perc = hod - hod_anterior
+                consumo_kmlt = km_perc / qtd_anterior
+                km_total += km_perc
+                soma_kmlt += consumo_kmlt
+                n_kmlt += 1
+            if hor is not None and hor_anterior is not None and hor > hor_anterior:
+                h_trab = hor - hor_anterior
+                if h_trab > 0:
+                    consumo_lth = qtd_anterior / h_trab
+                    h_total += h_trab
+                    soma_lth += consumo_lth
+                    n_lth += 1
+
+        abastecimentos.append({
+            'nunota': nunota,
+            'numnota': numnota,
+            'dtneg': dtneg.strftime('%Y-%m-%d') if dtneg else None,
+            'statusnota': status,
+            'tipo': tipo_req,
+            'codprod': codprod,
+            'descrprod': descrp,
+            'qtd': qtd,
+            'codvol': codvol,
+            'vlrtot': vlrtot,
+            'vlrnota': vlrnota,
+            'hodometro_km': hod,
+            'horimetro_h': hor,
+            'km_percorridos': km_perc,
+            'h_trabalhadas': h_trab,
+            'consumo_kmlt': consumo_kmlt,
+            'consumo_lth': consumo_lth,
+            'doc_frete_ref': doc,
+            'observacao': obs,
+        })
+
+        total_litros += qtd
+        total_vlr += vlrtot
+        # Atualiza referência pro próximo
+        if hod is not None: hod_anterior = hod
+        if hor is not None: hor_anterior = hor
+        qtd_anterior = qtd
+
+    from datetime import datetime as _dt
+    try:
+        dias = (_dt.strptime(date_end, '%Y-%m-%d')
+              - _dt.strptime(date_start, '%Y-%m-%d')).days + 1
+    except Exception:
+        dias = None
+
+    totais = {
+        'qtd_abastecimentos': len(abastecimentos),
+        'total_litros': round(total_litros, 2),
+        'total_vlr': round(total_vlr, 2),
+        'km_total': round(km_total, 2),
+        'h_total': round(h_total, 2),
+        'consumo_medio_kmlt': round(soma_kmlt / n_kmlt, 2) if n_kmlt else None,
+        'consumo_medio_lth':  round(soma_lth  / n_lth,  2) if n_lth  else None,
+        'periodo_dias': dias,
+    }
+
+    return {
+        'veiculo': veiculo,
+        'periodo': {'inicio': date_start, 'fim': date_end},
+        'abastecimentos': abastecimentos,
+        'totais': totais,
+    }
+
+
+def consultar_produtos_combustivel(termo: str = None, limite: int = 30):
+    """Typeahead de produtos de combustível (filtra CODGRUPOPROD=11).
+    Retorna: (CODPROD, DESCRPROD, CODVOL).
+    """
+    sql = """
+        SELECT CODPROD, DESCRPROD, CODVOL
+        FROM TGFPRO
+        WHERE CODGRUPOPROD = :grupo
+          AND ATIVO = 'S'
+    """
+    binds = {'grupo': CODGRUPOPROD_COMBUSTIVEL}
+    if termo:
+        sql += " AND (UPPER(DESCRPROD) LIKE :q OR TO_CHAR(CODPROD) LIKE :q)"
+        binds['q'] = f"%{str(termo).upper()}%"
+    sql += " ORDER BY DESCRPROD"
+    sql = f"SELECT * FROM ({sql}) WHERE ROWNUM <= :lim"
+    binds['lim'] = max(1, int(limite))
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, binds)
+        return cur.fetchall()
+
+
+def listar_movimentacoes_combustivel(filtros: dict = None, limite: int = 100, offset: int = 0):
+    """Lista unificada de movimentações: entradas (TOP 10 CODNAT=30070200) +
+    saídas (TOP 26 com AD_REQUISICAO_COMBUSTIVEL). 1 linha por item da TGFITE
+    — se uma NUNOTA tem 2 produtos, vira 2 linhas (corrige bug Mai/2026 onde
+    notas multi-item apareciam com nome do primeiro produto + soma de todos).
+
+    Filtros:
+      codemp, codveiculo, tipo (INTERNA_FROTA|INTERNA_MAQUINARIO|EXTERNA_FRETE),
+      codparc, status (aberto|confirmado),
+      date_start / date_end ('YYYY-MM-DD'),
+      mov ('ENTRADA' | 'REQUISICAO' | None) — filtra movimento específico.
+
+    Retorna tuplas de 24 colunas:
+      (TIPO_MOVIMENTO, NUNOTA, NUMNOTA, CODEMP, CODPARC, NOMEPARC,
+       DTNEG, STATUSNOTA, VLRNOTA, QTDVOL,
+       REQ_ID, REQ_TIPO, REQ_CODVEICULO, REQ_PLACA, REQ_MARCAMODELO,
+       REQ_HODOMETRO_KM, REQ_HORIMETRO_H, REQ_DOC_FRETE_REF,
+       SEQUENCIA, CODPROD, DESCRPROD, CODVOL, QTDNEG_ITEM, VLRTOT_ITEM)
+
+    Paginação compatível Oracle 11g.
+    """
+    filtros = filtros or {}
+    binds = {}
+
+    # WHERE comum (data, codemp, status)
+    where_comum = ["c.CODTIPOPER IN (10, 53)"]
+    if filtros.get('codemp'):
+        where_comum.append("c.CODEMP = :codemp")
+        binds['codemp'] = int(filtros['codemp'])
+    if filtros.get('codparc'):
+        where_comum.append("c.CODPARC = :codparc")
+        binds['codparc'] = int(filtros['codparc'])
+    if filtros.get('status') == 'aberto':
+        where_comum.append("(c.STATUSNOTA IS NULL OR c.STATUSNOTA NOT IN ('L', 'E'))")
+    elif filtros.get('status') == 'confirmado':
+        where_comum.append("c.STATUSNOTA = 'L'")
+    else:
+        where_comum.append("c.STATUSNOTA <> 'E'")
+    if filtros.get('date_start') and filtros.get('date_end'):
+        where_comum.append(
+            "TRUNC(c.DTNEG) BETWEEN TO_DATE(:dstart, 'YYYY-MM-DD') AND TO_DATE(:dend, 'YYYY-MM-DD')")
+        binds['dstart'] = filtros['date_start']
+        binds['dend'] = filtros['date_end']
+
+    # Discriminador: TOP 10 (entrada com CODGRUPOPROD=11) | TOP 26 (requisição com AD_REQ)
+    where_entrada = list(where_comum) + [
+        "c.CODTIPOPER = 10",
+        ("EXISTS (SELECT 1 FROM TGFITE i JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD "
+         "WHERE i.NUNOTA = c.NUNOTA AND pr.CODGRUPOPROD = :grupo_e)"),
+    ]
+    where_requisicao = list(where_comum) + [
+        "c.CODTIPOPER = 53",
+        "EXISTS (SELECT 1 FROM AD_REQUISICAO_COMBUSTIVEL r WHERE r.NUNOTA = c.NUNOTA)",
+    ]
+    binds['grupo_e'] = CODGRUPOPROD_COMBUSTIVEL
+
+    # Filtros específicos de requisição
+    if filtros.get('codveiculo'):
+        where_requisicao.append(
+            "EXISTS (SELECT 1 FROM AD_REQUISICAO_COMBUSTIVEL r2 "
+            "WHERE r2.NUNOTA = c.NUNOTA AND r2.CODVEICULO = :codvei)")
+        binds['codvei'] = int(filtros['codveiculo'])
+    if filtros.get('tipo'):
+        where_requisicao.append(
+            "EXISTS (SELECT 1 FROM AD_REQUISICAO_COMBUSTIVEL r3 "
+            "WHERE r3.NUNOTA = c.NUNOTA AND r3.TIPO = :tipo)")
+        binds['tipo'] = str(filtros['tipo']).upper()
+
+    mov = (filtros.get('mov') or '').upper().strip()
+
+    # Mai/2026 (2026-05-12): JOIN com TGFITE em vez de subquery MIN/SUM.
+    # Cada item vira 1 linha — se a NUNOTA tem 2 produtos, a listagem mostra 2
+    # linhas com a mesma NUNOTA (corrige bug onde DIESEL S10 aparecia com qtd
+    # somada de S10 + S500). Filtro CODGRUPOPROD=:grupo_i garante que linhas
+    # de outros grupos da mesma nota não aparecem.
+    base_select_entrada = f"""
+        SELECT
+          'ENTRADA'                              AS TIPO_MOVIMENTO,
+          c.NUNOTA, c.NUMNOTA, c.CODEMP, c.CODPARC,
+          p.NOMEPARC, c.DTNEG, c.STATUSNOTA, c.VLRNOTA, c.QTDVOL,
+          NULL                                   AS REQ_ID,
+          NULL                                   AS REQ_TIPO,
+          NULL                                   AS REQ_CODVEICULO,
+          NULL                                   AS REQ_PLACA,
+          NULL                                   AS REQ_MARCAMODELO,
+          NULL                                   AS REQ_HODOMETRO_KM,
+          NULL                                   AS REQ_HORIMETRO_H,
+          NULL                                   AS REQ_DOC_FRETE_REF,
+          i.SEQUENCIA                            AS SEQUENCIA,
+          i.CODPROD, pr.DESCRPROD, i.CODVOL, i.QTDNEG, i.VLRTOT
+        FROM TGFCAB c
+        JOIN TGFITE i  ON i.NUNOTA = c.NUNOTA
+        JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD AND pr.CODGRUPOPROD = :grupo_i
+        LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC
+        WHERE {' AND '.join(where_entrada)}
+    """
+    base_select_requisicao = f"""
+        SELECT
+          'REQUISICAO'                           AS TIPO_MOVIMENTO,
+          c.NUNOTA, c.NUMNOTA, c.CODEMP, c.CODPARC,
+          p.NOMEPARC, c.DTNEG, c.STATUSNOTA, c.VLRNOTA, c.QTDVOL,
+          r.ID                                   AS REQ_ID,
+          r.TIPO                                 AS REQ_TIPO,
+          r.CODVEICULO                           AS REQ_CODVEICULO,
+          v.PLACA                                AS REQ_PLACA,
+          v.MARCAMODELO                          AS REQ_MARCAMODELO,
+          r.HODOMETRO_KM                         AS REQ_HODOMETRO_KM,
+          r.HORIMETRO_H                          AS REQ_HORIMETRO_H,
+          r.DOC_FRETE_REF                        AS REQ_DOC_FRETE_REF,
+          i.SEQUENCIA                            AS SEQUENCIA,
+          i.CODPROD, pr.DESCRPROD, i.CODVOL, i.QTDNEG, i.VLRTOT
+        FROM TGFCAB c
+        JOIN TGFITE i  ON i.NUNOTA = c.NUNOTA
+        JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD AND pr.CODGRUPOPROD = :grupo_i
+        LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC
+        LEFT JOIN AD_REQUISICAO_COMBUSTIVEL r ON r.NUNOTA = c.NUNOTA
+        LEFT JOIN TGFVEI v ON v.CODVEICULO = r.CODVEICULO
+        WHERE {' AND '.join(where_requisicao)}
+    """
+    binds['grupo_i'] = CODGRUPOPROD_COMBUSTIVEL
+
+    if mov == 'ENTRADA':
+        sql_union = base_select_entrada
+    elif mov == 'REQUISICAO':
+        sql_union = base_select_requisicao
+    else:
+        sql_union = f"{base_select_entrada}\nUNION ALL\n{base_select_requisicao}"
+
+    sql_paginado = f"""
+        SELECT * FROM (
+          SELECT t.*, ROW_NUMBER() OVER (
+                        ORDER BY t.DTNEG DESC, t.NUNOTA DESC, t.SEQUENCIA ASC
+                      ) AS RN
+          FROM ({sql_union}) t
+        ) WHERE RN BETWEEN :ini AND :fim
+    """
+    binds['ini'] = int(offset) + 1
+    binds['fim'] = int(offset) + int(limite)
+
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(sql_paginado, binds)
+        return cur.fetchall()
+
+
+# =============================================================================
+# MÓDULO CONTROLE DE COMBUSTÍVEL — Funções de ESCRITA (Categoria B aprovada Mai/2026)
+# B2: criar_requisicao_combustivel_banco — TOP 26 STATUSNOTA NULL + AD_REQUISICAO_COMBUSTIVEL
+# B3: criar_entrada_combustivel_banco    — TOP 10 STATUSNOTA='L' + TGFITE + TGFFIN
+# =============================================================================
+
+
+def _parse_data_iagro(s, default=None):
+    """Parser tolerante: aceita date, datetime, 'YYYY-MM-DD' ou 'DD/MM/YYYY'.
+    Retorna `date` (sem hora). Se inválido, devolve `default` (ou date.today())."""
+    if s is None or s == '':
+        return default if default is not None else _date.today()
+    if isinstance(s, datetime):
+        return s.date()
+    if isinstance(s, _date):
+        return s
+    s = str(s).strip()
+    for fmt in ('%Y-%m-%d', '%d/%m/%Y'):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return default if default is not None else _date.today()
+
+
+def criar_requisicao_combustivel_banco(dados: dict, codusu: int, nomeusu: str = '') -> dict:
+    """B2 — Cria requisição de combustível (TOP 26 STATUSNOTA NULL em aberto)
+    + linha em AD_REQUISICAO_COMBUSTIVEL com metadata IAgro.
+
+    Atômico via with obter_conexao_oracle(). Valida saldo na view
+    ANDRE_IAGRO_SALDO_COMBUSTIVEL antes de gravar. Trava cruzada TIPO ↔
+    TGFVEI.PROPRIO. CODAGREGACAO=NULL no TGFITE (segregação total da
+    Classificação).
+
+    Payload (`dados`):
+      codveiculo:    int (obrigatório)
+      codprod:       int (obrigatório — CODGRUPOPROD deve ser 200400)
+      qtd:           float (litros, > 0)
+      tipo:          'INTERNA_FROTA' | 'INTERNA_MAQUINARIO' | 'EXTERNA_FRETE'
+      codcencus:     int (obrigatório)
+      vlrunit:       float (opcional)
+      hodometro_km:  float — obrigatório se tipo=INTERNA_FROTA;
+                            opcional se tipo=INTERNA_MAQUINARIO;
+                            ignorado em EXTERNA_FRETE
+      horimetro_h:   float — idem hodometro_km
+      doc_frete_ref: str (obrigatório se tipo=EXTERNA_FRETE)
+      observacao:    str (opcional)
+
+    Retorno:
+      {'ok': True,  'nunota': int, 'requisicao_id': int}
+      {'ok': False, 'error': str}
+    """
+    # 1. Validações
+    erros = []
+    codveiculo = int(dados.get('codveiculo') or 0)
+    codprod    = int(dados.get('codprod') or 0)
+    qtd        = float(dados.get('qtd') or 0)
+    tipo       = (dados.get('tipo') or '').upper().strip()
+    codcencus  = int(dados.get('codcencus') or 0)
+
+    if not codveiculo: erros.append('codveiculo obrigatório')
+    if not codprod:    erros.append('codprod obrigatório')
+    if qtd <= 0:       erros.append('qtd deve ser > 0')
+    if tipo not in ('INTERNA_FROTA', 'INTERNA_MAQUINARIO', 'EXTERNA_FRETE'):
+        erros.append('tipo inválido')
+    if not codcencus:  erros.append('codcencus obrigatório')
+
+    doc_frete = (dados.get('doc_frete_ref') or '').strip()
+    if tipo == 'EXTERNA_FRETE' and not doc_frete:
+        erros.append('doc_frete_ref obrigatório para EXTERNA_FRETE')
+
+    # CODNAT parametrizável (Mai/2026); default mantém 30070200 (combustível).
+    codnat = int(dados.get('codnat') or 30070200)
+    # CODTIPVENDA parametrizável (Mai/2026); default 11 (compra de combustível).
+    codtipvenda = int(dados.get('codtipvenda') or 11)
+
+    def _parse_medidor(raw):
+        if raw in (None, '', 0, 0.0):
+            return None
+        try:
+            v = float(raw)
+            return v if v > 0 else None
+        except (TypeError, ValueError):
+            return False  # marca erro de parse
+
+    hodometro_km = _parse_medidor(dados.get('hodometro_km'))
+    horimetro_h  = _parse_medidor(dados.get('horimetro_h'))
+    if hodometro_km is False: erros.append('hodometro_km inválido')
+    if horimetro_h  is False: erros.append('horimetro_h inválido')
+
+    # Frota própria: AMBOS os medidores obrigatórios (km do veículo + h da bomba).
+    # Maquinário fazenda: opcional.
+    # Freteiro: ignora (zera).
+    if tipo == 'INTERNA_FROTA':
+        if not hodometro_km:
+            erros.append('hodômetro (km) obrigatório para frota própria')
+        if not horimetro_h:
+            erros.append('horímetro (h) obrigatório para frota própria')
+    elif tipo == 'EXTERNA_FRETE':
+        hodometro_km = None
+        horimetro_h  = None
+
+    if erros:
+        return {'ok': False, 'error': ' · '.join(erros)}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 2. Veículo + trava PROPRIO ↔ TIPO
+            cur.execute("""
+                SELECT v.CODPARC, v.PROPRIO
+                FROM TGFVEI v
+                WHERE v.CODVEICULO = :cv AND v.ATIVO = 'S'
+            """, cv=codveiculo)
+            row_vei = cur.fetchone()
+            if not row_vei:
+                return {'ok': False, 'error': f'Veículo {codveiculo} não encontrado ou inativo.'}
+            codparc_vei, proprio_vei = row_vei
+
+            if tipo == 'EXTERNA_FRETE' and proprio_vei != 'N':
+                return {'ok': False, 'error':
+                    'Tipo EXTERNA_FRETE exige veículo de terceiro (TGFVEI.PROPRIO=N).'}
+            if tipo in ('INTERNA_FROTA', 'INTERNA_MAQUINARIO') and proprio_vei != 'S':
+                return {'ok': False, 'error':
+                    'Tipo interno exige veículo próprio (TGFVEI.PROPRIO=S).'}
+
+            # 3. Produto deve ser combustível (CODGRUPOPROD=11)
+            cur.execute("""
+                SELECT CODGRUPOPROD, DESCRPROD, CODVOL
+                FROM TGFPRO WHERE CODPROD = :cp AND ATIVO = 'S'
+            """, cp=codprod)
+            row_prod = cur.fetchone()
+            if not row_prod:
+                return {'ok': False, 'error': f'Produto {codprod} não encontrado ou inativo.'}
+            codgrupo, descrprod, codvol = row_prod
+            if codgrupo != CODGRUPOPROD_COMBUSTIVEL:
+                return {'ok': False, 'error':
+                    f'Produto {codprod} ({descrprod}) não é combustível (grupo {codgrupo}).'}
+
+            # 4. Validação de saldo (estoque único, sem segregação por CODEMP).
+            # Soma SALDO_INICIAL_TANQUE ao saldo da view (saldo pré-existente
+            # nos tanques antes do IAgro). Tanques sem mapping em
+            # CAPACIDADE_TANQUE também são bloqueados — combustível só pode
+            # sair de tanques sob controle do IAgro.
+            if codprod not in CAPACIDADE_TANQUE:
+                return {'ok': False, 'error':
+                    f'Produto {codprod} ({descrprod}) não tem tanque mapeado no IAgro.'}
+            cur.execute("""
+                SELECT QTD_DISPONIVEL FROM SANKHYA.ANDRE_IAGRO_SALDO_COMBUSTIVEL
+                WHERE CODPROD = :cp
+            """, cp=codprod)
+            row_saldo = cur.fetchone()
+            disponivel_view = float(row_saldo[0]) if row_saldo and row_saldo[0] is not None else 0.0
+            disponivel = disponivel_view + float(SALDO_INICIAL_TANQUE.get(codprod, 0))
+            if qtd > disponivel:
+                return {'ok': False, 'error':
+                    f'Saldo insuficiente. Disponível: {disponivel:.2f} {codvol or "L"} · '
+                    f'Solicitado: {qtd:.2f}. Lance entrada TOP 10 ou reduza a quantidade.'}
+
+            # CODEMP da TGFCAB TOP 26 — apenas metadata escritural. Reusa a CODEMP
+            # da entrada mais recente do produto (consistência) ou cai em default 1.
+            cur.execute("""
+                SELECT MAX(c.CODEMP)
+                FROM TGFCAB c
+                JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+                WHERE c.CODTIPOPER = 10
+                  AND c.STATUSNOTA <> 'E'
+                  AND i.CODPROD = :cp
+            """, cp=codprod)
+            row_emp = cur.fetchone()
+            codemp = int(row_emp[0]) if row_emp and row_emp[0] else 1
+
+            # 6. INSERT TGFCAB TOP 53 - REQUISIÇÃO INTERNA (STATUSNOTA em aberto)
+            hoje = _date.today()
+            cab_resp = inserir_cabecalho_nota_banco({
+                'CODEMP':       codemp,
+                'CODPARC':      codparc_vei,
+                'CODTIPOPER':   53,
+                'CODNAT':       codnat,
+                'CODCENCUS':    codcencus,
+                'CODTIPVENDA':  codtipvenda,
+                'DTNEG':        hoje.strftime('%d/%m/%Y'),
+                'DTMOV':        hoje.strftime('%d/%m/%Y'),
+                'OBSERVACAO':   (dados.get('observacao') or '')[:200] or None,
+            }, conexao_existente=conn)
+            if not cab_resp.get('ok'):
+                return {'ok': False, 'error':
+                    f'Falha ao criar cabeçalho TOP 26: {cab_resp.get("error", "desconhecido")}'}
+            nunota = int(cab_resp['nunota'])
+
+            # 7. INSERT TGFITE — CODAGREGACAO=NULL (segregação)
+            vlrunit = float(dados.get('vlrunit') or 0)
+            item_resp = inserir_item_nota_banco({
+                'NUNOTA':       nunota,
+                'CODPROD':      codprod,
+                'QTDNEG':       qtd,
+                'VLRUNIT':      vlrunit,
+                'CODVOL':       codvol or 'L',
+                'CODAGREGACAO': None,
+            }, gerar_lote_auto=False, conexao_existente=conn)
+            if not item_resp.get('ok'):
+                return {'ok': False, 'error':
+                    f'Falha ao criar item: {item_resp.get("error", "desconhecido")}'}
+
+            recalcular_totais_nota_banco(nunota, conexao_existente=conn)
+
+            # 8. INSERT AD_REQUISICAO_COMBUSTIVEL (B4 Mai/2026: hodometro + horimetro
+            # separados; obrigatórios em frota própria, opcionais em maquinário, NULL
+            # em freteiro)
+            req_id_var = cur.var(int)
+            cur.execute("""
+                INSERT INTO AD_REQUISICAO_COMBUSTIVEL (
+                    ID, NUNOTA, TIPO, CODVEICULO,
+                    HODOMETRO_KM, HORIMETRO_H,
+                    DOC_FRETE_REF, OBSERVACAO,
+                    CODUSU, NOMEUSU
+                ) VALUES (
+                    SEQ_AD_REQUISICAO_COMBUSTIVEL.NEXTVAL, :nun, :tipo, :cv,
+                    :hod_km, :hor_h,
+                    :doc_frete, :obs,
+                    :codusu, :nomeusu
+                )
+                RETURNING ID INTO :req_id
+            """, {
+                'nun': nunota, 'tipo': tipo, 'cv': codveiculo,
+                'hod_km': hodometro_km,
+                'hor_h':  horimetro_h,
+                'doc_frete': doc_frete or None,
+                'obs': (dados.get('observacao') or '')[:500] or None,
+                'codusu': int(codusu), 'nomeusu': (nomeusu or '')[:60] or None,
+                'req_id': req_id_var,
+            })
+            req_id = req_id_var.getvalue()
+            if isinstance(req_id, list):
+                req_id = req_id[0]
+
+            conn.commit()
+            logger.info("Requisição combustível criada: NUNOTA=%s req_id=%s veículo=%s qtd=%s",
+                        nunota, req_id, codveiculo, qtd)
+            return {'ok': True, 'nunota': nunota, 'requisicao_id': int(req_id)}
+
+    except Exception as exc:
+        logger.exception("Falha em criar_requisicao_combustivel_banco")
+        return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+
+def editar_requisicao_combustivel_banco(nunota: int, dados: dict, codusu: int, nomeusu: str = '') -> dict:
+    """B5 — Edita requisição existente em aberto (STATUSNOTA != 'L' e != 'E').
+    Atualiza atomicamente:
+      - AD_REQUISICAO_COMBUSTIVEL (metadata: tipo, veículo, medidores, doc, obs)
+      - TGFCAB (CODPARC do novo veículo, CODCENCUS, OBSERVACAO)
+      - TGFITE (CODPROD, QTDNEG, VLRUNIT, VLRTOT, CODVOL)
+      - Recalcula totais via recalcular_totais_nota_banco
+
+    Saldo é re-validado considerando a qtd antiga como "devolvida" antes de
+    descontar a nova: saldo_efetivo = saldo_view + qtd_antiga; valida que
+    saldo_efetivo >= qtd_nova.
+
+    Payload mesmo do criar (todos opcionais — campos ausentes preservam valor
+    atual). Campos suportados: tipo, codveiculo, codprod, qtd, vlrunit,
+    hodometro_km, horimetro_h, codcencus, doc_frete_ref, observacao.
+
+    Retorno:
+      {'ok': True,  'nunota': int}
+      {'ok': False, 'error': str}
+    """
+    nunota = int(nunota)
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 1. Carrega estado atual da requisição (inclui CODPARC e NUFIN_GERADO
+            # pra suportar EXTERNA_POSTO Mai/2026 + DHBAIXA do TGFFIN pra trava de
+            # edição de externos já baixados)
+            cur.execute("""
+                SELECT c.STATUSNOTA, c.CODPARC, c.CODCENCUS,
+                       r.TIPO, r.CODVEICULO, r.HODOMETRO_KM, r.HORIMETRO_H,
+                       r.DOC_FRETE_REF, r.OBSERVACAO,
+                       r.CODPARC, r.NUFIN_GERADO,
+                       i.SEQUENCIA, i.CODPROD, i.QTDNEG, i.VLRUNIT, i.CODVOL
+                FROM TGFCAB c
+                JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+                JOIN AD_REQUISICAO_COMBUSTIVEL r ON r.NUNOTA = c.NUNOTA
+                WHERE c.NUNOTA = :n AND c.CODTIPOPER = 53
+            """, n=nunota)
+            row = cur.fetchone()
+            if not row:
+                return {'ok': False, 'error': f'Requisição {nunota} não encontrada.'}
+            (statusnota, cab_codparc, cab_codcencus,
+             req_tipo, req_codveiculo, req_hod, req_hor,
+             req_doc, req_obs,
+             req_codparc_atual, req_nufin_gerado,
+             ite_seq, ite_codprod, ite_qtd, ite_vlu, ite_codvol) = row
+
+            eh_externo_atual = (req_tipo == 'EXTERNA_POSTO')
+
+            # Tipos internos: STATUSNOTA='L' bloqueia (Sankhya confirma).
+            # EXTERNA_POSTO: nasce com STATUSNOTA='L' direto — não bloqueia por status,
+            # mas bloqueia se TGFFIN já estiver baixado.
+            if statusnota == 'L' and not eh_externo_atual:
+                return {'ok': False, 'error':
+                    'Requisição já confirmada no Sankhya — não pode ser editada pela IAgro. Estorne no ERP.'}
+            if statusnota == 'E':
+                return {'ok': False, 'error': 'Requisição já está excluída.'}
+            if eh_externo_atual and req_nufin_gerado:
+                cur.execute(
+                    "SELECT DHBAIXA FROM TGFFIN WHERE NUFIN = :nf",
+                    nf=int(req_nufin_gerado),
+                )
+                row_fin = cur.fetchone()
+                if row_fin and row_fin[0] is not None:
+                    return {'ok': False, 'error':
+                        'Financeiro do abastecimento externo já está baixado — '
+                        'estorne a baixa no Sankhya antes de editar.'}
+
+            # 2. Resolve valores novos (preserva atual se ausente)
+            tipo         = (dados.get('tipo') or req_tipo or '').upper().strip()
+            codveiculo   = int(dados.get('codveiculo') or req_codveiculo)
+            codprod      = int(dados.get('codprod') or ite_codprod)
+            qtd_nova     = float(dados.get('qtd') if dados.get('qtd') is not None else ite_qtd)
+            vlrunit      = float(dados.get('vlrunit') if dados.get('vlrunit') is not None
+                                 else (ite_vlu or 0))
+            codcencus    = int(dados.get('codcencus') or cab_codcencus)
+            doc_frete    = (dados.get('doc_frete_ref') if 'doc_frete_ref' in dados else req_doc)
+            observacao   = (dados.get('observacao') if 'observacao' in dados else req_obs)
+            qtd_antiga   = float(ite_qtd or 0)
+            # CODPARC do parceiro/posto (só usado em EXTERNA_POSTO)
+            codparc_novo = int(dados.get('codparc') or req_codparc_atual or 0)
+
+            eh_externo_novo = (tipo == 'EXTERNA_POSTO')
+
+            erros = []
+            if tipo not in ('INTERNA_FROTA', 'INTERNA_MAQUINARIO', 'EXTERNA_FRETE', 'EXTERNA_POSTO'):
+                erros.append('tipo inválido')
+            if qtd_nova <= 0:
+                erros.append('qtd deve ser > 0')
+            if not codcencus:
+                erros.append('codcencus obrigatório')
+            # Trava de mudança entre interno↔externo (semântica + financeiro
+            # diferente): permitir só se for o mesmo "lado".
+            if eh_externo_atual != eh_externo_novo:
+                erros.append(
+                    'Não é permitido alternar entre Interno e Externo na mesma '
+                    'requisição. Exclua e crie um novo lançamento.'
+                )
+            # EXTERNA_POSTO exige CODPARC e vlrunit
+            if eh_externo_novo:
+                if not codparc_novo:
+                    erros.append('codparc (posto) obrigatório para EXTERNA_POSTO')
+                if vlrunit <= 0:
+                    erros.append('vlrunit obrigatório para EXTERNA_POSTO')
+
+            doc_frete_str = (doc_frete or '').strip() if doc_frete else ''
+            if tipo == 'EXTERNA_FRETE' and not doc_frete_str:
+                erros.append('doc_frete_ref obrigatório para EXTERNA_FRETE')
+
+            # Parse medidores
+            def _parse_med(raw):
+                if raw in (None, '', 0, 0.0): return None
+                try:
+                    v = float(raw)
+                    return v if v > 0 else None
+                except (TypeError, ValueError):
+                    return False
+            hod_raw = dados.get('hodometro_km') if 'hodometro_km' in dados else req_hod
+            hor_raw = dados.get('horimetro_h')  if 'horimetro_h'  in dados else req_hor
+            hod_km  = _parse_med(hod_raw)
+            hor_h   = _parse_med(hor_raw)
+            if hod_km is False: erros.append('hodometro_km inválido')
+            if hor_h  is False: erros.append('horimetro_h inválido')
+
+            if tipo == 'INTERNA_FROTA':
+                if not hod_km: erros.append('hodômetro (km) obrigatório para frota própria')
+                if not hor_h:  erros.append('horímetro (h) obrigatório para frota própria')
+            elif tipo == 'EXTERNA_FRETE':
+                hod_km = None
+                hor_h  = None
+            elif tipo == 'EXTERNA_POSTO':
+                if not hod_km:
+                    erros.append('hodômetro (km) obrigatório no abastecimento externo')
+
+            if erros:
+                return {'ok': False, 'error': ' · '.join(erros)}
+
+            # 3. Veículo + trava PROPRIO ↔ TIPO (só para internos+EXTERNA_FRETE).
+            # EXTERNA_POSTO aceita qualquer veículo ativo (própria ou terceiro).
+            cur.execute("""
+                SELECT v.CODPARC, v.PROPRIO
+                FROM TGFVEI v WHERE v.CODVEICULO = :cv AND v.ATIVO = 'S'
+            """, cv=codveiculo)
+            row_vei = cur.fetchone()
+            if not row_vei:
+                return {'ok': False, 'error': f'Veículo {codveiculo} não encontrado ou inativo.'}
+            codparc_vei_novo, proprio_vei = row_vei
+            if tipo == 'EXTERNA_FRETE' and proprio_vei != 'N':
+                return {'ok': False, 'error':
+                    'Tipo EXTERNA_FRETE exige veículo de terceiro (PROPRIO=N).'}
+            if tipo in ('INTERNA_FROTA', 'INTERNA_MAQUINARIO') and proprio_vei != 'S':
+                return {'ok': False, 'error':
+                    'Tipo interno exige veículo próprio (PROPRIO=S).'}
+
+            # 4. Produto deve ser combustível
+            cur.execute("""
+                SELECT CODGRUPOPROD, DESCRPROD, CODVOL
+                FROM TGFPRO WHERE CODPROD = :cp AND ATIVO = 'S'
+            """, cp=codprod)
+            row_prod = cur.fetchone()
+            if not row_prod:
+                return {'ok': False, 'error': f'Produto {codprod} não encontrado ou inativo.'}
+            codgrupo, descrprod, codvol = row_prod
+            if codgrupo != CODGRUPOPROD_COMBUSTIVEL:
+                return {'ok': False, 'error':
+                    f'Produto {codprod} ({descrprod}) não é combustível.'}
+            # Tanque mapeado: só relevante pra internos (que descontam saldo)
+            if not eh_externo_novo and codprod not in CAPACIDADE_TANQUE:
+                return {'ok': False, 'error':
+                    f'Produto {codprod} ({descrprod}) não tem tanque mapeado no IAgro.'}
+
+            # 5. Re-valida saldo SÓ pra internos. EXTERNA_POSTO não toca tanque.
+            if not eh_externo_novo:
+                cur.execute("""
+                    SELECT QTD_DISPONIVEL FROM SANKHYA.ANDRE_IAGRO_SALDO_COMBUSTIVEL
+                    WHERE CODPROD = :cp
+                """, cp=codprod)
+                r = cur.fetchone()
+                disponivel_view = float(r[0]) if r and r[0] is not None else 0.0
+                disponivel = disponivel_view + float(SALDO_INICIAL_TANQUE.get(codprod, 0))
+                if codprod == int(ite_codprod):
+                    # Mesmo produto — qtd antiga "devolve" pro saldo antes de checar
+                    disponivel += qtd_antiga
+                if qtd_nova > disponivel:
+                    return {'ok': False, 'error':
+                        f'Saldo insuficiente. Disponível: {disponivel:.2f} {codvol or "LT"} · '
+                        f'Solicitado: {qtd_nova:.2f}.'}
+
+            # 6. UPDATE AD_REQUISICAO_COMBUSTIVEL (CODPARC só preenchido pra EXTERNA_POSTO)
+            cur.execute("""
+                UPDATE AD_REQUISICAO_COMBUSTIVEL
+                   SET TIPO = :tipo,
+                       CODVEICULO = :cv,
+                       CODPARC = :codparc,
+                       HODOMETRO_KM = :hod,
+                       HORIMETRO_H = :hor,
+                       DOC_FRETE_REF = :doc,
+                       OBSERVACAO = :obs
+                 WHERE NUNOTA = :n
+            """, {
+                'n': nunota, 'tipo': tipo, 'cv': codveiculo,
+                'codparc': codparc_novo if eh_externo_novo else None,
+                'hod': hod_km, 'hor': hor_h,
+                'doc': doc_frete_str or None,
+                'obs': (observacao or '')[:500] or None,
+            })
+
+            # 7. UPDATE TGFCAB — CODPARC do cabeçalho:
+            #    - interno: CODPARC do veículo (mantém comportamento original)
+            #    - EXTERNA_POSTO: CODPARC do posto (informado)
+            codparc_cab = codparc_novo if eh_externo_novo else codparc_vei_novo
+            cur.execute("""
+                UPDATE TGFCAB
+                   SET CODPARC = :parc, CODCENCUS = :cus, OBSERVACAO = :obs
+                 WHERE NUNOTA = :n AND CODTIPOPER = 53
+            """, {
+                'n': nunota,
+                'parc': codparc_cab,
+                'cus': codcencus,
+                'obs': (observacao or '')[:200] or None,
+            })
+
+            # 8. UPDATE TGFITE — caminho duplo (Mai/2026 — 2026-05-13):
+            #    - Single item (interno OU externo legado): UPDATE direto na SEQUENCIA carregada
+            #    - Multi-itens externo (dados['itens']): UPDATE diferencial igual editar entrada
+            itens_payload = dados.get('itens') if eh_externo_novo else None
+            eh_multi = bool(itens_payload and isinstance(itens_payload, list))
+
+            if eh_multi:
+                # Valida cada item e captura DESCRPROD/CODVOL
+                erros_itens = []
+                itens_norm = []
+                for idx_it, it in enumerate(itens_payload, start=1):
+                    cp = int(it.get('codprod') or 0)
+                    qt = float(it.get('qtd') or 0)
+                    vu = float(it.get('vlrunit') or 0)
+                    if not cp:  erros_itens.append(f'Item {idx_it}: codprod obrigatório')
+                    if qt <= 0: erros_itens.append(f'Item {idx_it}: qtd > 0')
+                    if vu <= 0: erros_itens.append(f'Item {idx_it}: vlrunit > 0')
+                    itens_norm.append({'codprod': cp, 'qtd': qt, 'vlrunit': vu})
+                if erros_itens:
+                    return {'ok': False, 'error': ' · '.join(erros_itens)}
+
+                descricoes_multi = {}
+                for it in itens_norm:
+                    cur.execute("""
+                        SELECT CODGRUPOPROD, DESCRPROD, CODVOL
+                        FROM TGFPRO WHERE CODPROD = :cp AND ATIVO = 'S'
+                    """, cp=it['codprod'])
+                    rp = cur.fetchone()
+                    if not rp:
+                        return {'ok': False, 'error': f"Produto {it['codprod']} não encontrado."}
+                    if rp[0] != CODGRUPOPROD_COMBUSTIVEL:
+                        return {'ok': False,
+                                'error': f"Produto {it['codprod']} ({rp[1]}) não é combustível."}
+                    descricoes_multi[it['codprod']] = (rp[1], rp[2] or 'LT')
+
+                # SELECT seqs existentes pra fazer UPDATE diferencial
+                cur.execute(
+                    "SELECT SEQUENCIA FROM TGFITE WHERE NUNOTA = :n ORDER BY SEQUENCIA",
+                    n=nunota,
+                )
+                seqs_existentes = [int(r[0]) for r in cur.fetchall()]
+
+                vlrtot = 0.0
+                for idx_it, it in enumerate(itens_norm):
+                    cp = it['codprod']
+                    _, codvol_i = descricoes_multi[cp]
+                    vlt_it = round(it['qtd'] * it['vlrunit'], 4)
+                    vlrtot += vlt_it
+
+                    if idx_it < len(seqs_existentes):
+                        # UPDATE no slot existente — reusa SEQUENCIA (evita PK violation)
+                        cur.execute("""
+                            UPDATE TGFITE
+                               SET CODPROD = :cp, CODVOL = :cv,
+                                   QTDNEG = :qt, VLRUNIT = :vlu, VLRTOT = :vlt,
+                                   QTDCONFERIDA = :qt,
+                                   CODAGREGACAO = NULL
+                             WHERE NUNOTA = :n AND SEQUENCIA = :s
+                        """, {
+                            'n': nunota, 's': seqs_existentes[idx_it],
+                            'cp': cp, 'cv': codvol_i,
+                            'qt': it['qtd'], 'vlu': it['vlrunit'], 'vlt': vlt_it,
+                        })
+                    else:
+                        # Item novo — reusa helper que preenche todas as colunas
+                        # necessárias pros triggers Sankhya
+                        item_resp = inserir_item_nota_banco({
+                            'NUNOTA':       nunota,
+                            'CODPROD':      cp,
+                            'QTDNEG':       it['qtd'],
+                            'VLRUNIT':      it['vlrunit'],
+                            'CODVOL':       codvol_i,
+                            'CODAGREGACAO': None,
+                        }, gerar_lote_auto=False, conexao_existente=conn)
+                        if not item_resp.get('ok'):
+                            return {'ok': False,
+                                    'error': f"Falha ao adicionar item CODPROD={cp}: {item_resp.get('error')}"}
+
+                # DELETE seqs em excesso (lista nova menor que antiga)
+                if len(itens_norm) < len(seqs_existentes):
+                    seqs_remover = seqs_existentes[len(itens_norm):]
+                    placeholders = ','.join(str(int(s)) for s in seqs_remover)
+                    cur.execute(
+                        f"DELETE FROM TGFITE WHERE NUNOTA = :n AND SEQUENCIA IN ({placeholders})",
+                        n=nunota,
+                    )
+
+                vlrtot = round(vlrtot, 4)
+            else:
+                # Caminho antigo (single item — usado em internos e externo legado)
+                vlrtot = round(qtd_nova * vlrunit, 4)
+                cur.execute("""
+                    UPDATE TGFITE
+                       SET CODPROD = :cp, QTDNEG = :qtd, VLRUNIT = :vlu,
+                           VLRTOT = :vlt, CODVOL = :cv
+                     WHERE NUNOTA = :n AND SEQUENCIA = :seq
+                """, {
+                    'n': nunota, 'seq': int(ite_seq),
+                    'cp': codprod, 'qtd': qtd_nova, 'vlu': vlrunit,
+                    'vlt': vlrtot, 'cv': codvol or 'LT',
+                })
+
+            # 9. Recalcula totais do cabeçalho
+            recalcular_totais_nota_banco(nunota, conexao_existente=conn)
+
+            # 10. EXTERNA_POSTO: refletir mudanças no TGFFIN (CODPARC, VLRDESDOB,
+            #     VLRBAIXA, HISTORICO, CODCENCUS) — sempre que NUFIN_GERADO existir
+            #     e ainda não estiver baixado (DHBAIXA NULL já validado no início).
+            if eh_externo_novo and req_nufin_gerado:
+                # TGFFIN sempre em aberto (DHBAIXA=NULL, VLRBAIXA=0, CODTIPOPERBAIXA=0).
+                # Trigger TRG_UPT_TGFFIN bloqueia "A TOP da Baixa deve ser informada"
+                # se VLRBAIXA > 0 sem CODTIPOPERBAIXA preenchida. Como IAgro não
+                # cuida de TGFMBC (baixa real), nunca preenchemos VLRBAIXA aqui.
+                # Operador baixa pelo Sankhya quando paga.
+                cur.execute("""
+                    UPDATE TGFFIN
+                       SET CODPARC = :p,
+                           CODCENCUS = :cus,
+                           VLRDESDOB = :vlr,
+                           VLRBAIXA  = 0,
+                           HISTORICO = :hist,
+                           DHMOV     = SYSDATE,
+                           DTALTER   = SYSDATE
+                     WHERE NUFIN = :nf
+                """, {
+                    'p': codparc_novo,
+                    'cus': codcencus,
+                    'vlr': vlrtot,
+                    'hist': f'{descrprod}'[:255],
+                    'nf': int(req_nufin_gerado),
+                })
+
+            conn.commit()
+            logger.info("Requisição combustível NUNOTA=%s editada (codusu=%s)",
+                        nunota, codusu)
+            return {'ok': True, 'nunota': nunota}
+
+    except Exception as exc:
+        logger.exception("Falha em editar_requisicao_combustivel_banco")
+        return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+
+def excluir_requisicao_combustivel_banco(nunota: int, motivo: str, codusu: int, nomeusu: str = '') -> dict:
+    """B6 — Exclui FISICAMENTE uma requisição em aberto.
+
+    Mai/2026 (2026-05-12): inicialmente B6 fazia UPDATE STATUSNOTA='E', mas o
+    trigger TRG_UPD_TGFCAB do Sankhya (linha 979) bloqueia explicitamente:
+      "A única atualização permitida para o Status da Nota é a passagem deste
+       para L."
+    Portanto a exclusão precisa ser DELETE físico — caminho que o Sankhya
+    espera (e que dispara as triggers TRG_DLT_TGFCAB_* de auditoria do ERP).
+
+    Operação atômica:
+      1. Audit pré-DELETE em IAgroDjango logs (motivo + usuário)
+      2. DELETE da AD_REQUISICAO_COMBUSTIVEL (metadata IAgro)
+      3. DELETE de TGFITE WHERE NUNOTA (todos os itens)
+      4. DELETE de TGFCAB WHERE NUNOTA AND CODTIPOPER=53
+
+    Saldo volta automaticamente porque a NUNOTA some das contas da view.
+
+    Trava: bloqueia se STATUSNOTA='L' (Sankhya já confirmou — estorno deve ser
+    feito no ERP pra reverter financeiro/contábil corretamente).
+    """
+    nunota = int(nunota)
+    motivo = (motivo or '').strip()
+    if not motivo:
+        return {'ok': False, 'error': 'Motivo da exclusão é obrigatório.'}
+    if len(motivo) > 300:
+        motivo = motivo[:300]
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 1. Verifica estado da TGFCAB TOP 53 + metadata IAgro (TIPO/NUFIN)
+            cur.execute("""
+                SELECT c.STATUSNOTA, r.TIPO, r.NUFIN_GERADO
+                FROM TGFCAB c
+                LEFT JOIN AD_REQUISICAO_COMBUSTIVEL r ON r.NUNOTA = c.NUNOTA
+                WHERE c.NUNOTA = :n AND c.CODTIPOPER = 53
+            """, n=nunota)
+            row = cur.fetchone()
+            if not row:
+                return {'ok': False, 'error': f'Requisição {nunota} não encontrada.'}
+            statusnota, req_tipo, req_nufin_gerado = row[0], row[1], row[2]
+
+            if req_tipo is None:
+                return {'ok': False, 'error':
+                    'Metadata IAgro não encontrada — requisição inconsistente.'}
+
+            eh_externo = (req_tipo == 'EXTERNA_POSTO')
+
+            # Tipos internos: STATUSNOTA='L' bloqueia (Sankhya confirma).
+            # EXTERNA_POSTO: nasce com STATUSNOTA='L' direto — exclusão livre
+            # exceto se TGFFIN já estiver baixado.
+            if statusnota == 'L' and not eh_externo:
+                return {'ok': False, 'error':
+                    'Requisição já confirmada no Sankhya — estorno deve ser feito no ERP.'}
+            if eh_externo and req_nufin_gerado:
+                cur.execute(
+                    "SELECT DHBAIXA FROM TGFFIN WHERE NUFIN = :nf",
+                    nf=int(req_nufin_gerado),
+                )
+                row_fin = cur.fetchone()
+                if row_fin and row_fin[0] is not None:
+                    return {'ok': False, 'error':
+                        'Financeiro do abastecimento externo já está baixado — '
+                        'estorne a baixa no Sankhya antes de excluir.'}
+
+            # 2. Audit em log Django (motivo+usuário). Faço ANTES dos DELETEs
+            # pra ter rastro mesmo se algo falhar adiante.
+            usu_label = (nomeusu or str(codusu))[:30]
+            logger.info(
+                "EXCLUSAO requisição combustível NUNOTA=%s tipo=%s nufin=%s por codusu=%s (%s) — motivo: %s",
+                nunota, req_tipo, req_nufin_gerado, codusu, usu_label, motivo,
+            )
+
+            # 3. DELETE metadata IAgro (AD_REQ)
+            cur.execute(
+                "DELETE FROM AD_REQUISICAO_COMBUSTIVEL WHERE NUNOTA = :n",
+                n=nunota,
+            )
+
+            # 4. EXTERNA_POSTO: DELETE do TGFFIN gerado (despesa contra o posto).
+            # Deve vir ANTES do DELETE de TGFCAB porque TGFFIN.NUNOTA aponta pra cá.
+            if eh_externo and req_nufin_gerado:
+                cur.execute(
+                    "DELETE FROM TGFFIN WHERE NUFIN = :nf",
+                    nf=int(req_nufin_gerado),
+                )
+
+            # 5. DELETE itens (TGFITE) — necessário antes da TGFCAB (FK Sankhya)
+            cur.execute("DELETE FROM TGFITE WHERE NUNOTA = :n", n=nunota)
+
+            # 6. DELETE cabeçalho (TGFCAB TOP 53) — dispara TRG_DLT_TGFCAB_*
+            # do Sankhya (auditoria/limpeza nativa); saldo da view some.
+            cur.execute(
+                "DELETE FROM TGFCAB WHERE NUNOTA = :n AND CODTIPOPER = 53",
+                n=nunota,
+            )
+
+            conn.commit()
+            logger.info(
+                "Requisição combustível NUNOTA=%s DELETE físico concluído (tipo=%s)",
+                nunota, req_tipo,
+            )
+            return {'ok': True, 'nunota': nunota}
+
+    except Exception as exc:
+        logger.exception("Falha em excluir_requisicao_combustivel_banco")
+        return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+
+def criar_entrada_combustivel_banco(dados: dict, codusu: int, nomeusu: str = '') -> dict:
+    """B3 (Mai/2026 — refatorada em B13) — Cria entrada de combustível (compra TOP 10).
+
+    Fluxo:
+      - TGFCAB TOP 10 STATUSNOTA='L', NUMNOTA da NF do FORNECEDOR (operador
+        informa), SERIENOTA opcional. CODNAT/CODTIPVENDA parametrizáveis com
+        defaults 30070200 (COMBUSTÍVEL) e 11 (A VISTA).
+      - N x TGFITE (multi-itens), CODAGREGACAO=NULL (segregação total).
+      - 1 TGFFIN com VLRDESDOB = soma dos itens (modelo NUFIN=438989: ORIGEM='F',
+        CODTIPOPER=1, CODBCO=70, CODCTABCOINT=1, CODTIPTIT=2). À vista (DTVENC=DTNEG)
+        baixa automática.
+
+    Atômico via `with obter_conexao_oracle()`.
+
+    Payload (`dados`):
+      codemp:       int (obrigatório)
+      codparc:      int (fornecedor, obrigatório)
+      numnota:      int (NF do fornecedor — obrigatório)
+      serienota:    str (opcional, máx 3 chars)
+      itens:        list[{codprod, qtd, vlrunit}]  (>= 1 item)
+                    -- compat retroativa: se itens ausente, monta de codprod/qtd/vlrunit
+      codcencus:    int (obrigatório)
+      dtneg:        str 'YYYY-MM-DD' (opcional — default hoje)
+      dtvenc:       str 'YYYY-MM-DD' (opcional — default = dtneg = à vista)
+      codnat:       int (opcional — default 30070200)
+      codtipvenda:  int (opcional — default 11 A VISTA)
+      codbco:       int (opcional — default 70)
+      codctabcoint: int (opcional — default 1)
+      codtiptit:    int (opcional — default 2)
+      historico:    str (opcional — default = "Compra combust. NF {NUMNOTA}")
+      observacao:   str (opcional — vai para TGFCAB.OBSERVACAO)
+
+    Retorno:
+      {'ok': True, 'nunota': int, 'numnota': int, 'nufin': int, 'qtd_itens': int}
+      {'ok': False, 'error': str}
+    """
+    # 1. Itens — aceita lista nova OU campos avulsos (compat retroativa)
+    itens_payload = dados.get('itens')
+    if not itens_payload:
+        # Compat: monta lista a partir de codprod/qtd/vlrunit avulsos
+        codp_legacy = dados.get('codprod')
+        if codp_legacy:
+            itens_payload = [{
+                'codprod': codp_legacy,
+                'qtd': dados.get('qtd'),
+                'vlrunit': dados.get('vlrunit'),
+            }]
+    if not itens_payload or not isinstance(itens_payload, list):
+        return {'ok': False, 'error': 'Informe ao menos 1 item.'}
+
+    erros = []
+    codemp    = int(dados.get('codemp') or 0)
+    codparc   = int(dados.get('codparc') or 0)
+    codcencus = int(dados.get('codcencus') or 0)
+    numnota_forn = dados.get('numnota')
+    serienota = (dados.get('serienota') or '').strip()[:3] or None
+    if not codemp:    erros.append('codemp obrigatório')
+    if not codparc:   erros.append('codparc obrigatório')
+    if not codcencus: erros.append('codcencus obrigatório')
+    if not numnota_forn:
+        erros.append('numnota (nº da NF do fornecedor) obrigatório')
+    else:
+        try: numnota_forn = int(numnota_forn)
+        except (TypeError, ValueError):
+            erros.append('numnota inválido (precisa ser numérico)')
+
+    # Valida cada item
+    itens_norm = []
+    for idx, it in enumerate(itens_payload, start=1):
+        cp  = int(it.get('codprod') or 0)
+        qt  = float(it.get('qtd') or 0)
+        vlu = float(it.get('vlrunit') or 0)
+        if not cp:  erros.append(f'Item {idx}: codprod obrigatório')
+        if qt <= 0: erros.append(f'Item {idx}: qtd deve ser > 0')
+        if vlu <= 0: erros.append(f'Item {idx}: vlrunit deve ser > 0')
+        itens_norm.append({'codprod': cp, 'qtd': qt, 'vlrunit': vlu})
+
+    if erros:
+        return {'ok': False, 'error': ' · '.join(erros)}
+
+    # Defaults TGFFIN modelo NUFIN=438989
+    codbco       = int(dados.get('codbco')       or 70)
+    codctabcoint = int(dados.get('codctabcoint') or 1)
+    codtiptit    = int(dados.get('codtiptit')    or 2)
+    codnat       = int(dados.get('codnat') or 30070200)
+    codtipvenda  = int(dados.get('codtipvenda') or 11)
+
+    dtneg  = _parse_data_iagro(dados.get('dtneg'),  _date.today())
+    dtvenc = _parse_data_iagro(dados.get('dtvenc'), dtneg)
+    if dtvenc < dtneg:
+        return {'ok': False, 'error': 'dtvenc não pode ser anterior a dtneg.'}
+    # TGFFIN nasce sempre em aberto (DHBAIXA=NULL) — operador baixa no Sankhya
+    # ver bloco do INSERT TGFFIN abaixo pra justificativa do trigger.
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 2. Validar cada produto (combustível) e capturar DESCRPROD/CODVOL
+            descricoes = {}  # codprod -> (descrprod, codvol)
+            for it in itens_norm:
+                cur.execute("""
+                    SELECT CODGRUPOPROD, DESCRPROD, CODVOL
+                    FROM TGFPRO WHERE CODPROD = :cp AND ATIVO = 'S'
+                """, cp=it['codprod'])
+                row_p = cur.fetchone()
+                if not row_p:
+                    return {'ok': False,
+                            'error': f"Produto {it['codprod']} não encontrado ou inativo."}
+                codgrupo, descrprod, codvol = row_p
+                if codgrupo != CODGRUPOPROD_COMBUSTIVEL:
+                    return {'ok': False, 'error':
+                        f"Produto {it['codprod']} ({descrprod}) não é combustível."}
+                descricoes[it['codprod']] = (descrprod, codvol or 'LT')
+
+            # 3. INSERT TGFCAB TOP 10 — NUMNOTA já vem do operador (NF do fornecedor)
+            cab_resp = inserir_cabecalho_nota_banco({
+                'CODEMP':       codemp,
+                'CODPARC':      codparc,
+                'CODTIPOPER':   10,
+                'CODNAT':       codnat,
+                'CODCENCUS':    codcencus,
+                'CODTIPVENDA':  codtipvenda,
+                'NUMNOTA':      numnota_forn,
+                'DTNEG':        dtneg.strftime('%d/%m/%Y'),
+                'DTMOV':        dtneg.strftime('%d/%m/%Y'),
+                'OBSERVACAO':   (dados.get('observacao') or '')[:200] or None,
+            }, conexao_existente=conn)
+            if not cab_resp.get('ok'):
+                return {'ok': False, 'error':
+                    f'Falha ao criar cabeçalho TOP 10: {cab_resp.get("error", "desconhecido")}'}
+            nunota = int(cab_resp['nunota'])
+
+            # 3.5 SERIENOTA — UPDATE pós-INSERT (inserir_cabecalho não suporta no payload)
+            if serienota:
+                cur.execute("UPDATE TGFCAB SET SERIENOTA = :s WHERE NUNOTA = :n",
+                            s=serienota, n=nunota)
+
+            # 4. INSERT N x TGFITE (CODAGREGACAO=NULL — segregação)
+            vlrtot_total = 0.0
+            for it in itens_norm:
+                cp = it['codprod']
+                descrprod, codvol = descricoes[cp]
+                vlrtot_item = round(it['qtd'] * it['vlrunit'], 4)
+                vlrtot_total += vlrtot_item
+                item_resp = inserir_item_nota_banco({
+                    'NUNOTA':       nunota,
+                    'CODPROD':      cp,
+                    'QTDNEG':       it['qtd'],
+                    'VLRUNIT':      it['vlrunit'],
+                    'CODVOL':       codvol,
+                    'CODAGREGACAO': None,
+                }, gerar_lote_auto=False, conexao_existente=conn)
+                if not item_resp.get('ok'):
+                    return {'ok': False, 'error':
+                        f"Falha ao criar item CODPROD={cp}: {item_resp.get('error', 'desconhecido')}"}
+
+            recalcular_totais_nota_banco(nunota, conexao_existente=conn)
+            vlrtot_total = round(vlrtot_total, 4)
+            numnota = numnota_forn
+
+            # 6. NUFIN provisório (mesma estratégia do gerar_financeiro_banco)
+            cur.execute("SELECT NVL(MAX(NUFIN), 0) + 1 FROM TGFFIN")
+            nufin = int(cur.fetchone()[0])
+            historico = (dados.get('historico') or f'Compra combust. NF {numnota_forn}')[:255]
+            # Renomeia pra compatibilidade do bloco abaixo
+            vlrtot = vlrtot_total
+            # `descrprod` é usado pelo template de histórico em fluxos antigos —
+            # mantém uma versão composta com todos os produtos como referência.
+            descrprod = ', '.join(d[0] for d in descricoes.values())[:255]
+
+            # 7. INSERT TGFFIN (modelo NUFIN=438989: ORIGEM='F', CODTIPOPER=1)
+            sql_fin = """
+                INSERT INTO TGFFIN (
+                    NUFIN, NUNOTA, NUMNOTA, CODEMP, CODPARC, CODNAT, CODCENCUS,
+                    CODTIPOPER, DHTIPOPER, CODBCO, CODCTABCOINT, CODTIPTIT,
+                    CODMOEDA, CODPROJ, CODVEND, CODVEICULO,
+                    DTNEG, DHMOV, DTALTER, DTENTSAI,
+                    DTVENCINIC, DTVENC, DTPRAZO,
+                    VLRDESDOB, VLRBAIXA,
+                    DESDOBRAMENTO, SEQUENCIA,
+                    RECDESP, PROVISAO, AUTORIZADO,
+                    ISSRETIDO, IRFRETIDO, INSSRETIDO, RATEADO,
+                    ORIGEM, TIPMARCCHEQ,
+                    TIPMULTA, TIPJURO,
+                    CODTIPOPERBAIXA, DHTIPOPERBAIXA,
+                    HISTORICO, VLRPROV, NUMCONTRATO, ORDEMCARGA, CODUSU,
+                    DHBAIXA, CODEMPBAIXA, CODUSUBAIXA
+                ) VALUES (
+                    :nufin, :nunota, :numnota, :emp, :parc, :nat, :cus,
+                    1, TO_DATE('01/01/2004','DD/MM/YYYY'), :bco, :ccbi, :tit,
+                    0, 0, 0, 0,
+                    :dtneg, SYSDATE, SYSDATE, :dtneg,
+                    :dtneg, :dtvenc, :dtvenc,
+                    :vlr, :vlrbaixa,
+                    '1', 1,
+                    -1, 'N', 'N',
+                    'N', 'S', 'N', 'N',
+                    'E', 'I',
+                    1, 1,
+                    0, TO_DATE('01/01/1998','DD/MM/YYYY'),
+                    :hist, 0, 0, 0, :usr,
+                    :dhbaixa, :empbaixa, :usubaixa
+                )
+            """
+            # TGFFIN nasce SEMPRE em aberto (DHBAIXA=NULL, VLRBAIXA=0) — mesmo
+            # quando à vista. Mai/2026 (2026-05-13): o trigger Sankhya
+            # TRG_UPT_TGFFIN_NUBCO bloqueia "baixa sem ligação com TGFMBC".
+            # Pra marcar baixado é preciso criar registro paralelo em TGFMBC
+            # (que IAgro não cuida). Operador baixa pelo Sankhya quando paga.
+            cur.execute(sql_fin, {
+                'nufin': nufin, 'nunota': nunota, 'numnota': numnota,
+                'emp': codemp, 'parc': codparc, 'nat': codnat, 'cus': codcencus,
+                'bco': codbco, 'ccbi': codctabcoint, 'tit': codtiptit,
+                'dtneg': dtneg, 'dtvenc': dtvenc,
+                'vlr': vlrtot, 'vlrbaixa': 0,
+                'hist': historico, 'usr': int(codusu),
+                'dhbaixa': None,
+                'empbaixa': None,
+                'usubaixa': None,
+            })
+
+            # 8. Confirma a nota (STATUSNOTA='L') — triggers Sankhya disparam aqui;
+            # com NUFIN já existente, não duplica financeiro
+            cur.execute("""
+                UPDATE TGFCAB SET STATUSNOTA = 'L', DTFATUR = :dt
+                WHERE NUNOTA = :n
+            """, dt=dtneg, n=nunota)
+
+            conn.commit()
+            logger.info(
+                "Entrada combustível: NUNOTA=%s NUFIN=%s NUMNOTA=%s itens=%s vlrtot=%s",
+                nunota, nufin, numnota, len(itens_norm), vlrtot,
+            )
+            return {
+                'ok': True, 'nunota': nunota, 'numnota': numnota, 'nufin': nufin,
+                'qtd_itens': len(itens_norm), 'vlrtot': float(vlrtot),
+            }
+
+    except Exception as exc:
+        logger.exception("Falha em criar_entrada_combustivel_banco")
+        return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+
+def criar_abastecimento_externo_banco(dados: dict, codusu: int, nomeusu: str = '') -> dict:
+    """B8 — Cria abastecimento externo (posto): TGFCAB TOP 26 STATUSNOTA='L'
+    + TGFITE (CODAGREGACAO=NULL) + AD_REQUISICAO_COMBUSTIVEL (TIPO='EXTERNA_POSTO')
+    + TGFFIN (despesa contra o posto).
+
+    Fluxo Mai/2026: caminhão sai com tanque cheio → abastece no meio da viagem em
+    posto externo → não desconta dos tanques internos, mas precisa registrar
+    o consumo (km/L) e gerar financeiro contra o posto. A view
+    ANDRE_IAGRO_SALDO_COMBUSTIVEL ignora notas com TIPO='EXTERNA_POSTO' na perna
+    de saída (via NOT EXISTS), preservando saldo interno.
+
+    Diferenças vs criar_requisicao_combustivel_banco (interno):
+      - SEM validação de saldo (não desconta tanque)
+      - SEM trava PROPRIO ↔ TIPO (motorista pode usar veículo próprio mesmo
+        abastecendo fora; veículos de freteiros também podem usar)
+      - CODPARC do cabeçalho = posto informado (NÃO TGFVEI.CODPARC)
+      - STATUSNOTA='L' direto (lançamento avulso já confirmado)
+      - Gera TGFFIN (modelo NUFIN=438989 da Agromil)
+      - Hodômetro/horímetro continuam OBRIGATÓRIOS (não pode ter lacuna de consumo)
+
+    Payload (`dados`):
+      codveiculo:    int (obrigatório)
+      codparc:       int (obrigatório — posto: Allianz, 1=Semear, 572=Agromil)
+      codprod:       int (obrigatório — CODGRUPOPROD=200400)
+      qtd:           float (litros, > 0)
+      vlrunit:       float (> 0)
+      codcencus:     int (obrigatório)
+      hodometro_km:  float (obrigatório)
+      horimetro_h:   float (opcional)
+      doc_frete_ref: str (opcional — número da nota/boleto do posto)
+      observacao:    str (opcional)
+      dtneg:         str 'YYYY-MM-DD' (opcional, default hoje)
+      dtvenc:        str 'YYYY-MM-DD' (opcional, default = dtneg = à vista)
+      codbco/codctabcoint/codtiptit: opcionais (defaults do modelo)
+      historico:     str (opcional — TGFFIN.HISTORICO; default DESCRPROD)
+
+    Retorno:
+      {'ok': True,  'nunota': int, 'requisicao_id': int, 'nufin': int}
+      {'ok': False, 'error': str}
+    """
+    # 1. Validações
+    erros = []
+    codveiculo = int(dados.get('codveiculo') or 0)
+    codparc    = int(dados.get('codparc') or 0)
+    codcencus  = int(dados.get('codcencus') or 0)
+
+    # Multi-itens (Mai/2026 — 2026-05-13). Compat retroativa: aceita
+    # `itens=[{codprod, qtd, vlrunit}, ...]` ou `codprod/qtd/vlrunit` avulsos
+    # (monta lista de 1 item).
+    itens_payload = dados.get('itens')
+    if not itens_payload:
+        codp_legacy = dados.get('codprod')
+        if codp_legacy:
+            itens_payload = [{
+                'codprod': codp_legacy,
+                'qtd': dados.get('qtd'),
+                'vlrunit': dados.get('vlrunit'),
+            }]
+    if not itens_payload or not isinstance(itens_payload, list):
+        return {'ok': False, 'error': 'Informe ao menos 1 item.'}
+
+    itens_norm = []
+    for idx, it in enumerate(itens_payload, start=1):
+        cp = int(it.get('codprod') or 0)
+        qt = float(it.get('qtd') or 0)
+        vu = float(it.get('vlrunit') or 0)
+        if not cp:  erros.append(f'Item {idx}: codprod obrigatório')
+        if qt <= 0: erros.append(f'Item {idx}: qtd > 0')
+        if vu <= 0: erros.append(f'Item {idx}: vlrunit > 0')
+        itens_norm.append({'codprod': cp, 'qtd': qt, 'vlrunit': vu})
+
+    if not codveiculo: erros.append('codveiculo obrigatório')
+    if not codparc:    erros.append('codparc (posto) obrigatório')
+    if not codcencus:  erros.append('codcencus obrigatório')
+
+    def _parse_medidor(raw):
+        if raw in (None, '', 0, 0.0):
+            return None
+        try:
+            v = float(raw)
+            return v if v > 0 else None
+        except (TypeError, ValueError):
+            return False
+
+    hodometro_km = _parse_medidor(dados.get('hodometro_km'))
+    horimetro_h  = _parse_medidor(dados.get('horimetro_h'))
+    if hodometro_km is False: erros.append('hodometro_km inválido')
+    if horimetro_h  is False: erros.append('horimetro_h inválido')
+    if not hodometro_km:
+        erros.append('hodômetro (km) obrigatório no abastecimento externo')
+
+    if erros:
+        return {'ok': False, 'error': ' · '.join(erros)}
+
+    # Defaults TGFFIN
+    codbco       = int(dados.get('codbco')       or 70)
+    codctabcoint = int(dados.get('codctabcoint') or 1)
+    codtiptit    = int(dados.get('codtiptit')    or 2)
+    codnat       = int(dados.get('codnat') or 30070200)
+    codtipvenda  = int(dados.get('codtipvenda') or 11)
+    dtneg  = _parse_data_iagro(dados.get('dtneg'),  _date.today())
+    dtvenc = _parse_data_iagro(dados.get('dtvenc'), dtneg)
+    if dtvenc < dtneg:
+        return {'ok': False, 'error': 'dtvenc não pode ser anterior a dtneg.'}
+    # TGFFIN nasce sempre em aberto (DHBAIXA=NULL). Trigger Sankhya
+    # TRG_UPT_TGFFIN_NUBCO exige TGFMBC paralela pra baixa — operador baixa
+    # pelo Sankhya quando paga.
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 2. Veículo existe (sem trava PROPRIO — externo aceita qualquer)
+            cur.execute("""
+                SELECT v.PLACA FROM TGFVEI v
+                WHERE v.CODVEICULO = :cv AND v.ATIVO = 'S'
+            """, cv=codveiculo)
+            if not cur.fetchone():
+                return {'ok': False, 'error': f'Veículo {codveiculo} não encontrado ou inativo.'}
+
+            # 3. Parceiro (posto) existe e ativo
+            cur.execute("""
+                SELECT NOMEPARC FROM TGFPAR
+                WHERE CODPARC = :cp AND ATIVO = 'S'
+            """, cp=codparc)
+            row_parc = cur.fetchone()
+            if not row_parc:
+                return {'ok': False, 'error': f'Parceiro {codparc} (posto) não encontrado ou inativo.'}
+            nome_posto = row_parc[0]
+
+            # 4. Validar todos os itens são combustíveis
+            descricoes = {}  # codprod -> (descrprod, codvol)
+            for it in itens_norm:
+                cur.execute("""
+                    SELECT CODGRUPOPROD, DESCRPROD, CODVOL
+                    FROM TGFPRO WHERE CODPROD = :cp AND ATIVO = 'S'
+                """, cp=it['codprod'])
+                row_p = cur.fetchone()
+                if not row_p:
+                    return {'ok': False,
+                            'error': f"Produto {it['codprod']} não encontrado ou inativo."}
+                codgrupo, descrprod_i, codvol_i = row_p
+                if codgrupo != CODGRUPOPROD_COMBUSTIVEL:
+                    return {'ok': False, 'error':
+                        f"Produto {it['codprod']} ({descrprod_i}) não é combustível."}
+                descricoes[it['codprod']] = (descrprod_i, codvol_i or 'LT')
+
+            # CODEMP da TGFCAB — reusa a CODEMP mais recente do CODPARC do posto
+            # (mesma estratégia da Entrada interna) ou cai em default 1.
+            cur.execute("""
+                SELECT MAX(CODEMP) FROM TGFCAB
+                WHERE CODPARC = :p AND STATUSNOTA <> 'E'
+            """, p=codparc)
+            row_emp = cur.fetchone()
+            codemp = int(row_emp[0]) if row_emp and row_emp[0] else 1
+
+            # 5. INSERT TGFCAB TOP 53 - REQUISIÇÃO INTERNA (PENDENTE='S' inicialmente)
+            cab_resp = inserir_cabecalho_nota_banco({
+                'CODEMP':       codemp,
+                'CODPARC':      codparc,                  # POSTO (não veículo)
+                'CODTIPOPER':   53,
+                'CODNAT':       codnat,
+                'CODCENCUS':    codcencus,
+                'CODTIPVENDA':  codtipvenda,
+                'DTNEG':        dtneg.strftime('%d/%m/%Y'),
+                'DTMOV':        dtneg.strftime('%d/%m/%Y'),
+                'OBSERVACAO':   (dados.get('observacao') or f'Abast. externo - {nome_posto}')[:200] or None,
+            }, conexao_existente=conn)
+            if not cab_resp.get('ok'):
+                return {'ok': False, 'error':
+                    f'Falha ao criar cabeçalho TOP 53: {cab_resp.get("error", "desconhecido")}'}
+            nunota = int(cab_resp['nunota'])
+
+            # 6. INSERT N x TGFITE (CODAGREGACAO=NULL — segregação)
+            vlrtot = 0.0
+            for it in itens_norm:
+                cp = it['codprod']
+                descrprod_i, codvol_i = descricoes[cp]
+                vlt_item = round(it['qtd'] * it['vlrunit'], 4)
+                vlrtot += vlt_item
+                item_resp = inserir_item_nota_banco({
+                    'NUNOTA':       nunota,
+                    'CODPROD':      cp,
+                    'QTDNEG':       it['qtd'],
+                    'VLRUNIT':      it['vlrunit'],
+                    'CODVOL':       codvol_i,
+                    'CODAGREGACAO': None,
+                }, gerar_lote_auto=False, conexao_existente=conn)
+                if not item_resp.get('ok'):
+                    return {'ok': False, 'error':
+                        f"Falha ao criar item CODPROD={cp}: {item_resp.get('error')}"}
+            vlrtot = round(vlrtot, 4)
+
+            recalcular_totais_nota_banco(nunota, conexao_existente=conn)
+
+            # 7. NUMNOTA sequencial por empresa
+            cur.execute("""
+                SELECT NVL(MAX(NUMNOTA), 0) + 1 FROM TGFCAB
+                WHERE CODEMP = :e AND CODTIPOPER = 53
+            """, e=codemp)
+            numnota = int(cur.fetchone()[0])
+            cur.execute("UPDATE TGFCAB SET NUMNOTA = :nn WHERE NUNOTA = :n",
+                        nn=numnota, n=nunota)
+
+            # 8. NUFIN — gera despesa (RECDESP=-1) contra o posto.
+            # Histórico: composto pelos produtos do abastecimento + nome do posto.
+            cur.execute("SELECT NVL(MAX(NUFIN), 0) + 1 FROM TGFFIN")
+            nufin = int(cur.fetchone()[0])
+            hist_produtos = ', '.join(d[0] for d in descricoes.values())[:200]
+            historico = (dados.get('historico') or f'{hist_produtos} - {nome_posto}')[:255]
+
+            sql_fin = """
+                INSERT INTO TGFFIN (
+                    NUFIN, NUNOTA, NUMNOTA, CODEMP, CODPARC, CODNAT, CODCENCUS,
+                    CODTIPOPER, DHTIPOPER, CODBCO, CODCTABCOINT, CODTIPTIT,
+                    CODMOEDA, CODPROJ, CODVEND, CODVEICULO,
+                    DTNEG, DHMOV, DTALTER, DTENTSAI,
+                    DTVENCINIC, DTVENC, DTPRAZO,
+                    VLRDESDOB, VLRBAIXA,
+                    DESDOBRAMENTO, SEQUENCIA,
+                    RECDESP, PROVISAO, AUTORIZADO,
+                    ISSRETIDO, IRFRETIDO, INSSRETIDO, RATEADO,
+                    ORIGEM, TIPMARCCHEQ,
+                    TIPMULTA, TIPJURO,
+                    CODTIPOPERBAIXA, DHTIPOPERBAIXA,
+                    HISTORICO, VLRPROV, NUMCONTRATO, ORDEMCARGA, CODUSU,
+                    DHBAIXA, CODEMPBAIXA, CODUSUBAIXA
+                ) VALUES (
+                    :nufin, :nunota, :numnota, :emp, :parc, :nat, :cus,
+                    1, TO_DATE('01/01/2004','DD/MM/YYYY'), :bco, :ccbi, :tit,
+                    0, 0, 0, :cv,
+                    :dtneg, SYSDATE, SYSDATE, :dtneg,
+                    :dtneg, :dtvenc, :dtvenc,
+                    :vlr, :vlrbaixa,
+                    '1', 1,
+                    -1, 'N', 'N',
+                    'N', 'S', 'N', 'N',
+                    'E', 'I',
+                    1, 1,
+                    0, TO_DATE('01/01/1998','DD/MM/YYYY'),
+                    :hist, 0, 0, 0, :usr,
+                    :dhbaixa, :empbaixa, :usubaixa
+                )
+            """
+            # TGFFIN sempre em aberto (DHBAIXA=NULL) — operador baixa no Sankhya.
+            cur.execute(sql_fin, {
+                'nufin': nufin, 'nunota': nunota, 'numnota': numnota,
+                'emp': codemp, 'parc': codparc, 'nat': codnat, 'cus': codcencus,
+                'bco': codbco, 'ccbi': codctabcoint, 'tit': codtiptit,
+                'cv': codveiculo,
+                'dtneg': dtneg, 'dtvenc': dtvenc,
+                'vlr': vlrtot, 'vlrbaixa': 0,
+                'hist': historico, 'usr': int(codusu),
+                'dhbaixa': None,
+                'empbaixa': None,
+                'usubaixa': None,
+            })
+
+            # 9. INSERT AD_REQUISICAO_COMBUSTIVEL (TIPO=EXTERNA_POSTO + audit do NUFIN)
+            req_id_var = cur.var(int)
+            cur.execute("""
+                INSERT INTO AD_REQUISICAO_COMBUSTIVEL (
+                    ID, NUNOTA, TIPO, CATEGORIA, CODVEICULO, CODPARC,
+                    HODOMETRO_KM, HORIMETRO_H,
+                    DOC_FRETE_REF, OBSERVACAO,
+                    NUFIN_GERADO, CODUSU, NOMEUSU
+                ) VALUES (
+                    SEQ_AD_REQUISICAO_COMBUSTIVEL.NEXTVAL, :nun, 'EXTERNA_POSTO',
+                    'COMBUSTIVEL', :cv, :cp,
+                    :hod_km, :hor_h,
+                    :doc, :obs,
+                    :nufin, :codusu, :nomeusu
+                )
+                RETURNING ID INTO :req_id
+            """, {
+                'nun': nunota, 'cv': codveiculo, 'cp': codparc,
+                'hod_km': hodometro_km, 'hor_h': horimetro_h,
+                'doc': (dados.get('doc_frete_ref') or '')[:50] or None,
+                'obs': (dados.get('observacao') or '')[:500] or None,
+                'nufin': nufin,
+                'codusu': int(codusu), 'nomeusu': (nomeusu or '')[:60] or None,
+                'req_id': req_id_var,
+            })
+            req_id = req_id_var.getvalue()
+            if isinstance(req_id, list):
+                req_id = req_id[0]
+
+            # 10. Confirma TGFCAB (STATUSNOTA='L') — lançamento avulso já confirmado.
+            cur.execute("""
+                UPDATE TGFCAB SET STATUSNOTA = 'L', DTFATUR = :dt
+                WHERE NUNOTA = :n
+            """, dt=dtneg, n=nunota)
+
+            conn.commit()
+            logger.info(
+                "Abast. externo: NUNOTA=%s NUFIN=%s posto=%s veículo=%s itens=%s vlrtot=%s",
+                nunota, nufin, codparc, codveiculo, len(itens_norm), vlrtot,
+            )
+            return {
+                'ok': True, 'nunota': nunota, 'numnota': numnota,
+                'requisicao_id': int(req_id), 'nufin': nufin,
+                'qtd_itens': len(itens_norm), 'vlrtot': float(vlrtot),
+            }
+
+    except Exception as exc:
+        logger.exception("Falha em criar_abastecimento_externo_banco")
+        return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+
+def obter_entrada_combustivel(nunota: int):
+    """Carrega cabeçalho + itens + financeiro de uma entrada (TOP 10 combustível).
+
+    Retorna dict {cabecalho, itens, financeiro} ou None se não existir.
+    """
+    nunota = int(nunota)
+    sql_cab = """
+        SELECT c.NUNOTA, c.NUMNOTA, c.SERIENOTA, c.CODEMP, c.CODPARC, p.NOMEPARC,
+               c.CODTIPOPER, c.CODNAT, c.CODCENCUS, c.CODTIPVENDA, c.STATUSNOTA,
+               c.DTNEG, c.DTMOV, c.VLRNOTA, c.QTDVOL, c.OBSERVACAO, c.CODUSU
+        FROM TGFCAB c
+        LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC
+        WHERE c.NUNOTA = :n AND c.CODTIPOPER = 10
+    """
+    sql_itens = """
+        SELECT i.SEQUENCIA, i.CODPROD, pr.DESCRPROD, i.CODVOL,
+               i.QTDNEG, i.VLRUNIT, i.VLRTOT, pr.CODGRUPOPROD
+        FROM TGFITE i
+        LEFT JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
+        WHERE i.NUNOTA = :n
+        ORDER BY i.SEQUENCIA
+    """
+    sql_fin = """
+        SELECT NUFIN, DTVENC, DHBAIXA, VLRDESDOB, VLRBAIXA, HISTORICO,
+               CODBCO, CODCTABCOINT, CODTIPTIT
+        FROM TGFFIN WHERE NUNOTA = :n
+    """
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(sql_cab, n=nunota)
+        row = cur.fetchone()
+        if not row:
+            return None
+        cab = {
+            'NUNOTA': int(row[0]),
+            'NUMNOTA': int(row[1]) if row[1] is not None else None,
+            'SERIENOTA': row[2] or '',
+            'CODEMP': int(row[3]) if row[3] is not None else None,
+            'CODPARC': int(row[4]) if row[4] is not None else None,
+            'NOMEPARC': row[5] or '',
+            'CODTIPOPER': int(row[6]) if row[6] is not None else None,
+            'CODNAT': int(row[7]) if row[7] is not None else None,
+            'CODCENCUS': int(row[8]) if row[8] is not None else None,
+            'CODTIPVENDA': int(row[9]) if row[9] is not None else None,
+            'STATUSNOTA': row[10],
+            'DTNEG': row[11].strftime('%Y-%m-%d') if row[11] else None,
+            'DTMOV': row[12].strftime('%Y-%m-%d') if row[12] else None,
+            'VLRNOTA': float(row[13]) if row[13] is not None else 0.0,
+            'QTDVOL': float(row[14]) if row[14] is not None else 0.0,
+            'OBSERVACAO': row[15] or '',
+            'CODUSU': int(row[16]) if row[16] is not None else None,
+        }
+        cur.execute(sql_itens, n=nunota)
+        itens = [{
+            'SEQUENCIA': int(r[0]),
+            'CODPROD': int(r[1]),
+            'DESCRPROD': r[2] or '',
+            'CODVOL': r[3] or '',
+            'QTDNEG': float(r[4]) if r[4] is not None else 0.0,
+            'VLRUNIT': float(r[5]) if r[5] is not None else 0.0,
+            'VLRTOT': float(r[6]) if r[6] is not None else 0.0,
+            'CODGRUPOPROD': int(r[7]) if r[7] is not None else None,
+        } for r in cur.fetchall()]
+        cur.execute(sql_fin, n=nunota)
+        fr = cur.fetchone()
+        financeiro = None
+        if fr:
+            financeiro = {
+                'NUFIN': int(fr[0]),
+                'DTVENC': fr[1].strftime('%Y-%m-%d') if fr[1] else None,
+                'DHBAIXA': fr[2].strftime('%Y-%m-%d') if fr[2] else None,
+                'VLRDESDOB': float(fr[3]) if fr[3] is not None else 0.0,
+                'VLRBAIXA': float(fr[4]) if fr[4] is not None else 0.0,
+                'HISTORICO': fr[5] or '',
+                'CODBCO': int(fr[6]) if fr[6] is not None else None,
+                'CODCTABCOINT': int(fr[7]) if fr[7] is not None else None,
+                'CODTIPTIT': int(fr[8]) if fr[8] is not None else None,
+            }
+        return {'cabecalho': cab, 'itens': itens, 'financeiro': financeiro}
+
+
+def consultar_ultimo_preco_combustivel(codprod: int):
+    """Mai/2026 (2026-05-13) — Retorna o VLRUNIT do último abastecimento de
+    estoque (TOP 10 não-excluído) de um combustível.
+
+    Usado pelo módulo Combustível: ao escolher o produto numa requisição
+    interna, o campo "Valor unitário" é preenchido automaticamente com esse
+    valor (read-only — operador não digita). Pra abastecimento externo, o
+    preço vem do posto (operador edita).
+
+    Retorna:
+      {'codprod': int, 'vlrunit': float, 'dtneg': 'YYYY-MM-DD', 'nunota': int}
+      None se não houver entrada de estoque com VLRUNIT > 0.
+    """
+    codprod = int(codprod)
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT VLRUNIT, DTNEG, NUNOTA FROM (
+                SELECT i.VLRUNIT, c.DTNEG, c.NUNOTA
+                FROM TGFITE i
+                JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                WHERE c.CODTIPOPER = 10
+                  AND c.STATUSNOTA <> 'E'
+                  AND i.CODPROD = :cp
+                  AND NVL(i.VLRUNIT, 0) > 0
+                ORDER BY c.DTNEG DESC, c.NUNOTA DESC
+            )
+            WHERE ROWNUM = 1
+        """, cp=codprod)
+        row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            'codprod': codprod,
+            'vlrunit': float(row[0]) if row[0] is not None else 0.0,
+            'dtneg': row[1].strftime('%Y-%m-%d') if row[1] else None,
+            'nunota': int(row[2]) if row[2] is not None else None,
+        }
+
+
+def consultar_prazo_tipvenda(codtipvenda: int):
+    """Retorna o prazo padrão (em dias) de um TGFTPV pra cálculo automático
+    de DTVENC = DTNEG + prazo.
+
+    Fonte do prazo (Mai/2026, 2026-05-13) — Agromil tem ~95% dos TGFTPV com
+    BASEPRAZO=0 mas o prazo real está no NOME (ex: "A PRAZO - 30 DIAS"). Por
+    isso uso 2 camadas:
+      1. BASEPRAZO da TGFTPV (oficial)
+      2. Fallback: regex no DESCRTIPVENDA buscando "\\d+ DIAS"
+      3. Sem nada → 0 (à vista; operador edita DTVENC manualmente)
+
+    Se houver múltiplas linhas pro mesmo CODTIPVENDA (Sankhya versiona por
+    DHALTER), pega a MAIS RECENTE.
+    """
+    import re
+    codtipvenda = int(codtipvenda)
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT CODTIPVENDA, DESCRTIPVENDA, NVL(BASEPRAZO, 0)
+            FROM (
+                SELECT CODTIPVENDA, DESCRTIPVENDA, BASEPRAZO, DHALTER
+                FROM TGFTPV WHERE CODTIPVENDA = :c AND ATIVO = 'S'
+                ORDER BY DHALTER DESC
+            )
+            WHERE ROWNUM = 1
+        """, c=codtipvenda)
+        row = cur.fetchone()
+        if not row:
+            return None
+        descr = row[1] or ''
+        prazo = int(row[2] or 0)
+        # Fallback: extrai dias da descrição (formato "X DIAS")
+        if prazo == 0 and descr:
+            m = re.search(r'(\d+)\s*DIAS?', descr.upper())
+            if m:
+                prazo = int(m.group(1))
+        return {
+            'codtipvenda': int(row[0]),
+            'descrtipvenda': descr,
+            'prazo_dias': prazo,
+        }
+
+
+def editar_entrada_combustivel_banco(nunota: int, dados: dict, codusu: int, nomeusu: str = '') -> dict:
+    """B14 (Mai/2026) — Edita entrada de combustível (TOP 10) em modo CRUD do IAgro.
+
+    Trava: bloqueia se TGFFIN já está baixado (DHBAIXA NOT NULL) — operador
+    deve estornar a baixa no Sankhya antes.
+
+    Estratégia transacional atômica:
+      1. Valida estado atual
+      2. UPDATE TGFCAB (cab metadata: CODEMP, CODPARC, NUMNOTA, SERIENOTA,
+         DTNEG, CODNAT, CODCENCUS, CODTIPVENDA, OBSERVACAO)
+      3. DELETE TGFITE WHERE NUNOTA  → INSERT N novos itens
+         (simples e robusto vs UPDATE item-a-item com match de SEQUENCIA)
+      4. recalcular_totais_nota_banco
+      5. UPDATE TGFFIN (VLRDESDOB, VLRBAIXA, DTVENC, HISTORICO, CODPARC,
+         CODEMP, CODNAT, CODCENCUS, DTNEG)
+
+    Payload (`dados`) — mesmo formato do criar (com `itens` lista).
+    Todos os campos do payload são opcionais — campos ausentes preservam o
+    valor atual.
+
+    Retorno:
+      {'ok': True, 'nunota': int, 'numnota': int, 'nufin': int, 'qtd_itens': int}
+      {'ok': False, 'error': str}
+    """
+    nunota = int(nunota)
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 1. Carrega estado atual (cab + fin)
+            cur.execute("""
+                SELECT c.STATUSNOTA, c.CODEMP, c.CODPARC, c.NUMNOTA, c.SERIENOTA,
+                       c.CODNAT, c.CODCENCUS, c.CODTIPVENDA, c.DTNEG, c.OBSERVACAO,
+                       f.NUFIN, f.DTVENC, f.DHBAIXA, f.HISTORICO,
+                       f.CODBCO, f.CODCTABCOINT, f.CODTIPTIT
+                FROM TGFCAB c
+                LEFT JOIN TGFFIN f ON f.NUNOTA = c.NUNOTA
+                WHERE c.NUNOTA = :n AND c.CODTIPOPER = 10
+            """, n=nunota)
+            row = cur.fetchone()
+            if not row:
+                return {'ok': False, 'error': f'Entrada {nunota} não encontrada.'}
+            (statusnota, cab_emp, cab_parc, cab_numnota, cab_serie,
+             cab_nat, cab_cencus, cab_tipv, cab_dtneg, cab_obs,
+             fin_nufin, fin_dtvenc, fin_dhbaixa, fin_hist,
+             fin_bco, fin_ccbi, fin_tit) = row
+
+            if statusnota == 'E':
+                return {'ok': False, 'error': 'Entrada já está excluída.'}
+            if fin_dhbaixa is not None:
+                return {'ok': False, 'error':
+                    'Financeiro desta entrada já está baixado. '
+                    'Estorne a baixa no Sankhya antes de editar.'}
+            if not fin_nufin:
+                return {'ok': False, 'error':
+                    'Esta entrada não tem TGFFIN associado — inconsistente.'}
+
+            # 2. Resolve novos valores (preserva atual se ausente)
+            codemp     = int(dados.get('codemp')     or cab_emp)
+            codparc    = int(dados.get('codparc')    or cab_parc)
+            numnota_n  = int(dados.get('numnota')    or cab_numnota)
+            serienota_n = (dados.get('serienota') if 'serienota' in dados
+                           else (cab_serie or ''))
+            serienota_n = (serienota_n or '').strip()[:3] or None
+            codnat     = int(dados.get('codnat')     or cab_nat)
+            codcencus  = int(dados.get('codcencus')  or cab_cencus)
+            codtipvenda = int(dados.get('codtipvenda') or cab_tipv or 11)
+            dtneg_n  = _parse_data_iagro(dados.get('dtneg'),  cab_dtneg)
+            dtvenc_n = _parse_data_iagro(dados.get('dtvenc'), fin_dtvenc)
+            observacao = (dados.get('observacao') if 'observacao' in dados else cab_obs)
+
+            if dtvenc_n < dtneg_n:
+                return {'ok': False, 'error': 'dtvenc não pode ser anterior a dtneg.'}
+            # TGFFIN não tem baixa automática — operador baixa pelo Sankhya.
+            # Edição preserva o estado de baixa atual (DHBAIXA permanece como está).
+
+            # 3. Itens — exige lista (ou monta de campos avulsos por compat)
+            itens_payload = dados.get('itens')
+            if not itens_payload:
+                codp_legacy = dados.get('codprod')
+                if codp_legacy:
+                    itens_payload = [{
+                        'codprod': codp_legacy,
+                        'qtd': dados.get('qtd'),
+                        'vlrunit': dados.get('vlrunit'),
+                    }]
+            if not itens_payload or not isinstance(itens_payload, list):
+                return {'ok': False, 'error': 'Informe ao menos 1 item.'}
+
+            erros_itens = []
+            itens_norm = []
+            for idx, it in enumerate(itens_payload, start=1):
+                cp = int(it.get('codprod') or 0)
+                qt = float(it.get('qtd') or 0)
+                vu = float(it.get('vlrunit') or 0)
+                if not cp:  erros_itens.append(f'Item {idx}: codprod obrigatório')
+                if qt <= 0: erros_itens.append(f'Item {idx}: qtd > 0')
+                if vu <= 0: erros_itens.append(f'Item {idx}: vlrunit > 0')
+                itens_norm.append({'codprod': cp, 'qtd': qt, 'vlrunit': vu})
+            if erros_itens:
+                return {'ok': False, 'error': ' · '.join(erros_itens)}
+
+            # Valida cada produto é combustível
+            descricoes = {}
+            for it in itens_norm:
+                cur.execute("""
+                    SELECT CODGRUPOPROD, DESCRPROD, CODVOL
+                    FROM TGFPRO WHERE CODPROD = :cp AND ATIVO = 'S'
+                """, cp=it['codprod'])
+                rp = cur.fetchone()
+                if not rp:
+                    return {'ok': False, 'error': f"Produto {it['codprod']} não encontrado."}
+                if rp[0] != CODGRUPOPROD_COMBUSTIVEL:
+                    return {'ok': False, 'error':
+                        f"Produto {it['codprod']} ({rp[1]}) não é combustível."}
+                descricoes[it['codprod']] = (rp[1], rp[2] or 'LT')
+
+            # 4. UPDATE TGFCAB
+            cur.execute("""
+                UPDATE TGFCAB
+                   SET CODEMP = :emp, CODPARC = :parc,
+                       NUMNOTA = :nn, SERIENOTA = :sn,
+                       CODNAT = :nat, CODCENCUS = :cus, CODTIPVENDA = :tipv,
+                       DTNEG = :dt, DTMOV = :dt,
+                       OBSERVACAO = :obs
+                 WHERE NUNOTA = :n AND CODTIPOPER = 10
+            """, {
+                'n': nunota,
+                'emp': codemp, 'parc': codparc,
+                'nn': numnota_n, 'sn': serienota_n,
+                'nat': codnat, 'cus': codcencus, 'tipv': codtipvenda,
+                'dt': dtneg_n,
+                'obs': (observacao or '')[:200] or None,
+            })
+
+            # 5. UPDATE diferencial dos itens (Mai/2026, 2026-05-13).
+            # Reusa SEQUENCIAs existentes via UPDATE (evita disparar
+            # TRG_INC_UPD_TGFITE_PRODNFE) e usa `inserir_item_nota_banco` para
+            # adicionais — que agora aceita conn existente em
+            # `gerar_proxima_sequencia_item`, então as SEQUENCIAs sucessivas
+            # batem dentro da mesma transação sem PK violation.
+            cur.execute("""
+                SELECT SEQUENCIA FROM TGFITE WHERE NUNOTA = :n ORDER BY SEQUENCIA
+            """, n=nunota)
+            seqs_existentes = [int(r[0]) for r in cur.fetchall()]
+
+            vlrtot_total = 0.0
+            for idx, it in enumerate(itens_norm):
+                cp = it['codprod']
+                _, codvol = descricoes[cp]
+                vlt_item = round(it['qtd'] * it['vlrunit'], 4)
+                vlrtot_total += vlt_item
+
+                if idx < len(seqs_existentes):
+                    # Item já existe nesta posição → UPDATE
+                    seq_alvo = seqs_existentes[idx]
+                    cur.execute("""
+                        UPDATE TGFITE
+                           SET CODPROD = :cp, CODVOL = :cv,
+                               QTDNEG = :qt, VLRUNIT = :vlu, VLRTOT = :vlt,
+                               QTDCONFERIDA = :qt,
+                               CODAGREGACAO = NULL
+                         WHERE NUNOTA = :n AND SEQUENCIA = :s
+                    """, {
+                        'n': nunota, 's': seq_alvo,
+                        'cp': cp, 'cv': codvol,
+                        'qt': it['qtd'], 'vlu': it['vlrunit'], 'vlt': vlt_item,
+                    })
+                else:
+                    # Item novo → reusa helper que cuida de todas as colunas
+                    # exigidas pelos triggers Sankhya (TRG_INC_UPD_TGFITE_PRODNFE).
+                    item_resp = inserir_item_nota_banco({
+                        'NUNOTA':       nunota,
+                        'CODPROD':      cp,
+                        'QTDNEG':       it['qtd'],
+                        'VLRUNIT':      it['vlrunit'],
+                        'CODVOL':       codvol,
+                        'CODAGREGACAO': None,
+                    }, gerar_lote_auto=False, conexao_existente=conn)
+                    if not item_resp.get('ok'):
+                        return {'ok': False, 'error':
+                            f"Falha ao adicionar item CODPROD={cp}: {item_resp.get('error')}"}
+
+            # 5.5 Itens em excesso (lista nova menor que a antiga) → DELETE
+            if len(itens_norm) < len(seqs_existentes):
+                seqs_remover = seqs_existentes[len(itens_norm):]
+                placeholders = ','.join(str(int(s)) for s in seqs_remover)
+                cur.execute(
+                    f"DELETE FROM TGFITE WHERE NUNOTA = :n AND SEQUENCIA IN ({placeholders})",
+                    n=nunota,
+                )
+
+            recalcular_totais_nota_banco(nunota, conexao_existente=conn)
+            vlrtot_total = round(vlrtot_total, 4)
+
+            # 6. UPDATE TGFFIN — não mexe nos campos de baixa (DHBAIXA/VLRBAIXA/
+            # CODEMPBAIXA/CODUSUBAIXA). O bloqueio inicial (linha 1) já garante
+            # que só editamos TGFFIN ainda em aberto, mas mesmo assim preserva
+            # o estado por consistência: campos de baixa = NULL.
+            historico_n = (dados.get('historico')
+                           or fin_hist
+                           or f'Compra combust. NF {numnota_n}')[:255]
+            cur.execute("""
+                UPDATE TGFFIN
+                   SET CODEMP = :emp, CODPARC = :parc, CODNAT = :nat, CODCENCUS = :cus,
+                       NUMNOTA = :nn,
+                       DTNEG = :dtneg, DTVENC = :dtvenc, DTVENCINIC = :dtvenc, DTPRAZO = :dtvenc,
+                       VLRDESDOB = :vlr, VLRBAIXA = 0,
+                       HISTORICO = :hist,
+                       DHBAIXA = NULL, CODEMPBAIXA = NULL, CODUSUBAIXA = NULL,
+                       DHMOV = SYSDATE, DTALTER = SYSDATE
+                 WHERE NUFIN = :nf
+            """, {
+                'nf': int(fin_nufin),
+                'emp': codemp, 'parc': codparc, 'nat': codnat, 'cus': codcencus,
+                'nn': numnota_n,
+                'dtneg': dtneg_n, 'dtvenc': dtvenc_n,
+                'vlr': vlrtot_total,
+                'hist': historico_n,
+            })
+
+            conn.commit()
+            logger.info(
+                "Entrada combustível NUNOTA=%s editada (numnota=%s itens=%s vlrtot=%s)",
+                nunota, numnota_n, len(itens_norm), vlrtot_total,
+            )
+            return {
+                'ok': True, 'nunota': nunota, 'numnota': numnota_n,
+                'nufin': int(fin_nufin), 'qtd_itens': len(itens_norm),
+                'vlrtot': float(vlrtot_total),
+            }
+
+    except Exception as exc:
+        logger.exception("Falha em editar_entrada_combustivel_banco")
+        return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+
+def excluir_entrada_combustivel_banco(nunota: int, motivo: str, codusu: int, nomeusu: str = '') -> dict:
+    """B15 (Mai/2026) — Exclui FISICAMENTE uma entrada de combustível (TOP 10).
+
+    DELETE em cascata: TGFFIN → TGFITE → TGFCAB.
+    Bloqueia se TGFFIN já estiver baixado (DHBAIXA NOT NULL) — operador deve
+    estornar a baixa no Sankhya antes pra reverter financeiro corretamente.
+
+    Mesma estratégia da B6/B12: trigger Sankhya TRG_UPD_TGFCAB bloqueia
+    UPDATE STATUSNOTA='E', então é DELETE físico.
+    """
+    nunota = int(nunota)
+    motivo = (motivo or '').strip()
+    if not motivo:
+        return {'ok': False, 'error': 'Motivo da exclusão é obrigatório.'}
+    if len(motivo) > 300:
+        motivo = motivo[:300]
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 1. Verifica estado + NUFIN + DHBAIXA
+            cur.execute("""
+                SELECT c.STATUSNOTA, f.NUFIN, f.DHBAIXA
+                FROM TGFCAB c
+                LEFT JOIN TGFFIN f ON f.NUNOTA = c.NUNOTA
+                WHERE c.NUNOTA = :n AND c.CODTIPOPER = 10
+            """, n=nunota)
+            row = cur.fetchone()
+            if not row:
+                return {'ok': False, 'error': f'Entrada {nunota} não encontrada.'}
+            statusnota, nufin, dhbaixa = row[0], row[1], row[2]
+
+            if dhbaixa is not None:
+                return {'ok': False, 'error':
+                    'Financeiro desta entrada já está baixado. '
+                    'Estorne a baixa no Sankhya antes de excluir.'}
+
+            # 2. Audit em log (motivo+usuário) ANTES dos DELETEs
+            usu_label = (nomeusu or str(codusu))[:30]
+            logger.info(
+                "EXCLUSAO entrada combustível NUNOTA=%s nufin=%s por codusu=%s (%s) — motivo: %s",
+                nunota, nufin, codusu, usu_label, motivo,
+            )
+
+            # 3. DELETE em cascata: TGFFIN → TGFITE → TGFCAB
+            if nufin:
+                cur.execute("DELETE FROM TGFFIN WHERE NUFIN = :nf", nf=int(nufin))
+            cur.execute("DELETE FROM TGFITE WHERE NUNOTA = :n", n=nunota)
+            cur.execute(
+                "DELETE FROM TGFCAB WHERE NUNOTA = :n AND CODTIPOPER = 10",
+                n=nunota,
+            )
+
+            conn.commit()
+            logger.info(
+                "Entrada combustível NUNOTA=%s DELETE físico concluído (statusnota=%s)",
+                nunota, statusnota,
+            )
+            return {'ok': True, 'nunota': nunota}
+
+    except Exception as exc:
+        logger.exception("Falha em excluir_entrada_combustivel_banco")
+        return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+
+# ==============================================================================
+# 📊 DASHBOARD EXECUTIVO — INDICADORES DE SAÚDE DO SISTEMA
+# Função aditiva (SELECT puro). Categoria A — Mai/2026.
+# Consolidada em 1 conexão pra minimizar round-trips. Cada indicador é uma
+# subquery independente; falha de um não derruba os outros (try/except por bloco).
+# ==============================================================================
+
+# Threshold pra "tanque crítico" — saldo abaixo desse % vira alerta vermelho
+TANQUE_CRITICO_PCT = 20.0
+
+# Threshold pra "lote envelhecido" — alinhado com a constante DIAS_ALERTA_LOTE
+# do frontend do Rastreio (rastreio.js).
+DIAS_LOTE_ENVELHECIDO = 60
+
+
+def consultar_indicadores_dashboard():
+    """Consolida os 6 indicadores do dashboard home em chamadas paralelas.
+
+    Retorna dict no formato:
+      {
+        'sem_lote':              {'count': int, 'label': str},
+        'aguardando_classif':    {'count': int, 'label': str},
+        'vales_abertos':         {'count': int, 'label': str},
+        'tanques_criticos':      {'count': int, 'label': str, 'detalhes': [...]},
+        'prontos_faturar':       {'count': int, 'label': str},
+        'lotes_envelhecidos':    {'count': int, 'label': str},
+      }
+
+    Indicadores escolhidos (Mai/2026):
+      #1 Pedidos sem lote atribuído (TOP 34, STATUSNOTA <> 'L'/'E', item CODAGREGACAO IS NULL)
+      #2 Lotes aguardando classificação (perna C da view ANDRE_IAGRO_SALDO_LOTE)
+      #4 Vales em aberto (TOP 13, STATUSNOTA NOT IN ('L', 'E'))
+      #5 Tanques com saldo crítico (< TANQUE_CRITICO_PCT % da capacidade)
+      #7 Pedidos prontos pra faturar (TOP 34, todos itens com CODAGREGACAO)
+      #8 Lotes envelhecidos (DTNEG_ORIGEM < SYSDATE - DIAS_LOTE_ENVELHECIDO e disponíveis)
+    """
+    indicadores = {}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # #1 Pedidos sem lote atribuído
+            try:
+                cur.execute("""
+                    SELECT COUNT(DISTINCT c.NUNOTA)
+                    FROM TGFCAB c
+                    JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+                    WHERE c.CODTIPOPER = 34
+                      AND (c.STATUSNOTA IS NULL OR c.STATUSNOTA NOT IN ('L', 'E'))
+                      AND i.CODAGREGACAO IS NULL
+                """)
+                indicadores['sem_lote'] = {
+                    'count': int(cur.fetchone()[0] or 0),
+                    'label': 'Pedidos sem lote atribuído',
+                }
+            except Exception as exc:
+                logger.exception("Falha indicador sem_lote")
+                indicadores['sem_lote'] = {'count': None, 'label': 'Pedidos sem lote atribuído', 'erro': str(exc)[:120]}
+
+            # #2 Lotes aguardando classificação (perna C)
+            try:
+                cur.execute("""
+                    SELECT COUNT(*)
+                    FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE
+                    WHERE STATUS_LINHA = 'AGUARDANDO_CLASSIFICACAO'
+                      AND QTD_DISPONIVEL > 0
+                """)
+                indicadores['aguardando_classif'] = {
+                    'count': int(cur.fetchone()[0] or 0),
+                    'label': 'Lotes aguardando classificação',
+                }
+            except Exception as exc:
+                logger.exception("Falha indicador aguardando_classif")
+                indicadores['aguardando_classif'] = {'count': None, 'label': 'Lotes aguardando classificação', 'erro': str(exc)[:120]}
+
+            # #4 Vales em aberto (TOP 13)
+            try:
+                cur.execute("""
+                    SELECT COUNT(*)
+                    FROM TGFCAB
+                    WHERE CODTIPOPER = 13
+                      AND (STATUSNOTA IS NULL OR STATUSNOTA NOT IN ('L', 'E'))
+                """)
+                indicadores['vales_abertos'] = {
+                    'count': int(cur.fetchone()[0] or 0),
+                    'label': 'Vales em aberto',
+                }
+            except Exception as exc:
+                logger.exception("Falha indicador vales_abertos")
+                indicadores['vales_abertos'] = {'count': None, 'label': 'Vales em aberto', 'erro': str(exc)[:120]}
+
+            # #7 Pedidos prontos pra faturar (TOP 34 com TODOS itens com CODAGREGACAO)
+            try:
+                cur.execute("""
+                    SELECT COUNT(*) FROM (
+                      SELECT c.NUNOTA
+                      FROM TGFCAB c
+                      WHERE c.CODTIPOPER = 34
+                        AND (c.STATUSNOTA IS NULL OR c.STATUSNOTA NOT IN ('L', 'E'))
+                        AND EXISTS (SELECT 1 FROM TGFITE i WHERE i.NUNOTA = c.NUNOTA)
+                        AND NOT EXISTS (
+                          SELECT 1 FROM TGFITE i
+                          WHERE i.NUNOTA = c.NUNOTA AND i.CODAGREGACAO IS NULL
+                        )
+                    )
+                """)
+                indicadores['prontos_faturar'] = {
+                    'count': int(cur.fetchone()[0] or 0),
+                    'label': 'Pedidos prontos pra faturar',
+                }
+            except Exception as exc:
+                logger.exception("Falha indicador prontos_faturar")
+                indicadores['prontos_faturar'] = {'count': None, 'label': 'Pedidos prontos pra faturar', 'erro': str(exc)[:120]}
+
+            # #8 Lotes envelhecidos (> N dias, ainda disponíveis e vendáveis)
+            try:
+                cur.execute("""
+                    SELECT COUNT(*)
+                    FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE
+                    WHERE STATUS_LINHA IN ('CLASSIFICADO', 'NAO_CLASSIFICAVEL')
+                      AND QTD_DISPONIVEL > 0
+                      AND DTNEG_ORIGEM < TRUNC(SYSDATE) - :dias
+                """, dias=DIAS_LOTE_ENVELHECIDO)
+                indicadores['lotes_envelhecidos'] = {
+                    'count': int(cur.fetchone()[0] or 0),
+                    'label': f'Lotes com mais de {DIAS_LOTE_ENVELHECIDO} dias',
+                }
+            except Exception as exc:
+                logger.exception("Falha indicador lotes_envelhecidos")
+                indicadores['lotes_envelhecidos'] = {'count': None, 'label': f'Lotes com mais de {DIAS_LOTE_ENVELHECIDO} dias', 'erro': str(exc)[:120]}
+
+    except Exception as exc:
+        logger.exception("Falha geral no dashboard (conexão Oracle)")
+        # Se a conexão caiu, devolve todos os indicadores como erro de infra
+        msg = humanizar_erro_oracle(exc)
+        for k in ['sem_lote', 'aguardando_classif', 'vales_abertos', 'prontos_faturar', 'lotes_envelhecidos']:
+            if k not in indicadores:
+                indicadores[k] = {'count': None, 'label': '', 'erro': msg}
+
+    # #5 Tanques com saldo crítico — usa função existente consultar_saldo_combustivel
+    # (que já trata SALDO_INICIAL_TANQUE e GREATEST 0 corretamente)
+    try:
+        saldos = consultar_saldo_combustivel()
+        criticos = []
+        for r in saldos:
+            # tupla retornada: (CODPROD, DESCRPROD, CODVOL, qtd_entrada, qtd_saida,
+            #                   qtd_disponivel, capacidade_lt, saldo_inicial, percentual, formato)
+            codprod  = int(r[0])
+            descr    = r[1]
+            disp     = float(r[5] or 0)
+            capac    = float(r[6] or 0)
+            pct      = float(r[8] or 0)
+            if capac > 0 and pct < TANQUE_CRITICO_PCT:
+                criticos.append({
+                    'codprod': codprod,
+                    'descricao': descr,
+                    'qtd_disponivel': disp,
+                    'capacidade': capac,
+                    'percentual': round(pct, 1),
+                })
+        indicadores['tanques_criticos'] = {
+            'count': len(criticos),
+            'label': f'Tanques com saldo abaixo de {int(TANQUE_CRITICO_PCT)}%',
+            'detalhes': criticos,
+        }
+    except Exception as exc:
+        logger.exception("Falha indicador tanques_criticos")
+        indicadores['tanques_criticos'] = {'count': None, 'label': 'Tanques com saldo crítico', 'erro': str(exc)[:120], 'detalhes': []}
+
+    return indicadores
+
+
+# ==============================================================================
+# 📋 AUDITORIA UNIVERSAL — AD_AUDITORIA_GERAL (Mai/2026)
+# Helper Categoria B (INSERT em tabela nova). Tolerante a falha.
+# Sempre chamado DEPOIS do commit da operação principal — se este INSERT
+# falhar, a operação não é desfeita (mesmo padrão do _registrar_audit_rastreio).
+# ==============================================================================
+
+# Módulos permitidos (alinhado com CK_AD_AUDIT_MODULO da DDL)
+MODULOS_AUDIT = (
+    'venda', 'combustivel', 'rastreio', 'comercial',
+    'entrada', 'classificacao', 'email',
+)
+
+
+def registrar_auditoria(
+    modulo: str,
+    operacao: str,
+    *,
+    tabela_alvo: Optional[str] = None,
+    registro_id: Optional[Any] = None,
+    codusu: Optional[int] = None,
+    nomeusu: Optional[str] = None,
+    snapshot_antes: Optional[dict] = None,
+    snapshot_depois: Optional[dict] = None,
+    observacao: Optional[str] = None,
+) -> None:
+    """Grava 1 evento na AD_AUDITORIA_GERAL.
+
+    Tolerante a falha — se INSERT falhar, registra warning e NÃO levanta
+    exceção. A operação principal JÁ foi commitada quando este helper é
+    chamado, então perder a auditoria é menos pior que reverter a operação.
+    Mesmo padrão do _registrar_audit_rastreio existente.
+
+    Parâmetros:
+      modulo: um de MODULOS_AUDIT (venda/combustivel/rastreio/...).
+      operacao: nome da operação (ex: 'CRIAR_PEDIDO', 'EDITAR_REQUISICAO').
+      tabela_alvo: tabela Oracle principal afetada (ex: 'TGFCAB').
+      registro_id: NUNOTA/ID/etc — convertido pra string.
+      codusu, nomeusu: do request.session.
+      snapshot_antes: dict com estado anterior (None em CRIAR).
+      snapshot_depois: dict com estado posterior (None em EXCLUIR).
+      observacao: texto livre opcional (motivo, contexto).
+
+    Não retorna nada — efeitos colaterais via logger.warning em caso de falha.
+    """
+    try:
+        import json
+        snap_a = json.dumps(snapshot_antes, ensure_ascii=False, default=str) if snapshot_antes else None
+        snap_d = json.dumps(snapshot_depois, ensure_ascii=False, default=str) if snapshot_depois else None
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO SANKHYA.AD_AUDITORIA_GERAL (
+                    ID, MODULO, OPERACAO, TABELA_ALVO, REGISTRO_ID,
+                    CODUSU, NOMEUSU, SNAPSHOT_ANTES, SNAPSHOT_DEPOIS, OBSERVACAO
+                ) VALUES (
+                    SANKHYA.SEQ_AD_AUDITORIA_GERAL.NEXTVAL,
+                    :modulo, :operacao, :tabela_alvo, :registro_id,
+                    :codusu, :nomeusu, :snap_a, :snap_d, :observacao
+                )
+                """,
+                modulo=modulo,
+                operacao=operacao,
+                tabela_alvo=tabela_alvo,
+                registro_id=str(registro_id) if registro_id is not None else None,
+                codusu=codusu,
+                nomeusu=nomeusu,
+                snap_a=snap_a,
+                snap_d=snap_d,
+                observacao=observacao,
+            )
+            conn.commit()
+    except Exception as exc:
+        logger.warning(
+            "Falha ao gravar AD_AUDITORIA_GERAL (modulo=%s, operacao=%s, registro_id=%s): %s",
+            modulo, operacao, registro_id, exc,
+        )
+
+
+# ==============================================================================
+# 📋 CONSULTA DE AUDITORIA (Lote A — leitura paginada com filtros)
+# ==============================================================================
+
+def _ler_clob(v):
+    """Materializa um LOB Oracle em string. Tolerante a None."""
+    if v is None:
+        return None
+    if hasattr(v, 'read'):
+        try:
+            return v.read()
+        except Exception:
+            return str(v)
+    return v
+
+
+def consultar_auditoria_paginada(filtros: dict = None, limite: int = 50, offset: int = 0):
+    """Lista eventos de AD_AUDITORIA_GERAL com filtros + paginação Oracle 11g.
+
+    Filtros aceitos (todos opcionais):
+      - modulo:       str | None
+      - operacao:     str | None
+      - codusu:       int | None
+      - registro_id:  str | None       (busca exata em REGISTRO_ID)
+      - busca:        str | None       (LIKE em snapshot_antes/depois/observacao)
+      - data_ini:     'YYYY-MM-DD'
+      - data_fim:     'YYYY-MM-DD'
+
+    Retorna dict:
+      {
+        'registros': [
+          {id, modulo, operacao, tabela_alvo, registro_id, codusu, nomeusu,
+           dt (ISO), snapshot_antes (dict|None), snapshot_depois (dict|None),
+           observacao},
+          ...
+        ],
+        'total':         int,   # COUNT(*) com mesmos filtros
+        'tem_mais':      bool,  # se há mais páginas
+        'pagina_size':   int,
+        'offset_atual':  int,
+      }
+    """
+    import json
+    filtros = filtros or {}
+    limite = max(1, min(int(limite or 50), 500))
+    offset = max(0, int(offset or 0))
+
+    where = ['1=1']
+    binds = {}
+
+    if filtros.get('modulo'):
+        where.append('MODULO = :modulo')
+        binds['modulo'] = str(filtros['modulo']).strip()
+    if filtros.get('operacao'):
+        where.append('OPERACAO = :operacao')
+        binds['operacao'] = str(filtros['operacao']).strip()
+    if filtros.get('codusu'):
+        where.append('CODUSU = :codusu')
+        binds['codusu'] = int(filtros['codusu'])
+    if filtros.get('registro_id'):
+        where.append('REGISTRO_ID = :reg_id')
+        binds['reg_id'] = str(filtros['registro_id']).strip()
+    if filtros.get('data_ini'):
+        where.append("DT >= TO_DATE(:dt_ini, 'YYYY-MM-DD')")
+        binds['dt_ini'] = str(filtros['data_ini']).strip()
+    if filtros.get('data_fim'):
+        where.append("DT < TO_DATE(:dt_fim, 'YYYY-MM-DD') + 1")
+        binds['dt_fim'] = str(filtros['data_fim']).strip()
+    if filtros.get('busca'):
+        where.append(
+            "(UPPER(NOMEUSU) LIKE :busca "
+            "OR UPPER(OBSERVACAO) LIKE :busca "
+            "OR DBMS_LOB.INSTR(UPPER(SNAPSHOT_ANTES), :busca_raw) > 0 "
+            "OR DBMS_LOB.INSTR(UPPER(SNAPSHOT_DEPOIS), :busca_raw) > 0)"
+        )
+        b = str(filtros['busca']).strip().upper()
+        binds['busca']     = f"%{b}%"
+        binds['busca_raw'] = b
+
+    where_sql = ' AND '.join(where)
+
+    sql_count = f"SELECT COUNT(*) FROM SANKHYA.AD_AUDITORIA_GERAL WHERE {where_sql}"
+
+    # Paginação Oracle 11g compatível (ROW_NUMBER) — ver gotchas
+    sql_pag = f"""
+        SELECT ID, MODULO, OPERACAO, TABELA_ALVO, REGISTRO_ID,
+               CODUSU, NOMEUSU, DT, SNAPSHOT_ANTES, SNAPSHOT_DEPOIS, OBSERVACAO
+        FROM (
+            SELECT t.*, ROW_NUMBER() OVER (ORDER BY DT DESC, ID DESC) AS rn
+            FROM SANKHYA.AD_AUDITORIA_GERAL t
+            WHERE {where_sql}
+        )
+        WHERE rn BETWEEN :inicio AND :fim
+        ORDER BY DT DESC, ID DESC
+    """
+    binds_pag = dict(binds)
+    binds_pag['inicio'] = offset + 1
+    binds_pag['fim']    = offset + limite
+
+    total = 0
+    registros = []
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql_count, binds)
+            total = int(cur.fetchone()[0] or 0)
+
+            cur.execute(sql_pag, binds_pag)
+            for r in cur.fetchall():
+                snap_a_raw = _ler_clob(r[8])
+                snap_d_raw = _ler_clob(r[9])
+                snap_a = None
+                snap_d = None
+                try:
+                    snap_a = json.loads(snap_a_raw) if snap_a_raw else None
+                except Exception:
+                    snap_a = {'_raw': snap_a_raw[:500]} if snap_a_raw else None
+                try:
+                    snap_d = json.loads(snap_d_raw) if snap_d_raw else None
+                except Exception:
+                    snap_d = {'_raw': snap_d_raw[:500]} if snap_d_raw else None
+
+                registros.append({
+                    'id':              int(r[0]),
+                    'modulo':          r[1],
+                    'operacao':        r[2],
+                    'tabela_alvo':     r[3],
+                    'registro_id':     r[4],
+                    'codusu':          int(r[5]) if r[5] is not None else None,
+                    'nomeusu':         r[6],
+                    'dt':              r[7].strftime('%Y-%m-%d %H:%M:%S') if r[7] else None,
+                    'snapshot_antes':  snap_a,
+                    'snapshot_depois': snap_d,
+                    'observacao':      r[10],
+                })
+    except Exception as exc:
+        logger.exception("Falha em consultar_auditoria_paginada")
+        raise
+
+    return {
+        'registros':    registros,
+        'total':        total,
+        'tem_mais':     (offset + len(registros)) < total,
+        'pagina_size':  limite,
+        'offset_atual': offset,
+    }
+
+
+def listar_filtros_distintos_auditoria():
+    """Pré-carrega valores distintos pra popular os filtros da tela:
+      - modulos (lista de strings)
+      - operacoes (lista de strings)
+      - usuarios (lista de {codusu, nomeusu})
+
+    Limita pra evitar selects gigantes (auditoria nova, vai crescer).
+    Retorna dict pronto para JsonResponse.
+    """
+    out = {'modulos': [], 'operacoes': [], 'usuarios': []}
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT DISTINCT MODULO FROM SANKHYA.AD_AUDITORIA_GERAL ORDER BY MODULO")
+            out['modulos'] = [r[0] for r in cur.fetchall() if r[0]]
+
+            cur.execute("SELECT DISTINCT OPERACAO FROM SANKHYA.AD_AUDITORIA_GERAL ORDER BY OPERACAO")
+            out['operacoes'] = [r[0] for r in cur.fetchall() if r[0]]
+
+            cur.execute("""
+                SELECT CODUSU, MAX(NOMEUSU) as NOMEUSU
+                FROM SANKHYA.AD_AUDITORIA_GERAL
+                WHERE CODUSU IS NOT NULL
+                GROUP BY CODUSU
+                ORDER BY MAX(NOMEUSU)
+            """)
+            out['usuarios'] = [
+                {'codusu': int(r[0]), 'nomeusu': r[1] or f"Usuário {r[0]}"}
+                for r in cur.fetchall()
+            ]
+    except Exception as exc:
+        logger.warning("Falha em listar_filtros_distintos_auditoria: %s", exc)
+    return out

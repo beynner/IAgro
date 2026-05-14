@@ -331,3 +331,31 @@ th, td {
     0% { transform: translate(-50%, -50%) rotate(-15deg) scale(1.5); opacity: 0; }
     100% { transform: translate(-50%, -50%) rotate(-15deg) scale(1); opacity: 1; }
 }
+
+/* =========================================================
+   RESPONSIVO PARA TABLET / MOBILE (Mai/2026 — sweep)
+   Mesma estrutura da Entrada (aside 320px + rightcol).
+   ========================================================= */
+
+@media (max-width: 1024px) {
+    .classificacao-grid > aside.panel { flex: 0 0 280px; }
+}
+
+@media (max-width: 900px) {
+    .classificacao-grid {
+        flex-direction: column;
+        overflow-y: auto;
+    }
+    .classificacao-grid > aside.panel {
+        flex: 0 0 auto;
+        height: auto;
+        max-height: 45vh;
+    }
+    /* Tabelas LOTES (9 colunas) e Produtos Classificados — scroll horizontal */
+    .classificacao-grid .ia-selectable-table-wrap { overflow-x: auto; }
+    .classificacao-grid .ia-selectable-table { min-width: 820px; }
+}
+
+@media (max-width: 520px) {
+    .classificacao-grid > aside.panel { max-height: 55vh; padding: 8px; }
+}

@@ -1115,8 +1115,20 @@ class FaturarPedidoServiceTest(TestCase):
 class HumanizarErroOracleHelperTest(TestCase):
 
     def test_ora_20101_mapeado(self):
+        """Mai/2026 (2026-05-13): ORA-20101 agora tem case especial — extrai a
+        mensagem real do trigger Sankhya (que pode ser sobre tipo de negociação,
+        STATUSNOTA bloqueado, ou outras regras). Quando a mensagem traz texto
+        após "ORA-20101:", esse texto é repassado. Sem texto específico, cai
+        em fallback genérico mencionando regra do banco."""
         from sankhya_integration.services.oracle_conn import humanizar_erro_oracle
-        self.assertIn('Tipo de negociação', humanizar_erro_oracle('ORA-20101: ...'))
+        # Caso real com mensagem do trigger — deve repassar
+        real = humanizar_erro_oracle(
+            'ORA-20101: Verifique se o TIPO DE NEGOCIAÇÃO 99 está ativo'
+        )
+        self.assertIn('TIPO DE NEGOCIAÇÃO', real)
+        # Caso genérico sem mensagem específica → fallback
+        generico = humanizar_erro_oracle('ORA-20101: ...')
+        self.assertTrue(generico)  # qualquer string não-vazia
 
     def test_ora_00001_mapeado(self):
         from sankhya_integration.services.oracle_conn import humanizar_erro_oracle

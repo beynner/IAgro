@@ -1,4 +1,4 @@
-window.ComercialFinanceiro = (function() {
+window.ComercialFinanceiro = (function () {
     let STATE = { bruto: 0, liquido: 0, dadosNota: null, itens: [] };
 
     const abrir = async (nunota) => {
@@ -7,7 +7,7 @@ window.ComercialFinanceiro = (function() {
 
         // 1. A BASE FÍSICA: Os produtos vêm da TOP 11 (Memória)
         let itensDaNota = (window.__COM_LIST_ROWS || []).filter(r => r.nunota == nunota);
-        
+
         if (itensDaNota.length === 0) {
             // 🚀 FIX: Se a lista do fundo filtrou e sumiu com a nota, resgata do "cofre" do próprio Modal!
             if (STATE.itens && STATE.itens.length > 0 && STATE.itens[0].nunota == nunota) {
@@ -16,11 +16,11 @@ window.ComercialFinanceiro = (function() {
                 return;
             }
         }
-        
+
         STATE.itens = itensDaNota;
         STATE.dadosNota = itensDaNota[0];
         document.getElementById('fechamentoParceiro').textContent = STATE.dadosNota.parceiro || '---';
-        
+
         // Monta o subtítulo inicial com os dados da memória
         const memVale = window.ComercialUtils.toNumber(STATE.dadosNota.nunota_13);
         const memFin = window.ComercialUtils.toNumber(STATE.dadosNota.nufin);
@@ -28,14 +28,14 @@ window.ComercialFinanceiro = (function() {
         if (memVale > 0) subtitulo += ` | Vale: ${memVale}`;
         if (memFin > 0) subtitulo += ` | Fin: ${memFin}`;
         document.getElementById('fechamentoPedido').textContent = subtitulo;
-        
+
         // 🚀 FIX: Verifica se é uma atualização (modal já aberto) para evitar a "piscada"
         const isRefresh = modal.style.display === 'flex';
         modal.style.display = 'flex';
 
         const listClass = document.getElementById('listaFechamentoClass');
         const listDireto = document.getElementById('listaFechamentoDireto');
-        
+
         // Só mostra a mensagem de "Buscando..." se for a primeira vez abrindo
         if (!isRefresh) {
             listClass.innerHTML = '<tr><td colspan="5" class="txt-center val-sub">Buscando valores na TOP 13...</td></tr>';
@@ -62,7 +62,7 @@ window.ComercialFinanceiro = (function() {
             } catch (e) { console.error("Erro ao carregar estado", e); }
         }
         STATE.dadosNota.nufin = nufinAtivo; // Guarda na memória se faturou
-        
+
         // 🚀 Atualiza o subtítulo com os dados frescos da API
         let subtituloApi = `Pedido: ${nunota}`;
         if (nunota13Ativo > 0) subtituloApi += ` | Vale: ${nunota13Ativo}`;
@@ -72,14 +72,14 @@ window.ComercialFinanceiro = (function() {
         if (nufinAtivo > 0) {
             document.body.classList.add('vale-faturado');
         }
-        
+
         // 2. MONTAGEM: Aplica a regra (Soma do vlrtot do mesmo lote da TOP 13)
         for (const item of itensDaNota) {
             const isClassificavel = item.geraproducao === 'S';
             const fabricante = item.fabricante || item.produto || 'PRODUTO';
             const pesoCx = window.ComercialUtils.toNumber(item.qtdfixada) || 20;
             const lote = item.codagregacao || '';
-            
+
             let vlrTotal = 0;
             let vlrUnitDireto = 0;
 
@@ -88,11 +88,11 @@ window.ComercialFinanceiro = (function() {
                 try {
                     const resVale = await fetch(`/sankhya/comercial/api/detalhes-vale/?nunota_13=${nunota13Ativo}&lote=${lote}`);
                     const dataVale = await resVale.json();
-                    
+
                     if (dataVale.ok && dataVale.itens) {
                         for (const it of dataVale.itens) {
                             if (!isClassificavel && String(it.codprod) !== String(item.codprod)) {
-                                continue; 
+                                continue;
                             }
                             vlrTotal += window.ComercialUtils.toNumber(it.vlrtot) || 0;
                             if (!isClassificavel) {
@@ -144,22 +144,22 @@ window.ComercialFinanceiro = (function() {
                             <div class="val-sub">R$ ${custoKg.toFixed(2) || '0.00'}/kg</div>
                         </td>
                         <td class="txt-right">
-                            <div class="val-main">R$ ${vlrTotal.toLocaleString('pt-BR', {minimumFractionDigits:2})}</div>
+                            <div class="val-main">R$ ${vlrTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
                         </td>
                         <td class="txt-center"><span class="status-dot ${vlrTotal > 0 ? 'verde' : 'vermelho'}"></span></td>
                     </tr>`;
 
             } else {
                 // ... bloco dos não classificáveis continua inalterado ...
-                const qtd = window.ComercialUtils.toNumber(item.qtdconferida) || 0; 
+                const qtd = window.ComercialUtils.toNumber(item.qtdconferida) || 0;
                 const pesoIn = window.ComercialUtils.toNumber(item.peso) || 0;
                 const unidade = (item.codvol || 'un').toLowerCase();
-                
+
                 const vlrUnit = qtd > 0 ? (vlrTotal / qtd) : 0;
-                
+
                 const isFaturado = nufinAtivo > 0;
 
-                const campoEditavel = isFaturado ? 
+                const campoEditavel = isFaturado ?
                     `<span>${vlrUnit.toFixed(2)}</span>` :
                     `<span class="editable" style="cursor:pointer;" onclick="window.ComercialFinanceiro.editarPreco(${item.nunota}, ${item.codprod}, ${nunota13Ativo}, this)">${vlrUnit.toFixed(2)}</span>`;
                 if (vlrUnit <= 0 || vlrTotal <= 0) temPendente = true;
@@ -174,7 +174,7 @@ window.ComercialFinanceiro = (function() {
                     htmlQtde = `
                         <div class="val-main">${window.ComercialUtils.formatQty(qtd, 2) || '0.00'} ${unidade}</div>
                         <div class="val-sub">${window.ComercialUtils.formatQty(totalKg) || '0.00'} kg</div>`;
-                    
+
                     htmlVlr = `
                         <div class="val-main">R$ ${campoEditavel}/${unidade}</div>
                         <div class="val-sub">R$ ${custoKg.toFixed(2) || '0.00'}/kg</div>`;
@@ -189,7 +189,7 @@ window.ComercialFinanceiro = (function() {
                         <td class="txt-right">${htmlQtde}</td>
                         <td class="txt-right">${htmlVlr}</td>
                         <td class="txt-right">
-                            <div class="val-main">R$ ${vlrTotal.toLocaleString('pt-BR', {minimumFractionDigits:2})}</div>
+                            <div class="val-main">R$ ${vlrTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
                         </td>
                         <td class="txt-center"><span class="status-dot ${vlrTotal > 0 && vlrUnit > 0 ? 'verde' : 'vermelho'}"></span></td>
                     </tr>`;
@@ -200,9 +200,9 @@ window.ComercialFinanceiro = (function() {
         listDireto.innerHTML = htmlDireto || '<tr><td colspan="5" class="txt-center val-sub" style="padding: 15px;">Nenhum produto direto</td></tr>';
 
         STATE.bruto = totalBruto;
-        document.getElementById('vlrBrutoFechamento').textContent = `R$ ${totalBruto.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
+        document.getElementById('vlrBrutoFechamento').textContent = `R$ ${totalBruto.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
         document.getElementById('btnEfetivarFaturamento').disabled = temPendente;
-        
+
         const checkInss = document.getElementById('chkInss');
         checkInss.checked = vlroutrosInicial > 0;
         checkInss.onchange = () => window.ComercialFinanceiro.toggleInss(nunota13Ativo);
@@ -215,13 +215,13 @@ window.ComercialFinanceiro = (function() {
 
         // CONFIGURAÇÃO DA GANGORRA DOS BOTÕES
         const btnEfetivar = document.getElementById('btnEfetivarFaturamento');
-        
+
         // 🚀 VERIFICAÇÃO DE BAIXA NO FINANCEIRO (O mesmo que fizemos na tela principal)
         const isPago = window.ComercialUtils.toNumber(STATE.dadosNota.qtd_baixados) > 0;
 
         if (nufinAtivo > 0) {
             btnEfetivar.textContent = "DESFATURAR";
-            
+
             if (isPago) {
                 // TRAVADO (Título já pago)
                 btnEfetivar.style.backgroundColor = "#9ca3af";
@@ -242,7 +242,7 @@ window.ComercialFinanceiro = (function() {
         } else {
             // MODO FATURAR
             btnEfetivar.textContent = "FATURAR";
-            btnEfetivar.style.backgroundColor = ""; 
+            btnEfetivar.style.backgroundColor = "";
             btnEfetivar.style.color = "";
             btnEfetivar.style.cursor = temPendente ? "not-allowed" : "pointer";
             btnEfetivar.disabled = temPendente;
@@ -286,19 +286,19 @@ window.ComercialFinanceiro = (function() {
                     headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
                     body: JSON.stringify({ nunota_origem: nunotaOrigem, codprod: codprod, nunota_13: nunota13, preco: novoPreco })
                 });
-                
+
                 const data = await res.json();
                 if (!data.ok) throw new Error(data.error);
-                
+
                 window.ComercialUtils.mostrarToast("Preço salvo com sucesso!", "sucesso");
-                
+
                 // 🚀 FIX: Ensina a memória do Javascript que o Vale agora existe!
                 if (data.nunota_13 && window.__COM_LIST_ROWS) {
                     window.__COM_LIST_ROWS.forEach(r => {
                         if (r.nunota == nunotaOrigem) r.nunota_13 = data.nunota_13;
                     });
                 }
-                
+
                 // Recarrega o modal silenciosamente e atualiza a linha de trás
                 abrir(nunotaOrigem);
                 const linhaSel = document.querySelector('tr.lista-item-row.row--sel');
@@ -318,7 +318,7 @@ window.ComercialFinanceiro = (function() {
     const toggleInss = async (nunota13) => {
         const isChecked = document.getElementById('chkInss').checked;
         const valorDesconto = isChecked ? (STATE.bruto * 0.0163) : 0;
-        
+
         try {
             const csrfToken = document.cookie.match(/csrftoken=([^;]+)/)[1];
             const res = await fetch('/sankhya/comercial/api/atualizar-desconto-inss/', {
@@ -326,46 +326,46 @@ window.ComercialFinanceiro = (function() {
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
                 body: JSON.stringify({ nunota_13: nunota13, valor: valorDesconto })
             });
-            
+
             const data = await res.json();
             if (!data.ok) throw new Error(data.error);
 
             window.ComercialUtils.mostrarToast(isChecked ? "Desconto INSS aplicado!" : "Desconto removido!", "sucesso");
             recalcularLiquido();
-            
+
         } catch (e) {
             window.ComercialUtils.mostrarToast("Erro ao salvar desconto: " + e.message, "erro");
-            document.getElementById('chkInss').checked = !isChecked; 
+            document.getElementById('chkInss').checked = !isChecked;
         }
     };
     // --- FIM DO NOVO CÓDIGO ---
 
     const recalcularLiquido = () => {
         const isChecked = document.getElementById('chkInss').checked;
-        
+
         // 🚀 FIX: Arredondamento para 2 casas decimais (padrão monetário)
         // Usamos Math.round com multiplicador 100 para garantir que 235.515 vire 235.52
         const inss = isChecked ? Math.round((STATE.bruto * 0.0163) * 100) / 100 : 0;
-        
+
         // O líquido deve ser a subtração exata dos dois valores já arredondados
         STATE.liquido = Math.round((STATE.bruto - inss) * 100) / 100;
 
-        document.getElementById('vlrInssFechamento').textContent = `R$ ${inss.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-        document.getElementById('vlrLiquidoFechamento').textContent = `R$ ${STATE.liquido.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        document.getElementById('vlrInssFechamento').textContent = `R$ ${inss.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        document.getElementById('vlrLiquidoFechamento').textContent = `R$ ${STATE.liquido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     };
 
     const faturar = async () => {
         const nunota13 = STATE.dadosNota.nunota_13;
         if (!nunota13) return window.ComercialUtils.mostrarToast("Erro: Vale não gerado.", "erro");
 
-        if (!confirm(`Confirmar faturamento e geração de financeiro de R$ ${STATE.liquido.toLocaleString('pt-BR', {minimumFractionDigits: 2})}?`)) return;
+        if (!confirm(`Confirmar faturamento e geração de financeiro de R$ ${STATE.liquido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}?`)) return;
 
         const btn = document.getElementById('btnEfetivarFaturamento');
         btn.disabled = true; btn.textContent = "PROCESSANDO...";
 
         try {
             const lote = STATE.dadosNota.codagregacao || 'S/L';
-            const historico = `Faturamento via painel SIG(Sistema Integrado de Gestão) - Vale ${STATE.dadosNota.nunota}`.substring(0, 255);
+            const historico = `Faturamento via IAgro - Vale ${STATE.dadosNota.nunota}`.substring(0, 255);
             const usaInss = document.getElementById('chkInss').checked;
             const valorInss = usaInss ? (STATE.bruto * 0.0163) : 0;
 
@@ -373,8 +373,8 @@ window.ComercialFinanceiro = (function() {
             const res = await fetch('/sankhya/comercial/api/efetivar-faturamento/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-                body: JSON.stringify({ 
-                    nunota_13: nunota13, 
+                body: JSON.stringify({
+                    nunota_13: nunota13,
                     descontar_inss: usaInss,
                     historico: historico,
                     vlrinss: valorInss,
@@ -387,12 +387,12 @@ window.ComercialFinanceiro = (function() {
             if (!data.ok) throw new Error(data.error);
 
             window.ComercialUtils.mostrarToast("Financeiro gerado com sucesso!", "sucesso");
-            
+
             STATE.dadosNota.nufin = data.nufin || 1; // Atualiza a memória
-            
+
             // 1. Recarrega o modal (usando await para não atropelar)
-            await abrir(STATE.dadosNota.nunota); 
-            
+            await abrir(STATE.dadosNota.nunota);
+
             // 2. Atualiza TODOS os painéis do fundo para aplicar as travas
             if (window.ComercialEntrada) window.ComercialEntrada.preencher(STATE.dadosNota);
             if (window.ComercialClassificacao) {
@@ -400,7 +400,7 @@ window.ComercialFinanceiro = (function() {
                     if (window.ComercialDistribuicao) window.ComercialDistribuicao.preencher(STATE.dadosNota, pesos);
                 });
             }
-            
+
             // 3. Atualiza a lista lateral
             if (window.ComercialFiltros && window.ComercialFiltros.atualizar) {
                 window.ComercialFiltros.atualizar();
@@ -431,13 +431,13 @@ window.ComercialFinanceiro = (function() {
             if (!data.ok) throw new Error(data.error);
 
             window.ComercialUtils.mostrarToast("Vale reaberto para edição!", "sucesso");
-            
+
             STATE.dadosNota.nufin = 0; // Limpa a memória
             STATE.dadosNota.qtd_baixados = 0; // Garante destravamento completo
-            
+
             // 1. Recarrega o modal (usando await para não atropelar)
-            await abrir(STATE.dadosNota.nunota); 
-            
+            await abrir(STATE.dadosNota.nunota);
+
             // 2. Atualiza TODOS os painéis do fundo para remover as travas e o carimbo
             if (window.ComercialEntrada) window.ComercialEntrada.preencher(STATE.dadosNota);
             if (window.ComercialClassificacao) {
@@ -445,7 +445,7 @@ window.ComercialFinanceiro = (function() {
                     if (window.ComercialDistribuicao) window.ComercialDistribuicao.preencher(STATE.dadosNota, pesos);
                 });
             }
-            
+
             // 3. Atualiza a lista lateral
             if (window.ComercialFiltros && window.ComercialFiltros.atualizar) {
                 window.ComercialFiltros.atualizar();

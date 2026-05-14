@@ -434,3 +434,38 @@ table { width: 100%; border-collapse: collapse; table-layout: fixed; }
     border-left: 3px solid var(--ia-selected-border);
     font-weight: 600; color: var(--text-dark);
 }
+
+/* =========================================================
+   RESPONSIVO PARA TABLET / MOBILE (Mai/2026 — sweep)
+   Entrada: aside 320px + rightcol (grid 3 linhas) → empilhado em tablet.
+   ATENÇÃO: entrada.css é carregado em TODAS as páginas (legado),
+   então essas regras precisam ser ESPECÍFICAS pra .entrada-grid.
+   ========================================================= */
+
+@media (max-width: 1024px) {
+    .entrada-grid > aside.panel { flex: 0 0 280px; }
+}
+
+@media (max-width: 900px) {
+    .entrada-grid {
+        flex-direction: column;
+        overflow-y: auto;
+    }
+    .entrada-grid > aside.panel {
+        flex: 0 0 auto;
+        height: auto;
+        max-height: 45vh;
+    }
+    .entrada-grid > .rightcol {
+        height: auto;
+        min-height: 60vh;
+        grid-template-rows: auto auto auto;
+    }
+    /* Tabela de itens da entrada: scroll horizontal */
+    .entrada-grid .ia-selectable-table-wrap { overflow-x: auto; }
+    .entrada-grid .ia-selectable-table { min-width: 720px; }
+}
+
+@media (max-width: 520px) {
+    .entrada-grid > aside.panel { max-height: 55vh; padding: 8px; }
+}

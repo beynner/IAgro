@@ -8,17 +8,22 @@ from django.contrib import messages
 
 logger = logging.getLogger(__name__)
 
-# Mapeamento de grupos do Sankhya ERP (tabela TSIGRU, coluna CODGRU).
+# Mapeamento de grupos do Sankhya ERP (tabela TSIGRU, colunas CODGRUPO/NOMEGRUPO).
 #
 # Para consultar os IDs vigentes no banco:
-#   SELECT CODGRU, DESCRGRU FROM TSIGRU ORDER BY CODGRU
+#   SELECT CODGRUPO, NOMEGRUPO FROM TSIGRU ORDER BY CODGRUPO
 #
 # Grupos atualmente mapeados:
-#   '1'  → Diretoria     — acesso irrestrito a todos os módulos
-#   '6'  → Suporte TI    — acesso irrestrito para manutenção e suporte
-#   '8'  → Operação      — acesso aos módulos de Entrada e Classificação
-#   '9'  → Comercial     — acesso exclusivo ao módulo Comercial
-#   '10' → Vendas        — acesso exclusivo ao módulo de Vendas
+#   '1'  → DIRETORIA          — acesso irrestrito a todos os módulos
+#   '6'  → SUPORTE (TI)       — acesso irrestrito para manutenção e suporte
+#   '8'  → PACKING_ENTRADA    — acesso aos módulos de Entrada e Classificação
+#   '9'  → PACKING_COMERCIAL  — acesso exclusivo ao módulo Comercial
+#   '10' → PACKING_VENDAS     — acesso exclusivo ao módulo de Vendas
+#   '11' → PACKING_FROTA      — acesso exclusivo ao módulo de Controle de Combustível
+#                                ⚠ ESTE é o grupo de USUÁRIO (TSIGRU.CODGRUPO=11).
+#                                Não confundir com TGFGRU.CODGRUPOPROD=200400, que é
+#                                o grupo do PRODUTO combustível (constante
+#                                CODGRUPOPROD_COMBUSTIVEL em oracle_conn.py).
 #
 # Os IDs são armazenados como strings porque chegam da sessão via JSON.
 # Para alterar permissões: edite as listas abaixo — não é necessário
@@ -29,6 +34,7 @@ GRUPOS_PERMITIDOS = {
     'comercial':     ['1', '6', '9'],
     'venda':         ['1', '6', '10'],
     'rastreio':      ['1', '6', '8', '9', '10'],
+    'combustivel':   ['1', '6', '11'],
 }
 
 def _get_json_payload(request: HttpRequest) -> dict:

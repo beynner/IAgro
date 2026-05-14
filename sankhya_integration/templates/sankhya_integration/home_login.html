@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IAgro · Login</title>
+  {% load static %}
+  <meta name="app-version" content="{{ APP_VERSION }}">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/home.css' %}?v=3">
+</head>
+<body class="login-page">
+
+  {% if messages %}
+    <div class="login-messages">
+      {% for message in messages %}
+        <div class="login-error-flash">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="login-wrap">
+    <img src="{% static 'logo.png' %}" alt="Agromil" class="login-logo">
+    <h1 class="login-title">IAgro</h1>
+    <p class="login-subtitle">Inteligência Artificial no Agronegócio</p>
+    <form id="inline-login-form" action="{% url 'login' %}" method="POST" class="login-form">
+      {% csrf_token %}
+      <input type="text" name="usuario" id="auth-user" class="login-input" placeholder="Usuário" required autocomplete="username">
+      <input type="password" name="senha" id="auth-pass" class="login-input" placeholder="Senha" required autocomplete="current-password">
+      <button type="submit" class="btn-login">Entrar</button>
+    </form>
+    <span class="login-version">v{{ APP_VERSION }}</span>
+  </div>
+
+  <script>
+    // Anima inputs em vermelho se houve erro de login
+    if (document.querySelector('.login-error-flash')) {
+      document.querySelectorAll('.login-input').forEach(inp => {
+        inp.classList.add('highlight-error');
+        setTimeout(() => inp.classList.remove('highlight-error'), 600);
+      });
+    }
+    // Sincronização entre abas — quando logar aqui, outras abas recarregam
+    try {
+      if (localStorage.getItem('ia_auth_sync') !== 'LOGGED_OUT') {
+        localStorage.setItem('ia_auth_sync', 'LOGGED_OUT');
+      }
+      window.addEventListener('storage', (e) => {
+        if (e.key === 'ia_auth_sync' && e.newValue === 'LOGGED_IN') {
+          window.location.reload();
+        }
+      });
+    } catch (_) {}
+  </script>
+</body>
+</html>

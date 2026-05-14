@@ -605,3 +605,460 @@ textarea:focus {
   background: var(--cor-erro);
   color: #fff;
 }
+
+/* ===============================================================
+   ── 6. Layout v2 — Sidebar + Content (Mai/2026) ─────────────────
+   Substitui o layout antigo .wrap > .appbar > .main-layout > .footer.
+   Aplicado quando body.app-shell. As regras antigas continuam
+   válidas pra retrocompat — body sem .app-shell usa layout antigo.
+   =============================================================== */
+
+/* Tokens locais do novo layout */
+:root {
+  --sidebar-w-expanded: 200px;
+  --sidebar-w-collapsed: 56px;
+  --content-header-h: 56px;
+  --cor-sidebar-fundo: #2d3a26;
+  --cor-sidebar-hover: #3f5234;
+  --cor-sidebar-ativo: var(--cor-acao-primaria, #5e7e4a);
+  --cor-sidebar-texto: rgba(255, 255, 255, 0.88);
+  --cor-sidebar-texto-fraco: rgba(255, 255, 255, 0.5);
+  --cor-sidebar-borda: rgba(255, 255, 255, 0.08);
+  --cor-content-bg: #f4f6f4;
+}
+
+body.app-shell {
+  display: flex;
+  flex-direction: row;
+  height: 100vh;
+  overflow: hidden;
+  margin: 0;
+  background: var(--cor-content-bg);
+}
+
+/* Sidebar lateral fixa. Usa `>` (filho direto do body) pra escopar com
+   precisão e não afetar `<aside class="sidebar">` que módulos legados
+   usam internamente (ex: Comercial). */
+body.app-shell > .sidebar {
+  width: var(--sidebar-w-expanded);
+  background: var(--cor-sidebar-fundo);
+  color: var(--cor-sidebar-texto);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.06);
+  z-index: 50;
+  transition: width 0.2s ease;
+}
+
+body.app-shell > .sidebar.collapsed {
+  width: var(--sidebar-w-collapsed);
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--cor-sidebar-borda);
+  flex-shrink: 0;
+  position: relative;
+}
+
+.sidebar-logo {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 6px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+
+.sidebar-brand {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  overflow: hidden;
+  flex: 1;
+}
+
+.sidebar-brand strong {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.sidebar-brand span {
+  font-size: 9.5px;
+  color: var(--cor-sidebar-texto-fraco);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+body.app-shell > .sidebar.collapsed .sidebar-brand { display: none; }
+
+/* Botão de recolher (chevron) — visível só em desktop */
+.sidebar-collapse-btn {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s ease, transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.sidebar-collapse-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+body.app-shell > .sidebar.collapsed .sidebar-collapse-btn {
+  transform: rotate(180deg);
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  margin-top: -11px;
+}
+
+/* Navegação */
+.sidebar-nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 6px;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 11px;
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--cor-sidebar-texto);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+  position: relative;
+}
+
+.nav-item:hover, .nav-item:focus {
+  background: var(--cor-sidebar-hover);
+  color: #fff;
+  outline: none;
+}
+
+.nav-item.active {
+  background: var(--cor-sidebar-ativo);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.nav-icon {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+.nav-icon .material-symbols-outlined {
+  font-size: 17px;
+  font-variation-settings: 'wght' 400;
+}
+
+.nav-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.app-shell > .sidebar.collapsed .nav-label { display: none; }
+body.app-shell > .sidebar.collapsed .nav-item { justify-content: center; padding: 9px 0; }
+
+/* Tooltip ao passar o mouse no nav-item quando sidebar está recolhida */
+body.app-shell > .sidebar.collapsed .nav-item:hover::after {
+  content: attr(title);
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: #1f2937;
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 200;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+
+.sidebar-footer {
+  padding: 10px 14px;
+  border-top: 1px solid var(--cor-sidebar-borda);
+  flex-shrink: 0;
+}
+
+body.app-shell > .sidebar.collapsed .sidebar-footer { display: none; }
+
+.version-tag {
+  font-size: 10.5px;
+  color: var(--cor-sidebar-texto-fraco);
+  font-weight: 500;
+  letter-spacing: 0.4px;
+}
+
+/* Área de conteúdo principal */
+.app-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--cor-content-bg);
+  height: 100vh;
+  overflow: hidden;
+}
+
+.content-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 12px;
+  height: var(--content-header-h);
+  padding: 0 20px;
+  background: #fff;
+  border-bottom: 1px solid var(--cor-borda, #e2e8f0);
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.content-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.content-title h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--cor-texto-principal, #1f2937);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.content-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.user-badge-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  background: #f0f5ec;
+  border-radius: 16px;
+  color: #4a633a;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  max-width: 200px;
+}
+
+.user-badge-inline span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-logout-inline {
+  color: var(--cor-erro, #dc2626);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+
+.btn-logout-inline:hover { background: #fee2e2; }
+
+/* Override .main-layout pra funcionar dentro do .app-content (não mais com
+   footer fixed full-width). Bottom padding reduzido — rodapé agora flui no
+   layout, não flutua. */
+body.app-shell .main-layout {
+  flex: 1;
+  min-height: 0;
+  padding: var(--espaco-entre-paineis, 14px);
+  display: flex;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* Footer inline (dentro do .app-content, não fixed full-width) */
+.ia-footer-inline {
+  background: var(--cor-rodape-fundo, #f8fafc);
+  border-top: 1px solid var(--cor-rodape-borda, #e2e8f0);
+  padding: 4px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  color: var(--cor-rodape-texto, #94a3b8);
+  flex-shrink: 0;
+}
+
+.ia-footer-inline .ia-footer-versao {
+  font-weight: var(--peso-negrito, 700);
+  color: var(--cor-texto-secundario, #64748b);
+}
+
+/* Botão hambúrguer (tablet/mobile) */
+.sidebar-toggle-mobile {
+  display: none;
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 200;
+  width: 36px;
+  height: 36px;
+  background: #fff;
+  border: 1px solid var(--cor-borda, #cbd5e1);
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 8px;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.sidebar-toggle-mobile span {
+  display: block;
+  width: 100%;
+  height: 2px;
+  background: #1f2937;
+  border-radius: 1px;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.sidebar-toggle-mobile.open span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+.sidebar-toggle-mobile.open span:nth-child(2) { opacity: 0; }
+.sidebar-toggle-mobile.open span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 40;
+}
+
+.sidebar-backdrop.visible { display: block; }
+
+/* Responsive */
+
+/* Tablet horizontal: sidebar fica, mas conteúdo aperta */
+@media (max-width: 1024px) {
+  .content-header { padding: 0 14px; }
+  .content-title h1 { font-size: 14px; letter-spacing: 0.2px; }
+  body.app-shell .main-layout { padding: 10px; }
+}
+
+/* Tablet vertical: sidebar vira off-canvas. Escopado com body.app-shell >
+   pra não afetar `<aside class="sidebar">` interno do Comercial. */
+@media (max-width: 900px) {
+  .sidebar-toggle-mobile { display: flex; }
+
+  body.app-shell > .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    z-index: 100;
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.18);
+    width: var(--sidebar-w-expanded);
+  }
+
+  body.app-shell > .sidebar.open { transform: translateX(0); }
+  body.app-shell > .sidebar.collapsed { width: var(--sidebar-w-expanded); }
+  body.app-shell > .sidebar.collapsed .sidebar-brand,
+  body.app-shell > .sidebar.collapsed .nav-label,
+  body.app-shell > .sidebar.collapsed .sidebar-footer { display: revert; }
+  body.app-shell > .sidebar.collapsed .nav-item { justify-content: flex-start; padding: 9px 11px; }
+  .sidebar-collapse-btn { display: none; }
+
+  .content-header { padding: 0 14px 0 56px; }
+}
+
+/* Mobile: header compacto */
+@media (max-width: 520px) {
+  .user-badge-inline { max-width: 100px; padding: 4px 8px; font-size: 10.5px; }
+  .btn-logout-inline { padding: 3px 7px; font-size: 11px; }
+  .content-title h1 { font-size: 12.5px; }
+  .content-header { gap: 6px; }
+}
+
+/* Esconder appbar e ia-footer antigas se aparecerem dentro do novo shell
+   (defesa contra refator incompleto de algum módulo). */
+body.app-shell .appbar,
+body.app-shell .ia-footer:not(.ia-footer-inline) { display: none; }
+
+/* =========================================================
+   DEFESA GLOBAL DE MODAIS EM TABLET (Mai/2026 — sweep)
+   Modais com `width: 560px` (ou similar) fixo viram ilegíveis em
+   tablet vertical. Aplica `max-width: min(560px, 95vw)` como teto
+   pra qualquer .modal-card / .modal-content / .cb-modal-card.
+   Módulos com CSS específico já vão sobrescrever.
+   ========================================================= */
+.modal-content,
+.modal-card,
+.cb-modal-card {
+  max-width: min(640px, 95vw);
+  max-height: 92vh;
+}
+
+@media (max-width: 520px) {
+  .modal-content,
+  .modal-card,
+  .cb-modal-card {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+  }
+}
+

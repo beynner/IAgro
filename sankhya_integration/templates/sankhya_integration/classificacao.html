@@ -2,6 +2,7 @@
 {% load static %}
 
 {% block title %}Classificação - IAgro{% endblock %}
+{% block active_module %}classificacao{% endblock %}
 
 {% block header_title %}
   CLASSIFICAÇÃO
@@ -462,14 +463,14 @@
 
         <div>
           <div style="max-height:42vh; overflow:auto;">
-            <table class="ia-selectable-table" style="width:100%;">
+            <table class="ia-selectable-table" style="width:100%; table-layout:fixed;">
                 <thead>
                     <tr>
-                        <th style="padding:8px">Lote</th>
-                        <th>Produto</th>
-                        <th style="text-align:right">Quantidade</th>
-                        <th style="text-align:right">Peso</th>
-                        <th style="text-align:right"></th>
+                        <th style="padding:8px; width:150px;">Lote</th>
+                        <th style="width:auto;">Produto</th>
+                        <th style="text-align:right; width:90px;">Quantidade</th>
+                        <th style="text-align:right; width:70px;">Peso</th>
+                        <th style="text-align:right; width:40px;"></th>
                     </tr>
                 </thead>
                 <tbody id="itemsListBody">

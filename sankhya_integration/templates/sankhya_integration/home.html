@@ -1,149 +1,40 @@
-<!doctype html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>IAgro System</title>
-  {% load static %}
-  <meta name="app-version" content="{{ APP_VERSION }}">
-  <link rel="stylesheet" href="{% static 'sankhya_integration/home.css' %}">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@300;400;600&display=swap" rel="stylesheet">
-</head>
-<body class="index-body">
+{% extends "sankhya_integration/base.html" %}
+{% load static %}
 
-  <div class="top-auth-bar">
-    {% if request.session.codusu %}
-    
-    <div style="display: flex; align-items: center; gap: 10px;">
-        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 600; color: #334155;">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: #64748b;">
-                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
-                <circle cx="12" cy="7" r="4"></circle>
-            </svg>
-            <span style="text-transform: uppercase; letter-spacing: 0.5px;">
-                {{ request.session.nomeusu }}
-            </span>
-        </div>
-        <a href="{% url 'logout' %}" style="color: #ef4444; text-decoration: none; margin-left: 2px; padding-left: 10px; border-left: 1px solid #cbd5e1; font-size: 0.85rem; font-weight: 600; transition: opacity 0.2s;" title="Encerrar Sessão" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'">Sair</a>
-    </div>
+{% block title %}IAgro · Painel{% endblock %}
+{% block active_module %}home{% endblock %}
+{% block header_title %}PAINEL{% endblock %}
 
-    {% else %}
-    
-    <form id="inline-login-form" action="{% url 'login' %}" method="POST" class="inline-login-form">
-      {% csrf_token %}
-      <input type="text" name="usuario" id="auth-user" class="auth-input" placeholder="Usuário" required autocomplete="username">
-      <input type="password" name="senha" id="auth-pass" class="auth-input" placeholder="Senha" required autocomplete="current-password">
-      <button type="submit" class="btn-login-header">Entrar</button>
-    </form>
-    
-    {% endif %}
-  </div> 
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/home.css' %}?v=3">
+{% endblock %}
 
-  {% if messages %}
-    <div style="position: fixed; top: 5rem; right: 2rem; z-index: 9999; display: flex; flex-direction: column; gap: 0.5rem;">
-      {% for message in messages %}
-        <div style="background: #e74c3c; color: white; padding: 10px 20px; border-radius: 8px; font-weight: 600; font-size: 0.9rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); animation: shake-auth 0.4s ease-in-out;">
-          {{ message }}
-        </div>
-      {% endfor %}
-    </div>
-  {% endif %}
+{% block header_actions %}
+  <span class="dash-updated" id="dashUpdatedAt-wrap">
+    <small>Atualizado <span id="dashUpdatedAt">agora</span></small>
+  </span>
+  <button id="btnDashRefresh" class="btn-refresh" title="Atualizar indicadores">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="23 4 23 10 17 10"></polyline>
+      <polyline points="1 20 1 14 7 14"></polyline>
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+    </svg>
+    <span>Atualizar</span>
+  </button>
+{% endblock %}
 
-  <div class="container">
-    <img src="{% static 'logo.png' %}" alt="Logo" class="logo-watermark">
-    <div class="header">
-      <h1>IAgro</h1>
-      <p>Sistema Integrado de Gestão</p>
-    </div>
+{% block content %}
+<section class="widgets-grid" id="widgetsGrid" aria-live="polite">
+  <article class="widget widget-skeleton"><div class="skeleton-shimmer"></div></article>
+  <article class="widget widget-skeleton"><div class="skeleton-shimmer"></div></article>
+  <article class="widget widget-skeleton"><div class="skeleton-shimmer"></div></article>
+  <article class="widget widget-skeleton"><div class="skeleton-shimmer"></div></article>
+  <article class="widget widget-skeleton"><div class="skeleton-shimmer"></div></article>
+  <article class="widget widget-skeleton"><div class="skeleton-shimmer"></div></article>
+</section>
+{% endblock %}
 
-    <div class="cards-container">
-      <a href="/sankhya/compras/portal/" class="card card-portal" onclick="return handleCardClick(event)" rel="noopener noreferrer">
-        <div class="card-icon">🛒</div>
-        <h2 class="card-title">Entrada</h2>
-        <p class="card-description">Acesse o portal de entrada principal de mercadorias do IAgro para gerenciar operações de compras.</p>
-        <div class="card-arrow">→</div>
-      </a>
-
-      <a href="/sankhya/compras/classificacao/" class="card card-classificacao" onclick="return handleCardClick(event)" rel="noopener noreferrer">
-        <div class="card-icon">
-          <span class="material-symbols-outlined" aria-hidden="true">alt_route</span>
-        </div>
-        <h2 class="card-title">Classificação</h2>
-        <p class="card-description">Gerencie e classifique lotes de produtos com lote completo de qualidade e rastreabilidade.</p>
-        <div class="card-arrow">→</div>
-      </a>
-
-      <a href="/sankhya/comercial/" class="card card-comercial" onclick="return handleCardClick(event)" rel="noopener noreferrer">
-        <div class="card-icon">📊</div>
-        <h2 class="card-title">Comercial</h2>
-        <p class="card-description">Painel comercial com simulações, análises e relatórios detalhados para tomada de decisões estratégicas.</p>
-        <div class="card-arrow">→</div>
-      </a>
-
-      <a href="/sankhya/venda/portal/" class="card card-venda" onclick="return handleCardClick(event)" rel="noopener noreferrer">
-        <div class="card-icon">🛒📦</div>
-        <h2 class="card-title">Venda</h2>
-        <p class="card-description">Emissão de pedidos de venda, faturamento de NFe (TOP 35/37) e controle de rastreabilidade de lotes expedidos.</p>
-        <div class="card-arrow">→</div>
-      </a>
-      <a href="/sankhya/rastreio/" class="card card-rastreio" onclick="return handleCardClick(event)" rel="noopener noreferrer">
-        <div class="card-icon">📦</div>
-        <h2 class="card-title">Rastreio</h2>
-        <p class="card-description">Gestão de lotes do IAgro: atribuição inteligente de produtos colhidos aos pedidos de venda em aberto.</p>
-        <div class="card-arrow">→</div>
-      </a>
-      <a href="/sankhya/venda/email-importar/" class="card card-email" onclick="return handleCardClick(event)" rel="noopener noreferrer">
-        <div class="card-icon">📥</div>
-        <h2 class="card-title">Importação</h2>
-        <p class="card-description">Coleta automática de pedidos por e-mail com PDF anexo ou paste manual de texto. Revisão humana antes de gerar pedido em TGFCAB.</p>
-        <div class="card-arrow">→</div>
-      </a>
-    </div>
-  </div>
-  <div class="version-badge">v{{ APP_VERSION }}</div>
-
-  <script>
-    window.IAgro = {
-        // Envolvendo em aspas o VS Code entende como texto e para de reclamar.
-        // O JS vai ler: "true" === "true" (que vira um booleano verdadeiro)
-        isLogged: "{% if request.session.codusu %}true{% else %}false{% endif %}" === "true"
-    };
-  </script>
-  <script>
-    // --- SINCRONIZAÇÃO SEGURA DE ABAS (HOME HÍBRIDA) ---
-    (function() {
-        const isLogged = window.IAgro.isLogged;
-
-        if (isLogged) {
-            // Lógica de DENTRO do sistema (Usuário já logado vendo os cartões)
-            if (localStorage.getItem('ia_auth_sync') !== 'LOGGED_IN') {
-                localStorage.setItem('ia_auth_sync', 'LOGGED_IN');
-            }
-
-            window.addEventListener('storage', function(evento) {
-                if (evento.key === 'ia_auth_sync' && evento.newValue === 'LOGGED_OUT') {
-                    console.log("Logout detectado em outra aba. Saindo da Home...");
-                    window.location.reload();
-                }
-            });
-
-        } else {
-            // Lógica de FORA do sistema (Usuário vendo os campos de Usuário e Senha)
-            if (localStorage.getItem('ia_auth_sync') !== 'LOGGED_OUT') {
-                localStorage.setItem('ia_auth_sync', 'LOGGED_OUT');
-            }
-
-            window.addEventListener('storage', function(evento) {
-                if (evento.key === 'ia_auth_sync' && evento.newValue === 'LOGGED_IN') {
-                    console.log("Login detectado em outra aba. Carregando a Home logada...");
-                    window.location.reload();
-                }
-            });
-        }
-    })();
-  </script>
-  <script src="{% static 'sankhya_integration/home.js' %}"></script>
-
-</body>
-</html>
+{% block extra_js %}
+  <script>window.IAgro = window.IAgro || {}; window.IAgro.isLogged = true;</script>
+  <script src="{% static 'sankhya_integration/home.js' %}?v=3"></script>
+{% endblock %}

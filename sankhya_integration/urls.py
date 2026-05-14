@@ -16,6 +16,14 @@ urlpatterns = [
     # ==============================================================================
     #path("", views.home, name="sankhya_home"),
     path("health/", views.health, name="sankhya_health"),
+
+    # 📊 DASHBOARD EXECUTIVO (Mai/2026)
+    path("api/dashboard/", views.api_dashboard_indicadores, name="api_dashboard_indicadores"),
+
+    # 📋 AUDITORIA UNIVERSAL (Mai/2026 — Lote A)
+    path("auditoria/",              views.view_auditoria_painel,  name="view_auditoria_painel"),
+    path("api/auditoria/listar/",   views.api_auditoria_listar,   name="api_auditoria_listar"),
+    path("api/auditoria/filtros/",  views.api_auditoria_filtros,  name="api_auditoria_filtros"),
     
     # TYPEAHEADS (Buscas Globais)
     path("parceiros/search/", views.api_pesquisar_parceiros, name="parceiros_search"),
@@ -160,4 +168,27 @@ urlpatterns = [
     # Restauração sem rodar LLM (re-cria itens a partir do JSON crú salvo)
     path('venda/api/email/<int:recebido_id>/restaurar/',     views.api_email_restaurar_todos, name='api_email_restaurar_todos'),
     path('venda/api/email/item/<int:item_id>/restaurar/',    views.api_email_restaurar_item,  name='api_email_restaurar_item'),
+
+# ==============================================================================
+# ⛽ MÓDULO CONTROLE DE COMBUSTÍVEL (TOP 10 entrada Sankhya + TOP 26 requisição IAgro)
+# ==============================================================================
+    path('combustivel/',                              views.view_portal_combustivel,           name='combustivel_portal'),
+    path('combustivel/api/estoque/',                  views.api_listar_estoque_combustivel,    name='api_combustivel_estoque'),
+    path('combustivel/api/veiculos/',                 views.api_listar_veiculos,               name='api_combustivel_veiculos'),
+    path('combustivel/api/produtos/',                 views.api_listar_produtos_combustivel,   name='api_combustivel_produtos'),
+    path('combustivel/api/movimentacoes/',            views.api_listar_movimentacoes_combustivel, name='api_combustivel_movimentacoes'),
+    path('combustivel/api/requisicoes/',              views.api_listar_requisicoes_combustivel, name='api_combustivel_requisicoes'),
+    path('combustivel/api/requisicao/<int:nunota>/',         views.api_obter_requisicao_combustivel,   name='api_combustivel_obter_requisicao'),
+    path('combustivel/api/requisicao/criar/',                views.api_criar_requisicao_combustivel,   name='api_combustivel_criar_requisicao'),
+    path('combustivel/api/abastecimento-externo/criar/',     views.api_criar_abastecimento_externo,    name='api_combustivel_criar_externo'),
+    path('combustivel/api/requisicao/<int:nunota>/editar/',  views.api_editar_requisicao_combustivel,  name='api_combustivel_editar_requisicao'),
+    path('combustivel/api/requisicao/<int:nunota>/excluir/', views.api_excluir_requisicao_combustivel, name='api_combustivel_excluir_requisicao'),
+    path('combustivel/api/entrada/criar/',                   views.api_criar_entrada_combustivel,      name='api_combustivel_criar_entrada'),
+    path('combustivel/api/entrada/<int:nunota>/',            views.api_obter_entrada_combustivel,      name='api_combustivel_obter_entrada'),
+    path('combustivel/api/entrada/<int:nunota>/editar/',     views.api_editar_entrada_combustivel,     name='api_combustivel_editar_entrada'),
+    path('combustivel/api/entrada/<int:nunota>/excluir/',    views.api_excluir_entrada_combustivel,    name='api_combustivel_excluir_entrada'),
+    path('combustivel/api/prazo-tipvenda/',                  views.api_prazo_tipvenda,                 name='api_combustivel_prazo_tipvenda'),
+    path('combustivel/api/ultimo-preco/',                    views.api_ultimo_preco_combustivel,       name='api_combustivel_ultimo_preco'),
+    path('combustivel/api/veiculo-foto/<str:placa>/',        views.api_foto_veiculo,                   name='api_combustivel_veiculo_foto'),
+    path('combustivel/api/relatorio/consumo/',               views.api_relatorio_consumo_veiculo,      name='api_combustivel_relatorio_consumo'),
 ]

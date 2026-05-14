@@ -1,5 +1,129 @@
 # Convenções de Código
 
+## Layout v2 — Sidebar + Content (Mai/2026)
+
+> ✅ **Padrão atual.** Substituiu o layout antigo (`.wrap > .appbar > .main-layout > .ia-footer`).
+> Aplicado a TODAS as telas autenticadas. Tela de login (`home_login.html`) é standalone.
+
+### Estrutura
+
+```html
+<body class="app-shell" data-active-module="venda">
+  <aside class="sidebar" id="appSidebar">       <!-- 200px expand / 56px collapse -->
+    <div class="sidebar-header">… (logo + brand + chevron)</div>
+    <nav class="sidebar-nav">… (nav-item por módulo)</nav>
+    <div class="sidebar-footer">v1.2.0</div>
+  </aside>
+
+  <div class="app-content">
+    <header class="content-header">             <!-- 56px altura -->
+      <h1>TÍTULO DO MÓDULO</h1>
+      … (block header_actions: botões específicos)
+      <div class="user-badge-inline">… ANDRE</div>
+      <a class="btn-logout-inline">Sair</a>
+    </header>
+    <main class="main-layout">                   <!-- area de conteúdo -->
+      … (block content do módulo)
+    </main>
+    <footer class="ia-footer-inline">NexusGTi · v1.2.0</footer>
+  </div>
+</body>
+```
+
+### Blocos Django novos no `base.html`
+
+| Block | Função |
+|---|---|
+| `{% block active_module %}<nome>{% endblock %}` | Nome do módulo pra marcar item ativo na sidebar (entrada, classificacao, comercial, venda, rastreio, email, combustivel, auditoria, home) |
+| `{% block header_title %}` | Texto do `<h1>` no content-header (mantido do legado) |
+| `{% block header_extras %}` | Elementos auxiliares ao lado do título (mantido) |
+| `{% block header_actions %}` | Botões à direita (refresh, importar, etc) — novo |
+| `{% block content %}` | Área principal — `<main class="main-layout">` (mantido) |
+| `{% block extra_css %}` / `{% block extra_js %}` | Mantidos |
+
+### Sidebar: toggle expand/collapse
+
+- `IAgro.setupSidebar()` em `iagro_helpers.js` (chamado 1× no `base.html`)
+- Botão chevron `#btnSidebarCollapse` no header da sidebar (só desktop)
+- Estado persistido em `localStorage` chave `iagro:sidebar:collapsed:v1`
+- Em ≤900px (tablet vertical / mobile), sidebar vira **off-canvas** com botão hambúrguer top-left e backdrop. Esc/click-fora fecham.
+
+### Item ativo na sidebar
+
+JS lê `body[data-active-module]` e adiciona `.active` no `.nav-item[data-mod="X"]` correspondente. Cada template de módulo define seu nome via `{% block active_module %}`.
+
+### Card "Auditoria" condicional
+
+Visível só pra grupos Diretoria (`1`) e Suporte (`6`):
+
+```django
+{% if "1" in request.session.grupos or "6" in request.session.grupos %}
+<a href="/sankhya/auditoria/" class="nav-item" data-mod="auditoria">…</a>
+{% endif %}
+```
+
+### Tela de login (não-logado)
+
+`home_login.html` é **standalone** (não estende `base.html`). Layout centralizado com gradiente verde Agromil + card de login + animação shake em erro. CSS em `home.css` (seção `body.login-page`).
+
+---
+
+## Responsivo (Mai/2026 — sweep aplicado em todos os módulos)
+
+Breakpoints padronizados:
+
+| Largura | Comportamento |
+|---|---|
+| **≥1280px** (desktop largo) | Layout completo: sidebar 200px + grids originais (3/2 colunas) |
+| **1025–1279px** (desktop normal) | Igual desktop largo |
+| **901–1024px** (tablet horizontal) | Sidebar 200px, grids ficam mais apertados (sidebar interna 280px, gaps menores) |
+| **≤900px** (tablet vertical / mobile largo) | Sidebar global vira off-canvas. Grids dos módulos viram **coluna única vertical**. Modais full-width (`95vw`). Tabelas largas com `overflow-x: auto` + `min-width` |
+| **≤520px** (mobile pequeno) | Header compacto (label "Atualizar" some), modais **fullscreen** (`100vw × 100vh`, `border-radius: 0`), grids 1 coluna |
+
+### Defesa global pra modais
+
+Em `global.css` (após o layout v2):
+
+```css
+.modal-content,
+.modal-card,
+.cb-modal-card {
+  max-width: min(640px, 95vw);
+  max-height: 92vh;
+}
+@media (max-width: 520px) {
+  .modal-content,
+  .modal-card,
+  .cb-modal-card {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+  }
+}
+```
+
+Vale pra TODOS os modais. Módulos que precisam de tamanho específico declaram regra com mais especificidade no próprio CSS.
+
+### Cada módulo tem seu próprio bloco `@media`
+
+No final do CSS de cada módulo (`combustivel.css`, `venda.css`, etc) existe seção comentada **`RESPONSIVO PARA TABLET / MOBILE (Mai/2026 — sweep)`** com os 3 breakpoints. Ao adicionar feature nova com layout, **adicione regra responsiva nessa seção** — não jogue solta no meio do CSS.
+
+### Padrões usados nos sweeps
+
+| Padrão | Onde aplica |
+|---|---|
+| `flex-direction: column` em ≤900px | Containers que eram flex row (`.entrada-grid`, `.venda-grid`, `.email-grid`) |
+| `grid-template-columns: 1fr` em ≤900px | Containers que eram grid horizontal (`.cb-layout`, `.layout` do Comercial, `.rastreio-layout`) |
+| `overflow-x: auto` + `min-width: <px>` em ≤900px | Tabelas largas (combustível 9 col, classificação 9 col, etc) |
+| `max-height: 50vh` em ≤900px | Sidebars internas dos módulos que viram parte de cima na coluna |
+| `width: 95vw` em ≤900px / `100vw` em ≤520px | Modais |
+| `.btn span { display: none }` em ≤900px | Esconde label de botões com ícone (mantém só ícone) |
+| `opacity: 0.85` (em vez de hover-only) em ≤900px | Botões revelados em touch (Rastreio) |
+
+---
+
 ## CSS — Design System
 
 ### Tokens globais (`global.css`)

@@ -7,13 +7,14 @@
     <title>{% block title %}IAgro{% endblock %}</title>
 
     {% load static %}
-    <link rel="stylesheet" href="{% static 'sankhya_integration/global.css' %}">
+    <link rel="stylesheet" href="{% static 'sankhya_integration/global.css' %}?v=4">
     <link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@300;400;600&display=swap" rel="stylesheet">
 
     {% block extra_css %}{% endblock %}
 </head>
 
-<body>
+<body class="app-shell" data-active-module="{% block active_module %}{% endblock %}">
     <div class="env-badge {{ ENV_BADGE_CLASS|default:'env-badge--producao' }}">
         {{ ENV_BADGE_LABEL|default:'PRODUÇÃO' }}
     </div>
@@ -22,35 +23,87 @@
         <div class="ia-spinner"></div>
     </div>
 
-    <div class="wrap">
-        <header class="appbar">
-            <div class="header-row">
-                <div class="header-left">
-                    <a href="/sankhya/" class="home-btn" title="Voltar para Home">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                            stroke-linecap="round" stroke-linejoin="round" style="width:20px;">
-                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-                            <polyline points="9 22 9 12 15 12 15 22"></polyline>
-                        </svg>
-                    </a>
-                    <h1>{% block header_title %}IAGRO{% endblock %}</h1>
-                    {% block header_extras %}{% endblock %}
-                </div>
+    {# Botão de toggle do menu (visível só em tablet/mobile via CSS) #}
+    <button id="btnSidebarToggleMobile" class="sidebar-toggle-mobile" aria-label="Abrir menu">
+        <span></span><span></span><span></span>
+    </button>
 
-                <div class="user-profile-badge">
-                    <div class="user-profile-info">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
-                            style="color: #64748b;">
-                            <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
-                            <circle cx="12" cy="7" r="4"></circle>
-                        </svg>
-                        <span class="user-profile-name">
-                            {{ request.session.nomeusu|default:"Usuário" }}
-                        </span>
-                    </div>
-                    <a href="{% url 'logout' %}" class="logout-link" title="Encerrar Sessão">Sair</a>
+    <aside class="sidebar" id="appSidebar">
+        <div class="sidebar-header">
+            <img src="{% static 'logo.png' %}" alt="Agromil" class="sidebar-logo">
+            <div class="sidebar-brand">
+                <strong>IAgro</strong>
+                <span>Gestão Integrada</span>
+            </div>
+            <button id="btnSidebarCollapse" class="sidebar-collapse-btn" aria-label="Recolher menu" title="Recolher menu">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+            </button>
+        </div>
+
+        <nav class="sidebar-nav" aria-label="Módulos">
+            <a href="/sankhya/" class="nav-item" data-mod="home" title="Painel">
+                <span class="nav-icon">🏠</span>
+                <span class="nav-label">Painel</span>
+            </a>
+            <a href="/sankhya/compras/portal/" class="nav-item" data-mod="entrada" title="Entrada">
+                <span class="nav-icon">🛒</span>
+                <span class="nav-label">Entrada</span>
+            </a>
+            <a href="/sankhya/compras/classificacao/" class="nav-item" data-mod="classificacao" title="Classificação">
+                <span class="nav-icon"><span class="material-symbols-outlined">alt_route</span></span>
+                <span class="nav-label">Classificação</span>
+            </a>
+            <a href="/sankhya/comercial/" class="nav-item" data-mod="comercial" title="Comercial">
+                <span class="nav-icon">📊</span>
+                <span class="nav-label">Comercial</span>
+            </a>
+            <a href="/sankhya/venda/portal/" class="nav-item" data-mod="venda" title="Venda">
+                <span class="nav-icon">🧾</span>
+                <span class="nav-label">Venda</span>
+            </a>
+            <a href="/sankhya/rastreio/" class="nav-item" data-mod="rastreio" title="Rastreio">
+                <span class="nav-icon">📦</span>
+                <span class="nav-label">Rastreio</span>
+            </a>
+            <a href="/sankhya/venda/email-importar/" class="nav-item" data-mod="email" title="Importação">
+                <span class="nav-icon">📥</span>
+                <span class="nav-label">Importação</span>
+            </a>
+            <a href="/sankhya/combustivel/" class="nav-item" data-mod="combustivel" title="Combustível">
+                <span class="nav-icon">⛽</span>
+                <span class="nav-label">Combustível</span>
+            </a>
+            {% if "1" in request.session.grupos or "6" in request.session.grupos %}
+            <a href="/sankhya/auditoria/" class="nav-item" data-mod="auditoria" title="Auditoria">
+                <span class="nav-icon">📋</span>
+                <span class="nav-label">Auditoria</span>
+            </a>
+            {% endif %}
+        </nav>
+
+        <div class="sidebar-footer">
+            <span class="version-tag">v{{ APP_VERSION|default:"beta" }}</span>
+        </div>
+    </aside>
+
+    <div class="app-content">
+        <header class="content-header">
+            <div class="content-title">
+                <h1>{% block header_title %}IAGRO{% endblock %}</h1>
+                {% block header_extras %}{% endblock %}
+            </div>
+            <div class="content-actions">
+                {% block header_actions %}{% endblock %}
+                <div class="user-badge-inline">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="12" cy="7" r="4"></circle>
+                    </svg>
+                    <span>{{ request.session.nomeusu|default:"Usuário" }}</span>
                 </div>
+                <a href="{% url 'logout' %}" class="btn-logout-inline" title="Encerrar sessão">Sair</a>
             </div>
         </header>
 
@@ -58,26 +111,25 @@
             {% block content %}{% endblock %}
         </main>
 
-        <footer class="ia-footer">
+        <footer class="ia-footer-inline">
             <div>NexusGTi — IAgro (Inteligência Artificial para o Agronegócio)</div>
             <div class="ia-footer-versao">Versão {{ APP_VERSION|default:"beta" }}</div>
         </footer>
     </div>
 
-    <script src="{% static 'sankhya_integration/iagro_helpers.js' %}"></script>
+    <script src="{% static 'sankhya_integration/iagro_helpers.js' %}?v=2"></script>
 
     <script>
         // Mai/2026 — Auto-select global on focus em todos os inputs de texto/número.
-        // Opt-out por campo: <input data-no-select ...>
-        // Vale pra todas as páginas (carregado pelo base.html).
         try { window.IAgro && IAgro.installAutoSelect && IAgro.installAutoSelect(); } catch (e) {}
+        // Setup do sidebar (toggle expand/collapse + estado persistido)
+        try { window.IAgro && IAgro.setupSidebar && IAgro.setupSidebar(); } catch (e) {}
     </script>
 
     <script>
         (function () {
-            const tempoInatividade = 60 * 60 * 1000; // 60 minutos para deslogar
-            const intervaloPing = 10 * 60 * 1000;    // 10 minutos para avisar o servidor
-
+            const tempoInatividade = 60 * 60 * 1000;
+            const intervaloPing = 10 * 60 * 1000;
             let timeoutInatividade;
             let usuarioAtivo = false;
             let throttleTimer;
@@ -87,43 +139,35 @@
                 window.location.href = "{% url 'logout' %}";
             }
 
-            // Avisa o servidor silenciosamente para renovar o SESSION_COOKIE_AGE do Django
             function pingServidor() {
                 if (usuarioAtivo) {
-                    // Faz uma requisição invisível para a própria página só para o Django "ver" você
                     fetch(window.location.href, { method: 'HEAD' })
-                        .then(() => {
-                            usuarioAtivo = false; // Reseta até você se mexer de novo
-                        })
-                        .catch(() => console.log('Ping de sessão falhou, tentando no próximo ciclo.'));
+                        .then(() => { usuarioAtivo = false; })
+                        .catch(() => console.log('Ping de sessão falhou.'));
                 }
             }
 
             function resetarInatividade() {
-                usuarioAtivo = true; // Marca que você está trabalhando
+                usuarioAtivo = true;
                 clearTimeout(timeoutInatividade);
                 timeoutInatividade = setTimeout(deslogar, tempoInatividade);
             }
 
-            // Função para não travar o navegador disparando milhares de vezes quando move o mouse
             function aoInteragir() {
                 if (throttleTimer) return;
                 throttleTimer = setTimeout(() => {
                     resetarInatividade();
                     throttleTimer = null;
-                }, 1000); // Registra atividade no máximo 1 vez por segundo
+                }, 1000);
             }
 
-            // Fica de olho nos seus movimentos (usando passive: true para melhor performance)
             const eventos = ['mousedown', 'keydown', 'scroll', 'touchstart', 'mousemove'];
             eventos.forEach(evt => document.addEventListener(evt, aoInteragir, { passive: true }));
 
-            // Inicia os motores
             resetarInatividade();
             setInterval(pingServidor, intervaloPing);
         })();
 
-        // Controle do Overlay
         window.addEventListener('load', () => {
             const ov = document.getElementById('pageOverlay');
             if (ov) {
@@ -132,21 +176,14 @@
             }
         });
 
-        // --- SINCRONIZAÇÃO SEGURA DE ABAS (LADO DE DENTRO DO SISTEMA) ---
+        // Sincronização entre abas
         (function () {
-            // 1. SÓ avisa as outras abas se o estado for diferente de "LOGGED_IN"
             if (localStorage.getItem('ia_auth_sync') !== 'LOGGED_IN') {
                 localStorage.setItem('ia_auth_sync', 'LOGGED_IN');
             }
-
-            // 2. Fica ouvindo as outras abas
             window.addEventListener('storage', function (evento) {
-                if (evento.key === 'ia_auth_sync') {
-                    // Se outra aba avisar que DESLOGOU, recarregamos para deslogar aqui também
-                    if (evento.newValue === 'LOGGED_OUT') {
-                        console.log("Logout detectado em outra aba. Saindo...");
-                        window.location.reload();
-                    }
+                if (evento.key === 'ia_auth_sync' && evento.newValue === 'LOGGED_OUT') {
+                    window.location.reload();
                 }
             });
         })();

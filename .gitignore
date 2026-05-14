@@ -166,3 +166,7 @@ media/
 # Smoke scripts ad-hoc (temporários, criados durante diagnósticos contra
 # Oracle real — não devem ser versionados; reescritos sob demanda)
 _smoke_*.py
+
+# Cache de thumbnails geradas pelo Pillow (Mai/2026 — módulo Combustível,
+# endpoint api_foto_veiculo). Regenera on-demand a partir das fotos originais.
+sankhya_integration/static/sankhya_integration/img/veiculos/_cache/

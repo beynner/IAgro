@@ -89,6 +89,8 @@ IAgro/
 /sankhya/comercial/                     → Comercial (TOP 13)
 /sankhya/venda/portal/                  → Venda (TOP 34/35/37)
 /sankhya/rastreio/                      → Rastreio / WMS
+/sankhya/venda/email-importar/          → Importação por e-mail (TOP 34)
+/sankhya/combustivel/                   → Controle de Combustível (TOP 10 → 26)
 
 # APIs de Venda (POST, exige grupo 'venda')
 /sankhya/venda/api/cabecalho/           → criar pedido TOP 34
@@ -107,6 +109,14 @@ IAgro/
 /sankhya/rastreio/api/desvincular-lote/   → POST (audit)
 /sankhya/rastreio/api/fabricantes/        → GET typeahead
 /sankhya/rastreio/api/lote-vinculos/      → GET pedidos/vendas que usam um lote
+
+# APIs de Combustível (exige grupo 'combustivel': 1, 6, 11)
+/sankhya/combustivel/api/estoque/             → GET saldo (view ANDRE_IAGRO_SALDO_COMBUSTIVEL)
+/sankhya/combustivel/api/veiculos/            → GET typeahead TGFVEI por tipo
+/sankhya/combustivel/api/produtos/            → GET typeahead TGFPRO CODGRUPOPROD=11
+/sankhya/combustivel/api/requisicoes/         → GET listagem paginada
+/sankhya/combustivel/api/requisicao/<nunota>/ → GET detalhe (cab + itens + metadata)
+/sankhya/combustivel/api/requisicao/criar/    → POST (501 enquanto B2 não aprovada)
 ```
 
 ---
@@ -138,15 +148,20 @@ def api_criar_cabecalho_venda(request):
 
 ### Mapeamento de grupos Sankhya
 
-| Grupo | Nome | Acesso |
+| Grupo | Nome (TSIGRU.NOMEGRUPO) | Acesso |
 |---|---|---|
-| `1` | Diretoria | Irrestrito a todos os módulos |
-| `6` | Suporte TI | Irrestrito (manutenção e suporte) |
-| `8` | Operação | Entrada e Classificação |
-| `9` | Comercial | Comercial |
-| `10` | Vendas | Vendas |
+| `1` | DIRETORIA | Irrestrito a todos os módulos |
+| `6` | SUPORTE | Irrestrito (manutenção e suporte) |
+| `8` | PACKING_ENTRADA | Entrada e Classificação |
+| `9` | PACKING_COMERCIAL | Comercial |
+| `10` | PACKING_VENDAS | Vendas |
+| `11` | PACKING_FROTA | Combustível (Mai/2026) — ⚠ não confundir com TGFGRU.CODGRUPOPROD=200400 que é o grupo do **produto** combustível |
 
-Consulta no Sankhya: `SELECT CODGRU, DESCRGRU FROM TSIGRU ORDER BY CODGRU`.
+Consulta no Sankhya: `SELECT CODGRUPO, NOMEGRUPO FROM TSIGRU ORDER BY CODGRUPO`.
+
+> **Atenção** — versões antigas do código/docs referenciavam as colunas
+> como `CODGRU`/`DESCRGRU`. Em produção a TSIGRU usa **`CODGRUPO`/`NOMEGRUPO`**
+> (validado em Mai/2026). Corrigido em `decorators.py`.
 
 ### Permissões por módulo
 
@@ -157,6 +172,7 @@ Consulta no Sankhya: `SELECT CODGRU, DESCRGRU FROM TSIGRU ORDER BY CODGRU`.
 | Comercial | 1, 6, 9 |
 | Venda | 1, 6, 10 |
 | Rastreio | 1, 6, 8, 9, 10 |
+| Combustível | 1, 6, 11 |
 
 ---
 

@@ -2755,3 +2755,68 @@
     background: var(--ras-primary-soft, #eef3e7);
     box-shadow: inset 4px 0 0 var(--ras-primary, #5e7e4a);
 }
+
+/* =========================================================
+   RESPONSIVO PARA TABLET / MOBILE (Mai/2026 — sweep)
+   Rastreio tem 2 painéis lado a lado (lotes / pedidos).
+   Em tablet vertical vira coluna única empilhada.
+   ========================================================= */
+
+/* Tablet horizontal — gap menor */
+@media (max-width: 1024px) {
+    .rastreio-layout { gap: 12px; }
+}
+
+/* Tablet vertical (≤900px) — empilhado, painéis com altura fixa pra
+   poder rolar dentro de cada um. */
+@media (max-width: 900px) {
+    .rastreio-layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(40vh, 0.45fr) minmax(40vh, 0.55fr);
+        gap: 10px;
+    }
+    .list-panel { min-height: 0; }
+    /* Em touch, sempre revelar os botões de ação (hover não existe).
+       Mantém opacity alta nas linhas selecionáveis. */
+    .btn-acao-linha,
+    .btn-armar,
+    .btn-olho {
+        opacity: 0.85 !important;
+        width: 28px !important;
+        height: 28px !important;
+    }
+    .btn-acao-linha:hover,
+    .btn-armar:hover,
+    .btn-olho:hover { opacity: 1 !important; }
+
+    /* Bar "lote armado": menor + sem text quando estreito */
+    .lote-armado-bar { font-size: 11px !important; padding: 6px 10px !important; }
+
+    /* Modais (transferência, vínculos) — full width */
+    .modal-content,
+    .modal-card {
+        width: 95vw !important;
+        max-width: 95vw !important;
+    }
+
+    /* Filtros do header: select menores */
+    .ras-filtros-bar select,
+    .ras-filtros-bar input { font-size: 11px !important; height: 26px !important; }
+}
+
+/* Mobile (≤520px) — barra de filtros vira coluna, cards mais compactos */
+@media (max-width: 520px) {
+    .rastreio-layout { padding: 0 !important; }
+    .lote-card,
+    .pedido-card {
+        padding: 6px 8px !important;
+    }
+    .modal-content,
+    .modal-card {
+        width: 100vw !important;
+        max-width: 100vw !important;
+        height: 100vh !important;
+        max-height: 100vh !important;
+        border-radius: 0 !important;
+    }
+}

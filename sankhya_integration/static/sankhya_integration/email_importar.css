@@ -705,3 +705,61 @@
     padding: 10px 14px;
     gap: 12px;
 }
+
+/* =========================================================
+   RESPONSIVO PARA TABLET / MOBILE (Mai/2026 — sweep)
+   Email: fila lateral 260px + detalhe (split PDF/items 1fr 1.35fr).
+   Em tablet a fila some pra fila de cards na vertical; PDF abaixo do form.
+   ========================================================= */
+
+@media (max-width: 1024px) {
+    #emailFilaPanel { flex: 0 0 220px; }
+}
+
+@media (max-width: 900px) {
+    .email-grid {
+        flex-direction: column;
+        overflow-y: auto;
+    }
+    #emailFilaPanel,
+    #emailDetalhePanel {
+        flex: 0 0 auto;
+        width: 100%;
+    }
+    #emailFilaPanel { max-height: 40vh; }
+
+    /* Split PDF/items: PDF vai pra cima (preview) — items embaixo */
+    .email-split,
+    .email-detalhe-split {
+        display: flex !important;
+        flex-direction: column !important;
+        grid-template-columns: unset !important;
+    }
+    .email-pdf-wrap,
+    .email-pdf-area { max-height: 50vh; }
+    .email-items-wrap { min-height: 60vh; }
+
+    /* Iframe PDF: altura reduzida pra caber na metade da tela */
+    .email-pdf-frame,
+    iframe.email-pdf {
+        height: 45vh !important;
+        min-height: 45vh;
+    }
+
+    /* Tabela de itens: scroll horizontal */
+    .email-items-tabela-wrap { overflow-x: auto; }
+    .email-items-tabela { min-width: 720px; }
+}
+
+@media (max-width: 520px) {
+    #emailFilaPanel { max-height: 35vh; }
+    /* Em mobile mesmo, troca iframe PDF por link "abrir em nova aba" */
+    .email-pdf-frame,
+    iframe.email-pdf { height: 38vh !important; }
+    /* Header da tela compacto */
+    #emailFilaPanel > header,
+    #emailDetalhePanel > header {
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+}

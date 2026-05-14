@@ -1,0 +1,513 @@
+{% extends "sankhya_integration/base.html" %}
+{% load static %}
+
+{% block title %}IAgro · Combustível{% endblock %}
+{% block active_module %}combustivel{% endblock %}
+{% block header_title %}CONTROLE DE COMBUSTÍVEL{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/combustivel.css' %}?v=19">
+{% endblock %}
+
+{% block content %}
+<div class="cb-layout">
+
+  <!-- ============ COLUNA ESQUERDA — ESTOQUE ============ -->
+  <aside class="cb-col cb-col-estoque" id="cardEstoque">
+    <div class="cb-card-header">
+      <div class="cb-card-title">
+        <span class="cb-icon">⛽</span>
+        <span>Estoque de Combustível</span>
+      </div>
+      <div class="cb-card-actions">
+        <button id="btnAtualizarEstoque" class="cb-btn cb-btn-icon" title="Atualizar">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div class="cb-card-body">
+      <div id="estoqueTanques" class="cb-tanques-wrap">
+        <div class="cb-empty" style="padding: 40px 14px;">Carregando…</div>
+      </div>
+
+      <!-- ====== Veículos: lista 2 colunas + modo detalhe (relatório inline) ====== -->
+      <div id="veiculosArea" class="cb-veiculos-area">
+
+        <!-- Modo LISTA: cabeçalho + toggle COM/MAQ + grid de cards -->
+        <div id="veiculosListaWrap">
+          <div class="cb-veiculos-header">
+            <div class="cb-veiculos-title">
+              <span class="cb-icon">🚚</span>
+              <span>Veículos</span>
+            </div>
+            <div class="cb-veiculos-toggle">
+              <button class="cb-toggle-btn active" data-filtro="COM" title="Frota com motor de combustão">
+                🚐 Frota
+              </button>
+              <button class="cb-toggle-btn" data-filtro="MAQ" title="Maquinário (trator, colheitadeira)">
+                🚜 Maquinário
+              </button>
+            </div>
+          </div>
+          <div id="veiculosGrid" class="cb-veiculos-grid">
+            <div class="cb-empty" style="padding: 24px 14px;">Carregando…</div>
+          </div>
+        </div>
+
+        <!-- Modo DETALHE: foto grande + sumário + período -->
+        <div id="veiculosDetalheWrap" class="cb-veiculos-detalhe hidden">
+          <div class="cb-detalhe-header">
+            <button id="btnVoltarVeiculos" class="cb-btn cb-btn-icon" title="Voltar à lista">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+              </svg>
+              <span>Voltar</span>
+            </button>
+            <div class="cb-detalhe-periodo">
+              <label class="cb-label" for="detPeriodo" style="margin: 0;">Período</label>
+              <select id="detPeriodo" class="cb-input cb-input-sm" title="Período do relatório">
+                <option value="7">Últimos 7 dias</option>
+                <option value="30" selected>Últimos 30 dias</option>
+                <option value="60">Últimos 60 dias</option>
+                <option value="90">Últimos 90 dias</option>
+                <option value="180">Últimos 6 meses</option>
+                <option value="365">Último ano</option>
+              </select>
+            </div>
+          </div>
+          <div id="detFoto" class="cb-detalhe-foto"></div>
+          <div id="detInfo" class="cb-detalhe-info"></div>
+          <div id="detResumo" class="cb-detalhe-resumo"></div>
+        </div>
+
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ COLUNA DIREITA — MOVIMENTAÇÕES ============ -->
+  <section class="cb-col cb-col-requisicoes" id="cardMovimentacoes">
+    <div class="cb-card-header">
+      <div class="cb-card-title">
+        <span class="cb-icon">📋</span>
+        <span>Movimentações</span>
+      </div>
+      <div class="cb-card-actions">
+        <select id="filtroMov" class="cb-input cb-input-sm" title="Filtrar por tipo de movimento">
+          <option value="">Entradas e saídas</option>
+          <option value="ENTRADA">Só entradas</option>
+          <option value="REQUISICAO">Só requisições</option>
+        </select>
+        <select id="filtroStatus" class="cb-input cb-input-sm">
+          <option value="">Todos os status</option>
+          <option value="aberto">Em aberto</option>
+          <option value="confirmado">Confirmadas</option>
+        </select>
+        <select id="filtroTipo" class="cb-input cb-input-sm" title="Filtrar requisições por tipo">
+          <option value="">Todos os tipos</option>
+          <option value="INTERNA_FROTA">Frota própria</option>
+          <option value="INTERNA_MAQUINARIO">Maquinário fazenda</option>
+          <option value="EXTERNA_FRETE">Veículo de freteiro</option>
+        </select>
+        <button id="btnAtualizarReqs" class="cb-btn cb-btn-icon" title="Atualizar">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+        </button>
+        <button id="btnNovaEntrada" class="cb-btn" title="Nova entrada de combustível">
+          📥 <span>Entrada</span>
+        </button>
+        <button id="btnNovaRequisicao" class="cb-btn cb-btn-primary" title="Nova requisição">
+          📋 <span>Requisição</span>
+        </button>
+      </div>
+    </div>
+    <div class="cb-card-body">
+      <table class="cb-table cb-table-reqs">
+        <thead>
+          <tr>
+            <th style="width: 95px;">Mov.</th>
+            <th style="width: 90px;">Data</th>
+            <th style="width: 130px;">Parceiro/Veículo</th>
+            <th>Produto</th>
+            <th class="cb-right" style="width: 85px;">Qtd</th>
+            <th class="cb-right" style="width: 95px;">Valor</th>
+            <th class="cb-right" style="width: 75px;">Total km</th>
+            <th class="cb-right" style="width: 75px;">Média</th>
+            <th style="width: 60px;"></th>
+          </tr>
+        </thead>
+        <tbody id="movimentacoesBody">
+          <tr><td colspan="9" class="cb-empty">Carregando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<!-- ============ MODAL: NOVA REQUISIÇÃO ============ -->
+<div id="modalNovaReq" class="cb-modal-overlay hidden">
+  <div class="cb-modal-card">
+    <div class="cb-modal-header">
+      <strong>Nova requisição de combustível</strong>
+      <button id="modalNovaReqFechar" class="cb-btn-fechar" title="Fechar">×</button>
+    </div>
+    <div class="cb-modal-body">
+
+      <!-- Tipo de requisição -->
+      <div class="cb-form-row">
+        <label class="cb-label">Tipo de requisição *</label>
+        <div class="cb-tipo-pills">
+          <label class="cb-pill">
+            <input type="radio" name="cbTipo" value="INTERNA_FROTA" checked />
+            <span>🚐 Frota própria</span>
+          </label>
+          <label class="cb-pill">
+            <input type="radio" name="cbTipo" value="INTERNA_MAQUINARIO" />
+            <span>🚜 Maquinário fazenda</span>
+          </label>
+          <label class="cb-pill">
+            <input type="radio" name="cbTipo" value="EXTERNA_FRETE" />
+            <span>🚛 Veículo de freteiro</span>
+          </label>
+          <label class="cb-pill cb-pill--externo">
+            <input type="radio" name="cbTipo" value="EXTERNA_POSTO" />
+            <span>🌐 Posto externo</span>
+          </label>
+        </div>
+        <div class="cb-hint cb-hint-externo hidden" id="reqExternoAviso">
+          ⚠ Abastecimento no posto não desconta saldo dos tanques internos.
+          Gera lançamento financeiro contra o posto.
+        </div>
+      </div>
+
+      <!-- Posto (typeahead de parceiro) — só visível em EXTERNA_POSTO -->
+      <div class="cb-form-row hidden" id="reqPostoWrap" style="position: relative;">
+        <label class="cb-label" for="reqPostoVis">Posto / Fornecedor *</label>
+        <input type="text" id="reqPostoVis" class="cb-input"
+               placeholder="Allianz, Semear, Agromil…" autocomplete="off" />
+        <input type="hidden" id="reqPostoCod" />
+        <div id="reqPostoDD" class="cb-dropdown dropdown-abs"></div>
+        <div class="cb-hint">
+          Sugestões comuns: <a href="#" data-codparc="1" class="cb-link-posto">1 — Semear</a> ·
+          <a href="#" data-codparc="572" class="cb-link-posto">572 — Agromil</a>
+        </div>
+      </div>
+
+      <!-- Veículo -->
+      <div class="cb-form-row" style="position: relative;">
+        <label class="cb-label" for="reqVeiculoVis">Veículo *</label>
+        <input type="text" id="reqVeiculoVis" class="cb-input" placeholder="Placa, modelo ou tipo…" autocomplete="off" />
+        <input type="hidden" id="reqVeiculoCod" />
+        <div id="reqVeiculoDD" class="cb-dropdown dropdown-abs"></div>
+        <div id="reqVeiculoHint" class="cb-hint"></div>
+      </div>
+
+      <!-- Combustível + Qtd + Vlr Unit (single item — usado em INTERNA_*/EXTERNA_FRETE) -->
+      <div class="cb-form-row cb-form-row-grid" id="reqProdutoSingleWrap">
+        <div style="flex: 1; position: relative;">
+          <label class="cb-label" for="reqProdutoVis">Combustível *</label>
+          <input type="text" id="reqProdutoVis" class="cb-input" placeholder="Diesel, gasolina…" autocomplete="off" />
+          <input type="hidden" id="reqProdutoCod" />
+          <div id="reqProdutoDD" class="cb-dropdown dropdown-abs"></div>
+        </div>
+        <div style="width: 110px;">
+          <label class="cb-label" for="reqQtd">Qtd (litros) *</label>
+          <input type="number" id="reqQtd" class="cb-input cb-input-right" step="0.01" min="0" placeholder="0,00" />
+        </div>
+        <div style="width: 110px;">
+          <label class="cb-label" for="reqVlrUnit">Valor unit.</label>
+          <input type="number" id="reqVlrUnit" class="cb-input cb-input-right" step="0.0001" min="0" placeholder="0,0000" />
+        </div>
+      </div>
+
+      <!-- Tabela de Itens (multi) — só EXTERNA_POSTO (Mai/2026 - 2026-05-13) -->
+      <div id="reqItensExternoWrap" class="cb-itens-wrap hidden">
+        <div class="cb-itens-header">
+          <label class="cb-label" style="margin: 0;">Itens *</label>
+          <button type="button" id="btnAddItemReqExt" class="cb-btn cb-btn-sm">+ Item</button>
+        </div>
+        <table class="cb-itens-tabela">
+          <thead>
+            <tr>
+              <th>Combustível</th>
+              <th style="width: 95px;">Qtd (LT)</th>
+              <th style="width: 100px;">Valor unit.</th>
+              <th style="width: 100px;">Total</th>
+              <th style="width: 30px;"></th>
+            </tr>
+          </thead>
+          <tbody id="reqExtItensBody">
+            <!-- renderizado via JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Total da Nota — só visível em EXTERNA_POSTO (multi-itens) -->
+      <div class="cb-form-row hidden" id="reqExtTotalWrap">
+        <div class="cb-total-nota" id="reqExtTotalCalculado">Total da Nota: <strong>R$ 0,00</strong></div>
+      </div>
+
+      <!-- Medidores (adaptativos conforme tipo de requisição):
+           - INTERNA_FROTA      → hodômetro (km) E horímetro (h) AMBOS obrigatórios
+           - INTERNA_MAQUINARIO → hodômetro e horímetro opcionais
+           - EXTERNA_POSTO      → só hodômetro obrigatório (horímetro opcional)
+           - EXTERNA_FRETE      → escondidos (não aplicável) -->
+      <div class="cb-form-row cb-form-row-grid" id="reqMedidoresWrap">
+        <div style="flex: 1;">
+          <label class="cb-label" for="reqHodometroKm">
+            Hodômetro do veículo (km)
+            <span class="reqHodometroObrig" style="color: var(--cb-perigo);">*</span>
+          </label>
+          <input type="number" id="reqHodometroKm" class="cb-input cb-input-right" step="0.01" min="0" placeholder="0,00" />
+        </div>
+        <div style="flex: 1;">
+          <label class="cb-label" for="reqHorimetroH">
+            Horímetro da bomba (h)
+            <span class="reqHorimetroObrig" style="color: var(--cb-perigo);">*</span>
+          </label>
+          <input type="number" id="reqHorimetroH" class="cb-input cb-input-right" step="0.01" min="0" placeholder="0,00" />
+        </div>
+      </div>
+
+      <!-- Centro de Resultado (CODCENCUS) + Natureza (CODNAT) -->
+      <div class="cb-form-row cb-form-row-grid">
+        <div style="flex: 1; position: relative;">
+          <label class="cb-label" for="reqCencusVis">Centro de Resultado *</label>
+          <input type="text" id="reqCencusVis" class="cb-input" placeholder="Buscar centro de resultado…" autocomplete="off" />
+          <input type="hidden" id="reqCencusCod" />
+          <div id="reqCencusDD" class="cb-dropdown dropdown-abs"></div>
+        </div>
+        <div style="flex: 1; position: relative;">
+          <label class="cb-label" for="reqNaturezaVis">Natureza</label>
+          <input type="text" id="reqNaturezaVis" class="cb-input" placeholder="Default: 30070200 — COMBUSTÍVEIS" autocomplete="off" />
+          <input type="hidden" id="reqNaturezaCod" />
+          <div id="reqNaturezaDD" class="cb-dropdown dropdown-abs"></div>
+        </div>
+      </div>
+
+      <!-- Tipo de Negociação (CODTIPVENDA) — default 11 -->
+      <div class="cb-form-row" style="position: relative;">
+        <label class="cb-label" for="reqTipVendaVis">Tipo de Negociação</label>
+        <input type="text" id="reqTipVendaVis" class="cb-input" placeholder="Buscar tipo de negociação…" autocomplete="off" />
+        <input type="hidden" id="reqTipVendaCod" />
+        <div id="reqTipVendaDD" class="cb-dropdown dropdown-abs"></div>
+      </div>
+
+      <!-- Doc de frete (só EXTERNA_FRETE) -->
+      <div class="cb-form-row hidden" id="reqDocFreteWrap">
+        <label class="cb-label" for="reqDocFrete">Documento do frete *</label>
+        <input type="text" id="reqDocFrete" class="cb-input" placeholder="CT-e, manifesto ou referência" maxlength="50" />
+      </div>
+
+      <!-- Doc + datas do externo (só EXTERNA_POSTO) -->
+      <div class="cb-form-row hidden" id="reqExternoDocWrap">
+        <label class="cb-label" for="reqExternoDoc">Nº da nota fiscal / boleto</label>
+        <input type="text" id="reqExternoDoc" class="cb-input" placeholder="Ex: NF 12345 ou boleto Allianz" maxlength="50" />
+      </div>
+      <div class="cb-form-row cb-form-row-grid hidden" id="reqExternoDatasWrap">
+        <div style="flex: 1;">
+          <label class="cb-label" for="reqExternoDtNeg">Data do abastecimento</label>
+          <input type="date" id="reqExternoDtNeg" class="cb-input" />
+        </div>
+        <div style="flex: 1;">
+          <label class="cb-label" for="reqExternoDtVenc">Data de Vencimento</label>
+          <input type="date" id="reqExternoDtVenc" class="cb-input" />
+        </div>
+      </div>
+
+      <!-- Observação -->
+      <div class="cb-form-row">
+        <label class="cb-label" for="reqObs">Observação</label>
+        <textarea id="reqObs" class="cb-input cb-textarea" rows="2" placeholder="Detalhes adicionais…" maxlength="500"></textarea>
+      </div>
+
+      <!-- Mensagem de erro / status -->
+      <div id="reqMensagem" class="cb-mensagem"></div>
+    </div>
+    <div class="cb-modal-footer">
+      <button id="btnCancelarReq" class="cb-btn">Cancelar</button>
+      <button id="btnConfirmarReq" class="cb-btn cb-btn-primary">Salvar requisição</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: NOVA ENTRADA DE COMBUSTÍVEL ============ -->
+<div id="modalNovaEntrada" class="cb-modal-overlay hidden">
+  <div class="cb-modal-card">
+    <div class="cb-modal-header">
+      <strong id="entModalTitle">📥 Nova entrada de combustível (compra)</strong>
+      <button id="modalNovaEntradaFechar" class="cb-btn-fechar" title="Fechar">×</button>
+    </div>
+    <div class="cb-modal-body">
+
+      <!-- Empresa + Fornecedor (empresa maior; fornecedor menor que antes) -->
+      <div class="cb-form-row cb-form-row-grid">
+        <div style="width: 180px; position: relative;">
+          <label class="cb-label" for="entEmpresaVis">Empresa *</label>
+          <input type="text" id="entEmpresaVis" class="cb-input" placeholder="CODEMP" autocomplete="off" />
+          <input type="hidden" id="entEmpresaCod" />
+          <div id="entEmpresaDD" class="cb-dropdown dropdown-abs"></div>
+        </div>
+        <div style="flex: 1; position: relative;">
+          <label class="cb-label" for="entFornecedorVis">Fornecedor *</label>
+          <input type="text" id="entFornecedorVis" class="cb-input" placeholder="Buscar posto / distribuidora…" autocomplete="off" />
+          <input type="hidden" id="entFornecedorCod" />
+          <div id="entFornecedorDD" class="cb-dropdown dropdown-abs"></div>
+        </div>
+      </div>
+
+      <!-- Nº Nota + Série + Data Entrada -->
+      <div class="cb-form-row cb-form-row-grid">
+        <div style="flex: 1;">
+          <label class="cb-label" for="entNumNota">Nº Nota *</label>
+          <input type="number" id="entNumNota" class="cb-input" placeholder="Nº da NF do fornecedor" min="1" />
+        </div>
+        <div style="width: 90px;">
+          <label class="cb-label" for="entSerieNota">Série</label>
+          <input type="text" id="entSerieNota" class="cb-input" placeholder="Ex: 1, U" maxlength="3" />
+        </div>
+        <div style="width: 140px;">
+          <label class="cb-label" for="entDtNeg">Data da entrada *</label>
+          <input type="date" id="entDtNeg" class="cb-input" />
+        </div>
+      </div>
+
+      <!-- Tipo Negociação + Data Vencimento -->
+      <div class="cb-form-row cb-form-row-grid">
+        <div style="flex: 1; position: relative;">
+          <label class="cb-label" for="entTipVendaVis">Tipo de Negociação</label>
+          <input type="text" id="entTipVendaVis" class="cb-input" placeholder="Buscar tipo de negociação…" autocomplete="off" />
+          <input type="hidden" id="entTipVendaCod" />
+          <div id="entTipVendaDD" class="cb-dropdown dropdown-abs"></div>
+        </div>
+        <div style="width: 180px;">
+          <label class="cb-label" for="entDtVenc">Data Vencimento</label>
+          <input type="date" id="entDtVenc" class="cb-input" />
+          <div class="cb-hint">Calculada pelo tipo. Edição livre.</div>
+        </div>
+      </div>
+
+      <!-- Centro de Resultado + Natureza -->
+      <div class="cb-form-row cb-form-row-grid">
+        <div style="flex: 1; position: relative;">
+          <label class="cb-label" for="entCencusVis">Centro de Resultado *</label>
+          <input type="text" id="entCencusVis" class="cb-input" placeholder="Buscar centro de resultado…" autocomplete="off" />
+          <input type="hidden" id="entCencusCod" />
+          <div id="entCencusDD" class="cb-dropdown dropdown-abs"></div>
+        </div>
+        <div style="flex: 1; position: relative;">
+          <label class="cb-label" for="entNaturezaVis">Natureza</label>
+          <input type="text" id="entNaturezaVis" class="cb-input" placeholder="Default: 30070200 — COMBUSTÍVEL" autocomplete="off" />
+          <input type="hidden" id="entNaturezaCod" />
+          <div id="entNaturezaDD" class="cb-dropdown dropdown-abs"></div>
+        </div>
+      </div>
+
+      <!-- ITENS — tabela dinâmica multi-itens -->
+      <div class="cb-itens-wrap">
+        <div class="cb-itens-header">
+          <label class="cb-label" style="margin: 0;">Itens *</label>
+          <button type="button" id="btnAddItemEntrada" class="cb-btn cb-btn-sm">+ Item</button>
+        </div>
+        <table class="cb-itens-tabela">
+          <thead>
+            <tr>
+              <th>Combustível</th>
+              <th style="width: 95px;">Qtd (LT)</th>
+              <th style="width: 100px;">Valor unit.</th>
+              <th style="width: 100px;">Total</th>
+              <th style="width: 30px;"></th>
+            </tr>
+          </thead>
+          <tbody id="entItensBody">
+            <!-- linhas renderizadas via JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Histórico (TGFFIN.HISTORICO) -->
+      <div class="cb-form-row">
+        <label class="cb-label" for="entHistorico">Histórico (Financeiro)</label>
+        <input type="text" id="entHistorico" class="cb-input" placeholder="Texto curto pra identificar no financeiro (default: Compra combust. NF X)" maxlength="255" />
+      </div>
+
+      <!-- Total da Nota (read-only, calculado) -->
+      <div class="cb-form-row">
+        <div class="cb-total-nota" id="entTotalCalculado">Total da Nota: <strong>R$ 0,00</strong></div>
+      </div>
+
+      <!-- Observação -->
+      <div class="cb-form-row">
+        <label class="cb-label" for="entObs">Observação</label>
+        <textarea id="entObs" class="cb-input cb-textarea" rows="2" placeholder="Detalhes adicionais…" maxlength="200"></textarea>
+      </div>
+
+      <div id="entMensagem" class="cb-mensagem"></div>
+    </div>
+    <div class="cb-modal-footer">
+      <!-- Lixeira no rodapé esquerdo — só visível em modo edição.
+           Mai/2026 (2026-05-13): exclusão removida da linha pra evitar deletar
+           nota inteira ao clicar num produto de uma nota multi-itens. -->
+      <button id="btnExcluirEntradaModal" class="cb-btn hidden"
+              style="background: var(--cb-perigo); color: #fff; border-color: var(--cb-perigo); margin-right: auto;"
+              title="Excluir esta entrada inteira (todos os itens)">
+        🗑 Excluir entrada
+      </button>
+      <button id="btnCancelarEntrada" class="cb-btn">Cancelar</button>
+      <button id="btnConfirmarEntrada" class="cb-btn cb-btn-primary">Salvar entrada</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: CONFIRMAR EXCLUSÃO DE REQUISIÇÃO ============ -->
+<div id="modalExcluirReq" class="cb-modal-overlay hidden">
+  <div class="cb-modal-card" style="width: 460px;">
+    <div class="cb-modal-header">
+      <strong>🗑 Excluir requisição</strong>
+      <button id="modalExcluirReqFechar" class="cb-btn-fechar" title="Fechar">×</button>
+    </div>
+    <div class="cb-modal-body">
+      <div class="cb-hint" id="excluirReqResumo" style="font-size: 13px; color: var(--cb-texto);"></div>
+      <div class="cb-form-row">
+        <label class="cb-label" for="excluirMotivo">
+          Motivo da exclusão <span style="color: var(--cb-perigo);">*</span>
+        </label>
+        <textarea id="excluirMotivo" class="cb-input cb-textarea" rows="3"
+                  placeholder="Ex: lançamento de teste, qtd errada, veículo trocado…" maxlength="300"></textarea>
+      </div>
+      <div class="cb-hint" style="color: var(--cb-aviso);">
+        ⚠ A exclusão é definitiva. O saldo do combustível volta automaticamente.
+      </div>
+      <div id="excluirMensagem" class="cb-mensagem"></div>
+    </div>
+    <div class="cb-modal-footer">
+      <button id="btnCancelarExcluir" class="cb-btn">Cancelar</button>
+      <button id="btnConfirmarExcluir" class="cb-btn" style="background: var(--cb-perigo); color: #fff; border-color: var(--cb-perigo);">
+        Excluir requisição
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ LIGHTBOX: Foto do veículo em alta resolução ============ -->
+<div id="cbLightbox" class="cb-lightbox hidden" aria-hidden="true">
+  <button class="cb-lightbox-fechar" id="cbLightboxFechar" title="Fechar (Esc)" aria-label="Fechar">×</button>
+  <div class="cb-lightbox-img-wrap">
+    <img id="cbLightboxImg" alt="Foto do veículo" />
+    <div class="cb-lightbox-legenda" id="cbLightboxLegenda"></div>
+  </div>
+</div>
+
+<div id="toastContainer"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'sankhya_integration/combustivel.js' %}?v=19"></script>
+{% endblock %}

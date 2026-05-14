@@ -38,6 +38,7 @@ Parcialmente implementados ou que dependem de decisão externa.
 
 | Item | O que existe | O que falta | Próximo passo |
 |---|---|---|---|
+| **Controle de Combustível** (Mai/2026, atualizado 2026-05-13) | ✅ **Ponta-a-ponta funcional em produção com CRUD completo**. Sprint Mai/2026 ampliou muito o escopo original. **Backend**: ~14 funções service (leitura: saldo, veículos, produtos, prazo TGFTPV, último preço, consumo por veículo, listagens, obter requisição/entrada; escrita: B2 criar_req, B5/B11 editar_req, B6/B12 excluir_req, B8 criar_externo, B13 criar_entrada, B14 editar_entrada, B15 excluir_entrada). 14 views Django + 14 rotas. DDLs: `AD_REQUISICAO_COMBUSTIVEL` (B1) com `HODOMETRO_KM`+`HORIMETRO_H` (B4) + colunas `CATEGORIA`/`CODPARC`/`NUFIN_GERADO` (B7) pra suportar EXTERNA_POSTO; view `ANDRE_IAGRO_SALDO_COMBUSTIVEL` filtra TOP 53 + `NOT EXISTS EXTERNA_POSTO`. **TOP 26 → TOP 53** em todo o módulo (TOP 26 reservada à Classificação). **Multi-itens** em entrada (B13) e em abastecimento externo (B8 + B11 caminho externo): payload `itens=[{codprod,qtd,vlrunit},...]` com compat retroativa de codprod/qtd/vlrunit avulsos. **CRUD completo de entrada** (criar/editar/excluir tudo via IAgro — Sankhya não precisa). **Frontend**: tanques SVG, lista de veículos com toggle COM/MAQ + foto thumb cacheada via Pillow (endpoint `/veiculo-foto/?size=thumb` em `_cache/`) + lightbox full-screen. Modal Nova Entrada com tabela dinâmica multi-itens + Total da Nota reativo + NºNota/Série + auto-cálculo DTVENC (BASEPRAZO/regex DESCR). Modal Nova Requisição alterna entre form single (interno) e tabela multi-itens (externo). Auto-fill VLRUNIT do último abastecimento (readonly em internos, editável em externos). Listagem 9 colunas (removidas NUNOTA+Status, adicionadas Total km + Média calc client-side). Badge `🌐 EXTERNA` laranja distinto. Exclusão de entrada migrou pra dentro do modal de edição (lixeira na linha removida pra evitar deletar nota multi-itens por engano). **TGFFIN sempre nasce em aberto** (DHBAIXA=NULL, VLRBAIXA=0, ORIGEM='E', CODTIPOPERBAIXA=0) — 3 triggers Sankhya bloqueiam baixa automática (TRG_UPT_TGFFIN_NUBCO + TRG_INC_TGFFIN). Humanizar ORA-20101 extrai msg real do trigger via regex. `gerar_proxima_sequencia_item` aceita `conexao_existente` (evita ORA-00001 em multi-INSERT transacional). **84 tests** mockados (313 totais cruzando módulos). | **Cadastro humano no Sankhya pendente**: (1) atribuir usuários ao grupo `TSIGRU.CODGRUPO=11` (PACKING_FROTA); (2) máquinas/tratores em TGFVEI (PROPRIO='S'); (3) freteiros em TGFVEI (PROPRIO='N'). Tudo o resto (DDLs, view, código backend/frontend, tests, smokes reais) deployado e validado. | Operador cadastra (1)(2)(3) → smoke real em produção com requisições e abastecimentos externos |
 | **Emissão real de NFe (TOP 35)** | Pedido marcado faturado em TGFCAB com `STATUSNOTA='L'`, NUMNOTA gerado | Disparo real da emissão via webservice/API do Sankhya | **Decisão de negócio:** (a) automático após faturar, (b) manual no Sankhya (estado atual), (c) job batch periódico |
 | **Vínculo lote ↔ item dentro do modal de Venda** | Item da Venda com `CODAGREGACAO=NULL`; vínculo no Rastreio | Typeahead dinâmico no modal de itens da Venda filtrando por saldo de lote | **Recomendação:** manter fluxo atual — Venda → Rastreio é suficiente |
 | **Avaria interna como linha separada (Opção B)** | ✅ Concluído em Mai/2026 — card `.nao-vendavel` com tag `AVARIA INT.` logo abaixo do vendável (commit f8486b5) | — | — |
@@ -54,6 +55,9 @@ Parcialmente implementados ou que dependem de decisão externa.
 | **Cobertura services do Rastreio** | Indireta via mocks (53 testes) + diretos para `atribuir_lote_item_pedido` e `faturar_pedido_venda_banco` | Testes diretos de `consultar_vinculos_de_lote`, `consultar_fabricantes_disponiveis`, `desvincular_lote_item_pedido`, `consultar_saldo_lote_disponivel` | Replicar padrão do `AtribuirLoteServiceTest` |
 | **WhiteNoise / `DEBUG=False` em produção** | Versão 1.2.0, healthcheck profundo, paleta visual fechada | Validar `collectstatic`, ativar WhiteNoise em `MIDDLEWARE`, configurar `STATIC_ROOT` | Subir em homologação com `DEBUG=False` e validar JS/CSS |
 | **Typeahead de Lote no portal Venda** | Refino cosmético aplicado (placeholder "Código do lote" + title explicativo). Busca livre por `LIKE` com debounce 500ms | Typeahead real exigiria nova função em `oracle_conn.py` (`SELECT DISTINCT CODAGREGACAO FROM TGFITE WHERE...`) — bloqueado pela **regra crítica #4** | Decisão de negócio: vale o custo? `SELECT DISTINCT` em tabela grande sem índice dedicado pode ser caro |
+| **Dashboard Executivo + Layout v2 (sidebar + header)** (Mai/2026) | ✅ Concluído | Reestruturação completa de `base.html`: sidebar lateral (200px expand / 56px collapse + tooltip + off-canvas em mobile) + content-header com user-badge/sair + footer inline. `home.html` virou dashboard com 6 indicadores: pedidos sem lote (Rastreio), lotes aguardando classificação (Classif), vales abertos (Comercial), tanques críticos <20% (Combustível), pedidos prontos pra faturar (Venda), lotes >60d (Rastreio). Indicadores em widgets coloridos (semáforo verde/amarelo/vermelho) com polling 5min + refresh manual. Tela de login standalone (`home_login.html`) com gradiente. Itens "Auditoria" só pra grupos 1/6. Toggle persiste em `localStorage`. 8 testes novos (`test_views_dashboard.py`). `consultar_indicadores_dashboard()` em `oracle_conn.py` consolida 5 SELECTs com tolerância individual + 1 chamada a `consultar_saldo_combustivel()`. `TANQUE_CRITICO_PCT=20.0` + `DIAS_LOTE_ENVELHECIDO=60`. |
+| **Auditoria Universal — AD_AUDITORIA_GERAL + Tela** (Mai/2026, 2026-05-13) | ✅ Código concluído · ⚠ DDL precisa ser aplicada no Oracle | **Lote B1**: DDL `AD_AUDITORIA_GERAL` (ID, MODULO check 7 valores, OPERACAO, TABELA_ALVO, REGISTRO_ID, CODUSU, NOMEUSU, DT, SNAPSHOT_ANTES CLOB, SNAPSHOT_DEPOIS CLOB, OBSERVACAO) + Sequence + 4 índices (DT desc, CODUSU, MODULO, REGISTRO_ID) + helper `registrar_auditoria()` em `oracle_conn.py` (tolerante a falha, conexão própria pós-commit). **Lotes B2-B6**: 36 funções de escrita instrumentadas em Venda (9), Combustível (7), Rastreio (6 — gravação dupla com `RastreioAudit` SQLite legado), Comercial (6), Entrada/Classificação (8). **Lote A**: tela `/sankhya/auditoria/` com sidebar de filtros (módulo, operação, usuário, datas, busca livre, registro) + timeline paginada (50 por vez, ordem `DT DESC, ID DESC`) + modal com **diff inteligente em tabela amigável** ("antes → depois" em verde/vermelho com badge alterado/adicionado/removido) + JSON técnico expansível. Algoritmo: flatten + normalização só do último segmento + aliases (qtdneg/qtdvol → qtd, codvolparc → codvol). 37 testes novos cobrindo todos os lotes (B2-B6 + A). Acesso restrito a grupos 1 (Diretoria) e 6 (Suporte). |
+| **Sweep responsivo p/ tablet em todos os módulos** (Mai/2026, 2026-05-13) | ✅ Concluído | Adicionadas seções `RESPONSIVO PARA TABLET / MOBILE` no fim de cada CSS de módulo (`combustivel.css`, `venda.css`, `comercial.css`, `rastreio.css`, `entrada.css`, `classificacao.css`, `email_importar.css`) com 3 breakpoints padronizados: `≤1024px` (compactação leve), `≤900px` (containers viram coluna única + tabelas com `overflow-x` + modais 95vw + botões hover-only viram sempre visíveis), `≤520px` (modais fullscreen, header compacto, grids 1 col). Defesa global em `global.css` pra modais sem regra específica (`max-width: min(640px, 95vw)`). Documentado em `conventions.md` → "Responsivo". Cache `?v=4` no `global.css`. |
 
 ---
 
@@ -96,6 +100,74 @@ Sequência otimizada para chegar à produção rápido sem dívidas críticas.
 | **P3** | E-mail: testar 7B (pendência #12) | Ganho marginal se 14B já satisfaz após parser regex |
 
 **Caminho mínimo para produção:** completar P0. Restante pode entrar em releases incrementais.
+
+---
+
+## Módulo Relatórios — Backlog planejado (Mai/2026)
+
+Tela `/sankhya/relatorios/` ainda não iniciada. Backlog mapeado em sessão Mai/2026 cobrindo 6 eixos. **Voltar nesse backlog quando módulo entrar em planejamento.**
+
+### Eixo 1 — FINANCEIRO (alta prioridade pra gestor)
+
+- **Fluxo de caixa projetado (30/60/90d)** — TGFFIN em aberto agrupado por semana/mês (entradas TOP 11+10, saídas TOP 53+13). Hoje não há consolidado.
+- **Contas a pagar vencendo (próximos 7/15/30 dias)** — TGFFIN despesa com DHBAIXA=NULL, agrupado por fornecedor e por TOP. Útil pra negociar prazos.
+- **Margem por venda faturada** — TOP 35/37 STATUSNOTA='L' com `VLRNOTA − (Σ TOP 11 do lote × VLRUNIT proporcional)`. Mostra cliente/produto com margem real.
+- **Inadimplência** — TGFFIN receita vencida sem baixa, por parceiro. Lista cliente atrasando.
+
+### Eixo 2 — VENDAS
+
+- **Top clientes (período)** — por valor, kg, nº de pedidos. Filtro por TOP (34/35/37). Identifica perda de ritmo.
+- **Top produtos vendidos** — descritivo + ranking de margem.
+- **Curva ABC de cliente e de produto** — agrupa 80/20.
+- **Pedidos não faturados envelhecidos** — TOP 34 STATUSNOTA<>'L' há > X dias. Cobra fechamento.
+- **Avarias e devoluções (TOP 30 + TOP 36)** — % sobre vendas, por cliente, por produto, por motivo. Aponta qualidade-problema.
+
+### Eixo 3 — COMPRAS / ESTOQUE (núcleo agro)
+
+- **Saldo de lotes envelhecidos** — view `ANDRE_IAGRO_SALDO_LOTE` + `DTNEG_ORIGEM > 30/60d`. Pré-perda — vende ou abate preço.
+- **Giro de lote por fornecedor** — tempo médio entre TOP 11 (entrada) e TOP 35/37 (venda) por NOMEPARC_ORIGEM.
+- **Aproveitamento por lote** — `(qtd_vendida + qtd_classificada) / qtd_comprada`. Filtra fornecedor com muito descarte (`AD_QTDAVARIA` alta — perna E).
+- **Compras por fornecedor (período)** — valor, kg, nº notas. Concentração de compras.
+- **Rendimento da classificação** — % de cada lote: CLASSIFICADO (A) vs NAO_CLASSIFICAVEL (B) vs AVARIA (E). Por fornecedor.
+
+### Eixo 4 — RASTREIO / WMS
+
+- **Lotes sem vínculo a pedido** — saldo disponível mas sem TOP 34 alocado. Estoque parado.
+- **Pedidos faturados sem lote** — TOP 34/35/37 STATUSNOTA='L' com CODAGREGACAO=NULL. Furo de rastreabilidade.
+- **Notas órfãs (NOTA_ORFA)** — TOP 35/37 sem TGFVAR par e sem AD_VINCULO_PEDIDO_NOTA. Backlog de vinculação manual.
+
+### Eixo 5 — COMBUSTÍVEL / FROTA
+
+- **Consumo por veículo (km/L ou L/h)** — função `consultar_consumo_por_veiculo` já existe em `oracle_conn.py`. Falta tela amigável + comparativo entre veículos.
+- **Custo de combustível por veículo / período** — Σ VLRTOT das requisições por CODVEICULO.
+- **Abastecimento externo vs interno** — % do total gasto em postos terceiros (EXTERNA_POSTO). Indica oportunidade de centralizar.
+- **Frequência de abastecimento por veículo** — identifica veículo "comendo muito".
+
+### Eixo 6 — AUDITORIA / PRODUTIVIDADE
+
+- **Lançamentos por operador (período)** — `AD_AUDITORIA_GERAL` agrupado por NOMEUSU + MODULO. Quem produz, quem está parado.
+- **Operações canceladas/estornadas** — DELETE em AD_AUDITORIA_GERAL. Detecta retrabalho.
+- **Pedidos importados por e-mail confirmados vs descartados** — `AD_PEDIDO_EMAIL_RECEBIDO` por STATUS. Mede produtividade LLM + operador.
+
+### MVP recomendado (5 relatórios de maior impacto vs esforço)
+
+| # | Relatório | Por que entrar primeiro |
+|---|---|---|
+| 1 | **Fluxo de caixa projetado (30/60/90d)** | Maior impacto decisório, dados já existem em TGFFIN, sem query nova complexa |
+| 2 | **Top clientes + Top produtos (período)** | Base do "quem é meu negócio". Filtros simples sobre TGFCAB+TGFITE |
+| 3 | **Lotes envelhecidos com saldo** | Evita perda direta de margem. View já calcula tudo |
+| 4 | **Margem por venda (cliente × produto)** | Diferencia cliente bom de cliente ocupando capacidade. Requer JOIN entrada↔venda via CODAGREGACAO |
+| 5 | **Consumo por veículo (com ranking)** | Frota entrou em produção esse mês — gestor quer ver |
+
+**Esforço estimado MVP:** ~3-4 dias (todos são SELECT em queries existentes + tela única `/sankhya/relatorios/` com sub-abas + export Excel/PDF).
+
+**Trade-off central:** quanto mais relatórios no MVP, mais demora o primeiro print em produção. Prefiro 5 sólidos com filtros bons e export funcional do que 15 superficiais.
+
+**Decisões pendentes (perguntar antes de implementar):**
+- Tela web vs export Excel/PDF programado por e-mail vs ambos
+- Filtros padrão (período default, agrupamentos)
+- Permissão (todos os grupos ou só Diretoria/Suporte como Auditoria)
+- Cache de queries pesadas (margem por venda pode demorar)
 
 ---
 

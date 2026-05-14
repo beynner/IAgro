@@ -540,6 +540,77 @@
     });
   }
 
+  // ===========================================================================
+  // IAgro.setupSidebar — toggle expand/collapse + off-canvas mobile (Mai/2026)
+  // Persiste estado em localStorage. Marca item ativo na nav baseado em
+  // `body[data-active-module]`. Chamado uma única vez no base.html.
+  // ===========================================================================
+  function setupSidebar() {
+    const sidebar = document.getElementById('appSidebar');
+    if (!sidebar) return;
+    const btnCollapse = document.getElementById('btnSidebarCollapse');
+    const btnMobile   = document.getElementById('btnSidebarToggleMobile');
+
+    // 1) Restaura estado recolhido (desktop) do localStorage
+    const STORAGE_KEY = 'iagro:sidebar:collapsed:v1';
+    try {
+      if (localStorage.getItem(STORAGE_KEY) === '1' && window.innerWidth > 900) {
+        sidebar.classList.add('collapsed');
+      }
+    } catch (_) { /* localStorage indisponível */ }
+
+    // 2) Botão de recolher (chevron) — desktop
+    if (btnCollapse) {
+      btnCollapse.addEventListener('click', (e) => {
+        e.stopPropagation();
+        sidebar.classList.toggle('collapsed');
+        try {
+          localStorage.setItem(STORAGE_KEY, sidebar.classList.contains('collapsed') ? '1' : '0');
+        } catch (_) {}
+      });
+    }
+
+    // 3) Botão hambúrguer + backdrop — tablet/mobile
+    if (btnMobile) {
+      let backdrop = document.querySelector('.sidebar-backdrop');
+      if (!backdrop) {
+        backdrop = document.createElement('div');
+        backdrop.className = 'sidebar-backdrop';
+        document.body.appendChild(backdrop);
+      }
+      const closeMobile = () => {
+        sidebar.classList.remove('open');
+        btnMobile.classList.remove('open');
+        backdrop.classList.remove('visible');
+      };
+      const openMobile = () => {
+        sidebar.classList.add('open');
+        btnMobile.classList.add('open');
+        backdrop.classList.add('visible');
+      };
+      btnMobile.addEventListener('click', () => {
+        sidebar.classList.contains('open') ? closeMobile() : openMobile();
+      });
+      backdrop.addEventListener('click', closeMobile);
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && sidebar.classList.contains('open')) closeMobile();
+      });
+      // Fecha automaticamente ao trocar pra desktop
+      let lastW = window.innerWidth;
+      window.addEventListener('resize', () => {
+        if (window.innerWidth > 900 && lastW <= 900) closeMobile();
+        lastW = window.innerWidth;
+      });
+    }
+
+    // 4) Marca item ativo na nav (lê body[data-active-module])
+    const activeMod = (document.body.getAttribute('data-active-module') || '').trim();
+    if (activeMod) {
+      const link = sidebar.querySelector(`.nav-item[data-mod="${activeMod}"]`);
+      if (link) link.classList.add('active');
+    }
+  }
+
   // Expor os módulos para o escopo global (window)
   window.IAgro = {
     ...(window.IAgro || {}),
@@ -547,6 +618,8 @@
     cachedFetch, cachedFetchClear,
     // Mai/2026 — UX patterns centralizados
     attachTypeahead, installAutoSelect, wireFilterAuto,
+    // Mai/2026 — layout v2 (sidebar)
+    setupSidebar,
   };
   window.IAOverlay = IAOverlay;
 
