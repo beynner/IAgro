@@ -1,0 +1,823 @@
+# Dependências do Sankhya — Mapa Completo
+
+> **Propósito:** documento vivo que mapeia TODA dependência do IAgro no schema Sankhya — tabelas, triggers, funções proprietárias, regras invisíveis. Servirá de blueprint pra recriar o schema necessário quando o IAgro for desacoplado e virar produto independente.
+>
+> **Regra de manutenção (CLAUDE.md):** sempre que detectar **nova tabela**, **nova trigger**, **nova função/sequence**, **nova constante** ou **regra invisível** do Sankhya sendo consumida pelo IAgro, **atualizar este arquivo** antes/junto da implementação. Não deixar acumular.
+
+---
+
+## 1. Tabelas Sankhya Consumidas pelo IAgro
+
+### 1.1 TGFCAB — Cabeçalho de Notas / Pedidos
+
+**Propósito:** Núcleo de qualquer documento (compra, venda, transferência, classificação, devolução, avaria, requisição).
+
+**Operações do IAgro:**
+- **SELECT**: Leitura de pedidos abertos, notas faturadas, detalhes de cabeçalho
+- **INSERT**: Criação de notas (Entrada TOP 11, Classificação TOP 26, Venda TOP 34, Combustível TOP 10/53, Avaria TOP 30, Devolução TOP 36)
+- **UPDATE**: Atualização de status, observações, dados de negociação
+- **DELETE**: Exclusão física de requisições não faturadas (Combustível TOP 53)
+
+**Colunas usadas pelo IAgro:**
+- `NUNOTA` — Número único da nota (PK)
+- `NUMNOTA` — Número sequencial por empresa (gerado em faturamento ou manual)
+- `CODEMP` — Código da empresa
+- `CODPARC` — Código do parceiro (cliente/fornecedor)
+- `CODTIPOPER` — TOP (Tipo de Operação): 10, 11, 13, 26, 30, 34, 35, 36, 37, 53
+- `CODNAT` — Código de natureza de receita/despesa
+- `CODTIPVENDA` — Tipo de negociação (FK → TGFTPV)
+- `DHTIPVENDA` — Timestamp de alteração da TGFTPV (exigido por trigger)
+- `STATUSNOTA` — Status: `L` (liberada), `E` (excluída), NULL/outro (em aberto)
+- `DTNEG` — Data da negociação
+- `DTMOV` — Data do movimento
+- `DTFATUR` — Data do faturamento
+- `VLRNOTA` — Valor total
+- `QTDVOL` — Quantidade total de volumes
+- `OBSERVACAO` — Observação livre
+- `CODUSU` — Usuário criador
+- `AD_NUMPEDIDOORIG` — Campo customizado: pedido raiz (auto-cura Entrada/Classificação)
+
+**Funções que manipulam:**
+- `inserir_cabecalho_nota_banco` — INSERT (Entrada TOP 11, Classificação TOP 26, etc.)
+- `atualizar_cabecalho_venda_banco` — UPDATE Venda (TOP 34, sem auto-cura)
+- `atualizar_cabecalho_nota_banco` — UPDATE genérico com auto-cura AD_NUMPEDIDOORIG
+- `faturar_pedido_venda_banco` — INSERT+UPDATE (cria TOP 35/37)
+- `criar_avaria_top30_banco` — INSERT (TOP 30)
+- `criar_devolucao_top36_banco` — INSERT (TOP 36)
+- `criar_requisicao_combustivel_banco` — INSERT (TOP 53)
+- `criar_entrada_combustivel_banco` — INSERT (TOP 10)
+- `excluir_requisicao_combustivel_banco` — DELETE (TOP 53)
+
+---
+
+### 1.2 TGFITE — Itens de Notas / Pedidos
+
+**Propósito:** Linhas de cada documento, vinculadas a TGFCAB.
+
+**Operações do IAgro:**
+- **SELECT**: Leitura de itens, saldos, lotes, rastreabilidade
+- **INSERT**: Adição de produtos a notas
+- **UPDATE**: Mudança de quantidade, lote, peso, status de conferência
+- **DELETE**: Remoção de itens não faturados
+
+**Colunas usadas pelo IAgro:**
+- `NUNOTA` — FK → TGFCAB.NUNOTA
+- `SEQUENCIA` — Sequência do item (PK composto)
+- `CODPROD` — Código do produto
+- `CODVOL` — Unidade de volume (KG, UN, LT, etc.)
+- `QTDNEG` — Quantidade negociada
+- `VLRUNIT` — Valor unitário
+- `VLRTOT` — Valor total da linha
+- `CODLOCALORIG` — Local de origem do estoque (default 101)
+- `CODAGREGACAO` — **Lote** (rastreabilidade). Formato: `NUNOTAS{SEQ}D{YYMMDD}` (Entrada), livre (Venda), NULL (Venda até atribuição)
+- `QTDFIXADA` — Peso/unidade para cálculo de etiquetas (Mai/2026)
+- `AD_QTDAVARIA` — Quantidade de avaria (descarte — Classificação)
+- `AD_PESO` — Peso registrado na pesagem (Entrada)
+- `AD_QTDCONFERIDA` — Quantidade conferida (Entrada)
+- `GERAPRODUCAO` — Flag `S`/`N` para gerar TOP 26 (Entrada)
+- `QTDENTREGUE` — Quantidade entregue (populada por trigger TGFVAR)
+
+**Funções que manipulam:**
+- `inserir_item_nota_banco` — INSERT (gera lote auto ou manual)
+- `atualizar_item_nota_banco` — UPDATE
+- `atribuir_lote_item_pedido` — UPDATE (Rastreio: atribui CODAGREGACAO+QTDFIXADA)
+- `desvincular_lote_item_pedido` — UPDATE (Rastreio: limpa CODAGREGACAO+QTDFIXADA)
+- `excluir_itens_nota_banco` — DELETE
+
+---
+
+### 1.3 TGFPAR — Parceiros (Clientes/Fornecedores)
+
+**Propósito:** Cadastro de clientes e fornecedores.
+
+**Operações do IAgro:**
+- **SELECT**: Leitura de dados do parceiro (nome, CNPJ)
+- Nenhuma escrita
+
+**Colunas usadas:**
+- `CODPARC` — PK
+- `NOMEPARC` — Nome/razão social
+- `RAZAOSOCIAL` — Razão social oficial
+- `CGC_CPF` — CNPJ/CPF
+- `ATIVO` — Flag `S`/`N`
+
+**Funções:**
+- `consultar_parceiros_oracle` — Typeahead (busca por código ou nome)
+
+---
+
+### 1.4 TGFTPV — Tipos de Negociação
+
+**Propósito:** Cadastro de tipos de venda (à vista, crédito, etc.).
+
+**Operações do IAgro:**
+- **SELECT**: Leitura de tipos ativos, busca por DHALTER mais recente
+
+**Colunas usadas:**
+- `CODTIPVENDA` — PK
+- `DESCRTIPVENDA` — Descrição
+- `ATIVO` — Flag `S`/`N`
+- `DHALTER` — Timestamp de última alteração (crítico para DHTIPVENDA em TGFCAB)
+- `BASEPRAZO` — Prazo padrão em dias
+
+**Funções:**
+- `consultar_tipos_negociacao_oracle` — Typeahead
+- `inserir_cabecalho_nota_banco` — Busca DHALTER mais recente
+- `consultar_prazo_tipvenda` — Lê BASEPRAZO + regex em DESCRTIPVENDA
+
+**Trigger dependência:** `TRG_INC_TGFCAB` exige tupla `(CODTIPVENDA, DHTIPVENDA)` coerente. Erro: `ORA-20101: Verifique se o TIPO DE NEGOCIAÇÃO X está ativo...`
+
+---
+
+### 1.5 TSIEMP — Empresas
+
+**Propósito:** Cadastro de empresas do grupo (Agromil, Semear, etc.).
+
+**Operações do IAgro:**
+- **SELECT**: Leitura de nome fantasia, razão social, dados pra etiqueta SafeTrace
+
+**Colunas usadas:**
+- `CODEMP` — PK
+- `RAZAOSOCIAL` — Razão social
+- `NOMEFANTASIA` — Nome fantasia
+- `CGC` — CNPJ
+- `LATITUDE` / `LONGITUDE` — Geolocalização (Mai/2026, etiqueta)
+- `ENDERECO` / `LOGRADOURO` / `NOMEEND` — Endereço (opcional, detectado via `_existe_coluna`)
+- `CEP` — CEP (opcional)
+
+**Funções:**
+- `consultar_empresas_oracle` — Typeahead
+- `consultar_dados_etiqueta_pedido` — JOIN pra cabeçalho da etiqueta
+
+---
+
+### 1.6 TGFFIN — Financeiro
+
+**Propósito:** Registros de títulos a receber/pagar.
+
+**Operações do IAgro:**
+- **INSERT**: Criação de financeiro (Comercial vale TOP 13, Combustível TOP 10, Abastecimento externo TOP 53)
+- **SELECT**: Leitura de detalhes (futura expansão)
+- **UPDATE**: Edição de financeiro em aberto (Combustível)
+
+**Colunas usadas:**
+- `NUFIN` — Número financeiro (PK)
+- `NUNOTA` — FK → TGFCAB
+- `CODPARC` — Parceiro
+- `VLRDESDOB` — Valor do desdobramento
+- `DTVENC` — Data de vencimento
+- `RECDESP` — 1 (receita) ou -1 (despesa)
+- `DHBAIXA`, `VLRBAIXA`, `CODTIPOPERBAIXA`, `DHTIPOPERBAIXA` — Dados de baixa (deve estar em aberto pra IAgro)
+- `ORIGEM` — `E` (entrada de nota) ou `F` (financeiro avulso)
+- `CODEMPBAIXA`, `CODUSUBAIXA` — Audit de baixa
+- `CODBCO`, `CODCTABCOINT`, `CODTIPTIT`, `CODTIPOPER` — Default model
+
+**Funções:**
+- `criar_entrada_combustivel_banco` — INSERT TGFFIN em aberto
+- `criar_abastecimento_externo_banco` — INSERT TGFFIN despesa
+- `editar_entrada_combustivel_banco` — UPDATE TGFFIN preservando aberto
+- Comercial (vale TOP 13): geração indireta via `gerar_financeiro_banco`
+
+**Trigger dependências:**
+- `TRG_INC_TGFFIN` — Exige `ORIGEM='E'` quando `NUNOTA` preenchido
+- `TRG_UPT_TGFFIN_NUBCO` — Rejeita baixa sem TGFMBC (movimentação bancária)
+- `TRG_UPT_TGFFIN` — Valida `VLRBAIXA` e `CODTIPOPERBAIXA` coerentes (ambos zerados ou preenchidos)
+
+---
+
+### 1.7 TGFPRO — Produtos
+
+**Propósito:** Cadastro de produtos.
+
+**Operações do IAgro:**
+- **SELECT**: Leitura de descrição, código de volume, grupo de produto, EAN
+
+**Colunas usadas:**
+- `CODPROD` — PK
+- `DESCRPROD` — Descrição
+- `CODVOL` — Volume padrão (KG, UN, LT)
+- `CODGRUPOPROD` — Código do grupo de produto
+- `FABRICANTE` — Fabricante cadastrado (na Agromil = nome do produto, não fabricante real)
+- `REFERENCIA` — EAN13 (campo de código de barras — usado em etiquetas Mai/2026)
+
+**Funções:**
+- `consultar_produtos_oracle` — Typeahead
+- `consultar_fabricantes_disponiveis` — SELECT DISTINCT FABRICANTE → migrado para SELECT DISTINCT NOMEPARC_ORIGEM em Mai/2026
+- `consultar_produtos_combustivel` — Filtra CODGRUPOPROD=200400
+- `consultar_dados_etiqueta_pedido` — Lê REFERENCIA pra EAN
+
+---
+
+### 1.8 TSIGRU — Grupos de Usuário
+
+**Propósito:** Cadastro de grupos de acesso (Diretoria, Suporte, IAgro_Packing, etc.).
+
+**Operações do IAgro:**
+- **SELECT**: Validação de grupo do usuário logado
+
+**Colunas usadas:**
+- `CODGRUPO` — PK (1, 6, 8, 9, 10, 11)
+- `NOMEGRUPO` — Nome (ex: "IAGRO_PACKING", "IAGRO_COMERCIAL")
+
+**Mapeamento:**
+- 1 = DIRETORIA (acesso irrestrito)
+- 6 = SUPORTE (acesso irrestrito)
+- 8 = IAGRO_PACKING (Entrada, Classificação) — renomeado de IAGRO_ENTRADA em 2026-05-14
+- 9 = IAGRO_COMERCIAL (Comercial)
+- 10 = IAGRO_ADMINISTRATIVO (Venda, Rastreio, Combustível) — renomeado de IAGRO_VENDAS em 2026-05-14
+- 11 = IAGRO_FROTA (Combustível) — renomeado de PACKING_FROTA em 2026-05-14
+
+---
+
+### 1.9 TGFNAT — Naturezas de Receita/Despesa
+
+**Propósito:** Classificação contábil.
+
+**Operações do IAgro:**
+- **SELECT**: Leitura de código e descrição
+
+**Colunas usadas:**
+- `CODNAT` — PK
+- `DESCRNAT` — Descrição
+
+**Mapeamento TOP → CODNAT:** ver `CODNAT_POR_TOP` em `oracle_conn.py`.
+
+**Funções:**
+- `consultar_naturezas_oracle` — Typeahead
+
+---
+
+### 1.10 TGFTOP — Tipos de Operação
+
+**Propósito:** Cadastro das TOPs (tipos de operação) do sistema.
+
+**Operações do IAgro:**
+- **SELECT**: Leitura de descrição, DHALTER
+
+**Colunas usadas:**
+- `CODTIPOPER` — PK (10, 11, 13, 26, 30, 34, 35, 36, 37, 53)
+- `DESCROPER` — Descrição
+- `TIPMOV` — Tipo de movimento (E=entrada, S=saída, Q=requisição)
+- `DHALTER` — Timestamp (usado em DHTIPOPER do TGFCAB)
+
+**Funções:**
+- `consultar_tipos_operacao_oracle` — Typeahead
+
+---
+
+### 1.11 TGFVEI — Veículos
+
+**Propósito:** Cadastro de veículos da frota.
+
+**Operações do IAgro:**
+- **SELECT**: Leitura para dropdown Combustível
+
+**Colunas usadas:**
+- `CODVEICULO` — PK
+- `PLACA` — Placa visível
+- `MARCAMODELO` — Descrição (ex: "FIAT STRADA")
+- `ESPECIETIPO` — Categoria (CAVALO, CARGA CAMINHAO, TRATOR, etc.)
+- `PROPRIO` — `S` (frota própria) ou `N` (terceiro)
+- `COMBUSTIVEL` — Tipo (D, G, F)
+- `CODPARC` — Proprietário
+- `CODCENCUS` — Centro de resultado
+- `ATIVO` — Flag
+
+**Funções:**
+- `consultar_veiculos_disponiveis` — Typeahead filtrado por tipo
+
+---
+
+### 1.12 TGFGRU — Grupos de Produto
+
+**Propósito:** Hierarquia de categorias de produtos.
+
+**Operações do IAgro:**
+- **SELECT**: Leitura para filtrar produtos combustível
+
+**Colunas usadas:**
+- `CODGRUPOPROD` — PK (200400 = COMBUSTÍVEIS)
+- `DESCRGRUPOPROD` — Descrição
+- `CODGRUPAI` — Hierarquia (pai)
+
+**Grupos críticos:**
+- 200000 (MEF) → 200400 (COMBUSTÍVEIS) — Diesel S10 (392), Diesel S500 (1373), Gasolina (391), Óleo (550)
+
+---
+
+### 1.13 TSIUSU — Usuários
+
+**Propósito:** Cadastro de usuários Sankhya.
+
+**Operações do IAgro:**
+- **SELECT**: Autenticação e leitura de grupos
+- **UPDATE**: Alteração de senha (futuro)
+
+**Colunas usadas:**
+- `CODUSU` — PK
+- `NOMEUSU` — Login/nome de usuário
+- `INTERNO` — Senha (criptografada via `STP_CRYPT`)
+- `CODGRUPO` — Grupo principal
+- `DTLIMACESSO` — Data limite de acesso
+
+**Funções:**
+- `autenticar_usuario_sankhya` — Autenticação via API HTTP do Sankhya (não via SELECT direto na tabela)
+
+---
+
+### 1.14 TSIGPU — Grupos Adicionais do Usuário
+
+**Propósito:** Associação N:N usuário ↔ grupo.
+
+**Operações do IAgro:**
+- **SELECT**: Leitura de grupos extras do usuário (potencial)
+
+**Colunas usadas:**
+- `CODUSU` — FK → TSIUSU
+- `CODGRUPO` — FK → TSIGRU
+- `DATAFIM` — Data de expiração
+
+---
+
+### 1.15 TGFVAR — Vínculo entre Notas (Sankhya Nativo)
+
+**Propósito:** Rastreamento de atendimento de pedido (quando pedido vira nota, quando compra vira vale, etc.).
+
+**Operações do IAgro:**
+- **SELECT** (leitura apenas): Consulta vínculo pedido ↔ nota via TGFVAR
+- **INSERT** (devolução TOP 36 Mai/2026): Excepcionalmente, cria TGFVAR para TOP 36 (replicando Sankhya nativo — única exceção permitida)
+
+**Colunas usadas:**
+- `NUNOTA` — NUNOTA da nota gerada (destino)
+- `SEQUENCIA` — SEQ do item na nota
+- `NUNOTAORIG` — NUNOTA do pedido origem
+- `SEQUENCIAORIG` — SEQ do item no pedido
+- `QTDATENDIDA` — Quantidade transferida
+- `STATUSNOTA` — Status replicado
+
+**Estrutura real (211k linhas em Agromil Mai/2026):**
+- 185.221 → TOP 35 ← TOP 34 (NFe ← Pedido de Venda)
+- 16.623 → TOP 36 ← TOP 35 (Devolução ← NFe)
+- 9.376 → TOP 13 ← TOP 11 (Vale ← Compra)
+- 75 → TOP 37 ← TOP 34 (Venda s/NFe)
+- 6 → TOP 36 ← TOP 37 (Devolução ← Venda s/NFe)
+
+**Triggers (6 ao total — NÃO escrever direto, exceto devolução TOP 36):**
+- `TRG_INC_TGFVAR` — INSERT: cascata em TGMTRA, TGFITE.QTDENTREGUE, funções internas SNK_VERIFICA_PK_TGMTRA
+- `TRG_UPT_TGFVAR` — UPDATE: delete+insert em TGMTRA, revalidação
+- `TRG_DLT_TGFVAR` — DELETE: subtrai QTDATENDIDA de TGFITE.QTDENTREGUE
+- `TRG_DLT_TGFVAR_AFTER` — Cascata pós-delete
+- `TRG_INC_TGFVAR_BLOQ_SAFRA` — Validação contra TGABDLC.BLOQUEAR
+- `TRG_INC_UPD_DEL_TGFVAR_CFIDEL` — Cupons de fidelidade (fora do escopo IAgro)
+
+**Função que consulta:**
+- `consultar_pedidos_abertos_para_atribuicao` — Subquery correlacionada pra trazer nota vinculada
+- View `ANDRE_IAGRO_SALDO_LOTE` — NOT EXISTS pra dedup baixa pedido vs nota
+
+---
+
+### 1.16 TGMTRA — Movimentação Financeira / Meta / Orçamento
+
+**Propósito:** Rastreamento de valores a receber/pagar, metas de vendas.
+
+**Operações do IAgro:**
+- Nenhuma direta (apenas leitura indireta futura)
+
+**Popula automaticamente via:**
+- `TRG_INC_TGFVAR` — Quando INSERT em TGFVAR, trigger cria 2-N linhas em TGMTRA
+
+**Funções internas críticas:**
+- `SNK_VERIFICA_PK_TGMTRA` — Valida PK
+- `STP_TROCA_NUMTRANSF` — Pode renomear NUMTRANSF dinamicamente
+
+**Nota:** IAgro nunca escreve diretamente. Qualquer INSERT em TGFVAR dispara cascata aqui.
+
+---
+
+### 1.17 TSICUS — Centros de Resultado
+
+**Propósito:** Centros de custo (departamentos, filiais, etc.).
+
+**Operações do IAgro:**
+- **SELECT**: Leitura para typeahead
+
+**Colunas usadas:**
+- `CODCENCUS` — PK
+- `DESCRCENCUS` — Descrição
+
+**Função:**
+- `consultar_centros_resultado_oracle` — Typeahead
+
+---
+
+## 2. Triggers Sankhya Conhecidas (Mapa de Riscos)
+
+### 2.1 Triggers em TGFCAB
+
+| Trigger | Evento | Erro Conhecido | Causa | Solução IAgro |
+|---|---|---|---|---|
+| `TRG_INC_TGFCAB` | BEFORE INSERT | ORA-20101 | `(CODTIPVENDA, DHTIPVENDA)` inconsistente | Busca DHALTER mais recente de TGFTPV antes do INSERT |
+| `TRG_UPD_TGFCAB` | BEFORE UPDATE | ORA-20101 | Tenta `UPDATE STATUSNOTA='E'` — trigger bloqueia, só permite → 'L' | Use DELETE físico pra "excluir" (Combustível B6) |
+
+### 2.2 Triggers em TGFFIN
+
+| Trigger | Evento | Erro Conhecido | Causa | Solução IAgro |
+|---|---|---|---|---|
+| `TRG_INC_TGFFIN` | BEFORE INSERT | ORA-20101 | `NUNOTA` preenchido mas `ORIGEM <> 'E'` | Sempre `ORIGEM='E'` quando há NUNOTA |
+| `TRG_UPT_TGFFIN_NUBCO` | BEFORE UPDATE | ORA-20101: "Baixa sem ligação com TGFMBC" | Tenta baixa (`DHBAIXA NOT NULL`) sem TGFMBC | Deixar TGFFIN em aberto (DHBAIXA=NULL, VLRBAIXA=0) |
+| `TRG_UPT_TGFFIN` | BEFORE UPDATE | ORA-20101: "Informe valor e TOP da baixa simultaneamente" | `VLRBAIXA > 0` mas `CODTIPOPERBAIXA` faltando (ou vice-versa) | Ou ambos zerados ou ambos preenchidos |
+
+### 2.3 Triggers em TGFVAR
+
+| Trigger | Evento | Efeito Colateral | Razão NÃO escrever |
+|---|---|---|---|
+| `TRG_INC_TGFVAR` | BEFORE INSERT | Cascata em TGMTRA (N linhas), UPDATE TGFITE.QTDENTREGUE | Funções internas `SNK_VERIFICA_PK_TGMTRA`, `STP_TROCA_NUMTRANSF` podem renomear PKs |
+| `TRG_UPT_TGFVAR` | BEFORE UPDATE | DELETE+INSERT em TGMTRA, recalcula metas | Risco de duplicação ou desincronização |
+| `TRG_DLT_TGFVAR` | BEFORE DELETE | Subtrai QTDATENDIDA de TGFITE | Danifica rastreabilidade histórica |
+| `TRG_DLT_TGFVAR_AFTER` | AFTER DELETE | Cleanup em TGMTRA | Efeito cascata |
+| `TRG_INC_TGFVAR_BLOQ_SAFRA` | BEFORE INSERT | Bloqueia por TGABDLC.BLOQUEAR='S' | Validação de projeto (fora do escopo IAgro) |
+| `TRG_INC_UPD_DEL_TGFVAR_CFIDEL` | BEFORE INSERT/UPDATE/DELETE | Maneja TGFCFM (cupons fidelidade) | Fora do escopo IAgro |
+
+**Estratégia IAgro:** Leitura apenas em 2 lugares: (1) `consultar_pedidos_abertos_para_atribuicao` para badge "FATURADO"; (2) `ANDRE_IAGRO_SALDO_LOTE` view pra deduplicação de baixas. **Exceção documentada:** devolução TOP 36 (Mai/2026) insere em TGFVAR replicando Sankhya nativo (legítimo — operador confirma no Sankhya, que dispara financeiro reverso + NFe).
+
+---
+
+## 3. Funções/Procedures Proprietárias Sankhya
+
+### 3.1 Funções Utilizadas pelo IAgro
+
+| Função | Uso |
+|---|---|
+| `STP_CRYPT(senha)` — Criptografia Sankhya | Alteração de senha (futuro) |
+| `SNK_VERIFICA_PK_TGMTRA` | Disparada por TRG_INC_TGFVAR (validação interna) |
+| `STP_TROCA_NUMTRANSF` | Disparada por TRG_INC_TGFVAR (pode renomear NUMTRANSF) |
+
+### 3.2 Sequences Consultadas
+
+| Sequence | Propósito | Uso |
+|---|---|---|
+| `SEQ_AD_AUDITORIA_GERAL` | Audit log global | (preparado, ativo) |
+| `SEQ_AD_REQUISICAO_COMBUSTIVEL` | PK de AD_REQUISICAO_COMBUSTIVEL | `criar_requisicao_combustivel_banco` |
+| `SEQ_AD_VINCULO_PEDIDO_NOTA` | PK de AD_VINCULO_PEDIDO_NOTA | `inserir_vinculo_manual_pedido_nota` |
+| `SEQ_AD_PEDIDO_EMAIL_RECEBIDO` | PK | Worker IMAP |
+| `SEQ_AD_PEDIDO_EMAIL_ITEM` | PK | Worker IMAP |
+| `SEQ_AD_PRODUTO_ALIAS` | PK | Aprendizado matching |
+| `SEQ_AD_PARCEIRO_ALIAS` | PK | Aprendizado matching |
+| `SEQ_AD_CLIENTE_PRODUTO_COD` | PK | Vinculação cod_cliente |
+
+### 3.3 Views Nativas Sankhya (Consultadas, Não Alteradas)
+
+- Nenhuma view nativa do Sankhya é consultada — apenas tabelas
+
+---
+
+## 4. Views Customizadas IAgro (Prefixo `ANDRE_IAGRO_*`)
+
+### 4.1 ANDRE_IAGRO_SALDO_LOTE
+
+**DDL:** `sankhya_integration/sql/ANDRE_IAGRO_SALDO_LOTE.sql`
+
+**Propósito:** Calcular saldo disponível de lotes por `(CODPROD, CODAGREGACAO)` sem tocar `TGFEST` nativa.
+
+**Estrutura (6 pernas):**
+
+| Perna | Status | Fonte | Vendável? |
+|---|---|---|:-:|
+| A | CLASSIFICADO | TOP 26 (lotes confirmados) | ✅ |
+| B | NAO_CLASSIFICAVEL | TOP 13 (lotes sem TOP 26) | ✅ |
+| C | AGUARDANDO_CLASSIFICACAO | TOP 11 com GERAPRODUCAO='S' pendente | ❌ |
+| D | AVARIA_INTERNA | TOP 30 (perda no estoque) | ❌ |
+| E | AVARIA_FORNECEDOR | AD_QTDAVARIA da TOP 11 | ❌ |
+| F | DEVOLVIDO | TOP 36 STATUSNOTA='L' (Mai/2026) | ❌ (informativo) |
+
+**Fórmula:**
+```
+QTD_DISPONIVEL = ENTRADA
+               + Σ TOP 36 confirmadas (devolvido)
+               − BAIXA_VENDA (deduplicada: TOP 34 L + TOP 35/37 L sem par no TOP 34)
+               − Σ TOP 30 confirmadas
+               − Σ TOP 34 abertas
+```
+
+**Colunas retornadas:**
+- `CODPROD`, `DESCRPROD`, `CODAGREGACAO`, `NOMEPARC_ORIGEM` (fornecedor), `DTNEG_ORIGEM`
+- `QTD_ENTRADA`, `QTD_DISPONIVEL`, `QTD_RESERVADA`, `QTD_BAIXADA_VENDA`, `QTD_AVARIA_INTERNA`, `QTD_AVARIA_FORNECEDOR`
+- `STATUS_LINHA` (perna discriminadora)
+- `NUNOTA_ORIGEM`, `GERAPRODUCAO`, `QTDNEG`
+
+**Função que consulta:**
+- `consultar_saldo_lote_disponivel(filtros, limite, offset)` — Paginação com ROW_NUMBER (Oracle 11g compat)
+
+---
+
+### 4.2 ANDRE_IAGRO_SALDO_COMBUSTIVEL
+
+**DDL:** `sankhya_integration/sql/ANDRE_IAGRO_SALDO_COMBUSTIVEL.sql`
+
+**Propósito:** Calcular saldo disponível de combustível por `CODPROD` (Diesel S10, Diesel S500, etc.) sem segregação por CODEMP (estoque único compartilhado).
+
+**Fórmula:**
+```
+QTD_DISPONIVEL = GREATEST( Σ TOP 10 entradas (STATUSNOTA <> 'E')
+                          − Σ TOP 53 saídas (STATUSNOTA <> 'E', excluindo EXTERNA_POSTO),
+                          0 )
+```
+
+**Filtros:**
+- `pr.CODGRUPOPROD = 200400` (COMBUSTÍVEIS)
+- `NOT EXISTS` (SELECT 1 FROM AD_REQUISICAO_COMBUSTIVEL WHERE TIPO='EXTERNA_POSTO') — exclui abastecimentos externos
+
+**Função que consulta:**
+- `consultar_saldo_combustivel(filtros)` — Retorna dict com SALDO_INICIAL_TANQUE somado em Python (não usar GREATEST da view — corrompe saldo quando inicial > 0)
+
+---
+
+## 5. Tabelas Auxiliares Customizadas (Prefixo `AD_*`)
+
+### 5.1 AD_PEDIDO_EMAIL_RECEBIDO
+
+**DDL:** `sankhya_integration/sql/AD_PEDIDO_EMAIL.sql`
+
+**Propósito:** Cabeçalho de pré-pedido capturado de e-mail (antes de virar TGFCAB TOP 34).
+
+Estrutura completa documentada em `.claude/modules/email.md`.
+
+---
+
+### 5.2 AD_PEDIDO_EMAIL_ITEM
+
+**DDL:** `sankhya_integration/sql/AD_PEDIDO_EMAIL.sql` + `AD_CLIENTE_PRODUTO_COD.sql`
+
+**Propósito:** Itens do pré-pedido com matching de produto.
+
+Hierarquia de matching:
+1. **AD_CLIENTE_PRODUTO_COD** — Exato por `(CODPARC, COD_CLIENTE)` (score 100, etapa 0)
+2. **AD_PRODUTO_ALIAS** — Por descrição normalizada (score 100, etapa 1)
+3. **Fuzzy (rapidfuzz.WRatio)** — Contra TGFPRO completo (score 75-100, etapa 2)
+
+---
+
+### 5.3 AD_PRODUTO_ALIAS
+
+**DDL:** `sankhya_integration/sql/AD_ALIAS_APRENDIZADO.sql`
+
+**Propósito:** De-para normalizado de descrições de produtos → CODPROD.
+
+---
+
+### 5.4 AD_PARCEIRO_ALIAS
+
+**DDL:** `sankhya_integration/sql/AD_ALIAS_APRENDIZADO.sql`
+
+**Propósito:** De-para normalizado de nomes de clientes → CODPARC.
+
+---
+
+### 5.5 AD_CLIENTE_PRODUTO_COD
+
+**DDL:** `sankhya_integration/sql/AD_CLIENTE_PRODUTO_COD.sql`
+
+**Propósito:** De-para forte para clientes que usam códigos próprios (Consinco).
+
+---
+
+### 5.6 AD_VINCULO_PEDIDO_NOTA
+
+**DDL:** `sankhya_integration/sql/AD_VINCULO_PEDIDO_NOTA.sql`
+
+**Propósito:** Vínculo manual pedido ↔ nota quando TGFVAR não foi populada.
+
+**Dois fluxos:**
+- **Leva A (VINCULADO):** Pedido pré-existente pareável, operador vincula manualmente
+- **Leva B (PEDIDO_RETROATIVO):** IAgro cria TOP 34 retroativamente espelhando a nota
+
+Estrutura completa em `.claude/modules/rastreio.md` → "Fluxo unificado de resolução de nota órfã".
+
+---
+
+### 5.7 AD_REQUISICAO_COMBUSTIVEL
+
+**DDL:** `sankhya_integration/sql/AD_REQUISICAO_COMBUSTIVEL.sql` + migrations
+
+**Propósito:** Metadados de requisição de combustível (TOP 53, antes era TOP 26).
+
+Estrutura completa em `.claude/modules/combustivel.md`.
+
+---
+
+### 5.8 AD_AUDITORIA_GERAL
+
+**DDL:** `sankhya_integration/sql/AD_AUDITORIA_GERAL.sql`
+
+**Propósito:** Audit log centralizado de todos os módulos IAgro.
+
+Detalhes em `.claude/modules/` (referências cruzadas).
+
+---
+
+## 6. Constantes de Domínio Sankhya (Codificadas em Python)
+
+### 6.1 TOPs (Tipos de Operação)
+
+```python
+CODTIPOPER = {
+    10:  'ENTRADA_COMBUSTIVEL',        # Entrada de combustível (compra)
+    11:  'ENTRADA',                     # Compra / Recebimento (gera lote)
+    13:  'VALE',                        # Vale de Compra (Comercial, gera TGFFIN)
+    26:  'CLASSIFICACAO',               # Classificação confirmada (hortifrúti)
+    30:  'AVARIA_INTERNA',              # Perda no estoque (venda interna)
+    34:  'PEDIDO_VENDA',                # Pedido de Venda (em aberto)
+    35:  'VENDA_NIFE',                  # Venda com NFe (faturada)
+    36:  'DEVOLUCAO_VENDA',             # Devolução de venda
+    37:  'VENDA_SEM_NFE',               # Venda sem documento fiscal (faturada)
+    53:  'REQUISICAO_INTERNA',          # Requisição interna (combustível, TIPMOV='Q')
+}
+```
+
+### 6.2 STATUSNOTA (Estados da Nota)
+
+| Status | Significado | Usado em | Filtro Padrão |
+|---|---|---|---|
+| `L` | Liberada / confirmada / faturada | TOP 13, 30, 35, 37 | `= 'L'` (finalizadas) |
+| `E` | Excluída | Qualquer | `<> 'E'` (ativas) |
+| `A` | Em aberto (devolução) | TOP 36 | `= 'A'` (aguardando confirmação Sankhya) |
+| NULL / outro | Pedido em aberto / em processamento | TOP 11, 26, 34, 53 | `IS NULL` ou `NOT IN ('L','E')` |
+
+### 6.3 CODNAT por TOP
+
+```python
+CODNAT_POR_TOP = {
+    10: 30070200,   # Entrada Combustível
+    11: 10010100,   # Entrada (Compra)
+    13: 10010100,   # Vale
+    26: 10010100,   # Classificação
+    30: 20010200,   # Avaria interna (DESCRNAT "AVARIA")
+    34: 10010100,   # Pedido de Venda
+    35: 10010100,   # Venda com NFe
+    36: 10020100,   # Devolução de venda (DESCRNAT "DEVOLUCAO DE VENDA")
+    37: 10010200,   # Venda sem NFe
+    53: 30070200,   # Requisição interna (Combustível)
+}
+```
+
+### 6.4 CODGRUPO (Grupos de Usuário)
+
+| CODGRUPO | NOMEGRUPO | Acesso |
+|---|---|---|
+| 1 | DIRETORIA | Irrestrito |
+| 6 | SUPORTE | Irrestrito |
+| 8 | IAGRO_PACKING | Entrada, Classificação |
+| 9 | IAGRO_COMERCIAL | Comercial |
+| 10 | IAGRO_ADMINISTRATIVO | Venda, Rastreio, Combustível, Importação |
+| 11 | IAGRO_FROTA | Combustível |
+
+### 6.5 CODGRUPOPROD (Grupos de Produto)
+
+| CODGRUPOPROD | DESCRGRUPOPROD | Produtos | Uso IAgro |
+|---|---|---|---|
+| 200000 | MEF | (agrupador pai) | — |
+| 200400 | COMBUSTÍVEIS | Diesel S10 (392), Diesel S500 (1373), Gasolina (391), Óleo (550), Arla 32 (1374) | Filtro para TOP 10/53 |
+
+### 6.6 Configurações Python em `oracle_conn.py`
+
+```python
+PARAMETROS_PADRAO = {
+    'TOP_ENTRADA': 11,
+    'PROD_IN_NATURA': 863,
+}
+
+CODGRUPOPROD_COMBUSTIVEL = 200400
+
+CAPACIDADE_TANQUE = {
+    392:  10000.0,   # DIESEL S10
+    1373: 5000.0,    # DIESEL S500
+    1374: 1000.0,    # ARLA 32
+}
+
+SALDO_INICIAL_TANQUE = {
+    392:  300.0,
+    1373: 3150.0,
+    1374: 300.0,
+}
+```
+
+---
+
+## 7. Mapa de Pontos de Extensão (Armadilhas Técnicas)
+
+### 7.1 `humanizar_erro_oracle` — Tradução de ORA-XXXXX
+
+Converte exceções Oracle em mensagens amigáveis ao operador. ORA-20101 é genérico — função extrai mensagem real via regex antes do fallback.
+
+### 7.2 Flag `is_write_enabled()` — Controle de Escrita
+
+Habilitar/desabilitar INSERT/UPDATE/DELETE em tempo de execução via `IAGRO_WRITE_ENABLED` env var.
+
+### 7.3 Context Manager `obter_conexao_oracle()`
+
+Gerencia commit/rollback. **Bug DPY-1001 histórico:** funções de INSERT antigas tinham `except` que tentava rollback em conexão já fechada → mascarava erro real. **Workaround:** views de escrita gerenciam conexão explicitamente via `conexao_existente=conn`.
+
+### 7.4 Auto-Cura de `AD_NUMPEDIDOORIG`
+
+Em `atualizar_cabecalho_nota_banco`, busca `MIN(AD_NUMPEDIDOORIG)` entre itens com mesmo CODAGREGACAO. **Aplicável só em Entrada/Classificação.** Venda usa função dedicada sem auto-cura.
+
+### 7.5 Lock Pessimista em `atribuir_lote_item_pedido`
+
+`SELECT ... FOR UPDATE` antes de validação de saldo. Defesa contra double-binding + race condition.
+
+### 7.6 Geração de NUMNOTA via `MAX(NUMNOTA) + 1`
+
+Suficiente para MVP (lock pessimista protege). Migrar para sequence Oracle nativa se emissão de NFe paralela aparecer.
+
+### 7.7 Validação de Tupla `(CODTIPVENDA, DHTIPVENDA)`
+
+Trigger `TRG_INC_TGFCAB` exige tupla coerente. Solução: consultar `DHALTER` mais recente de TGFTPV antes do INSERT.
+
+### 7.8 Transações Multi-Item
+
+`gerar_proxima_sequencia_item` aceita `conexao_existente` pra ver INSERTs anteriores da mesma transação. Sem isso, race condition gera SEQUENCIA duplicada (ORA-00001).
+
+### 7.9 DELETE Físico em vez de UPDATE STATUSNOTA='E'
+
+Trigger `TRG_UPD_TGFCAB` bloqueia. Solução: DELETE em cascata (Combustível B6).
+
+### 7.10 TGFFIN Deve Ficar em Aberto
+
+3 triggers Sankhya rejeitam baixa automática. Padrão correto: `ORIGEM='E'`, `VLRBAIXA=0`, `DHBAIXA=NULL`, `CODTIPOPERBAIXA=0`. Operador baixa pelo Sankhya quando paga.
+
+### 7.11 `GREATEST(0)` em view ANDRE_IAGRO_SALDO_COMBUSTIVEL Corrompe Cálculo
+
+Não usar `QTD_DISPONIVEL` da view direto quando há saldo inicial. Calcular em Python.
+
+### 7.12 `int(dict.get(K, default))` Falha com `None` Explícito
+
+`dict.get(K)` retorna `None` (não o default) quando chave existe com `None`. Solução: `int(dados.get(K) or default)` ou omitir a chave.
+
+---
+
+## 8. Estimativa de Esforço de Desacoplamento
+
+### Fácil (CRUD Direto)
+- Tabelas lidas apenas (TGFPAR, TGFPRO, TSIEMP) — **0 risco**
+- SELECT simples com typeaheads — **0 risco**
+- Views customizadas (ANDRE_IAGRO_SALDO_*) — **baixo risco** (recriar em novo schema)
+- **Esforço:** 2-5 dias
+
+### Médio (Regras de Negócio Mapeadas)
+- Geração de NUNOTA → SEQUENCE Oracle
+- Auto-cura AD_NUMPEDIDOORIG → repensar/simplificar
+- Lock pessimista em atribuição de lote → reimplementar
+- Modelos TGFFIN em aberto → validar regras
+- **Esforço:** 2-3 semanas
+
+### Difícil (Triggers Proprietárias com Cascata)
+- TRG_INC_TGFCAB (validação CODTIPVENDA/DHTIPVENDA) → validação em Python
+- TRG_*_TGFVAR (6 triggers, cascata TGMTRA) → usar tabela auxiliar AD_VINCULO em novo schema
+- TRG_UPD_TGFCAB (bloqueia UPDATE STATUSNOTA='E') → acostumar com DELETE físico
+- TRG_*_TGFFIN (3 triggers) → validação manual em Python
+- **Esforço:** 4-6 semanas
+
+### Crítico (Sem Workaround Documentado)
+- **Emissão de NFe** — Desacoplamento exigirá integração com serviço externo (SEFAZ, Bluesoft, etc.)
+- **Movimentação de estoque (TGFEST)** — IAgro NÃO toca (usa view derivada). Replicar view em novo schema
+- **Função STP_CRYPT** — Usar bcrypt ou outro padrão moderno
+- **Esforço:** 3-4 semanas
+
+---
+
+## 9. Checklist de Migração para Novo Schema
+
+- [ ] Criar schema Oracle (ou PostgreSQL) novo com DDLs versionadas
+- [ ] Recriar TGFCAB, TGFITE com todas as colunas (exceto triggers — implementar em Python)
+- [ ] Recriar TGFPAR, TGFPRO, TSIEMP (read-only, ou sincronizar via API Sankhya pra Agromil)
+- [ ] Recriar tabelas nativas de código: TGFTPV, TGFNAT, TGFTOP, TSIGRU, TGFVEI, TGFGRU
+- [ ] Recriar views customizadas: ANDRE_IAGRO_SALDO_LOTE, ANDRE_IAGRO_SALDO_COMBUSTIVEL
+- [ ] Recriar tabelas auxiliares: AD_*, com sequences
+- [ ] Substituir `STP_CRYPT` por bcrypt/Argon2 (Python)
+- [ ] Implementar validações Python (triggers TRG_INC_TGFCAB, TRG_*_TGFFIN)
+- [ ] Implementar fluxo de emissão de NFe (integração SEFAZ/provedor externo)
+- [ ] Testes de integridade: NUNOTA único, SEQUENCIA único, CODAGREGACAO rastreabilidade
+- [ ] Migração de dados históricos: SELECT todas as notas do Sankhya, INSERT em novo schema
+- [ ] Validar views pós-migração: saldos coincidentes, nenhuma órfã
+- [ ] Testes de carga: 211k linhas TGFVAR, 185k TGFITE, multitenant (múltiplas empresas)
+- [ ] Cutover: data de transição, rollback plan
+
+---
+
+## 10. Como manter este arquivo atualizado
+
+Sempre que aparecer durante desenvolvimento:
+
+1. **Nova tabela Sankhya** sendo consumida → adicionar em §1 com colunas usadas + funções
+2. **Nova trigger detectada** (geralmente via erro ORA-XXXXX) → adicionar em §2 com lógica e mitigação
+3. **Nova função/sequence proprietária** → adicionar em §3
+4. **Nova view customizada IAgro** → adicionar em §4
+5. **Nova tabela auxiliar AD_*** → adicionar em §5 com DDL location
+6. **Novo TOP / CODNAT / STATUSNOTA** → adicionar em §6
+7. **Nova regra invisível descoberta** (ex: trigger silenciosa, comportamento inesperado) → adicionar em §7
+
+Cada item afetado precisa marcar `Mai/2026 (YYYY-MM-DD)` ou similar pra rastrear quando foi documentado.
+
+---
+
+<!-- Atualizado em 2026-05-15 -->
