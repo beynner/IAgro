@@ -52,7 +52,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const checksLotes       = new Set();
     const checksPorPedido   = new Map();
     let pedidoIsolado       = null;         // NUNOTA quando o usuário clica no header de um pedido específico
-    let agrupamentoAtual    = 'parceiro';   // 'parceiro' | 'produto' (header agrupador)
+    let agrupamentoAtual    = 'parceiro';   // 'parceiro' | 'produto' (header agrupador — pedidos)
+    let agrupamentoLotes    = 'parceiro';   // 'parceiro' | 'produto' (header agrupador — lotes, Mai/2026 B9)
     let tipoLote            = 'todos';      // 'todos' | 'classificavel' | 'nao_classificavel'
     let textoFiltroLotes    = '';           // filtro LIKE de codagregacao
     let fabricanteAtivo     = '';           // filtro exato de FABRICANTE (vem do typeahead)
@@ -63,15 +64,14 @@ document.addEventListener('DOMContentLoaded', function () {
     let dataIniPedidos      = '';
     let dataFimPedidos      = '';
     let loteArmado          = null;         // lote selecionado para vincular (click-to-select)
-    // Toggle Pendente/Faturado (Mai/2026): listagem é sempre TOP 34. Cada
-    // flag controla um conjunto de STATUSNOTA no backend:
-    //   - mostrarPendentes → STATUSNOTA NOT IN ('L','E') (pedido em aberto)
-    //   - mostrarFaturados → STATUSNOTA = 'L' (pedido já faturado pelo Sankhya;
-    //     card recebe badge laranja "FATURADO Nota Y" mas continua editável
-    //     no IAgro — rastreabilidade vive no pedido).
+    // Toggle Pendente/Finalizado (Mai/2026 — B9): substitui Pendente/Faturado.
+    // Critério é completude do rastreio (todos os itens têm CODAGREGACAO?).
+    //   - mostrarPendentes    → pedido com ao menos 1 item sem lote vinculado
+    //   - mostrarFinalizados  → pedido com TODOS os itens vinculados
     // Pelo menos um precisa estar ligado; ambos desligados → toast e revert.
+    // Default: só pendentes ligado (operador quer ver o que falta resolver).
     let mostrarPendentes    = true;
-    let mostrarFaturados    = false;
+    let mostrarFinalizados  = false;
     // Set<NUNOTA> — pedidos atualmente colapsados (produtos escondidos).
     // Default: TODOS os pedidos vêm colapsados; o usuário expande clicando
     // no header. Click no nome do parceiro/chevron alterna o estado.
@@ -79,6 +79,9 @@ document.addEventListener('DOMContentLoaded', function () {
     // Set<nomeProduto> — grupos de produto atualmente colapsados (no modo
     // POR PRODUTO). Click no header do grupo expande/recolhe.
     const gruposProdutoColapsados = new Set();
+    // Set<chave_grupo_lote> — grupos de lotes colapsados (Mai/2026 — B9).
+    // chave = NOMEPARC_ORIGEM ou DESCRPROD, conforme `agrupamentoLotes`.
+    const gruposLotesColapsados = new Set();
     // Set<nomeProduto> — grupos de produto já inicializados ao menos uma vez.
     // Mesmo padrão de pedidosJaVistos: novos grupos vêm colapsados por
     // padrão; estado escolhido pelo usuário se mantém após scroll/refresh.
@@ -101,12 +104,13 @@ document.addEventListener('DOMContentLoaded', function () {
     function _salvarPrefs() {
         try {
             localStorage.setItem(LS_KEY, JSON.stringify({
-                agrupamento: agrupamentoAtual,
+                agrupamento:      agrupamentoAtual,
+                agrupamentoLotes: agrupamentoLotes,
                 tipoLote,
                 dataIniLotes, dataFimLotes,
                 dataIniPedidos, dataFimPedidos,
                 mostrarPendentes,
-                mostrarFaturados,
+                mostrarFinalizados,
                 loteArmadoCodag: loteArmado ? loteArmado.codagregacao : null,
             }));
         } catch (_) {}
@@ -728,8 +732,8 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             // Toggle Pendente/Faturado (Mai/2026): cada flag controla TOPs.
             // Default: pendente=true, faturado=false. Backend devolve [] se ambos false.
-            params.set('mostrar_pendentes', mostrarPendentes ? '1' : '0');
-            params.set('mostrar_faturados', mostrarFaturados ? '1' : '0');
+            params.set('mostrar_pendentes',   mostrarPendentes   ? '1' : '0');
+            params.set('mostrar_finalizados', mostrarFinalizados ? '1' : '0');
 
             const r = await fetch(URLS.pedidos + '?' + params.toString(), {
                 credentials: 'same-origin', cache: 'no-store',
@@ -889,7 +893,61 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
+        // Agrupamento (Mai/2026 — B9): chave = parceiro (NOMEPARC_ORIGEM) ou
+        // produto (DESCRPROD). Dados já vêm com as 2 chaves; agrupamento é
+        // 100% frontend. Headers ordenados alfabeticamente.
+        const _gruposLotes = new Map();
         visiveis.forEach(l => {
+            const chave = (agrupamentoLotes === 'produto')
+                ? (l.descrprod || '—')
+                : (l.nomeparc_origem || '—');
+            if (!_gruposLotes.has(chave)) _gruposLotes.set(chave, []);
+            _gruposLotes.get(chave).push(l);
+        });
+        const _chavesLotes = Array.from(_gruposLotes.keys()).sort((a, b) => a.localeCompare(b));
+
+        _chavesLotes.forEach(_chaveGrupoLote => {
+            const _lotesDoGrupo = _gruposLotes.get(_chaveGrupoLote);
+            const _colapsado = gruposLotesColapsados.has(_chaveGrupoLote);
+
+            // Soma da qtd disponível dos lotes do grupo — mostrada no header.
+            const _qtdTotalGrupo = _lotesDoGrupo.reduce(
+                (s, lo) => s + (Number(lo.qtd_disponivel) || 0), 0
+            );
+
+            // Header do grupo — reusa o mesmo visual do header de pedido
+            // (pedido-bloco-header), com avatar, chevron, nome, qtd total e
+            // contador. Não tem: impressora, progresso/percentual, NUNOTA, badges.
+            const _hdr = document.createElement('div');
+            _hdr.className = 'pedido-bloco-header clicavel lote-bloco-header';
+            if (_colapsado) _hdr.classList.add('colapsado');
+            _hdr.innerHTML =
+                `<button type="button" class="pb-chevron" aria-label="${_colapsado ? 'Expandir' : 'Colapsar'}" title="${_colapsado ? 'Expandir' : 'Colapsar'} lotes do grupo">` +
+                    `<i class="ph ph-caret-down" aria-hidden="true"></i>` +
+                `</button>` +
+                _avatarFornecedor(_chaveGrupoLote) +
+                `<span class="pb-parc">${escapeHtml(_chaveGrupoLote)}</span>` +
+                `<span class="pb-spacer"></span>` +
+                `<span class="pb-lote-qtd" title="Soma da qtd disponível dos lotes deste grupo">` +
+                    `<strong>${fmtQtd(_qtdTotalGrupo)}</strong>` +
+                `</span>` +
+                `<span class="pb-lote-count" title="${_lotesDoGrupo.length} ${_lotesDoGrupo.length === 1 ? 'lote' : 'lotes'} neste grupo">` +
+                    `${_lotesDoGrupo.length} ${_lotesDoGrupo.length === 1 ? 'lote' : 'lotes'}` +
+                `</span>`;
+            _hdr.addEventListener('click', () => {
+                if (gruposLotesColapsados.has(_chaveGrupoLote)) {
+                    gruposLotesColapsados.delete(_chaveGrupoLote);
+                } else {
+                    gruposLotesColapsados.add(_chaveGrupoLote);
+                }
+                renderLotes();
+            });
+            containerLotes.appendChild(_hdr);
+
+            // Se colapsado, pula renderização dos lotes do grupo
+            if (_colapsado) return;
+
+        _lotesDoGrupo.forEach(l => {
             const status = l.status_linha;
             const qtd    = l.qtd_disponivel;
 
@@ -1019,6 +1077,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 containerLotes.appendChild(_criarCardLoteAvariaInterna(l));
             }
         });
+        });   // fim _chavesLotes.forEach (Mai/2026 B9)
 
         if (lotesCarregando) {
             const loader = document.createElement('div');
@@ -1185,14 +1244,14 @@ document.addEventListener('DOMContentLoaded', function () {
                 icone  = '<i class="ph ph-magnifying-glass"></i>';
                 msg    = 'Os filtros ativos não retornaram pedidos. Limpe-os ou amplie o período pra ver mais resultados.';
                 acao   = '<button type="button" class="ras-empty-action" data-action="limpar-tudo">Limpar filtros</button>';
-            } else if (!mostrarPendentes && !mostrarFaturados) {
+            } else if (!mostrarPendentes && !mostrarFinalizados) {
                 titulo = 'Nenhum status selecionado';
                 icone  = '<i class="ph ph-warning"></i>';
-                msg    = 'Selecione <strong>Pendente</strong> ou <strong>Faturado</strong> no toggle de status pra ver pedidos.';
+                msg    = 'Selecione <strong>Pendente</strong> ou <strong>Finalizado</strong> no toggle de status pra ver pedidos.';
             } else {
                 titulo = 'Sem pedidos no período';
                 icone  = '<i class="ph ph-clipboard-text"></i>';
-                msg    = 'Não há pedidos no período com os status escolhidos. Tente aumentar o período ou ligar <strong>Faturado</strong>.';
+                msg    = 'Não há pedidos no período com os status escolhidos. Tente aumentar o período ou ligar <strong>Finalizado</strong>.';
             }
             containerPedidos.innerHTML = `
                 <div class="ras-empty">
@@ -2347,6 +2406,18 @@ document.addEventListener('DOMContentLoaded', function () {
             _salvarPrefs();
         });
     });
+    // Agrupamento de Lotes (Mai/2026 — B9): por parceiro (NOMEPARC_ORIGEM) ou
+    // por produto (DESCRPROD). Frontend-only — dados já vêm com as 2 chaves.
+    document.querySelectorAll('input[name="grpLotes"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            agrupamentoLotes = e.target.value;
+            // Chaves de colapso mudam de natureza ao trocar agrupamento (nome
+            // de parceiro vs nome de produto). Limpa pra evitar estado fantasma.
+            gruposLotesColapsados.clear();
+            renderLotes();
+            _salvarPrefs();
+        });
+    });
 
     document.querySelectorAll('input[name="tipoLote"]').forEach(radio => {
         radio.addEventListener('change', (e) => {
@@ -2377,34 +2448,34 @@ document.addEventListener('DOMContentLoaded', function () {
         // Permite forçar refresh visual quando o estado muda externamente
         btn._aplicarToggle = aplicar;
     }
-    // Toggle Pendente/Faturado (Mai/2026) — substitui "Só pendentes" + "Incluir
-    // finalizados". Pelo menos um precisa estar ligado; se o operador tentar
+    // Toggle Pendente/Finalizado (Mai/2026 — B9): critério é completude do
+    // rastreio. Pelo menos um precisa estar ligado; se o operador tentar
     // desligar o último, revertemos com toast (mantém a tela com dados).
-    const checkStatusPendente = document.getElementById('checkStatusPendente');
-    const checkStatusFaturado = document.getElementById('checkStatusFaturado');
+    const checkStatusPendente   = document.getElementById('checkStatusPendente');
+    const checkStatusFinalizado = document.getElementById('checkStatusFinalizado');
     function _aplicarStatusBtn(btn, ligado) {
         if (!btn) return;
         btn.classList.toggle('is-on', !!ligado);
         btn.setAttribute('aria-pressed', !!ligado);
     }
-    _aplicarStatusBtn(checkStatusPendente, mostrarPendentes);
-    _aplicarStatusBtn(checkStatusFaturado, mostrarFaturados);
+    _aplicarStatusBtn(checkStatusPendente,   mostrarPendentes);
+    _aplicarStatusBtn(checkStatusFinalizado, mostrarFinalizados);
     function _toggleStatus(qual) {
-        const proxPend = qual === 'pendente' ? !mostrarPendentes : mostrarPendentes;
-        const proxFat  = qual === 'faturado' ? !mostrarFaturados : mostrarFaturados;
-        if (!proxPend && !proxFat) {
-            showToast('Selecione pelo menos um status (Pendente ou Faturado).', 'warning');
+        const proxPend = qual === 'pendente'   ? !mostrarPendentes   : mostrarPendentes;
+        const proxFin  = qual === 'finalizado' ? !mostrarFinalizados : mostrarFinalizados;
+        if (!proxPend && !proxFin) {
+            showToast('Selecione pelo menos um status (Pendente ou Finalizado).', 'warning');
             return;
         }
-        mostrarPendentes = proxPend;
-        mostrarFaturados = proxFat;
-        _aplicarStatusBtn(checkStatusPendente, mostrarPendentes);
-        _aplicarStatusBtn(checkStatusFaturado, mostrarFaturados);
+        mostrarPendentes   = proxPend;
+        mostrarFinalizados = proxFin;
+        _aplicarStatusBtn(checkStatusPendente,   mostrarPendentes);
+        _aplicarStatusBtn(checkStatusFinalizado, mostrarFinalizados);
         _salvarPrefs();
         carregarPedidos(true);
     }
-    if (checkStatusPendente) checkStatusPendente.addEventListener('click', () => _toggleStatus('pendente'));
-    if (checkStatusFaturado) checkStatusFaturado.addEventListener('click', () => _toggleStatus('faturado'));
+    if (checkStatusPendente)   checkStatusPendente.addEventListener('click',   () => _toggleStatus('pendente'));
+    if (checkStatusFinalizado) checkStatusFinalizado.addEventListener('click', () => _toggleStatus('finalizado'));
 
     // ----- FILTRO DE PERÍODO (data inicial → data final) ------------------
     /** Formata um Date como ISO YYYY-MM-DD (sem fuso). */
@@ -2445,6 +2516,11 @@ document.addEventListener('DOMContentLoaded', function () {
             const r = document.getElementById(prefs.agrupamento === 'parceiro' ? 'grpParceiro' : 'grpProduto');
             if (r) r.checked = true;
         }
+        if (prefs.agrupamentoLotes === 'parceiro' || prefs.agrupamentoLotes === 'produto') {
+            agrupamentoLotes = prefs.agrupamentoLotes;
+            const rL = document.getElementById(prefs.agrupamentoLotes === 'parceiro' ? 'grpLotesParceiro' : 'grpLotesProduto');
+            if (rL) rL.checked = true;
+        }
         if (['todos', 'classificavel', 'nao_classificavel'].includes(prefs.tipoLote)) {
             tipoLote = prefs.tipoLote;
             const id = prefs.tipoLote === 'todos' ? 'tipoTodos'
@@ -2470,16 +2546,25 @@ document.addEventListener('DOMContentLoaded', function () {
             dataFimPedidos = prefs.dataFimPedidos;
             if (inputDataFimPedidos) inputDataFimPedidos.value = prefs.dataFimPedidos;
         }
-        // Toggle Pendente/Faturado (Mai/2026). Garantia: pelo menos um ligado.
+        // Toggle Pendente/Finalizado (Mai/2026 — B9). Retrocompat: lê
+        // mostrarFaturados antigo se mostrarFinalizados ainda não foi gravado.
+        // Garantia: pelo menos um ligado.
         let prefPend = (typeof prefs.mostrarPendentes === 'boolean') ? prefs.mostrarPendentes : mostrarPendentes;
-        let prefFat  = (typeof prefs.mostrarFaturados === 'boolean') ? prefs.mostrarFaturados : mostrarFaturados;
-        if (!prefPend && !prefFat) { prefPend = true; prefFat = false; }
-        mostrarPendentes = prefPend;
-        mostrarFaturados = prefFat;
+        let prefFin;
+        if (typeof prefs.mostrarFinalizados === 'boolean') {
+            prefFin = prefs.mostrarFinalizados;
+        } else if (typeof prefs.mostrarFaturados === 'boolean') {
+            prefFin = prefs.mostrarFaturados;       // legado
+        } else {
+            prefFin = mostrarFinalizados;
+        }
+        if (!prefPend && !prefFin) { prefPend = true; prefFin = false; }
+        mostrarPendentes   = prefPend;
+        mostrarFinalizados = prefFin;
         const cp = document.getElementById('checkStatusPendente');
-        const cf = document.getElementById('checkStatusFaturado');
-        if (cp) { cp.classList.toggle('is-on', mostrarPendentes); cp.setAttribute('aria-pressed', mostrarPendentes); }
-        if (cf) { cf.classList.toggle('is-on', mostrarFaturados); cf.setAttribute('aria-pressed', mostrarFaturados); }
+        const cf = document.getElementById('checkStatusFinalizado');
+        if (cp) { cp.classList.toggle('is-on', mostrarPendentes);   cp.setAttribute('aria-pressed', mostrarPendentes); }
+        if (cf) { cf.classList.toggle('is-on', mostrarFinalizados); cf.setAttribute('aria-pressed', mostrarFinalizados); }
     })();
 
     if (inputDataIniLotes) {
@@ -2966,17 +3051,18 @@ document.addEventListener('DOMContentLoaded', function () {
         // Datas → defaults (hoje−7 → hoje)
         _inicializarPeriodos();
 
-        // Status: Pendente ligado, Faturado desligado (default)
-        mostrarPendentes = true;
-        mostrarFaturados = false;
-        _aplicarStatusBtn(checkStatusPendente, true);
-        _aplicarStatusBtn(checkStatusFaturado, false);
+        // Status: Pendente ligado, Finalizado desligado (default)
+        mostrarPendentes   = true;
+        mostrarFinalizados = false;
+        _aplicarStatusBtn(checkStatusPendente,   true);
+        _aplicarStatusBtn(checkStatusFinalizado, false);
 
         // Reset do estado de colapso — todos os pedidos voltam a ser
         // tratados como "novos" e serão colapsados na próxima renderização.
         pedidosColapsados.clear();
         pedidosJaVistos.clear();
         gruposProdutoColapsados.clear();
+        gruposLotesColapsados.clear();
 
         // Persiste o reset (limpa preferências antigas)
         _salvarPrefs();

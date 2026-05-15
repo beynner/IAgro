@@ -311,10 +311,18 @@ Antes baixava só de TOP 35/37 STATUSNOTA='L'. Agora a perna `baixas_venda` é u
 
 `consultar_pedidos_abertos_para_atribuicao` traz 2 fontes via OR no WHERE (Mai/2026 — refinado após casos 112017/111975/111976):
 
-- **PEDIDO** (`TIPO_LINHA='PEDIDO'`): TOP 34. Toggle Pendente/Faturado decide STATUSNOTA:
-  - `mostrar_pendentes` → `STATUSNOTA <> 'E' AND NOT EXISTS TGFVAR par` (em aberto + STATUS='L' precoce)
-  - `mostrar_faturados` → `STATUSNOTA = 'L' AND EXISTS TGFVAR par com TOP 35/37`
-- **NOTA_ORFA** (`TIPO_LINHA='NOTA_ORFA'`): só com `mostrar_faturados=True`. TOP 35/37 STATUSNOTA='L' **sem TGFVAR** em qualquer sentido — notas emitidas direto no Sankhya sem fluxo "atender pedido" (caso 111976).
+- **PEDIDO**: TOP 34 (em aberto OU `STATUSNOTA='L'`). Sempre listado, sem distinguir por TGFVAR par.
+- **NOTA_ORFA**: TOP 35/37 STATUSNOTA='L' **sem TGFVAR** em qualquer sentido + **sem vínculo manual** — notas emitidas direto no Sankhya sem fluxo "atender pedido" (caso 111976).
+
+**B9 (Mai/2026, 2026-05-15) — Toggle agora é por completude do rastreio**, não por STATUSNOTA. O critério aplicado a ambos os caminhos:
+- `mostrar_pendentes` → pedido com ao menos 1 item TGFITE com `CODAGREGACAO IS NULL` (rastreio incompleto)
+- `mostrar_finalizados` → pedido com **TODOS** os itens TGFITE com `CODAGREGACAO IS NOT NULL` (rastreio 100% vinculado)
+
+Param antigo `mostrar_faturados` ainda aceito como **alias retro** de `mostrar_finalizados` (URL legada continua funcionando). Sem duplicação: TOP 35/37 só entra como ÓRFÃ quando não há TGFVAR par nem vínculo manual, nunca ao lado da TOP 34 correspondente.
+
+**Frontend**: label do toggle `Faturado → Finalizado`, variável JS `mostrarFaturados → mostrarFinalizados` (retrocompat lê chave antiga em `iagro:rastreio:prefs:v1` quando nova ainda não gravada). Default: só Pendente ligado.
+
+**Agrupamento dos Lotes (B9)**: novo toggle `grpLotes` (Por Parceiro / Por Produto) ao lado do "Tipo de Lote". `renderLotes` agrupa cards por `NOMEPARC_ORIGEM` ou `DESCRPROD` ordenado alfabeticamente. Header reusa visual `.pedido-bloco-header` (chevron + avatar + nome + qtd total verde + contador de lotes) mas sem impressora/percentual/NUNOTA. Cards com `margin-left: 16px` e regra `.card-lote.compacto:not(.card-lote-avaria-int) > .col-prod { display: none }` esconde nome do produto (já está no header). Set `gruposLotesColapsados` controla expand/collapse; reseta ao trocar tipo de agrupamento.
 
 NUMNOTA e NUNOTA da nota correlata vêm via subquery escalar em TGFVAR (`SELECT MAX(NUMNOTA) FROM TGFCAB c2 JOIN TGFVAR v ON c2.NUNOTA = v.NUNOTA WHERE v.NUNOTAORIG = c.NUNOTA AND c2.CODTIPOPER IN (35,37) AND c2.STATUSNOTA <> 'E'`). Frontend usa pra exibir badge `FATURADO Nota Y` (apenas em PEDIDOs faturados — em NOTA_ORFA a subquery devolve null por definição).
 

@@ -8,102 +8,136 @@
 :root {
 
   /* Paleta principal */
-  --cor-destaque:         #558b2f;              /* Verde Agromil — botões primários, links ativos */
-  --cor-destaque-escuro:  #4a6e22;              /* Hover do botão primário */
-  --cor-destaque-claro:   rgba(85,139,47,0.12); /* Fundo sutil de foco/seleção */
+  --cor-destaque: #558b2f;
+  /* Verde Agromil — botões primários, links ativos */
+  --cor-destaque-escuro: #4a6e22;
+  /* Hover do botão primário */
+  --cor-destaque-claro: rgba(85, 139, 47, 0.12);
+  /* Fundo sutil de foco/seleção */
 
-  --cor-sucesso:          #10b981;              /* Verde — status ok, confirmações */
-  --cor-aviso:            #f59e0b;              /* Laranja — alertas não críticos */
-  --cor-erro:             #ef4444;              /* Vermelho — erros, exclusões */
-  --cor-erro-escuro:      #b91c1c;              /* Hover de botão destrutivo */
-  --cor-erro-claro:       #fef2f2;              /* Fundo de mensagem de erro */
+  --cor-sucesso: #10b981;
+  /* Verde — status ok, confirmações */
+  --cor-aviso: #f59e0b;
+  /* Laranja — alertas não críticos */
+  --cor-erro: #ef4444;
+  /* Vermelho — erros, exclusões */
+  --cor-erro-escuro: #b91c1c;
+  /* Hover de botão destrutivo */
+  --cor-erro-claro: #fef2f2;
+  /* Fundo de mensagem de erro */
 
   /* Neutros */
-  --cor-fundo-pagina:     #8b8e91;              /* Cinza externo — fundo da aplicação */
-  --cor-fundo-painel:     #ffffff;              /* Branco — cards e painéis */
-  --cor-fundo-secao:      #f1f5f9;              /* Cinza claro — seções internas, hover */
-  --cor-fundo-linha:      #e2e8f0;              /* Cinza médio — bordas, divisores */
+  --cor-fundo-pagina: #8b8e91;
+  /* Cinza externo — fundo da aplicação */
+  --cor-fundo-painel: #ffffff;
+  /* Branco — cards e painéis */
+  --cor-fundo-secao: #f1f5f9;
+  /* Cinza claro — seções internas, hover */
+  --cor-fundo-linha: #e2e8f0;
+  /* Cinza médio — bordas, divisores */
 
   /* Texto */
-  --cor-texto-principal:  #334155;              /* Texto escuro padrão */
-  --cor-texto-secundario: #64748b;              /* Texto de apoio, labels */
-  --cor-texto-desativado: #94a3b8;              /* Texto placeholder, desabilitado */
-  --cor-borda:            #cbd5e1;              /* Borda padrão de inputs e cards */
-  --cor-neutro:           #6b7280;              /* Cinza genérico — ícones muted */
+  --cor-texto-principal: #334155;
+  /* Texto escuro padrão */
+  --cor-texto-secundario: #64748b;
+  /* Texto de apoio, labels */
+  --cor-texto-desativado: #94a3b8;
+  /* Texto placeholder, desabilitado */
+  --cor-borda: #cbd5e1;
+  /* Borda padrão de inputs e cards */
+  --cor-neutro: #6b7280;
+  /* Cinza genérico — ícones muted */
 
   /* Retrocompatibilidade — variáveis antigas usadas pelos módulos ainda não migrados */
-  --bg:     var(--cor-fundo-pagina);
-  --panel:  var(--cor-fundo-painel);
+  --bg: var(--cor-fundo-pagina);
+  --panel: var(--cor-fundo-painel);
   --accent: var(--cor-destaque);
-  --muted:  var(--cor-neutro);
+  --muted: var(--cor-neutro);
   --border: var(--cor-borda);
 
   /* Tipografia */
-  --fonte-familia:        'Inter', system-ui, Segoe UI, Roboto, sans-serif;
-  --fonte-tamanho-base:   12px;           /* Tamanho base do body (1rem = 12px) */
-  --fonte-xs:             0.72rem;        /* ~8.6px  — rótulos de mini cards */
-  --fonte-sm:             0.8rem;         /* ~9.6px  — células de tabela */
-  --fonte-base:           0.85rem;        /* ~10.2px — texto padrão */
-  --fonte-md:             0.95rem;        /* ~11.4px — inputs, labels */
-  --fonte-lg:             1.1rem;         /* ~13.2px — subtítulos */
-  --fonte-xl:             1.4rem;         /* ~16.8px — títulos de seção */
-  --peso-normal:          400;
-  --peso-medio:           500;
-  --peso-semi:            600;
-  --peso-negrito:         700;
-  --peso-extranegrito:    800;
+  --fonte-familia: 'Inter', system-ui, Segoe UI, Roboto, sans-serif;
+  --fonte-tamanho-base: 12px;
+  /* Tamanho base do body (1rem = 12px) */
+  --fonte-xs: 0.72rem;
+  /* ~8.6px  — rótulos de mini cards */
+  --fonte-sm: 0.8rem;
+  /* ~9.6px  — células de tabela */
+  --fonte-base: 0.85rem;
+  /* ~10.2px — texto padrão */
+  --fonte-md: 0.95rem;
+  /* ~11.4px — inputs, labels */
+  --fonte-lg: 1.1rem;
+  /* ~13.2px — subtítulos */
+  --fonte-xl: 1.4rem;
+  /* ~16.8px — títulos de seção */
+  --peso-normal: 400;
+  --peso-medio: 500;
+  --peso-semi: 600;
+  --peso-negrito: 700;
+  --peso-extranegrito: 800;
 
   /* Retrocompatibilidade */
   --font-main: var(--fonte-familia);
 
   /* Espaçamento */
-  --espaco-1:             4px;
-  --espaco-2:             8px;
-  --espaco-3:             12px;
-  --espaco-4:             16px;
-  --espaco-5:             20px;
-  --espaco-6:             24px;
-  --espaco-entre-paineis: 14px;           /* Gap padrão entre cards/panels */
-  --espaco-interno-card:  12px;           /* Padding interno de cards compactos */
-  --espaco-wrapper:       16px;           /* Padding do container principal */
-  --altura-appbar:        44px;           /* Altura da barra de topo */
+  --espaco-1: 4px;
+  --espaco-2: 8px;
+  --espaco-3: 12px;
+  --espaco-4: 16px;
+  --espaco-5: 20px;
+  --espaco-6: 24px;
+  --espaco-entre-paineis: 14px;
+  /* Gap padrão entre cards/panels */
+  --espaco-interno-card: 12px;
+  /* Padding interno de cards compactos */
+  --espaco-wrapper: 16px;
+  /* Padding do container principal */
+  --altura-appbar: 44px;
+  /* Altura da barra de topo */
 
   /* Retrocompatibilidade */
-  --gap:      var(--espaco-entre-paineis);
+  --gap: var(--espaco-entre-paineis);
   --card-pad: var(--espaco-interno-card);
   --wrap-pad: var(--espaco-wrapper);
   --appbar-h: var(--altura-appbar);
 
   /* Bordas — arredondamento */
-  --borda-raio-sm:        4px;            /* Badges, tags, elementos pequenos */
-  --borda-raio-md:        8px;            /* Inputs, botões */
-  --borda-raio-lg:        12px;           /* Cards internos, médios */
-  --borda-raio-xl:        16px;           /* Painéis e cards principais */
-  --borda-raio-pilula:    999px;          /* Switches, badges arredondados */
+  --borda-raio-sm: 4px;
+  /* Badges, tags, elementos pequenos */
+  --borda-raio-md: 8px;
+  /* Inputs, botões */
+  --borda-raio-lg: 12px;
+  /* Cards internos, médios */
+  --borda-raio-xl: 16px;
+  /* Painéis e cards principais */
+  --borda-raio-pilula: 999px;
+  /* Switches, badges arredondados */
 
   /* Retrocompatibilidade — --radius-lg antes era 16px; agora é 12px, o xl tem 16px */
-  --radius-sm:   var(--borda-raio-sm);
-  --radius-md:   var(--borda-raio-md);
-  --radius-lg:   var(--borda-raio-xl);    /* mantido em 16px para não quebrar módulos */
-  --radius-xl:   var(--borda-raio-xl);
+  --radius-sm: var(--borda-raio-sm);
+  --radius-md: var(--borda-raio-md);
+  --radius-lg: var(--borda-raio-xl);
+  /* mantido em 16px para não quebrar módulos */
+  --radius-xl: var(--borda-raio-xl);
   --radius-pill: var(--borda-raio-pilula);
 
   /* Sombras */
-  --sombra-sm:    0 2px 4px rgba(0,0,0,0.06);
-  --sombra-card:  0 4px 20px rgba(0,0,0,0.08);
-  --sombra-hover: 0 2px 6px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06);
-  --sombra-foco:  0 0 0 3px var(--cor-destaque-claro);
+  --sombra-sm: 0 2px 4px rgba(0, 0, 0, 0.06);
+  --sombra-card: 0 4px 20px rgba(0, 0, 0, 0.08);
+  --sombra-hover: 0 2px 6px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --sombra-foco: 0 0 0 3px var(--cor-destaque-claro);
 
   /* Retrocompatibilidade */
-  --shadow-sm:    var(--sombra-sm);
-  --shadow-card:  var(--sombra-card);
+  --shadow-sm: var(--sombra-sm);
+  --shadow-card: var(--sombra-card);
   --shadow-hover: var(--sombra-hover);
   --shadow-focus: var(--sombra-foco);
 
   /* Transições */
   --transicao-rapida: 0.15s ease;
-  --transicao-base:   0.2s ease;
-  --transicao-lenta:  0.3s ease;
+  --transicao-base: 0.2s ease;
+  --transicao-lenta: 0.3s ease;
 
   /* Retrocompatibilidade */
   --transition-fast: var(--transicao-rapida);
@@ -111,26 +145,30 @@
   --transition-slow: var(--transicao-lenta);
 
   /* Appbar — alterar estes tokens muda a aparência em todos os módulos */
-  --cor-appbar-fundo:   var(--cor-fundo-pagina);
-  --cor-appbar-texto:   #ffffff;
+  --cor-appbar-fundo: var(--cor-fundo-pagina);
+  --cor-appbar-texto: #ffffff;
 
   /* Rodapé — alterar estes tokens muda a aparência em todos os módulos */
-  --cor-rodape-fundo:   var(--cor-fundo-painel);
-  --cor-rodape-borda:   var(--cor-fundo-linha);
-  --cor-rodape-texto:   var(--cor-texto-desativado);
+  --cor-rodape-fundo: var(--cor-fundo-painel);
+  --cor-rodape-borda: var(--cor-fundo-linha);
+  --cor-rodape-texto: var(--cor-texto-desativado);
 }
 
 /* ── 2. Reset base ──────────────────────────────────────── */
-*, *::before, *::after { box-sizing: border-box; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 
 body {
   font-family: var(--fonte-familia);
-  font-size:   var(--fonte-tamanho-base);
-  color:       var(--cor-texto-principal);
-  background:  var(--cor-fundo-pagina);
+  font-size: var(--fonte-tamanho-base);
+  color: var(--cor-texto-principal);
+  background: var(--cor-fundo-pagina);
   margin: 0;
-  height:      100vh;
-  overflow:    hidden;
+  height: 100vh;
+  overflow: hidden;
 }
 
 /* ── 3. Layout estrutural base ──────────────────────────── */
@@ -138,12 +176,12 @@ body {
 /* .wrap — container principal de toda página: empilha appbar + main + footer
    verticalmente e ocupa a altura total da viewport. */
 .wrap {
-  padding:        1px;
-  height:         100vh;
-  box-sizing:     border-box;
-  display:        flex;
+  padding: 1px;
+  height: 100vh;
+  box-sizing: border-box;
+  display: flex;
   flex-direction: column;
-  overflow:       hidden;
+  overflow: hidden;
 }
 
 /* .main-layout — "quadradão" de conteúdo entre a appbar e o rodapé.
@@ -154,191 +192,230 @@ body {
    dentro do block content para organizar os cards internamente.
    Módulos NÃO devem sobrescrever esta regra — a moldura é única para todo o sistema. */
 .main-layout {
-  flex:       1;
+  flex: 1;
   min-height: 0;
-  padding:    var(--espaco-entre-paineis) var(--espaco-entre-paineis) 40px var(--espaco-entre-paineis);
-  display:    flex;
+  padding: var(--espaco-entre-paineis) var(--espaco-entre-paineis) 40px var(--espaco-entre-paineis);
+  display: flex;
   box-sizing: border-box;
-  overflow:   hidden;
+  overflow: hidden;
 }
 
 /* ── 4. Componentes globais ─────────────────────────────── */
 
 /* Panel — card branco com sombra, base de todos os módulos */
 .panel {
-  background:    var(--cor-fundo-painel);
+  background: var(--cor-fundo-painel);
   border-radius: var(--borda-raio-xl);
-  box-shadow:    var(--sombra-card);
+  box-shadow: var(--sombra-card);
 }
 
 /* Appbar — barra de topo com logo, título e perfil do usuário.
    Fundo e cor do texto controlados por --cor-appbar-fundo e --cor-appbar-texto. */
 .appbar {
-  height:      var(--altura-appbar);
-  display:     flex;
+  height: var(--altura-appbar);
+  display: flex;
   align-items: center;
   flex-shrink: 0;
-  background:  var(--cor-appbar-fundo);
-  padding:     0 var(--espaco-wrapper);
+  background: var(--cor-appbar-fundo);
+  padding: 0 var(--espaco-wrapper);
 }
+
 .header-row {
-  display:         flex;
+  display: flex;
   justify-content: space-between;
-  align-items:     center;
-  width:           100%;
-  height:          var(--altura-appbar);
-  padding-right:   var(--espaco-5);
-}
-.header-left {
-  display:     flex;
   align-items: center;
-  gap:         15px;
-  height:      var(--altura-appbar);
-  min-width:   0;
-  flex:        1;
+  width: 100%;
+  height: var(--altura-appbar);
+  padding-right: var(--espaco-5);
 }
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  height: var(--altura-appbar);
+  min-width: 0;
+  flex: 1;
+}
+
 .appbar h1 {
-  margin:         0;
-  height:         var(--altura-appbar);
-  line-height:    var(--altura-appbar);
-  overflow:       hidden;
-  white-space:    nowrap;
-  min-width:      0;
-  font-size:      var(--fonte-xl);
-  font-weight:    var(--peso-extranegrito);
-  color:          var(--cor-appbar-texto);
+  margin: 0;
+  height: var(--altura-appbar);
+  line-height: var(--altura-appbar);
+  overflow: hidden;
+  white-space: nowrap;
+  min-width: 0;
+  font-size: var(--fonte-xl);
+  font-weight: var(--peso-extranegrito);
+  color: var(--cor-appbar-texto);
   text-transform: uppercase;
   letter-spacing: -0.5px;
 }
 
 /* Botão "home" dentro da appbar — transparente com borda translúcida sobre o fundo escuro */
 .appbar .home-btn {
-  color:           var(--cor-appbar-texto);
-  width:  32px;
+  color: var(--cor-appbar-texto);
+  width: 32px;
   height: 32px;
-  border-radius:   var(--borda-raio-sm);
-  background:      transparent;
-  border:          1px solid rgba(255, 255, 255, 0.4);
-  transition:      all var(--transicao-base);
+  border-radius: var(--borda-raio-sm);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  transition: all var(--transicao-base);
 }
+
 .appbar .home-btn:hover {
-  background:   rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.1);
   border-color: var(--cor-appbar-texto);
-  transform:    translateY(-1px);
+  transform: translateY(-1px);
 }
 
 .home-btn {
-  display:         flex;
-  align-items:     center;
+  display: flex;
+  align-items: center;
   justify-content: center;
-  width:  32px;
+  width: 32px;
   height: 32px;
-  border-radius:   var(--borda-raio-md);
-  color:           var(--cor-texto-secundario);
+  border-radius: var(--borda-raio-md);
+  color: var(--cor-texto-secundario);
   text-decoration: none;
-  transition:      background var(--transicao-rapida);
+  transition: background var(--transicao-rapida);
   flex-shrink: 0;
 }
-.home-btn:hover { background: var(--cor-fundo-secao); color: var(--cor-texto-principal); }
+
+.home-btn:hover {
+  background: var(--cor-fundo-secao);
+  color: var(--cor-texto-principal);
+}
 
 /* Badge de ambiente — HOMOLOGAÇÃO / PRODUÇÃO centralizado no topo da página */
 .env-badge {
-  position:        fixed;
-  top:             12px;
-  left:            50%;
-  transform:       translateX(-50%);
-  padding:         4px 16px;
-  border-radius:   var(--borda-raio-pilula);
-  font-weight:     var(--peso-extranegrito);
-  font-size:       0.8rem;
-  text-transform:  uppercase;
-  letter-spacing:  0.05em;
-  box-shadow:      0 2px 8px rgba(0,0,0,0.2);
-  z-index:         10000;
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 16px;
+  border-radius: var(--borda-raio-pilula);
+  font-weight: var(--peso-extranegrito);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  z-index: 10000;
 }
+
 .env-badge--homologacao {
   background: var(--cor-erro);
-  color:      #ffffff;
+  color: #ffffff;
 }
+
 .env-badge--producao {
   background: var(--cor-sucesso);
-  color:      #ffffff;
+  color: #ffffff;
 }
 
 /* Status dot — indicador colorido de estado */
 .status-dot {
-  display:       inline-block;
-  width:  8px;
+  display: inline-block;
+  width: 8px;
   height: 8px;
   border-radius: var(--borda-raio-pilula);
   flex-shrink: 0;
 }
-.status-dot.success { background: var(--cor-sucesso); }
-.status-dot.warning { background: var(--cor-aviso); }
-.status-dot.danger  { background: var(--cor-erro); }
-.status-dot.muted   { background: var(--cor-texto-desativado); }
+
+.status-dot.success {
+  background: var(--cor-sucesso);
+}
+
+.status-dot.warning {
+  background: var(--cor-aviso);
+}
+
+.status-dot.danger {
+  background: var(--cor-erro);
+}
+
+.status-dot.muted {
+  background: var(--cor-texto-desativado);
+}
 
 /* Modal — overlay + card centralizado */
 .modal-overlay {
-  position:        fixed;
-  inset:           0;
-  background:      rgba(0,0,0,0.45);
-  display:         flex;
-  align-items:     center;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
   justify-content: center;
-  z-index:         1000;
+  z-index: 1000;
 }
-.modal-content, .modal-card {
-  background:     var(--cor-fundo-painel);
-  border-radius:  var(--borda-raio-xl);
-  box-shadow:     var(--sombra-card);
-  display:        flex;
+
+.modal-content,
+.modal-card {
+  background: var(--cor-fundo-painel);
+  border-radius: var(--borda-raio-xl);
+  box-shadow: var(--sombra-card);
+  display: flex;
   flex-direction: column;
-  max-height:     90vh;
-  overflow:       hidden;
+  max-height: 90vh;
+  overflow: hidden;
 }
+
 .modal-header {
-  padding:       var(--espaco-3) var(--espaco-4);
+  padding: var(--espaco-3) var(--espaco-4);
   border-bottom: 1px solid var(--cor-borda);
-  display:       flex;
-  align-items:   center;
-  gap:           var(--espaco-2);
-  font-weight:   var(--peso-negrito);
-  font-size:     var(--fonte-lg);
-  color:         var(--cor-texto-principal);
-  flex-shrink:   0;
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-2);
+  font-weight: var(--peso-negrito);
+  font-size: var(--fonte-lg);
+  color: var(--cor-texto-principal);
+  flex-shrink: 0;
 }
+
 .modal-body {
-  padding:    var(--espaco-4);
+  padding: var(--espaco-4);
   overflow-y: auto;
-  flex:       1;
+  flex: 1;
 }
 
 /* Toast container */
 #toastContainer {
-  position:       fixed;
-  bottom:         var(--espaco-5);
-  right:          var(--espaco-5);
-  z-index:        9999;
-  display:        flex;
+  position: fixed;
+  bottom: var(--espaco-5);
+  right: var(--espaco-5);
+  z-index: 9999;
+  display: flex;
   flex-direction: column;
-  gap:            var(--espaco-2);
+  gap: var(--espaco-2);
 }
+
 .toast {
-  background:    var(--cor-fundo-painel);
+  background: var(--cor-fundo-painel);
   border-radius: var(--borda-raio-lg);
-  box-shadow:    var(--sombra-hover);
-  padding:       var(--espaco-3) var(--espaco-4);
-  font-size:     var(--fonte-base);
-  min-width:     220px;
-  max-width:     360px;
-  border-left:   4px solid var(--cor-destaque);
-  animation:     ia-toast-entrada var(--transicao-lenta) ease forwards;
+  box-shadow: var(--sombra-hover);
+  padding: var(--espaco-3) var(--espaco-4);
+  font-size: var(--fonte-base);
+  min-width: 220px;
+  max-width: 360px;
+  border-left: 4px solid var(--cor-destaque);
+  animation: ia-toast-entrada var(--transicao-lenta) ease forwards;
 }
-.toast.success { border-left-color: var(--cor-sucesso); }
-.toast.warning { border-left-color: var(--cor-aviso); }
-.toast.error   { border-left-color: var(--cor-erro); }
-.toast.hide    { animation: ia-toast-saida var(--transicao-lenta) ease forwards; }
+
+.toast.success {
+  border-left-color: var(--cor-sucesso);
+}
+
+.toast.warning {
+  border-left-color: var(--cor-aviso);
+}
+
+.toast.error {
+  border-left-color: var(--cor-erro);
+}
+
+.toast.hide {
+  animation: ia-toast-saida var(--transicao-lenta) ease forwards;
+}
 
 /* Inputs e selects — base compartilhada */
 input[type="text"],
@@ -347,16 +424,17 @@ input[type="number"],
 input[type="search"],
 select,
 textarea {
-  font-family:   var(--fonte-familia);
-  font-size:     var(--fonte-md);
-  color:         var(--cor-texto-principal);
-  background:    var(--cor-fundo-painel);
-  border:        1px solid var(--cor-borda);
+  font-family: var(--fonte-familia);
+  font-size: var(--fonte-md);
+  color: var(--cor-texto-principal);
+  background: var(--cor-fundo-painel);
+  border: 1px solid var(--cor-borda);
   border-radius: var(--borda-raio-md);
-  padding:       var(--espaco-1) var(--espaco-2);
-  outline:       none;
-  transition:    border-color var(--transicao-rapida), box-shadow var(--transicao-rapida);
+  padding: var(--espaco-1) var(--espaco-2);
+  outline: none;
+  transition: border-color var(--transicao-rapida), box-shadow var(--transicao-rapida);
 }
+
 input[type="text"]:focus,
 input[type="date"]:focus,
 input[type="number"]:focus,
@@ -364,95 +442,148 @@ input[type="search"]:focus,
 select:focus,
 textarea:focus {
   border-color: var(--cor-destaque);
-  box-shadow:   var(--sombra-foco);
+  box-shadow: var(--sombra-foco);
 }
 
 /* Badge de usuário — usado no canto direito da appbar em todas as páginas */
 .user-profile-badge {
-  display:       flex;
-  align-items:   center;
-  gap:           10px;
-  background:    rgba(255, 255, 255, 0.9);
-  padding:       5px 15px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 5px 15px;
   border-radius: 20px;
-  font-size:     var(--fonte-base);
-  font-weight:   var(--peso-semi);
-  color:         var(--cor-texto-principal);
-  border:        1px solid var(--cor-fundo-linha);
-  box-shadow:    0 2px 4px rgba(0,0,0,0.05);
-  transition:    all var(--transicao-base);
+  font-size: var(--fonte-base);
+  font-weight: var(--peso-semi);
+  color: var(--cor-texto-principal);
+  border: 1px solid var(--cor-fundo-linha);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  transition: all var(--transicao-base);
 }
+
 .user-profile-badge:hover {
   background: var(--cor-fundo-painel);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  transform:  translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
 }
+
 .user-profile-info {
-  display:     flex;
+  display: flex;
   align-items: center;
-  gap:         8px;
+  gap: 8px;
 }
+
 .user-profile-name {
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
+
 .logout-link {
-  color:           var(--cor-erro);
+  color: var(--cor-erro);
   text-decoration: none;
-  margin-left:     5px;
-  padding-left:    8px;
-  border-left:     1px solid var(--cor-borda);
+  margin-left: 5px;
+  padding-left: 8px;
+  border-left: 1px solid var(--cor-borda);
 }
-.logout-link:hover { text-decoration: underline; }
+
+.logout-link:hover {
+  text-decoration: underline;
+}
 
 /* Rodapé — barra fixa no fundo em todas as páginas.
    Fundo, borda e cor do texto controlados por --cor-rodape-*. */
 .ia-footer {
-  position:        fixed;
-  bottom:          0;
-  left:            0;
-  width:           100%;
-  box-sizing:      border-box;
-  background:      var(--cor-rodape-fundo);
-  border-top:      1px solid var(--cor-rodape-borda);
-  padding:         4px var(--espaco-5);
-  display:         flex;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--cor-rodape-fundo);
+  border-top: 1px solid var(--cor-rodape-borda);
+  padding: 4px var(--espaco-5);
+  display: flex;
   justify-content: space-between;
-  align-items:     center;
-  font-size:       10px;
-  color:           var(--cor-rodape-texto);
-  z-index:         2000;
+  align-items: center;
+  font-size: 10px;
+  color: var(--cor-rodape-texto);
+  z-index: 2000;
 }
+
 .ia-footer-versao {
   font-weight: var(--peso-negrito);
-  color:       var(--cor-texto-secundario);
+  color: var(--cor-texto-secundario);
 }
 
 /* ── 5. Animações globais ───────────────────────────────── */
 
 @keyframes ia-girar {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
+
 @keyframes ia-aparecer {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
+
 @keyframes ia-subir {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
+
 @keyframes ia-sacudir {
-  0%, 100% { transform: translateX(0); }
-  20%, 60% { transform: translateX(-6px); }
-  40%, 80% { transform: translateX(6px); }
+
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  20%,
+  60% {
+    transform: translateX(-6px);
+  }
+
+  40%,
+  80% {
+    transform: translateX(6px);
+  }
 }
+
 @keyframes ia-toast-entrada {
-  from { opacity: 0; transform: translateX(20px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
+
 @keyframes ia-toast-saida {
-  from { opacity: 1; transform: translateX(0); }
-  to   { opacity: 0; transform: translateX(20px); }
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateX(20px);
+  }
 }
 
 /* ==========================================================================
@@ -469,15 +600,17 @@ textarea:focus {
   z-index: 99999;
   animation: ia-subir 0.18s ease-out;
 }
+
 .ia-confirm-card {
   background: var(--cor-fundo-painel);
   border-radius: var(--borda-raio-lg);
-  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
   width: 460px;
   max-width: calc(100vw - 32px);
   overflow: hidden;
   font-family: var(--fonte-base);
 }
+
 .ia-confirm-header {
   padding: 14px 18px;
   font-size: 15px;
@@ -486,9 +619,11 @@ textarea:focus {
   border-bottom: 1px solid var(--cor-borda);
   background: var(--cor-fundo-secao);
 }
+
 .ia-confirm-card.ia-confirm-perigo .ia-confirm-header {
   color: var(--cor-erro);
 }
+
 .ia-confirm-body {
   padding: 18px;
   font-size: 13px;
@@ -497,7 +632,11 @@ textarea:focus {
   max-height: 50vh;
   overflow-y: auto;
 }
-.ia-confirm-body strong { color: var(--cor-texto-titulo); }
+
+.ia-confirm-body strong {
+  color: var(--cor-texto-titulo);
+}
+
 .ia-confirm-footer {
   padding: 12px 18px;
   display: flex;
@@ -506,6 +645,7 @@ textarea:focus {
   border-top: 1px solid var(--cor-borda);
   background: var(--cor-fundo-secao);
 }
+
 .ia-confirm-btn {
   padding: 8px 18px;
   font-size: 13px;
@@ -517,19 +657,32 @@ textarea:focus {
   color: var(--cor-texto-body);
   transition: all var(--transicao-rapida);
 }
-.ia-confirm-btn:hover { background: var(--cor-fundo-linha); }
-.ia-confirm-btn:focus { outline: 2px solid #3b82f6; outline-offset: 1px; }
+
+.ia-confirm-btn:hover {
+  background: var(--cor-fundo-linha);
+}
+
+.ia-confirm-btn:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 1px;
+}
+
 .ia-confirm-btn-ok.ia-confirm-btn-perigo {
   background: var(--cor-erro);
   border-color: var(--cor-erro);
   color: #fff;
 }
-.ia-confirm-btn-ok.ia-confirm-btn-perigo:hover { filter: brightness(0.92); }
+
+.ia-confirm-btn-ok.ia-confirm-btn-perigo:hover {
+  filter: brightness(0.92);
+}
+
 .ia-confirm-btn-ok.ia-confirm-btn-aviso {
   background: #f59e0b;
   border-color: #f59e0b;
   color: #fff;
 }
+
 .ia-confirm-btn-ok.ia-confirm-btn-info {
   background: #2563eb;
   border-color: #2563eb;
@@ -549,6 +702,7 @@ textarea:focus {
   padding: 8px 12px;
   min-height: 38px;
 }
+
 .iagro-filtros-ativos-chips {
   display: flex;
   flex-wrap: wrap;
@@ -557,6 +711,7 @@ textarea:focus {
   min-height: 22px;
   align-items: center;
 }
+
 .iagro-filtros-ativos-chips:empty::before {
   content: 'Nenhum filtro ativo';
   color: var(--cor-texto-secundario-cinza, #64748b);
@@ -576,10 +731,12 @@ textarea:focus {
   color: var(--cor-texto-primario-escuro, #1e293b);
   line-height: 1;
 }
+
 .iagro-filtro-chip .chip-rotulo {
   font-weight: 600;
   color: var(--cor-texto-secundario-cinza, #64748b);
 }
+
 .iagro-filtro-chip .chip-valor {
   max-width: 180px;
   white-space: nowrap;
@@ -587,6 +744,7 @@ textarea:focus {
   text-overflow: ellipsis;
   cursor: help;
 }
+
 .iagro-filtro-chip .chip-remover {
   background: transparent;
   border: none;
@@ -601,6 +759,7 @@ textarea:focus {
   padding: 0;
   transition: all var(--transicao-rapida, 150ms ease);
 }
+
 .iagro-filtro-chip .chip-remover:hover {
   background: var(--cor-erro);
   color: #fff;
@@ -641,15 +800,15 @@ body.app-shell {
    na navegação entre módulos. A classe `preload` é removida no evento
    `load` (vide base.html), liberando a animação suave nos toggles
    manuais do usuário pelo chevron. */
-body.app-shell.preload > .sidebar,
-body.app-shell.preload > .sidebar * {
+body.app-shell.preload>.sidebar,
+body.app-shell.preload>.sidebar * {
   transition: none !important;
 }
 
 /* Sidebar lateral fixa. Usa `>` (filho direto do body) pra escopar com
    precisão e não afetar `<aside class="sidebar">` que módulos legados
    usam internamente (ex: Comercial). */
-body.app-shell > .sidebar {
+body.app-shell>.sidebar {
   width: var(--sidebar-w-expanded);
   background: var(--cor-sidebar-fundo);
   color: var(--cor-sidebar-texto);
@@ -664,7 +823,7 @@ body.app-shell > .sidebar {
   transition: width 0.2s ease;
 }
 
-body.app-shell > .sidebar.collapsed {
+body.app-shell>.sidebar.collapsed {
   width: var(--sidebar-w-collapsed);
 }
 
@@ -712,7 +871,9 @@ body.app-shell > .sidebar.collapsed {
   white-space: nowrap;
 }
 
-body.app-shell > .sidebar.collapsed .sidebar-brand { display: none; }
+body.app-shell>.sidebar.collapsed .sidebar-brand {
+  display: none;
+}
 
 /* Botão de recolher (chevron) — visível só em desktop */
 .sidebar-collapse-btn {
@@ -736,7 +897,7 @@ body.app-shell > .sidebar.collapsed .sidebar-brand { display: none; }
   color: #fff;
 }
 
-body.app-shell > .sidebar.collapsed .sidebar-collapse-btn {
+body.app-shell>.sidebar.collapsed .sidebar-collapse-btn {
   transform: rotate(180deg);
   position: absolute;
   right: 8px;
@@ -769,7 +930,8 @@ body.app-shell > .sidebar.collapsed .sidebar-collapse-btn {
   position: relative;
 }
 
-.nav-item:hover, .nav-item:focus {
+.nav-item:hover,
+.nav-item:focus {
   background: var(--cor-sidebar-hover);
   color: #fff;
   outline: none;
@@ -811,11 +973,17 @@ body.app-shell > .sidebar.collapsed .sidebar-collapse-btn {
   text-overflow: ellipsis;
 }
 
-body.app-shell > .sidebar.collapsed .nav-label { display: none; }
-body.app-shell > .sidebar.collapsed .nav-item { justify-content: center; padding: 9px 0; }
+body.app-shell>.sidebar.collapsed .nav-label {
+  display: none;
+}
+
+body.app-shell>.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 9px 0;
+}
 
 /* Tooltip ao passar o mouse no nav-item quando sidebar está recolhida */
-body.app-shell > .sidebar.collapsed .nav-item:hover::after {
+body.app-shell>.sidebar.collapsed .nav-item:hover::after {
   content: attr(title);
   position: absolute;
   left: calc(100% + 8px);
@@ -829,7 +997,7 @@ body.app-shell > .sidebar.collapsed .nav-item:hover::after {
   white-space: nowrap;
   pointer-events: none;
   z-index: 200;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 .sidebar-footer {
@@ -838,7 +1006,9 @@ body.app-shell > .sidebar.collapsed .nav-item:hover::after {
   flex-shrink: 0;
 }
 
-body.app-shell > .sidebar.collapsed .sidebar-footer { display: none; }
+body.app-shell>.sidebar.collapsed .sidebar-footer {
+  display: none;
+}
 
 .version-tag {
   font-size: 10.5px;
@@ -853,7 +1023,16 @@ body.app-shell > .sidebar.collapsed .sidebar-footer { display: none; }
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: var(--cor-content-bg);
+  /* Mai/2026 — Imagem de fundo nas páginas autenticadas. Overlay branco
+     translúcido (92%) preserva legibilidade dos painéis que flutuam por
+     cima. background-attachment: fixed evita "rolagem" da imagem ao
+     scrollar conteúdo interno do módulo. */
+  background:
+    linear-gradient(rgba(244, 246, 244, 0.32), rgba(244, 246, 244, 0.92)),
+    url('html-bg.png') center / cover no-repeat;
+  background-attachment: fixed;
+  background-color: var(--cor-content-bg);
+  /* fallback se imagem falhar */
   height: 100vh;
   overflow: hidden;
 }
@@ -931,7 +1110,9 @@ body.app-shell > .sidebar.collapsed .sidebar-footer { display: none; }
   transition: background 0.15s ease;
 }
 
-.btn-logout-inline:hover { background: #fee2e2; }
+.btn-logout-inline:hover {
+  background: #fee2e2;
+}
 
 /* Override .main-layout pra funcionar dentro do .app-content (não mais com
    footer fixed full-width). Bottom padding reduzido — rodapé agora flui no
@@ -991,9 +1172,17 @@ body.app-shell .main-layout {
   transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
-.sidebar-toggle-mobile.open span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
-.sidebar-toggle-mobile.open span:nth-child(2) { opacity: 0; }
-.sidebar-toggle-mobile.open span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+.sidebar-toggle-mobile.open span:nth-child(1) {
+  transform: translateY(6px) rotate(45deg);
+}
+
+.sidebar-toggle-mobile.open span:nth-child(2) {
+  opacity: 0;
+}
+
+.sidebar-toggle-mobile.open span:nth-child(3) {
+  transform: translateY(-6px) rotate(-45deg);
+}
 
 .sidebar-backdrop {
   display: none;
@@ -1003,23 +1192,36 @@ body.app-shell .main-layout {
   z-index: 40;
 }
 
-.sidebar-backdrop.visible { display: block; }
+.sidebar-backdrop.visible {
+  display: block;
+}
 
 /* Responsive */
 
 /* Tablet horizontal: sidebar fica, mas conteúdo aperta */
 @media (max-width: 1024px) {
-  .content-header { padding: 0 14px; }
-  .content-title h1 { font-size: 14px; letter-spacing: 0.2px; }
-  body.app-shell .main-layout { padding: 10px; }
+  .content-header {
+    padding: 0 14px;
+  }
+
+  .content-title h1 {
+    font-size: 14px;
+    letter-spacing: 0.2px;
+  }
+
+  body.app-shell .main-layout {
+    padding: 10px;
+  }
 }
 
 /* Tablet vertical: sidebar vira off-canvas. Escopado com body.app-shell >
    pra não afetar `<aside class="sidebar">` interno do Comercial. */
 @media (max-width: 900px) {
-  .sidebar-toggle-mobile { display: flex; }
+  .sidebar-toggle-mobile {
+    display: flex;
+  }
 
-  body.app-shell > .sidebar {
+  body.app-shell>.sidebar {
     position: fixed;
     top: 0;
     left: 0;
@@ -1031,29 +1233,62 @@ body.app-shell .main-layout {
     width: var(--sidebar-w-expanded);
   }
 
-  body.app-shell > .sidebar.open { transform: translateX(0); }
-  body.app-shell > .sidebar.collapsed { width: var(--sidebar-w-expanded); }
-  body.app-shell > .sidebar.collapsed .sidebar-brand,
-  body.app-shell > .sidebar.collapsed .nav-label,
-  body.app-shell > .sidebar.collapsed .sidebar-footer { display: revert; }
-  body.app-shell > .sidebar.collapsed .nav-item { justify-content: flex-start; padding: 9px 11px; }
-  .sidebar-collapse-btn { display: none; }
+  body.app-shell>.sidebar.open {
+    transform: translateX(0);
+  }
 
-  .content-header { padding: 0 14px 0 56px; }
+  body.app-shell>.sidebar.collapsed {
+    width: var(--sidebar-w-expanded);
+  }
+
+  body.app-shell>.sidebar.collapsed .sidebar-brand,
+  body.app-shell>.sidebar.collapsed .nav-label,
+  body.app-shell>.sidebar.collapsed .sidebar-footer {
+    display: revert;
+  }
+
+  body.app-shell>.sidebar.collapsed .nav-item {
+    justify-content: flex-start;
+    padding: 9px 11px;
+  }
+
+  .sidebar-collapse-btn {
+    display: none;
+  }
+
+  .content-header {
+    padding: 0 14px 0 56px;
+  }
 }
 
 /* Mobile: header compacto */
 @media (max-width: 520px) {
-  .user-badge-inline { max-width: 100px; padding: 4px 8px; font-size: 10.5px; }
-  .btn-logout-inline { padding: 3px 7px; font-size: 11px; }
-  .content-title h1 { font-size: 12.5px; }
-  .content-header { gap: 6px; }
+  .user-badge-inline {
+    max-width: 100px;
+    padding: 4px 8px;
+    font-size: 10.5px;
+  }
+
+  .btn-logout-inline {
+    padding: 3px 7px;
+    font-size: 11px;
+  }
+
+  .content-title h1 {
+    font-size: 12.5px;
+  }
+
+  .content-header {
+    gap: 6px;
+  }
 }
 
 /* Esconder appbar e ia-footer antigas se aparecerem dentro do novo shell
    (defesa contra refator incompleto de algum módulo). */
 body.app-shell .appbar,
-body.app-shell .ia-footer:not(.ia-footer-inline) { display: none; }
+body.app-shell .ia-footer:not(.ia-footer-inline) {
+  display: none;
+}
 
 /* =========================================================
    DEFESA GLOBAL DE MODAIS EM TABLET (Mai/2026 — sweep)
@@ -1070,6 +1305,7 @@ body.app-shell .ia-footer:not(.ia-footer-inline) { display: none; }
 }
 
 @media (max-width: 520px) {
+
   .modal-content,
   .modal-card,
   .cb-modal-card {
@@ -1080,4 +1316,3 @@ body.app-shell .ia-footer:not(.ia-footer-inline) { display: none; }
     border-radius: 0 !important;
   }
 }
-

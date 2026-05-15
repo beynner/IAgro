@@ -58,6 +58,13 @@
                     <input type="radio" name="tipoLote" id="tipoNclass" value="nao_classificavel">
                     <label for="tipoNclass">Não-class.</label>
                 </div>
+                <div class="ras-segmented" role="tablist" aria-label="Agrupar lotes por">
+                    <input type="radio" name="grpLotes" id="grpLotesParceiro" value="parceiro" checked>
+                    <label for="grpLotesParceiro">Por parceiro</label>
+
+                    <input type="radio" name="grpLotes" id="grpLotesProduto" value="produto">
+                    <label for="grpLotesProduto">Por produto</label>
+                </div>
                 <div class="ras-range-pill" title="Período (DTNEG do lote)">
                     <i class="ph ph-calendar-blank ras-range-icone" aria-hidden="true"></i>
                     <input type="date" id="dataIniLotes" class="ras-range-input" title="Data inicial">
@@ -103,14 +110,14 @@
                     <input type="date" id="dataFimPedidos" class="ras-range-input" title="Data final">
                     <button type="button" id="btnLimparPeriodoPedidos" class="ras-range-clear" title="Limpar período (mostra tudo)" aria-label="Limpar período">×</button>
                 </div>
-                <div class="ras-status-toggle" role="group" aria-label="Status do pedido">
-                    <button type="button" id="checkStatusPendente" class="ras-toggle is-on" aria-pressed="true" title="Mostrar pedidos em aberto (TOP 34)">
+                <div class="ras-status-toggle" role="group" aria-label="Status do rastreio">
+                    <button type="button" id="checkStatusPendente" class="ras-toggle is-on" aria-pressed="true" title="Pedidos com pelo menos 1 item sem lote vinculado">
                         <i class="ph ph-clock" aria-hidden="true"></i>
                         <span>Pendente</span>
                     </button>
-                    <button type="button" id="checkStatusFaturado" class="ras-toggle" aria-pressed="false" title="Mostrar notas já faturadas (TOP 35/37) — permite vincular lote retroativamente">
+                    <button type="button" id="checkStatusFinalizado" class="ras-toggle" aria-pressed="false" title="Pedidos com rastreio 100% vinculado (todos os itens com lote)">
                         <i class="ph ph-check-square" aria-hidden="true"></i>
-                        <span>Faturado</span>
+                        <span>Finalizado</span>
                     </button>
                 </div>
             </div>

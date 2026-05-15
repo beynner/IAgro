@@ -299,7 +299,18 @@ window.ComercialFinanceiro = (function () {
                     });
                 }
 
-                // Recarrega o modal silenciosamente e atualiza a linha de trás
+                // Refresh global (Mai/2026 — B9 follow-up): recarrega lista
+                // lateral do servidor. Crítico porque o backend B6 propaga
+                // o preço pra TOP 11 (PRECOBASE/VLRUNIT/VLRTOT) — sem reload,
+                // o card Entrada continua mostrando os valores antigos do
+                // cache (`__COM_LIST_ROWS`). Após o refresh, reselecionamos a
+                // linha do pedido pra reapresentar os cards atualizados.
+                if (window.ComercialFiltros?.atualizar) {
+                    window.ComercialFiltros.atualizar();
+                }
+
+                // Reabre o modal silenciosamente e reseleciona a linha pra
+                // forçar redesenho dos cards Entrada/Classificação/Distribuição.
                 abrir(nunotaOrigem);
                 const linhaSel = document.querySelector('tr.lista-item-row.row--sel');
                 if (linhaSel) linhaSel.click();

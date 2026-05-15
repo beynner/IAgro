@@ -67,6 +67,44 @@ Override `.main-layout { padding: 0 20px }`. Vários componentes próprios: `.zg
 
 ---
 
+## Fluxo do peso: `PESO` × `QTDFIXADA` (Mai/2026)
+
+Os dois campos vivem em `TGFITE` e na Agromil carregam **o peso de uma caixa**.
+A diferença é semântica e segue padrões distintos por tipo de produto:
+
+| Produto | `TGFITE.PESO` TOP 11 | `TGFITE.QTDFIXADA` TOP 11 |
+|---|---|---|
+| **Classificável** (passa por TOP 26) | Digitado pela Entrada no modal de item | NULL no INSERT → preenchido pela Comercial via botão "Peso CX Classificado" (`atualizar_peso_comercial_entrada`) |
+| **Não-classificável** (in natura direto pra TOP 13) | Digitado pela Entrada | **Espelhado automaticamente do PESO** pelo Fast-Track em `atualizar_preco_inicial_entrada` ([oracle_conn.py:1677-1680](../../sankhya_integration/services/oracle_conn.py#L1677-L1680)) |
+
+**Por que espelhar em in natura:** produto não-classificável não tem etapa intermediária que justifique peso diferente. Sem o espelhamento, o operador da Comercial teria que redigitar o mesmo valor no botão "Peso CX Classificado" — e o bloqueio do salvar vale (ver abaixo) impediria de continuar.
+
+### Salvar vale (TOP 13) — propagação automática (B1-B5, Mai/2026)
+
+`salvar_vale_compra_banco` ([oracle_conn.py:1904](../../sankhya_integration/services/oracle_conn.py#L1904)):
+
+1. **B4** — Bloqueia se PESO **e** QTDFIXADA da TOP 11 (linha de origem do lote, qualquer GERAPRODUCAO) forem ambos NULL/0 → mensagem `"Informe o peso classificado da caixa antes de salvar o vale."`.
+2. **B4 (espelhamento bidirecional)** — Se só um dos dois está preenchido (caso de in natura sem Fast-Track ou classificável onde Comercial não digitou), **UPDATE espelha** o lado vazio com o valor do preenchido (`NVL(...,0)=0` garante idempotência). Quando ambos estão preenchidos, QTDFIXADA tem prioridade (peso classificado vence sobre peso digitado na Entrada).
+3. **B2** — Propaga o valor consolidado pra `TGFITE.PESO` de **todos os itens da TOP 13** gravados no lote (Extra/Médio/etc — todos compartilham o mesmo peso de caixa).
+
+**B5 — Espelhamento no INSERT da TOP 11**: `inserir_item_nota_banco` ([oracle_conn.py:998+](../../sankhya_integration/services/oracle_conn.py#L998)) agora grava `QTDFIXADA = PESO` direto no INSERT quando `GERAPRODUCAO ≠ 'S'` e PESO > 0. Evita estado intermediário com QTDFIXADA NULL — não precisa esperar Fast-Track rodar.
+
+### Alteração tardia do peso classificado (B3)
+
+`atualizar_peso_comercial_entrada` ([oracle_conn.py:1760](../../sankhya_integration/services/oracle_conn.py#L1760)) é o botão "Peso CX Classificado" da Comercial. Além do `UPDATE QTDFIXADA` na TOP 11, **propaga automaticamente pra `TGFITE.PESO` da TOP 13** se já houver vale salvo daquele lote. Operador não precisa abrir/re-salvar o vale.
+
+Retorno ganhou `propagado_top13: int` com nº de linhas atualizadas (informativo).
+
+### Preço in natura modal Faturamento → TOP 11 (B6)
+
+`upsert_preco_in_natura_modalFaturamento` ([oracle_conn.py:2472](../../sankhya_integration/services/oracle_conn.py#L2472)) — quando operador digita preço no modal de faturamento de um item **não-classificável** (`GERAPRODUCAO ≠ 'S'`), o backend faz UPDATE em **TGFITE da TOP 11** propagando `PRECOBASE = VLRUNIT = preço` + `VLRTOT = preço × QTDNEG`, e em seguida chama `recalcular_totais_nota_banco(nunota_origem)`. Razão: pra in natura, preço do vale **é** preço da entrada (única etapa). Classificáveis (`'S'`) ficam intactos — preço pode legitimamente diferir.
+
+### Refresh global após salvar preço
+
+Tanto `comercial.js` (card Entrada) quanto `comercialFinanceiro.js` (modalFaturamento) chamam `window.ComercialFiltros.atualizar()` imediato após sucesso (Mai/2026, 2026-05-15 — era `setTimeout 500ms` no card). Garante que lista lateral reflita o novo preço/Fast-Track sem operador precisar dar F5.
+
+---
+
 ## Decorator extra
 
 - `@check_vale_lock` — lock para evitar concorrência em edição de vales

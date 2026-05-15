@@ -8,7 +8,7 @@
 ## Identidade
 
 - **Nome:** IAgro
-- **Versão:** 1.1.0
+- **Versão:** 1.1.1
 - **Tipo:** Sistema de gestão operacional integrado ao ERP Sankhya. **Em transição para produto independente (spin-off SaaS multi-tenant agro)** — ver [`dependencias_sankhya.md`](.claude/dependencias_sankhya.md) e [memory `spin_off_iagro_estrategia`](../../memory).
 - **Organização:** NexusGTi / HF Semear (cliente atual: Agromil)
 - **Domínio:** Central de beneficiamento de produtos agrícolas (antigo "Packing House") + rastreabilidade SafeTrace/IAgro

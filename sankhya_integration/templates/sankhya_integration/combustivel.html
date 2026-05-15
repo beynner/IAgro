@@ -243,26 +243,23 @@
         <div class="cb-total-nota" id="reqExtTotalCalculado">Total da Nota: <strong>R$ 0,00</strong></div>
       </div>
 
-      <!-- Medidores (adaptativos conforme tipo de requisição):
-           - INTERNA_FROTA      → hodômetro (km) E horímetro (h) AMBOS obrigatórios
-           - INTERNA_MAQUINARIO → hodômetro e horímetro opcionais
-           - EXTERNA_POSTO      → só hodômetro obrigatório (horímetro opcional)
-           - EXTERNA_FRETE      → escondidos (não aplicável) -->
+      <!-- Medidores (Mai/2026 — todos opcionais; escondidos em EXTERNA_FRETE) -->
       <div class="cb-form-row cb-form-row-grid" id="reqMedidoresWrap">
         <div style="flex: 1;">
-          <label class="cb-label" for="reqHodometroKm">
-            Hodômetro do veículo (km)
-            <span class="reqHodometroObrig" style="color: var(--cb-perigo);">*</span>
-          </label>
+          <label class="cb-label" for="reqHodometroKm">Hodômetro do veículo (km)</label>
           <input type="number" id="reqHodometroKm" class="cb-input cb-input-right" step="0.01" min="0" placeholder="0,00" />
         </div>
         <div style="flex: 1;">
-          <label class="cb-label" for="reqHorimetroH">
-            Horímetro da bomba (h)
-            <span class="reqHorimetroObrig" style="color: var(--cb-perigo);">*</span>
-          </label>
+          <label class="cb-label" for="reqHorimetroH">Horímetro da bomba (h)</label>
           <input type="number" id="reqHorimetroH" class="cb-input cb-input-right" step="0.01" min="0" placeholder="0,00" />
         </div>
+      </div>
+
+      <!-- Data do abastecimento (Mai/2026) — só requisição interna (FROTA / MAQUINARIO / EXTERNA_FRETE).
+           Em EXTERNA_POSTO já existe campo dedicado em reqExternoDatasWrap. -->
+      <div class="cb-form-row" id="reqDtNegWrap">
+        <label class="cb-label" for="reqDtNeg">Data</label>
+        <input type="date" id="reqDtNeg" class="cb-input" />
       </div>
 
       <!-- Centro de Resultado (CODCENCUS) + Natureza (CODNAT) -->
@@ -297,8 +294,8 @@
 
       <!-- Doc + datas do externo (só EXTERNA_POSTO) -->
       <div class="cb-form-row hidden" id="reqExternoDocWrap">
-        <label class="cb-label" for="reqExternoDoc">Nº da nota fiscal / boleto</label>
-        <input type="text" id="reqExternoDoc" class="cb-input" placeholder="Ex: NF 12345 ou boleto Allianz" maxlength="50" />
+        <label class="cb-label" for="reqExternoDoc">Nº da nota fiscal / boleto *</label>
+        <input type="number" id="reqExternoDoc" class="cb-input" inputmode="numeric" min="1" step="1" placeholder="Apenas números (ex: 12345)" />
       </div>
       <div class="cb-form-row cb-form-row-grid hidden" id="reqExternoDatasWrap">
         <div style="flex: 1;">

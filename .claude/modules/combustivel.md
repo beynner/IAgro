@@ -278,6 +278,27 @@ Smokes reais (`apply_*.py` ou inline via `manage.py shell`) feitos no Oracle de 
 | Lightbox foto + thumbnail Pillow | ✅ |
 | Auto-fill VLRUNIT + auto-cálculo DTVENC | ✅ |
 | Listagem 9 colunas (Total km + Média + EXTERNA badge) | ✅ |
+| **B7 (2026-05-15) — Hodômetro/horímetro opcionais em TODOS os tipos + campo Data interna** | ✅ |
+| **B8 (2026-05-15) — NUMNOTA do operador em TGFCAB+TGFFIN no externo (validação numérica estrita) + DTVENC auto** | ✅ |
+
+### B7 + B8 — Mudanças Mai/2026 (2026-05-15)
+
+**B7** removeu validações que tornavam hodômetro/horímetro obrigatórios:
+- `criar_requisicao_combustivel_banco` (era forçado em INTERNA_FROTA)
+- `editar_requisicao_combustivel_banco` (era forçado em INTERNA_FROTA + EXTERNA_POSTO)
+- `criar_abastecimento_externo_banco` (era forçado em EXTERNA_POSTO)
+
+Todos os tipos agora aceitam medidores opcionais. EXTERNA_FRETE continua zerando ambos automaticamente (veículo terceiro, sem rastreamento próprio).
+
+Campo **Data** novo (`#reqDtNeg`) no modal de requisição interna (FROTA/MAQUINARIO/EXTERNA_FRETE) — em EXTERNA_POSTO já existia `reqExternoDtNeg`. Default = hoje; payload `dtneg='YYYY-MM-DD'` formatado pra `DD/MM/YYYY` antes de gravar `TGFCAB.DTNEG/DTMOV`. Edição lê `cab.DTNEG`. `atualizarDtNegInternaVisivel()` esconde o campo em modo externo (evita duplicação).
+
+**B8** — NUMNOTA do operador no abastecimento externo:
+- `reqExternoDoc` virou `<input type="number" inputmode="numeric">` com validação cliente `/^\d+$/`. Placeholder "Apenas números (ex: 12345)".
+- Backend `criar_abastecimento_externo_banco` valida estritamente: texto como `"NF 12345"` retorna erro `"Nº da nota fiscal deve ser apenas números (digite 12345, não NF 12345)."`.
+- Quando válido, prioriza o número do operador em vez de gerar sequencial `MAX(NUMNOTA)+1`. Grava em `TGFCAB.NUMNOTA` **e** `TGFFIN.NUMNOTA` (mesmo bind `:numnota`). Sem trava de colisão — Sankhya aceita números repetidos em TOP 53.
+- `editar_requisicao_combustivel_banco` propaga alteração de NUMNOTA pra TGFCAB + TGFFIN (UPDATE direto antes do bloco de UPDATE TGFFIN dos valores).
+
+**DTVENC auto no abastecimento externo** — função nova `_recalcularDtVencExterno` replica `_cbRecalcularDtVenc` da Entrada. Listener no `reqExternoDtNeg.change` + `onSelect` do typeahead `reqTipVendaVis` consulta `BASEPRAZO` via `/combustivel/api/prazo-tipvenda/` e calcula `DTVENC = DTNEG + prazo_dias`. À vista (prazo=0) → DTVENC=DTNEG.
 
 ### Pré-requisitos restantes (cadastro humano no Sankhya)
 1. Atribuir usuários ao grupo TSIGRU=11 (IAGRO_FROTA) ⚠ aguarda

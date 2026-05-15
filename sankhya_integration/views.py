@@ -3333,11 +3333,17 @@ def api_rastreio_pedidos_abertos(request: HttpRequest) -> JsonResponse:
         'data_ini':   request.GET.get('data_ini'),
         'data_fim':   request.GET.get('data_fim'),
         'fabricante': request.GET.get('fabricante'),
-        # Toggle Pendente/Faturado (Mai/2026 — substitui incluir_finalizados):
-        # cada flag controla um conjunto de TOPs. Pendente = TOP 34, Faturado
-        # = TOP 35/37. Default no backend: pendentes=True, faturados=False.
-        'mostrar_pendentes': _parse_bool_flag(request.GET.get('mostrar_pendentes'), default=True),
-        'mostrar_faturados': _parse_bool_flag(request.GET.get('mostrar_faturados'), default=False),
+        # Toggle Pendente/Finalizado (Mai/2026 — B9): substitui Pendente/Faturado.
+        # Critério passa a ser completude do rastreio (existem itens sem lote?).
+        # `mostrar_faturados` ainda aceito como alias retro de `mostrar_finalizados`.
+        # Default backend: pendentes=True, finalizados=False (traz pendentes
+        # por default — pedido explícito do operador).
+        'mostrar_pendentes':   _parse_bool_flag(request.GET.get('mostrar_pendentes'), default=True),
+        'mostrar_finalizados': _parse_bool_flag(
+            request.GET.get('mostrar_finalizados',
+                            request.GET.get('mostrar_faturados')),
+            default=False,
+        ),
     }
     limite, offset = _paginacao_do_request(request)
     try:

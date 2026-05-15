@@ -706,7 +706,7 @@
         ['reqVeiculoVis','reqVeiculoCod','reqProdutoVis','reqProdutoCod','reqQtd',
          'reqVlrUnit','reqHodometroKm','reqHorimetroH','reqCencusVis','reqCencusCod','reqDocFrete','reqObs',
          'reqPostoVis','reqPostoCod','reqExternoDoc','reqExternoDtNeg','reqExternoDtVenc',
-         'reqNaturezaVis','reqNaturezaCod','reqTipVendaVis','reqTipVendaCod']
+         'reqNaturezaVis','reqNaturezaCod','reqTipVendaVis','reqTipVendaCod','reqDtNeg']
             .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
         // Zera estado dos itens externos (multi-itens)
         reqExtItens = [];
@@ -750,6 +750,10 @@
         atualizarDocFreteVisivel();
         atualizarMedidorPorTipo();
         atualizarExternoVisivel();
+        atualizarDtNegInternaVisivel();
+        // Default da data interna = hoje
+        const dtNegInterna = document.getElementById('reqDtNeg');
+        if (dtNegInterna && !dtNegInterna.value) dtNegInterna.value = hoje();
         setTimeout(() => document.getElementById('reqVeiculoVis').focus(), 50);
     }
 
@@ -781,6 +785,12 @@
             atualizarDocFreteVisivel();
             atualizarMedidorPorTipo();
             atualizarExternoVisivel();
+            atualizarDtNegInternaVisivel();
+            // Data da requisição interna — popula a partir do DTNEG do cabeçalho
+            if (tipo !== 'EXTERNA_POSTO' && cab.DTNEG) {
+                const d = new Date(cab.DTNEG);
+                document.getElementById('reqDtNeg').value = d.toISOString().slice(0, 10);
+            }
 
             // Posto + datas + doc (só relevantes em EXTERNA_POSTO)
             if (tipo === 'EXTERNA_POSTO') {
@@ -894,9 +904,8 @@
     function atualizarMedidorPorTipo() {
         const tipo = tipoSelecionado();
         const wrap = document.getElementById('reqMedidoresWrap');
-        const asterHodo = wrap.querySelectorAll('.reqHodometroObrig');
-        const asterHori = wrap.querySelectorAll('.reqHorimetroObrig');
-
+        // Mai/2026: hodômetro/horímetro opcionais em todos os tipos.
+        // EXTERNA_FRETE: campos escondidos (veículo terceiro, sem rastreamento).
         if (tipo === 'EXTERNA_FRETE') {
             wrap.classList.add('hidden');
             document.getElementById('reqHodometroKm').value = '';
@@ -904,12 +913,15 @@
             return;
         }
         wrap.classList.remove('hidden');
-        // Hodômetro: obrigatório em INTERNA_FROTA e EXTERNA_POSTO; opcional em MAQUINARIO.
-        // Horímetro: obrigatório SÓ em INTERNA_FROTA. EXTERNA_POSTO e MAQUINARIO = opcional.
-        const hodoObrig = (tipo === 'INTERNA_FROTA' || tipo === 'EXTERNA_POSTO');
-        const horiObrig = (tipo === 'INTERNA_FROTA');
-        asterHodo.forEach(el => { el.style.display = hodoObrig ? '' : 'none'; });
-        asterHori.forEach(el => { el.style.display = horiObrig ? '' : 'none'; });
+    }
+
+    function atualizarDtNegInternaVisivel() {
+        // Campo "Data" da requisição interna (Mai/2026) — escondido em
+        // EXTERNA_POSTO porque lá já existe `reqExternoDtNeg`.
+        const wrap = document.getElementById('reqDtNegWrap');
+        if (!wrap) return;
+        const tipo = tipoSelecionado();
+        wrap.classList.toggle('hidden', tipo === 'EXTERNA_POSTO');
     }
 
     function atualizarExternoVisivel() {
@@ -1072,6 +1084,8 @@
             pickItems: (data) => data.results || data.items || [],
             pickCod: (it) => it.cod || it.codtipvenda,
             pickDescr: (it) => it.descr || it.descrtipvenda || '',
+            // Mai/2026 (B8): ao trocar tipo de negociação, recalcula DTVENC do externo.
+            onSelect: () => { if (window._cbRecalcularDtVencExterno) window._cbRecalcularDtVencExterno(); },
         });
     }
 
@@ -1095,10 +1109,14 @@
         if (!document.getElementById('reqCencusCod').value) erros.push('Centro de resultado obrigatório.');
 
         if (ehExterno) {
-            // Posto + hodômetro + datas
+            // Posto + numnota + datas (hodômetro opcional desde Mai/2026 — B7.3)
             if (!document.getElementById('reqPostoCod').value) erros.push('Selecione o posto/fornecedor.');
-            const hod = parseFloat(document.getElementById('reqHodometroKm').value || '0');
-            if (!hod || hod <= 0) erros.push('Hodômetro obrigatório no abastecimento externo (sem ele o consumo do veículo perde continuidade).');
+            const numnotaRaw = (document.getElementById('reqExternoDoc').value || '').trim();
+            if (!numnotaRaw) {
+                erros.push('Nº da nota fiscal / boleto obrigatório.');
+            } else if (!/^\d+$/.test(numnotaRaw)) {
+                erros.push('Nº da nota fiscal deve ser apenas números (digite 12345, não NF 12345).');
+            }
             const dtn = document.getElementById('reqExternoDtNeg').value;
             const dtv = document.getElementById('reqExternoDtVenc').value;
             if (dtn && dtv && dtv < dtn) erros.push('Vencimento não pode ser anterior à data do abastecimento.');
@@ -1128,13 +1146,7 @@
             if (tipo === 'EXTERNA_FRETE' && !document.getElementById('reqDocFrete').value.trim()) {
                 erros.push('Documento do frete obrigatório.');
             }
-            // Frota própria: hodômetro (km) E horímetro (h) AMBOS obrigatórios
-            if (tipo === 'INTERNA_FROTA') {
-                const hod = parseFloat(document.getElementById('reqHodometroKm').value || '0');
-                const hor = parseFloat(document.getElementById('reqHorimetroH').value || '0');
-                if (!hod || hod <= 0) erros.push('Hodômetro do veículo (km) obrigatório.');
-                if (!hor || hor <= 0) erros.push('Horímetro da bomba (h) obrigatório.');
-            }
+            // Mai/2026: hodômetro/horímetro opcionais em todos os tipos.
         }
         return erros;
     }
@@ -1159,10 +1171,20 @@
             codtipvenda: parseInt(document.getElementById('reqTipVendaCod').value || '0', 10) || null,
             observacao: document.getElementById('reqObs').value.trim() || null,
         };
+        // Data da requisição interna (Mai/2026) — só nos tipos internos.
+        // Em EXTERNA_POSTO a data vai pelo reqExternoDtNeg logo abaixo.
+        if (!ehExterno) {
+            payload.dtneg = document.getElementById('reqDtNeg').value || null;
+        }
         if (ehExterno) {
             // Multi-itens — envia lista. Backend B8/B11 aceita itens=[...]
             payload.codparc = parseInt(document.getElementById('reqPostoCod').value, 10);
-            payload.doc_frete_ref = document.getElementById('reqExternoDoc').value.trim() || null;
+            // Mai/2026 (B8): numnota é o número da NF/boleto do operador (numérico).
+            // Vai pra TGFCAB.NUMNOTA + TGFFIN.NUMNOTA. doc_frete_ref preserva texto
+            // pra retrocompat (audit em AD_REQUISICAO_COMBUSTIVEL.DOC_FRETE_REF).
+            const numnotaRaw = (document.getElementById('reqExternoDoc').value || '').trim();
+            payload.numnota = numnotaRaw || null;
+            payload.doc_frete_ref = numnotaRaw || null;
             payload.dtneg  = document.getElementById('reqExternoDtNeg').value || null;
             payload.dtvenc = document.getElementById('reqExternoDtVenc').value || null;
             payload.itens = reqExtItens
@@ -2079,6 +2101,13 @@
                 atualizarDocFreteVisivel();
                 atualizarMedidorPorTipo();
                 atualizarExternoVisivel();
+                atualizarDtNegInternaVisivel();
+                // Default da data interna = hoje quando vai pra um tipo interno
+                const dtNegInterna = document.getElementById('reqDtNeg');
+                if (dtNegInterna && !dtNegInterna.value
+                        && tipoSelecionado() !== 'EXTERNA_POSTO') {
+                    dtNegInterna.value = hoje();
+                }
                 document.getElementById('reqVeiculoVis').value = '';
                 document.getElementById('reqVeiculoCod').value = '';
                 document.getElementById('reqVeiculoHint').textContent = '';
@@ -2158,6 +2187,30 @@
         };
         window._cbRecalcularDtVenc = _recalcularDtVenc;
         document.getElementById('entDtNeg').addEventListener('change', _recalcularDtVenc);
+
+        // Mai/2026 (B8): auto-cálculo de DTVENC do abastecimento externo.
+        // Replica a lógica da Entrada pros campos do externo (reqTipVendaCod,
+        // reqExternoDtNeg, reqExternoDtVenc). À vista (prazo=0) → DTVENC=DTNEG.
+        // A prazo → DTVENC = DTNEG + prazo_dias.
+        const _recalcularDtVencExterno = async () => {
+            // Só dispara quando estiver no modo EXTERNA_POSTO
+            if (tipoSelecionado() !== 'EXTERNA_POSTO') return;
+            const codtipv = parseInt(document.getElementById('reqTipVendaCod').value || '0', 10);
+            const dtn = document.getElementById('reqExternoDtNeg').value;
+            if (!codtipv || !dtn) return;
+            try {
+                const r = await fetch(`/sankhya/combustivel/api/prazo-tipvenda/?codtipvenda=${codtipv}`,
+                                      { credentials: 'same-origin' });
+                const j = await r.json();
+                if (!j.ok) return;
+                const prazo = parseInt(j.prazo_dias || 0, 10);
+                const d = new Date(dtn);
+                d.setDate(d.getDate() + prazo);
+                document.getElementById('reqExternoDtVenc').value = d.toISOString().slice(0, 10);
+            } catch (_) { /* ignora */ }
+        };
+        window._cbRecalcularDtVencExterno = _recalcularDtVencExterno;
+        document.getElementById('reqExternoDtNeg').addEventListener('change', _recalcularDtVencExterno);
 
         // Modal Excluir Requisição
         document.getElementById('modalExcluirReqFechar').addEventListener('click', fecharModalExcluirReq);

@@ -998,6 +998,20 @@ def inserir_item_nota_banco(dados: dict, simulacao: bool = False, conexao_existe
         if geraproducao and 'GERAPRODUCAO' in colunas_tabela:
             colunas_sql.append('GERAPRODUCAO'); valores_sql.append(':GERAPRODUCAO'); binds['GERAPRODUCAO'] = str(geraproducao).strip().upper()
 
+        # Espelhamento automático (Mai/2026) — produto não-classificável
+        # (GERAPRODUCAO ≠ 'S') com PESO > 0 já recebe QTDFIXADA = PESO no
+        # INSERT. Evita estado intermediário com QTDFIXADA NULL na TOP 11
+        # antes do Fast-Track rodar. Não toca classificáveis ('S'): esses
+        # têm QTDFIXADA preenchida depois pela Comercial via botão
+        # "Peso CX Classificado" (`atualizar_peso_comercial_entrada`).
+        geraprod_normalizado = str(geraproducao or '').strip().upper()
+        if (geraprod_normalizado and geraprod_normalizado != 'S'
+                and peso and float(peso) > 0
+                and 'QTDFIXADA' in colunas_tabela):
+            colunas_sql.append('QTDFIXADA')
+            valores_sql.append(':QTDFIXADA')
+            binds['QTDFIXADA'] = float(peso)
+
         sql = f"INSERT INTO TGFITE ({', '.join(colunas_sql)}) VALUES ({', '.join(valores_sql)})"
         cur.execute(sql, binds)
         
@@ -1758,27 +1772,60 @@ def atualizar_preco_inicial_entrada(nunota: int, sequencia: int, preco_inicial: 
         return {'ok': False, 'error': str(e)}
     
 def atualizar_peso_comercial_entrada(nunota: int, sequencia: int, peso_classificado: float) -> dict:
-    """Atualiza o Peso Classificado (QTDFIXADA) do item na TOP 11."""
+    """Atualiza o Peso Classificado (QTDFIXADA) do item na TOP 11.
+
+    Side effect (Mai/2026): se já existe vale TOP 13 salvo pro mesmo lote,
+    propaga o novo peso pra TGFITE.PESO de todos os itens da TOP 13 do lote.
+    Mantém coerência com o INSERT inicial feito em salvar_vale_compra_banco —
+    operador pode reajustar o peso a qualquer momento sem precisar abrir
+    o vale.
+    """
     if not verificar_permissao_escrita():
         return {'ok': False, 'error': 'Escrita desabilitada'}
 
-    sql = """
-        UPDATE TGFITE 
-        SET QTDFIXADA = :peso
-        WHERE NUNOTA = :nunota AND SEQUENCIA = :seq
-    """
-    binds = {
-        'peso': float(peso_classificado),
-        'nunota': int(nunota),
-        'seq': int(sequencia)
-    }
-    
+    peso = float(peso_classificado)
+
     try:
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
-            cur.execute(sql, binds)
+
+            # 1. UPDATE QTDFIXADA na TOP 11 (comportamento existente)
+            cur.execute(
+                "UPDATE TGFITE SET QTDFIXADA = :peso "
+                "WHERE NUNOTA = :nunota AND SEQUENCIA = :seq",
+                peso=peso, nunota=int(nunota), seq=int(sequencia),
+            )
+
+            # 2. Identifica o lote da linha alterada
+            cur.execute(
+                "SELECT CODAGREGACAO FROM TGFITE "
+                "WHERE NUNOTA = :n AND SEQUENCIA = :s",
+                n=int(nunota), s=int(sequencia),
+            )
+            row = cur.fetchone()
+            lote = (row[0] if row else None) or None
+
+            # 3. Propaga pra TGFITE.PESO da TOP 13 do mesmo lote, se já existir vale
+            propagado_top13 = 0
+            if lote:
+                cur.execute(
+                    "SELECT MAX(NUNOTA) FROM TGFCAB "
+                    "WHERE CODTIPOPER = 13 AND NUMNOTA = :n",
+                    n=int(nunota),
+                )
+                res13 = cur.fetchone()
+                nunota_13 = int(res13[0]) if res13 and res13[0] else None
+
+                if nunota_13:
+                    cur.execute(
+                        "UPDATE TGFITE SET PESO = :peso "
+                        "WHERE NUNOTA = :n13 AND CODAGREGACAO = :l",
+                        peso=peso, n13=nunota_13, l=lote,
+                    )
+                    propagado_top13 = cur.rowcount or 0
+
             conn.commit()
-            return {'ok': True, 'executed': True}
+            return {'ok': True, 'executed': True, 'propagado_top13': propagado_top13}
     except Exception as e:
         return {'ok': False, 'error': str(e)}
 
@@ -1920,6 +1967,55 @@ def salvar_vale_compra_banco(payload: dict) -> dict:
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
 
+            # 0. Pré-requisito: linha da TOP 11 origem do lote precisa ter PESO
+            # OU QTDFIXADA preenchido. Se só um dos dois estiver, espelha o
+            # vazio com o preenchido (casos comuns: in natura sem Fast-Track
+            # tem só PESO; classificável após "Peso CX Classificado" tem só
+            # QTDFIXADA). Bloqueia só se ambos NULL/0. O valor consolidado é
+            # propagado pra TGFITE.PESO de TODOS os itens da TOP 13 do lote.
+            cur.execute(
+                """
+                SELECT NVL(MAX(PESO), 0), NVL(MAX(QTDFIXADA), 0)
+                  FROM TGFITE
+                 WHERE NUNOTA = :n
+                   AND CODAGREGACAO = :l
+                """,
+                n=nunota_origem, l=lote,
+            )
+            row_pesos = cur.fetchone()
+            peso_top11 = float(row_pesos[0] or 0) if row_pesos else 0.0
+            qtdfix_top11 = float(row_pesos[1] or 0) if row_pesos else 0.0
+
+            if peso_top11 <= 0 and qtdfix_top11 <= 0:
+                return {
+                    'ok': False,
+                    'error': 'Informe o peso classificado da caixa antes de salvar o vale.',
+                }
+
+            # Espelhamento bidirecional na TOP 11 — preenche o lado vazio
+            # com o valor do lado preenchido. Idempotente: filtro NVL(...,0)=0
+            # garante que só atualiza o que está realmente vazio.
+            if peso_top11 > 0 and qtdfix_top11 <= 0:
+                cur.execute(
+                    "UPDATE TGFITE SET QTDFIXADA = :p "
+                    "WHERE NUNOTA = :n AND CODAGREGACAO = :l "
+                    "AND NVL(QTDFIXADA, 0) = 0",
+                    p=peso_top11, n=nunota_origem, l=lote,
+                )
+                peso_classificado = peso_top11
+            elif qtdfix_top11 > 0 and peso_top11 <= 0:
+                cur.execute(
+                    "UPDATE TGFITE SET PESO = :p "
+                    "WHERE NUNOTA = :n AND CODAGREGACAO = :l "
+                    "AND NVL(PESO, 0) = 0",
+                    p=qtdfix_top11, n=nunota_origem, l=lote,
+                )
+                peso_classificado = qtdfix_top11
+            else:
+                # Ambos preenchidos — usa QTDFIXADA (peso classificado tem
+                # prioridade sobre o PESO digitado na Entrada)
+                peso_classificado = qtdfix_top11
+
             # 1. Verifica se já existe a TOP 13 (Amarrada pelo NUMNOTA)
             cur.execute("SELECT MAX(NUNOTA) FROM TGFCAB WHERE CODTIPOPER = 13 AND NUMNOTA = :n", n=nunota_origem)
             res_13 = cur.fetchone()
@@ -1973,21 +2069,27 @@ def salvar_vale_compra_banco(payload: dict) -> dict:
                 cur.execute("SELECT NVL(MAX(SEQUENCIA), 0) + 1 FROM TGFITE WHERE NUNOTA = :n", n=nunota_13)
                 prox_seq = int(cur.fetchone()[0])
 
+                # PESO propagado da TOP 11.QTDFIXADA (peso classificado do lote)
+                # — mesmo valor pra todos os itens da TOP 13 do lote (Extra/Médio
+                # vêm da mesma classificação física).
                 cur.execute("""
                     INSERT INTO TGFITE (
-                        NUNOTA, SEQUENCIA, CODEMP, CODPROD, 
-                        QTDNEG, VLRUNIT, VLRTOT, CODAGREGACAO, 
-                        CODVOL, CODLOCALORIG, AD_NUMPEDIDOORIG
+                        NUNOTA, SEQUENCIA, CODEMP, CODPROD,
+                        QTDNEG, VLRUNIT, VLRTOT, CODAGREGACAO,
+                        CODVOL, CODLOCALORIG, AD_NUMPEDIDOORIG,
+                        PESO
                     )
                     VALUES (
-                        :nunota, :seq, :emp, :prod, 
-                        :qtd, :vlr, :tot, :lote, 
-                        'KG', 101, :origem
+                        :nunota, :seq, :emp, :prod,
+                        :qtd, :vlr, :tot, :lote,
+                        'KG', 101, :origem,
+                        :peso
                     )
                 """, {
-                    'nunota': nunota_13, 'seq': prox_seq, 'emp': codemp_13, 
-                    'prod': codprod, 'qtd': qtdneg, 'vlr': vlrunit, 'tot': vlrtot, 
-                    'lote': lote, 'origem': ad_numpedidoorig
+                    'nunota': nunota_13, 'seq': prox_seq, 'emp': codemp_13,
+                    'prod': codprod, 'qtd': qtdneg, 'vlr': vlrunit, 'tot': vlrtot,
+                    'lote': lote, 'origem': ad_numpedidoorig,
+                    'peso': peso_classificado,
                 })
 
             # Comita os itens para que a função de recálculo consiga enxergá-los
@@ -2461,6 +2563,26 @@ def upsert_preco_in_natura_modalFaturamento(nunota_origem: int, nunota_13: int, 
 
             # 5. INDISPENSÁVEL: Recalcula o cabeçalho (TGFCAB) para bater com os novos valores
             recalcular_totais_nota_banco(nunota_13_real, conexao_existente=conn)
+
+            # 5.1 Propagação Mai/2026 — pra produto não-classificável (in natura),
+            # o preço da Comercial é o preço efetivo de compra. Replica pra TGFITE
+            # da TOP 11 (PRECOBASE, VLRUNIT, VLRTOT) e recalcula o cabeçalho TOP 11.
+            # Operador da Entrada não digita preço — quem trabalha valores é sempre
+            # a Comercial, então propagar mantém o card Entrada coerente com o vale.
+            # Classificáveis ('S') ficam intactos — preço pode legitimamente diferir.
+            geraprod_norm = str(geraprod_origem or '').strip().upper()
+            if geraprod_norm and geraprod_norm != 'S':
+                cur.execute("""
+                    UPDATE TGFITE
+                       SET PRECOBASE = :preco,
+                           VLRUNIT   = :preco,
+                           VLRTOT    = :preco * NVL(QTDNEG, 0)
+                     WHERE NUNOTA = :n_orig
+                       AND CODPROD = :prod
+                """, preco=float(novo_preco), n_orig=int(nunota_origem), prod=int(codprod))
+
+                if cur.rowcount and cur.rowcount > 0:
+                    recalcular_totais_nota_banco(nunota_origem, conexao_existente=conn)
 
             # Tudo deu certo! Salva as alterações no banco.
             conn.commit()
@@ -3070,55 +3192,36 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
     deles. Isso evita "cortar" um pedido ao meio em scroll infinito.
     """
     filtros = filtros or {}
-    # Toggle Pendente/Faturado (Mai/2026): listagem é SEMPRE TOP 34. A
-    # rastreabilidade do IAgro vive no pedido mesmo após faturamento (a nota
-    # TOP 35/37 não é tocada). Cada flag controla um conjunto de STATUSNOTA:
-    #   - mostrar_pendentes → STATUSNOTA NOT IN ('L','E')  (pedido em aberto)
-    #   - mostrar_faturados → STATUSNOTA = 'L'             (pedido já faturado)
-    # Compatibilidade: legacy `incluir_finalizados=True` continua valendo como
-    # "mostrar os dois" pra não quebrar chamadores antigos.
-    mostrar_pendentes = filtros.get('mostrar_pendentes')
-    mostrar_faturados = filtros.get('mostrar_faturados')
-    if mostrar_pendentes is None and mostrar_faturados is None:
+    # Toggle Pendente/Finalizado (Mai/2026, B9): substitui Pendente/Faturado.
+    # O critério deixa de ser STATUSNOTA da nota e passa a ser **completude do
+    # rastreio** (existem itens com CODAGREGACAO IS NULL?).
+    #   - mostrar_pendentes   → pedido com ao menos 1 item sem lote vinculado
+    #   - mostrar_finalizados → pedido com TODOS os itens vinculados
+    # Em ambos os caminhos lista TOP 34 (em aberto ou STATUSNOTA='L') e notas
+    # órfãs TOP 35/37, sem duplicar — quando TOP 34 tem TGFVAR par, a TOP 35/37
+    # correspondente NÃO entra como órfã (definição de órfã: sem TGFVAR + sem
+    # vínculo manual).
+    # Compat: `mostrar_faturados` ainda aceito como alias retro de
+    # `mostrar_finalizados`; `incluir_finalizados=True` ainda vale como "ambos".
+    mostrar_pendentes  = filtros.get('mostrar_pendentes')
+    mostrar_finalizados = filtros.get('mostrar_finalizados')
+    if mostrar_finalizados is None:
+        # alias retro: mostrar_faturados → mostrar_finalizados
+        mostrar_finalizados = filtros.get('mostrar_faturados')
+    if mostrar_pendentes is None and mostrar_finalizados is None:
         if bool(filtros.get('incluir_finalizados')):
-            mostrar_pendentes = True
-            mostrar_faturados = True
+            mostrar_pendentes  = True
+            mostrar_finalizados = True
         else:
-            mostrar_pendentes = True
-            mostrar_faturados = False
+            mostrar_pendentes  = True
+            mostrar_finalizados = False
     else:
-        mostrar_pendentes = bool(mostrar_pendentes)
-        mostrar_faturados = bool(mostrar_faturados)
+        mostrar_pendentes  = bool(mostrar_pendentes)
+        mostrar_finalizados = bool(mostrar_finalizados)
 
-    if not mostrar_pendentes and not mostrar_faturados:
+    if not mostrar_pendentes and not mostrar_finalizados:
         # Sem nenhum status selecionado: retorna lista vazia sem ir ao banco.
         return []
-
-    # Mai/2026 — "tem nota par" considera duas fontes:
-    #   (1) TGFVAR — vínculo nativo Sankhya (populado por trigger no faturamento)
-    #   (2) AD_VINCULO_PEDIDO_NOTA — vínculo manual IAgro (Leva A: pedido
-    #       pré-existente vinculado pela tela. Leva B: pedido retroativo
-    #       criado pelo IAgro).
-    # Pedido "faturado" precisa ter pelo menos uma das duas. Nota "órfã"
-    # precisa não ter nenhuma das duas.
-    TEM_NOTA_VIA_TGFVAR = (
-        "EXISTS ("
-        "  SELECT 1 FROM TGFVAR v"
-        "    JOIN TGFCAB c2 ON c2.NUNOTA = v.NUNOTA"
-        "   WHERE v.NUNOTAORIG = c.NUNOTA"
-        "     AND c2.CODTIPOPER IN (35, 37)"
-        "     AND c2.STATUSNOTA <> 'E'"
-        ")"
-    )
-    TEM_NOTA_VIA_VINCULO_MANUAL = (
-        "EXISTS ("
-        "  SELECT 1 FROM AD_VINCULO_PEDIDO_NOTA av"
-        "    JOIN TGFCAB c2 ON c2.NUNOTA = av.NUNOTA_NOTA"
-        "   WHERE av.NUNOTA_PEDIDO = c.NUNOTA"
-        "     AND c2.STATUSNOTA <> 'E'"
-        ")"
-    )
-    TEM_NOTA_PAR = f"({TEM_NOTA_VIA_TGFVAR} OR {TEM_NOTA_VIA_VINCULO_MANUAL})"
 
     # Nota com vínculo manual deixa de ser órfã — aparece via PEDIDO.
     NOTA_TEM_VINCULO_MANUAL = (
@@ -3128,31 +3231,43 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
         ")"
     )
 
-    # Cada toggle vira uma condição independente OR'd no WHERE. Permite
-    # pedidos e notas órfãs aparecerem na mesma listagem quando Faturado liga.
-    condicoes_or = []
-    if mostrar_pendentes and mostrar_faturados:
-        condicoes_or.append("(c.CODTIPOPER = 34 AND c.STATUSNOTA <> 'E')")
-    elif mostrar_pendentes:
-        condicoes_or.append(
-            f"(c.CODTIPOPER = 34 AND c.STATUSNOTA <> 'E' AND NOT {TEM_NOTA_PAR})"
-        )
-    elif mostrar_faturados:
-        condicoes_or.append(
-            f"(c.CODTIPOPER = 34 AND c.STATUSNOTA = 'L' AND {TEM_NOTA_PAR})"
-        )
+    # Critério novo (B9, Mai/2026) — completude do rastreio do TGFITE.
+    # "Tem item sem lote" = existe pelo menos 1 TGFITE com CODAGREGACAO NULL
+    # naquele NUNOTA. Aplica a TOP 34 (todos os status exceto 'E') e a TOP
+    # 35/37 órfãs. Sem duplicação: notas TOP 35/37 só entram como ÓRFÃ
+    # (sem TGFVAR + sem vínculo manual), nunca ao lado da TOP 34 par.
+    TEM_ITEM_SEM_LOTE = (
+        "EXISTS ("
+        "  SELECT 1 FROM TGFITE i_check"
+        "   WHERE i_check.NUNOTA = c.NUNOTA"
+        "     AND i_check.CODAGREGACAO IS NULL"
+        ")"
+    )
+    TODOS_ITENS_COM_LOTE = (
+        "EXISTS ("
+        "  SELECT 1 FROM TGFITE i_any WHERE i_any.NUNOTA = c.NUNOTA"
+        ")"
+        f" AND NOT {TEM_ITEM_SEM_LOTE}"
+    )
 
-    if mostrar_faturados:
-        # Notas órfãs: TOP 35/37 STATUSNOTA='L' que não têm TGFVAR (nenhum
-        # sentido — nem origem, nem destino) E não têm vínculo manual IAgro.
-        # Foram emitidas direto no Sankhya sem fluxo "atender pedido". IAgro
-        # permite vincular lote diretamente no TGFITE da nota OU vincular
-        # manualmente a um pedido existente (sai de órfã).
-        condicoes_or.append(
-            "(c.CODTIPOPER IN (35, 37) AND c.STATUSNOTA = 'L'"
-            " AND NOT EXISTS (SELECT 1 FROM TGFVAR v WHERE v.NUNOTA = c.NUNOTA)"
-            f" AND NOT {NOTA_TEM_VINCULO_MANUAL})"
-        )
+    # Predicado de completude por toggle. Se ambos ligados, omite filtro
+    # (mostra completos e incompletos juntos).
+    if mostrar_pendentes and mostrar_finalizados:
+        completude_clause = "1 = 1"
+    elif mostrar_pendentes:
+        completude_clause = TEM_ITEM_SEM_LOTE
+    else:  # só mostrar_finalizados
+        completude_clause = f"({TODOS_ITENS_COM_LOTE})"
+
+    condicoes_or = [
+        # TOP 34 (em aberto + faturado), aplicando completude
+        f"(c.CODTIPOPER = 34 AND c.STATUSNOTA <> 'E' AND {completude_clause})",
+        # Notas órfãs TOP 35/37 (sem TGFVAR + sem vínculo manual), aplicando completude
+        "(c.CODTIPOPER IN (35, 37) AND c.STATUSNOTA = 'L'"
+        " AND NOT EXISTS (SELECT 1 FROM TGFVAR v WHERE v.NUNOTA = c.NUNOTA)"
+        f" AND NOT {NOTA_TEM_VINCULO_MANUAL}"
+        f" AND {completude_clause})",
+    ]
 
     where = [f"({' OR '.join(condicoes_or)})"]
     binds: dict = {}
@@ -6592,15 +6707,10 @@ def criar_requisicao_combustivel_banco(dados: dict, codusu: int, nomeusu: str = 
     if hodometro_km is False: erros.append('hodometro_km inválido')
     if horimetro_h  is False: erros.append('horimetro_h inválido')
 
-    # Frota própria: AMBOS os medidores obrigatórios (km do veículo + h da bomba).
-    # Maquinário fazenda: opcional.
-    # Freteiro: ignora (zera).
-    if tipo == 'INTERNA_FROTA':
-        if not hodometro_km:
-            erros.append('hodômetro (km) obrigatório para frota própria')
-        if not horimetro_h:
-            erros.append('horímetro (h) obrigatório para frota própria')
-    elif tipo == 'EXTERNA_FRETE':
+    # Hodômetro/horímetro são opcionais em TODOS os tipos (Mai/2026) — operador
+    # preenche quando tem informação confiável. Freteiro continua zerando porque
+    # veículo terceiro não tem como rastrear km/h da nossa parte.
+    if tipo == 'EXTERNA_FRETE':
         hodometro_km = None
         horimetro_h  = None
 
@@ -6675,8 +6785,20 @@ def criar_requisicao_combustivel_banco(dados: dict, codusu: int, nomeusu: str = 
             row_emp = cur.fetchone()
             codemp = int(row_emp[0]) if row_emp and row_emp[0] else 1
 
-            # 6. INSERT TGFCAB TOP 53 - REQUISIÇÃO INTERNA (STATUSNOTA em aberto)
+            # 6. INSERT TGFCAB TOP 53 - REQUISIÇÃO INTERNA (STATUSNOTA em aberto).
+            # dtneg vem do operador (Mai/2026) — formato 'YYYY-MM-DD' (HTML5
+            # input type=date). Default hoje quando não passado.
             hoje = _date.today()
+            dtneg_payload = (dados.get('dtneg') or '').strip()
+            if dtneg_payload:
+                try:
+                    _d = _date.fromisoformat(dtneg_payload)
+                    dtneg_str = _d.strftime('%d/%m/%Y')
+                except (ValueError, TypeError):
+                    dtneg_str = hoje.strftime('%d/%m/%Y')
+            else:
+                dtneg_str = hoje.strftime('%d/%m/%Y')
+
             cab_resp = inserir_cabecalho_nota_banco({
                 'CODEMP':       codemp,
                 'CODPARC':      codparc_vei,
@@ -6684,8 +6806,8 @@ def criar_requisicao_combustivel_banco(dados: dict, codusu: int, nomeusu: str = 
                 'CODNAT':       codnat,
                 'CODCENCUS':    codcencus,
                 'CODTIPVENDA':  codtipvenda,
-                'DTNEG':        hoje.strftime('%d/%m/%Y'),
-                'DTMOV':        hoje.strftime('%d/%m/%Y'),
+                'DTNEG':        dtneg_str,
+                'DTMOV':        dtneg_str,
                 'OBSERVACAO':   (dados.get('observacao') or '')[:200] or None,
             }, conexao_existente=conn)
             if not cab_resp.get('ok'):
@@ -6859,6 +6981,19 @@ def editar_requisicao_combustivel_banco(nunota: int, dados: dict, codusu: int, n
             if tipo == 'EXTERNA_FRETE' and not doc_frete_str:
                 erros.append('doc_frete_ref obrigatório para EXTERNA_FRETE')
 
+            # Mai/2026 (B8): NUMNOTA do operador (EXTERNA_POSTO). Texto recusa.
+            numnota_raw = (dados.get('numnota') or '').strip() if dados.get('numnota') else ''
+            numnota_operador = None
+            if numnota_raw:
+                try:
+                    numnota_operador = int(numnota_raw)
+                    if numnota_operador <= 0:
+                        erros.append('numnota deve ser maior que zero')
+                        numnota_operador = None
+                except (ValueError, TypeError):
+                    erros.append('Nº da nota fiscal deve ser apenas números '
+                                 '(digite 12345, não NF 12345).')
+
             # Parse medidores
             def _parse_med(raw):
                 if raw in (None, '', 0, 0.0): return None
@@ -6874,15 +7009,11 @@ def editar_requisicao_combustivel_banco(nunota: int, dados: dict, codusu: int, n
             if hod_km is False: erros.append('hodometro_km inválido')
             if hor_h  is False: erros.append('horimetro_h inválido')
 
-            if tipo == 'INTERNA_FROTA':
-                if not hod_km: erros.append('hodômetro (km) obrigatório para frota própria')
-                if not hor_h:  erros.append('horímetro (h) obrigatório para frota própria')
-            elif tipo == 'EXTERNA_FRETE':
+            # Mai/2026: hodômetro/horímetro opcionais em todos os tipos.
+            # Freteiro continua zerando porque não rastreamos veículo terceiro.
+            if tipo == 'EXTERNA_FRETE':
                 hod_km = None
                 hor_h  = None
-            elif tipo == 'EXTERNA_POSTO':
-                if not hod_km:
-                    erros.append('hodômetro (km) obrigatório no abastecimento externo')
 
             if erros:
                 return {'ok': False, 'error': ' · '.join(erros)}
@@ -6960,17 +7091,41 @@ def editar_requisicao_combustivel_banco(nunota: int, dados: dict, codusu: int, n
             # 7. UPDATE TGFCAB — CODPARC do cabeçalho:
             #    - interno: CODPARC do veículo (mantém comportamento original)
             #    - EXTERNA_POSTO: CODPARC do posto (informado)
+            # dtneg opcional (Mai/2026): se passado, atualiza DTNEG/DTMOV junto.
+            from datetime import date as _date_edit
             codparc_cab = codparc_novo if eh_externo_novo else codparc_vei_novo
-            cur.execute("""
-                UPDATE TGFCAB
-                   SET CODPARC = :parc, CODCENCUS = :cus, OBSERVACAO = :obs
-                 WHERE NUNOTA = :n AND CODTIPOPER = 53
-            """, {
-                'n': nunota,
-                'parc': codparc_cab,
-                'cus': codcencus,
-                'obs': (observacao or '')[:200] or None,
-            })
+            dtneg_payload = (dados.get('dtneg') or '').strip()
+            dtneg_obj = None
+            if dtneg_payload:
+                try:
+                    dtneg_obj = _date_edit.fromisoformat(dtneg_payload)
+                except (ValueError, TypeError):
+                    dtneg_obj = None
+
+            if dtneg_obj:
+                cur.execute("""
+                    UPDATE TGFCAB
+                       SET CODPARC = :parc, CODCENCUS = :cus, OBSERVACAO = :obs,
+                           DTNEG   = :dtn, DTMOV    = :dtn
+                     WHERE NUNOTA = :n AND CODTIPOPER = 53
+                """, {
+                    'n': nunota,
+                    'parc': codparc_cab,
+                    'cus': codcencus,
+                    'obs': (observacao or '')[:200] or None,
+                    'dtn': dtneg_obj,
+                })
+            else:
+                cur.execute("""
+                    UPDATE TGFCAB
+                       SET CODPARC = :parc, CODCENCUS = :cus, OBSERVACAO = :obs
+                     WHERE NUNOTA = :n AND CODTIPOPER = 53
+                """, {
+                    'n': nunota,
+                    'parc': codparc_cab,
+                    'cus': codcencus,
+                    'obs': (observacao or '')[:200] or None,
+                })
 
             # 8. UPDATE TGFITE — caminho duplo (Mai/2026 — 2026-05-13):
             #    - Single item (interno OU externo legado): UPDATE direto na SEQUENCIA carregada
@@ -7080,7 +7235,21 @@ def editar_requisicao_combustivel_banco(nunota: int, dados: dict, codusu: int, n
             # 10. EXTERNA_POSTO: refletir mudanças no TGFFIN (CODPARC, VLRDESDOB,
             #     VLRBAIXA, HISTORICO, CODCENCUS) — sempre que NUFIN_GERADO existir
             #     e ainda não estiver baixado (DHBAIXA NULL já validado no início).
+            #     Mai/2026 (B8): se operador alterou o NUMNOTA, propaga pra TGFCAB
+            #     e TGFFIN do externo.
             if eh_externo_novo and req_nufin_gerado:
+                # Propaga NUMNOTA do operador (B8) — se omitido no payload,
+                # preserva o atual de TGFCAB.
+                if numnota_operador:
+                    cur.execute("""
+                        UPDATE TGFCAB SET NUMNOTA = :nn
+                         WHERE NUNOTA = :n AND CODTIPOPER = 53
+                    """, nn=numnota_operador, n=nunota)
+                    cur.execute("""
+                        UPDATE TGFFIN SET NUMNOTA = :nn
+                         WHERE NUFIN = :nf
+                    """, nn=numnota_operador, nf=int(req_nufin_gerado))
+
                 # TGFFIN sempre em aberto (DHBAIXA=NULL, VLRBAIXA=0, CODTIPOPERBAIXA=0).
                 # Trigger TRG_UPT_TGFFIN bloqueia "A TOP da Baixa deve ser informada"
                 # se VLRBAIXA > 0 sem CODTIPOPERBAIXA preenchida. Como IAgro não
@@ -7557,8 +7726,22 @@ def criar_abastecimento_externo_banco(dados: dict, codusu: int, nomeusu: str = '
     horimetro_h  = _parse_medidor(dados.get('horimetro_h'))
     if hodometro_km is False: erros.append('hodometro_km inválido')
     if horimetro_h  is False: erros.append('horimetro_h inválido')
-    if not hodometro_km:
-        erros.append('hodômetro (km) obrigatório no abastecimento externo')
+    # Mai/2026: hodômetro opcional no abastecimento externo (era obrigatório).
+
+    # Mai/2026 (B8): NUMNOTA do posto vem do operador. Validação numérica
+    # estrita — se digitar texto como "NF 12345", recusa pra evitar gravar
+    # lixo em TGFCAB.NUMNOTA/TGFFIN.NUMNOTA (campo NUMBER no Sankhya).
+    numnota_raw = (dados.get('numnota') or '').strip() if dados.get('numnota') else ''
+    numnota_operador = None
+    if numnota_raw:
+        try:
+            numnota_operador = int(numnota_raw)
+            if numnota_operador <= 0:
+                erros.append('numnota deve ser maior que zero')
+                numnota_operador = None
+        except (ValueError, TypeError):
+            erros.append('Nº da nota fiscal deve ser apenas números '
+                         '(digite 12345, não NF 12345).')
 
     if erros:
         return {'ok': False, 'error': ' · '.join(erros)}
@@ -7664,12 +7847,18 @@ def criar_abastecimento_externo_banco(dados: dict, codusu: int, nomeusu: str = '
 
             recalcular_totais_nota_banco(nunota, conexao_existente=conn)
 
-            # 7. NUMNOTA sequencial por empresa
-            cur.execute("""
-                SELECT NVL(MAX(NUMNOTA), 0) + 1 FROM TGFCAB
-                WHERE CODEMP = :e AND CODTIPOPER = 53
-            """, e=codemp)
-            numnota = int(cur.fetchone()[0])
+            # 7. NUMNOTA — Mai/2026 (B8): prioriza o número digitado pelo
+            # operador. Sankhya aceita números repetidos em TOP de requisição,
+            # então não há trava de colisão. Fallback (operador não digitou):
+            # gera sequencial MAX+1 por empresa (comportamento legado).
+            if numnota_operador:
+                numnota = numnota_operador
+            else:
+                cur.execute("""
+                    SELECT NVL(MAX(NUMNOTA), 0) + 1 FROM TGFCAB
+                    WHERE CODEMP = :e AND CODTIPOPER = 53
+                """, e=codemp)
+                numnota = int(cur.fetchone()[0])
             cur.execute("UPDATE TGFCAB SET NUMNOTA = :nn WHERE NUNOTA = :n",
                         nn=numnota, n=nunota)
 

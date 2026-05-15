@@ -619,34 +619,66 @@ class CriarRequisicaoServiceTest(TestCase):
             )
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
-    def test_valida_hodometro_obrigatorio_frota_propria(self, mock_conn):
-        """Frota própria SEM hodômetro → retorna erro de validação ANTES de tocar no Oracle."""
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco')
+    def test_frota_propria_sem_medidores_e_aceita(self, mock_cab, mock_item, mock_rec, mock_conn):
+        """B7.1 (Mai/2026): hodômetro/horímetro opcionais em todos os tipos —
+        frota própria SEM medidores não deve mais bloquear."""
         from sankhya_integration.services.oracle_conn import criar_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        cursor.fetchone.side_effect = [
+            (1, 'S'),                         # TGFVEI
+            (200400, 'DIESEL S10', 'LT'),     # TGFPRO
+            (5000.0,),                        # SALDO
+            (1,),                             # MAX(CODEMP)
+        ]
+        cursor.var.return_value.getvalue.return_value = 42
+        mock_cab.return_value = {'ok': True, 'nunota': 12345}
+        mock_item.return_value = {'ok': True, 'nunota': 12345, 'sequencia': 1}
+        mock_rec.return_value = {'ok': True}
 
         resultado = criar_requisicao_combustivel_banco({
             'codveiculo': 5, 'codprod': 392, 'qtd': 500,
             'tipo': 'INTERNA_FROTA', 'codcencus': 10100,
-            'horimetro_h': 32451,  # hodômetro faltando
+            # Sem hodometro_km / horimetro_h
         }, codusu=1, nomeusu='Teste')
 
-        self.assertFalse(resultado['ok'])
-        self.assertIn('hodômetro', resultado['error'].lower())
-        # Validação acontece antes de tentar conectar
-        self.assertFalse(mock_conn.called)
+        self.assertTrue(resultado['ok'], f"Esperava sucesso, veio: {resultado}")
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
-    def test_valida_horimetro_obrigatorio_frota_propria(self, mock_conn):
-        """Frota própria SEM horímetro → erro de validação."""
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco')
+    def test_aceita_dtneg_payload(self, mock_cab, mock_item, mock_rec, mock_conn):
+        """B7.1 (Mai/2026): payload com dtneg='YYYY-MM-DD' é repassado no
+        formato DD/MM/YYYY ao inserir_cabecalho_nota_banco."""
         from sankhya_integration.services.oracle_conn import criar_requisicao_combustivel_banco
 
-        resultado = criar_requisicao_combustivel_banco({
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        cursor.fetchone.side_effect = [
+            (1, 'S'),
+            (200400, 'DIESEL S10', 'LT'),
+            (5000.0,),
+            (1,),
+        ]
+        cursor.var.return_value.getvalue.return_value = 42
+        mock_cab.return_value = {'ok': True, 'nunota': 12345}
+        mock_item.return_value = {'ok': True, 'nunota': 12345, 'sequencia': 1}
+        mock_rec.return_value = {'ok': True}
+
+        criar_requisicao_combustivel_banco({
             'codveiculo': 5, 'codprod': 392, 'qtd': 500,
             'tipo': 'INTERNA_FROTA', 'codcencus': 10100,
-            'hodometro_km': 142536,  # horímetro faltando
+            'dtneg': '2026-05-20',
         }, codusu=1, nomeusu='Teste')
 
-        self.assertFalse(resultado['ok'])
-        self.assertIn('horímetro', resultado['error'].lower())
+        dados_cab = mock_cab.call_args[0][0]
+        self.assertEqual(dados_cab['DTNEG'], '20/05/2026')
+        self.assertEqual(dados_cab['DTMOV'], '20/05/2026')
 
     @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
     @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
@@ -1229,16 +1261,30 @@ class CriarAbastecimentoExternoServiceTest(TestCase):
         self.assertIn('codparc', resultado['error'].lower())
         self.assertFalse(mock_conn.called)
 
-    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
-    def test_hodometro_obrigatorio(self, mock_conn):
+    def test_hodometro_opcional(self):
+        """B7.3 (Mai/2026): hodômetro deixou de ser obrigatório no externo —
+        sem ele a função deve seguir o caminho normal e não recusar por validação."""
         from sankhya_integration.services.oracle_conn import criar_abastecimento_externo_banco
-        resultado = criar_abastecimento_externo_banco({
-            'codveiculo': 5, 'codparc': 1, 'codprod': 392,
-            'qtd': 60, 'vlrunit': 6.20, 'codcencus': 10100,
-            # hodometro faltando — sem ele a curva de consumo fica com lacuna
-        }, codusu=1, nomeusu='Teste')
-        self.assertFalse(resultado['ok'])
-        self.assertIn('hod', resultado['error'].lower())
+        with patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle') as mock_conn:
+            # SELECT veiculo: PROPRIO='S' OK, mas o teste não precisa chegar ao final
+            # — basta confirmar que o erro NÃO menciona hodômetro obrigatório.
+            conn_ctx, _, cursor = _conn_cursor_mock()
+            mock_conn.return_value = conn_ctx
+            # Devolve fetchone vazio pra forçar erro no SELECT veiculo; o ponto é só
+            # confirmar que a validação prévia de hodômetro NÃO bloqueia mais.
+            cursor.fetchone.return_value = None
+
+            resultado = criar_abastecimento_externo_banco({
+                'codveiculo': 5, 'codparc': 1, 'codprod': 392,
+                'qtd': 60, 'vlrunit': 6.20, 'codcencus': 10100,
+                # hodometro faltando — antes bloqueava, agora não
+            }, codusu=1, nomeusu='Teste')
+
+            # Pode falhar por outras razões (veículo não encontrado etc), mas NUNCA
+            # com mensagem de "hodômetro obrigatório".
+            erro = (resultado.get('error') or '').lower()
+            self.assertNotIn('hodômetro', erro)
+            self.assertNotIn('hodometro', erro)
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     def test_vlrunit_obrigatorio(self, mock_conn):
@@ -1250,6 +1296,66 @@ class CriarAbastecimentoExternoServiceTest(TestCase):
         }, codusu=1, nomeusu='Teste')
         self.assertFalse(resultado['ok'])
         self.assertIn('vlrunit', resultado['error'].lower())
+
+    # ----- B8 (Mai/2026): NUMNOTA do operador no externo --------------------
+
+    def test_numnota_texto_recusa(self):
+        """B8.1 — payload com numnota='NF 12345' deve ser rejeitado antes do Oracle."""
+        from sankhya_integration.services.oracle_conn import criar_abastecimento_externo_banco
+        resultado = criar_abastecimento_externo_banco({
+            'codveiculo': 5, 'codparc': 1, 'codprod': 392,
+            'qtd': 60, 'vlrunit': 6.20, 'codcencus': 10100,
+            'numnota': 'NF 12345',
+        }, codusu=1, nomeusu='Teste')
+        self.assertFalse(resultado['ok'])
+        self.assertIn('apenas números', resultado['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_numnota_numerico_grava_em_top_cab_e_tgffin(self, mock_conn, mock_cab, mock_item, mock_rec):
+        """B8.1 — payload com numnota='12345' deve gravar 12345 em TGFCAB.NUMNOTA
+        E TGFFIN.NUMNOTA (mesmo bind `:numnota` em ambos)."""
+        from sankhya_integration.services.oracle_conn import criar_abastecimento_externo_banco
+
+        conn_ctx, _, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        # numnota_operador preenchido → não consulta MAX(NUMNOTA), pula essa linha do side_effect
+        cursor.fetchone.side_effect = [
+            ('NLM6688',),
+            ('POSTO ALLIANZ',),
+            (200400, 'DIESEL S10', 'LT'),
+            (1,),                                    # MAX(CODEMP)
+            (999000,),                               # MAX(NUFIN)+1
+        ]
+        cursor.var.return_value.getvalue.return_value = 88
+        mock_cab.return_value = {'ok': True, 'nunota': 200001}
+        mock_item.return_value = {'ok': True, 'nunota': 200001, 'sequencia': 1}
+        mock_rec.return_value = {'ok': True}
+
+        resultado = criar_abastecimento_externo_banco({
+            'codveiculo': 5, 'codparc': 1, 'codprod': 392,
+            'qtd': 60, 'vlrunit': 6.20, 'codcencus': 10100,
+            'numnota': '12345',
+        }, codusu=1, nomeusu='Teste')
+
+        self.assertTrue(resultado['ok'], f"Veio: {resultado}")
+
+        # UPDATE em TGFCAB com NUMNOTA = 12345
+        ups_cab = [c for c in cursor.execute.call_args_list
+                   if 'UPDATE TGFCAB' in c.args[0] and 'NUMNOTA' in c.args[0]]
+        self.assertTrue(ups_cab, "Esperava UPDATE TGFCAB SET NUMNOTA")
+        binds_cab = ups_cab[0].kwargs
+        self.assertEqual(binds_cab.get('nn'), 12345)
+
+        # INSERT em TGFFIN com :numnota = 12345
+        ins_fin = [c for c in cursor.execute.call_args_list
+                   if 'INSERT INTO TGFFIN' in c.args[0]]
+        self.assertTrue(ins_fin, "Esperava INSERT INTO TGFFIN")
+        binds_fin = ins_fin[0].args[1] if len(ins_fin[0].args) > 1 else ins_fin[0].kwargs
+        self.assertEqual(binds_fin.get('numnota'), 12345,
+                         f"TGFFIN.NUMNOTA deve receber o número do operador (12345). Binds: {binds_fin}")
 
 
 # ---------------------------------------------------------------------------

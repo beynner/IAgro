@@ -2925,3 +2925,45 @@
         border-radius: 0 !important;
     }
 }
+
+/* =========================================================================
+ * Agrupamento de Lotes (Mai/2026 — B9)
+ * Reusa .pedido-bloco-header — visual idêntico ao header de pedido.
+ * Variações específicas do lote ficam no namespace .lote-bloco-header.
+ * ========================================================================= */
+.lote-bloco-header {
+    /* Borda esquerda verde (ras-primary) pra distinguir do azul do pedido */
+    border-left-color: var(--ras-primary, #5e7e4a) !important;
+}
+.lote-bloco-header.colapsado .pb-chevron {
+    transform: rotate(-90deg);
+}
+.pb-lote-qtd {
+    font-size:    12px;
+    font-weight:  700;
+    color:        var(--ras-primary, #5e7e4a);
+    padding:      2px 8px;
+}
+.pb-lote-count {
+    font-size:    11px;
+    font-weight:  600;
+    color:        var(--texto-secundario);
+    padding:      2px 8px;
+    background:   rgba(94, 126, 74, 0.08);
+    border-radius: 999px;
+    margin-left:  6px;
+}
+
+/* Recuo dos cards de lote dentro do grupo — espelha .produto-linha do
+ * lado do pedido. Mantém hierarquia visual evidente. */
+.card-lote.compacto {
+    margin-left: 16px;
+}
+
+/* Nome do produto fica no header do grupo — esconder dentro dos cards
+ * vendáveis. Avaria interna (.card-lote-avaria-int) preserva o nome
+ * porque ela é uma linha informativa diferente da listagem vendável. */
+.card-lote.compacto:not(.card-lote-avaria-int) > .col-prod {
+    display: none;
+}
+

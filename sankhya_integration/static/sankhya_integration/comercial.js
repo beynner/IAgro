@@ -849,11 +849,13 @@ window.ComercialEntrada = (function() {
                             if (dot) { dot.classList.remove('vermelho'); dot.classList.add('verde'); }
                         }
 
-                        // 🚀 4. REFRESH DA LISTA (Opcional e Protegido)
-                        // Se você quiser que a lista suma ao colocar preço (por causa do filtro), 
-                        // deixe essa linha. Se não, pode comentar ela.
+                        // 🚀 4. REFRESH GLOBAL (Mai/2026) — recarrega a lista lateral
+                        // imediato após sucesso. Crítico em produto in natura: o
+                        // Fast-Track cria/atualiza vale TOP 13 no backend, então a
+                        // bolinha de status e o vale derivado precisam refletir o
+                        // novo estado sem esperar F5. Sem setTimeout (era 500ms).
                         if (window.ComercialFiltros?.atualizar) {
-                            setTimeout(() => window.ComercialFiltros.atualizar(), 500);
+                            window.ComercialFiltros.atualizar();
                         }
 
                     } catch (err) {

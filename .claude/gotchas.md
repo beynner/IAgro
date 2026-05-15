@@ -639,3 +639,42 @@ nssm.exe restart IAgro
 Sintoma típico: mensagem de erro antiga continua aparecendo mesmo depois de "consertar" o código. Cobra restart antes de assumir que o fix não funcionou.
 
 Mudanças em **HTML/CSS/JS** não exigem restart — só `Ctrl+F5` no navegador (alguns arquivos usam `?v=N` querystring que precisa ser bumpado quando muda).
+
+---
+
+## PESO × QTDFIXADA na TOP 11 — semântica e espelhamento
+
+`TGFITE.PESO` (peso da caixa, digitado pelo operador da Entrada) e `TGFITE.QTDFIXADA` (peso classificado, "congelado" pra etiqueta/vale) são campos distintos mas **na Agromil carregam o mesmo valor** quando o produto é não-classificável (in natura direto, `GERAPRODUCAO ≠ 'S'`).
+
+Mecanismos de espelhamento implementados em Mai/2026 (B1-B6 — vide [`modules/comercial.md`](modules/comercial.md) → "Fluxo do peso"):
+
+- **B5** — `inserir_item_nota_banco`: espelha QTDFIXADA = PESO no INSERT quando GERAPRODUCAO≠'S' e PESO>0.
+- **B4** — `salvar_vale_compra_banco`: ao salvar, se só um dos 2 campos da TOP 11 origem está preenchido, espelha bidirecional antes de propagar pra TOP 13.
+- **B3** — `atualizar_peso_comercial_entrada`: alteração tardia da TOP 11 propaga PESO pra TOP 13 imediatamente.
+
+**Bug latente corrigido**: SELECT inicial do B1 tinha filtro `GERAPRODUCAO='S'` que bloqueava o salvar vale de produto não-classificável mesmo com QTDFIXADA preenchida (in natura tem GERAPRODUCAO='N'). Filtro removido em B4 — agora lê qualquer linha do lote.
+
+**Em produtos classificáveis (GERAPRODUCAO='S')**: PESO (entrada) e QTDFIXADA (classificação) podem legitimamente diferir. Espelhamento só age quando um dos 2 está vazio.
+
+---
+
+## TGFFIN.NUMNOTA é NUMBER — texto livre em campo de NF rejeita Oracle
+
+Quando operador digita "NF 12345" ou "boleto Allianz" num campo destinado a `TGFFIN.NUMNOTA` (Sankhya define como NUMBER), o INSERT/UPDATE explode com `ORA-01722: invalid number`.
+
+**Solução padrão** aplicada no abastecimento externo (Combustível, B8 — Mai/2026, 2026-05-15):
+
+1. **Frontend**: `<input type="number" inputmode="numeric">` + validação JS `/^\d+$/` antes do submit.
+2. **Backend**: parse numérico estrito; se falhar, retorna erro humanizado: `"Nº da nota fiscal deve ser apenas números (digite 12345, não NF 12345)."`.
+
+Quando aplicar em outros módulos: qualquer campo `NUMNOTA` editável pelo operador (TGFCAB ou TGFFIN). `AD_REQUISICAO_COMBUSTIVEL.DOC_FRETE_REF` continua aceitando texto pra preservar auditoria — só o NUMNOTA real é restrito.
+
+---
+
+## Imagem de fundo das páginas — só no `.app-content`, não no `body`
+
+A imagem `html-bg.png` (Mai/2026) é aplicada no `.app-content`, **não no body**. Razão: `body.app-shell` é display flex contendo sidebar + content; aplicar imagem no body cobriria a sidebar (que tem fundo escuro próprio) com renderização imprevisível.
+
+Overlay branco-suave `rgba(244,246,244,0.92)` calibrado pra preservar legibilidade dos painéis. `background-attachment: fixed` evita "rolagem" da imagem ao scrollar painéis internos.
+
+Pra trocar a imagem: substituir `html-bg.png` no mesmo path (`static/sankhya_integration/`). Pra ajustar intensidade do overlay: editar o `0.92` na regra `.app-content` (95% = mais discreta; 80% = mais visível). Pra desativar completamente, comentar a propriedade `background` mantendo só `background-color: var(--cor-content-bg)`.

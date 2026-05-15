@@ -290,20 +290,31 @@ class ApiPedidosAbertosTest(TestCase):
     @patch('sankhya_integration.views.consultar_pedidos_abertos_para_atribuicao',
            return_value=[])
     def test_toggle_status_default_pendentes(self, mock_fn):
-        """Sem query string: backend deve receber Pendente=True, Faturado=False."""
+        """Sem query string: backend deve receber Pendente=True, Finalizado=False
+        (Mai/2026 — B9 renomeou de Faturado→Finalizado)."""
         self.client.get(self.url)
         filtros = mock_fn.call_args[0][0]
         self.assertTrue(filtros.get('mostrar_pendentes'))
-        self.assertFalse(filtros.get('mostrar_faturados'))
+        self.assertFalse(filtros.get('mostrar_finalizados'))
 
     @patch('sankhya_integration.views.consultar_pedidos_abertos_para_atribuicao',
            return_value=[])
-    def test_toggle_status_apenas_faturados(self, mock_fn):
-        """Operador desliga Pendente e liga Faturado — backend respeita."""
-        self.client.get(self.url, {'mostrar_pendentes': '0', 'mostrar_faturados': '1'})
+    def test_toggle_status_apenas_finalizados(self, mock_fn):
+        """Operador desliga Pendente e liga Finalizado — backend respeita."""
+        self.client.get(self.url, {'mostrar_pendentes': '0', 'mostrar_finalizados': '1'})
         filtros = mock_fn.call_args[0][0]
         self.assertFalse(filtros.get('mostrar_pendentes'))
-        self.assertTrue(filtros.get('mostrar_faturados'))
+        self.assertTrue(filtros.get('mostrar_finalizados'))
+
+    @patch('sankhya_integration.views.consultar_pedidos_abertos_para_atribuicao',
+           return_value=[])
+    def test_alias_retro_mostrar_faturados(self, mock_fn):
+        """Retrocompat (Mai/2026 — B9): URL param `mostrar_faturados` ainda
+        aceito como alias de `mostrar_finalizados`. Front antigo continua ok."""
+        self.client.get(self.url, {'mostrar_pendentes': '0', 'mostrar_faturados': '1'})
+        filtros = mock_fn.call_args[0][0]
+        self.assertTrue(filtros.get('mostrar_finalizados'),
+                        "mostrar_faturados=1 deve mapear pra mostrar_finalizados=True")
 
 
 # ---------------------------------------------------------------------------
