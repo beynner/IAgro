@@ -5896,9 +5896,9 @@ CAPACIDADE_TANQUE = {
 # valores podem ser zerados aqui (mas não há urgência — view continua somando
 # corretamente entradas/saídas IAgro daqui pra frente).
 SALDO_INICIAL_TANQUE = {
-    392:  300.0,
-    1373: 3150.0,
-    1374: 300.0,   # ARLA 32 — saldo pré-existente no IBC ao entrar em produção
+    392:  896.0,   # DIESEL S10  — ajuste balanço físico 2026-05-15 (era 300.0; +596 pra bater 3000 L físico)
+    1373: 3204.0,  # DIESEL S500 — ajuste balanço físico 2026-05-15 (era 3150.0; +54 pra bater 2490 L físico)
+    1374: 300.0,   # ARLA 32     — saldo pré-existente no IBC ao entrar em produção
 }
 
 # Formato visual do tanque pra renderização SVG no frontend.

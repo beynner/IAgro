@@ -502,9 +502,9 @@ CAPACIDADE_TANQUE = {
 # Somado em Python ao saldo da view (NÃO usar QTD_DISPONIVEL da view direto —
 # GREATEST(0) corrompe quando entrada_view=0 + saída>0; ver gotchas.md).
 SALDO_INICIAL_TANQUE = {
-    392:  300.0,
-    1373: 3150.0,
-    1374: 300.0,
+    392:  896.0,   # DIESEL S10  — ajustado 2026-05-15 após balanço físico (era 300.0)
+    1373: 3204.0,  # DIESEL S500 — ajustado 2026-05-15 após balanço físico (era 3150.0)
+    1374: 300.0,   # ARLA 32
 }
 
 # Formato visual do tanque (renderização SVG no frontend)

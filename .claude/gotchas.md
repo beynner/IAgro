@@ -678,3 +678,51 @@ A imagem `html-bg.png` (Mai/2026) é aplicada no `.app-content`, **não no body*
 Overlay branco-suave `rgba(244,246,244,0.92)` calibrado pra preservar legibilidade dos painéis. `background-attachment: fixed` evita "rolagem" da imagem ao scrollar painéis internos.
 
 Pra trocar a imagem: substituir `html-bg.png` no mesmo path (`static/sankhya_integration/`). Pra ajustar intensidade do overlay: editar o `0.92` na regra `.app-content` (95% = mais discreta; 80% = mais visível). Pra desativar completamente, comentar a propriedade `background` mantendo só `background-color: var(--cor-content-bg)`.
+
+---
+
+## Mobile no iPhone Safari — `100vh` cobre o footer + `env(safe-area-inset)` exige `viewport-fit=cover`
+
+Dois pegadinhas combinadas no Safari iOS (descobertas Mai/2026 — 2026-05-15):
+
+### 1. `100vh` no iOS NÃO desconta a barra inferior do Safari
+
+`100vh` é a altura TOTAL da viewport, **incluindo** a área coberta pela barra de navegação dinâmica (botões ←/→/+/abas). Modal `height: 100vh; display: flex; flex-direction: column` com header + body + footer empurra o footer pra **embaixo da barra**, invisível.
+
+**Sintoma típico:** botão "Salvar" do modal de nova requisição/entrada do Combustível sumindo no iPhone. Operador rola dentro do body do modal e nunca chega no footer.
+
+**Solução**: usar **`100dvh`** (dynamic viewport height — desconta barras dinâmicas) com fallback pra `100vh` em browsers antigos:
+
+```css
+.cb-modal-card {
+    height: 100vh !important;       /* fallback */
+    max-height: 100vh !important;
+    height: 100dvh !important;      /* iOS Safari moderno */
+    max-height: 100dvh !important;
+}
+```
+
+`dvh` é suportado em iOS 15.4+ (universal hoje). Browsers antigos ignoram a 2ª regra e ficam com `100vh` (defeituoso mas não quebra).
+
+### 2. `env(safe-area-inset-bottom)` retorna 0 sem `viewport-fit=cover` no meta
+
+Por padrão, iOS Safari NÃO injeta os `safe-area-inset-*` no CSS. Pra ativar, o meta viewport precisa de `viewport-fit=cover`:
+
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+```
+
+Sem isso, `padding-bottom: env(safe-area-inset-bottom, 0px)` adiciona 0 → home-indicator + barra Safari continuam cobrindo conteúdo. Aplicado em `base.html` e `home_login.html` em 2026-05-15.
+
+### 3. Buffer de 90-100px no `.main-layout` e containers internos com scroll
+
+Mesmo com `100dvh` e `viewport-fit=cover`, conteúdo dentro de containers com `overflow-y: auto` (`.entrada-grid`, `.classificacao-grid`, `.venda-grid`, `.rastreio-layout`, `.cb-layout`, `.layout` do Comercial) precisa de `padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px))` em ≤900px e `100px+env` em ≤520px — caso contrário a barra Safari cobre os últimos elementos.
+
+**Por que 90px fixos** (não só env)? `env(safe-area-inset-bottom)` retorna ~34px no iOS com home-indicator (PWA) ou 0 fora de PWA. A barra de navegação do Safari iOS comum tem ~80-90px que **não é refletida em env()** — daí o buffer fixo.
+
+### Checklist pra qualquer página/modal nova
+
+- Página vai estender `base.html` (já tem `viewport-fit=cover` desde 2026-05-15)?
+- Container interno com `overflow-y: auto` tem `padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px))` em ≤900px?
+- Modal fullscreen mobile usa `100dvh` (não só `100vh`)?
+- Modal flex column tem `flex-shrink: 0` no header e footer pra footer não ser empurrado pra fora?

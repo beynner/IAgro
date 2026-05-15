@@ -90,6 +90,7 @@ Em `global.css` (após o layout v2):
 .cb-modal-card {
   max-width: min(640px, 95vw);
   max-height: 92vh;
+  max-height: 92dvh;     /* iOS Safari moderno — desconta barra inferior */
 }
 @media (max-width: 520px) {
   .modal-content,
@@ -97,14 +98,24 @@ Em `global.css` (após o layout v2):
   .cb-modal-card {
     width: 100vw !important;
     max-width: 100vw !important;
-    height: 100vh !important;
+    height: 100vh !important;          /* fallback */
     max-height: 100vh !important;
+    height: 100dvh !important;          /* iOS Safari moderno */
+    max-height: 100dvh !important;
     border-radius: 0 !important;
   }
 }
 ```
 
 Vale pra TODOS os modais. Módulos que precisam de tamanho específico declaram regra com mais especificidade no próprio CSS.
+
+**Flex-shrink obrigatório no header/footer dos modais flex column** — sem `flex-shrink: 0`, body cresce e empurra footer pra fora da viewport. Aplicado em `.modal-header`, `.modal-footer`, `.cb-modal-header`, `.cb-modal-footer` em `global.css` desde 2026-05-15.
+
+### Safe-area no iPhone Safari (Mai/2026 — 2026-05-15)
+
+Páginas autenticadas usam `body.app-shell .main-layout` com `padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px))` em ≤900px e `100px+env` em ≤520px. Containers internos com `overflow-y: auto` (`.entrada-grid`, `.venda-grid`, etc) replicam esse buffer.
+
+Pré-requisito: `<meta viewport content="...,viewport-fit=cover">` em `base.html` e `home_login.html`. Sem isso `env(safe-area-inset-*)` retorna 0. Detalhes em [`gotchas.md`](gotchas.md) → "Mobile no iPhone Safari".
 
 ### Cada módulo tem seu próprio bloco `@media`
 

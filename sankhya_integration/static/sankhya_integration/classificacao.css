@@ -345,17 +345,40 @@ th, td {
     .classificacao-grid {
         flex-direction: column;
         overflow-y: auto;
+        overflow-x: hidden;
+        /* Buffer pra barra inferior do Safari iOS */
+        padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px));
     }
     .classificacao-grid > aside.panel {
         flex: 0 0 auto;
         height: auto;
-        max-height: 45vh;
+        max-height: 32vh;
     }
+    /* Rightcol: grid auto/auto. LOTES recebe min-height generoso pra operador
+       ver várias linhas direto, sem precisar rolar dentro do panel. */
+    .classificacao-grid > .rightcol {
+        grid-template-rows: auto auto !important;
+        gap: 10px;
+        min-height: auto;
+    }
+    /* LOTES: panel principal, altura generosa */
+    .classificacao-grid > .rightcol > .panel.panel--results { min-height: 60vh; }
+    /* Bottom-row (Produtos Classificados + Resumo) vira coluna única,
+       cada panel com altura mínima decente */
+    .classificacao-grid .bottom-row {
+        grid-template-columns: 1fr !important;
+        grid-template-rows: auto auto;
+        gap: 10px;
+    }
+    .classificacao-grid .bottom-row > .panel { min-height: 40vh; }
     /* Tabelas LOTES (9 colunas) e Produtos Classificados — scroll horizontal */
     .classificacao-grid .ia-selectable-table-wrap { overflow-x: auto; }
     .classificacao-grid .ia-selectable-table { min-width: 820px; }
 }
 
 @media (max-width: 520px) {
-    .classificacao-grid > aside.panel { max-height: 55vh; padding: 8px; }
+    .classificacao-grid {
+        padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+    }
+    .classificacao-grid > aside.panel { max-height: 38vh; padding: 8px; }
 }

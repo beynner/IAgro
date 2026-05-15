@@ -125,12 +125,17 @@ class ConsultarSaldoCombustivelServiceTest(TestCase):
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     def test_disponivel_desconta_saida_quando_entrada_view_zero(self, mock_conn):
-        """Regressão Mai/2026: tanque com saldo_inicial=300, entrada_view=0,
-        saída=100 → disponível deve ser 200 LT (não 300).
-        Antes do fix, o GREATEST da view zerava (0 - 100 = -100 → 0) e somar
-        saldo_inicial 300 dava 300, ignorando os 100 LT consumidos.
+        """Regressão Mai/2026: tanque com saldo_inicial S10 (896 após ajuste físico
+        2026-05-15; era 300), entrada_view=0, saída=100 → disponível deve ser
+        saldo_inicial − 100. Antes do fix, o GREATEST da view zerava (0 - 100 =
+        -100 → 0) e somar saldo_inicial dava saldo_inicial, ignorando saídas.
         """
-        from sankhya_integration.services.oracle_conn import consultar_saldo_combustivel
+        from sankhya_integration.services.oracle_conn import (
+            consultar_saldo_combustivel,
+            SALDO_INICIAL_TANQUE,
+        )
+
+        saldo_ini_s10 = SALDO_INICIAL_TANQUE[392]
 
         conn_ctx, conn, cursor = _conn_cursor_mock()
         mock_conn.return_value = conn_ctx
@@ -151,17 +156,24 @@ class ConsultarSaldoCombustivelServiceTest(TestCase):
         s10 = next(r for r in rows if r[0] == 392)
         # tupla: (CODPROD, DESCRPROD, CODVOL, QTD_ENT_TOTAL, QTD_SAI,
         #         QTD_DISPONIVEL, CAPACIDADE, SALDO_INICIAL, PERCENTUAL)
-        self.assertEqual(s10[3], 300.0, "entrada_total = 0 + saldo_inicial 300")
+        self.assertEqual(s10[3], saldo_ini_s10,
+            f"entrada_total = 0 + saldo_inicial {saldo_ini_s10}")
         self.assertEqual(s10[4], 100.0, "saída lida da view")
-        self.assertEqual(s10[5], 200.0,
-            "DISPONÍVEL DEVE SER 200 (300 - 100), não 300. Bug pré-fix: ignorava saída.")
+        self.assertEqual(s10[5], saldo_ini_s10 - 100.0,
+            f"DISPONÍVEL DEVE SER {saldo_ini_s10 - 100} ({saldo_ini_s10} - 100). "
+            "Bug pré-fix: ignorava saída.")
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     def test_tanque_sem_movimentacao_usa_saldo_inicial(self, mock_conn):
         """Tanque sem nenhuma movimentação (nem view, só TGFPRO) → saldo igual
         ao SALDO_INICIAL_TANQUE.
         """
-        from sankhya_integration.services.oracle_conn import consultar_saldo_combustivel
+        from sankhya_integration.services.oracle_conn import (
+            consultar_saldo_combustivel,
+            SALDO_INICIAL_TANQUE,
+        )
+
+        saldo_ini_s500 = SALDO_INICIAL_TANQUE[1373]
 
         conn_ctx, conn, cursor = _conn_cursor_mock()
         mock_conn.return_value = conn_ctx
@@ -173,10 +185,9 @@ class ConsultarSaldoCombustivelServiceTest(TestCase):
 
         rows = consultar_saldo_combustivel()
         s500 = next(r for r in rows if r[0] == 1373)
-        # S500 SALDO_INICIAL_TANQUE = 3150
-        self.assertEqual(s500[3], 3150.0)
+        self.assertEqual(s500[3], saldo_ini_s500)
         self.assertEqual(s500[4], 0.0)
-        self.assertEqual(s500[5], 3150.0)
+        self.assertEqual(s500[5], saldo_ini_s500)
         self.assertEqual(s500[1], 'DIESEL S500',
             "Nome deve vir de TGFPRO mesmo sem registro na view")
 
@@ -714,15 +725,19 @@ class CriarRequisicaoServiceTest(TestCase):
 
         conn_ctx, conn, cursor = _conn_cursor_mock()
         mock_conn.return_value = conn_ctx
+        from sankhya_integration.services.oracle_conn import SALDO_INICIAL_TANQUE
+        saldo_ini_s10 = SALDO_INICIAL_TANQUE[392]
+        qtd_pedida = saldo_ini_s10 + 100  # garantidamente acima do disponível
+
         cursor.fetchone.side_effect = [
             (1, 'S'),                         # TGFVEI ok
             (200400, 'DIESEL S10', 'LT'),     # TGFPRO ok
             (0.0,),                           # saldo na view: 0 (sem entrada IAgro)
         ]
-        # CODPROD=392 tem SALDO_INICIAL_TANQUE=300; pedindo 500 deve falhar
-        # (0 + 300 = 300 < 500)
+        # CODPROD=392: pedindo saldo_inicial + 100 deve falhar
+        # (0 + saldo_inicial < saldo_inicial + 100)
         resultado = criar_requisicao_combustivel_banco({
-            'codveiculo': 5, 'codprod': 392, 'qtd': 500,
+            'codveiculo': 5, 'codprod': 392, 'qtd': qtd_pedida,
             'tipo': 'INTERNA_FROTA', 'codcencus': 10100,
             'hodometro_km': 142536, 'horimetro_h': 32451,
         }, codusu=1, nomeusu='Teste')

@@ -376,6 +376,16 @@ body {
   padding: var(--espaco-4);
   overflow-y: auto;
   flex: 1;
+  min-height: 0;
+}
+
+.modal-footer {
+  flex-shrink: 0;
+  padding: var(--espaco-3) var(--espaco-4);
+  border-top: 1px solid var(--cor-borda);
+  display: flex;
+  gap: var(--espaco-2);
+  justify-content: flex-end;
 }
 
 /* Toast container */
@@ -1302,6 +1312,18 @@ body.app-shell .ia-footer:not(.ia-footer-inline) {
 .cb-modal-card {
   max-width: min(640px, 95vw);
   max-height: 92vh;
+  max-height: 92dvh;
+}
+
+/* Garantia: header e footer dos modais cb-* nunca somem em mobile.
+   Sem flex-shrink:0, o body cresce e empurra o footer pra fora da viewport. */
+.cb-modal-header,
+.cb-modal-footer {
+  flex-shrink: 0;
+}
+
+.cb-modal-body {
+  min-height: 0;
 }
 
 @media (max-width: 520px) {
@@ -1311,8 +1333,27 @@ body.app-shell .ia-footer:not(.ia-footer-inline) {
   .cb-modal-card {
     width: 100vw !important;
     max-width: 100vw !important;
-    height: 100vh !important;
+    height: 100vh !important;          /* fallback browsers antigos */
     max-height: 100vh !important;
+    height: 100dvh !important;          /* iOS Safari: desconta barra */
+    max-height: 100dvh !important;
     border-radius: 0 !important;
+  }
+}
+
+/* Safe-area pra notch/menu do iPhone Safari no Mobile (≤900px).
+   Buffer de 90px cobre a barra inferior do Safari iOS (botões ←/→/+/abas/...).
+   `env(safe-area-inset-bottom)` adiciona o home-indicator (em iOS PWA = ~34px).
+   Em outros browsers env() é 0 — fica só o 90px que é suficiente. */
+@media (max-width: 900px) {
+  body.app-shell .main-layout {
+    padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Mesma proteção em ≤520px (mobile pequeno) — barra Safari mais agressiva */
+@media (max-width: 520px) {
+  body.app-shell .main-layout {
+    padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px));
   }
 }

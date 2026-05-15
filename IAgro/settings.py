@@ -156,4 +156,4 @@ LOGGING = {
 }
 
 # Versão da Aplicação
-APP_VERSION = '1.1.1'  # Atualize conforme necessário
+APP_VERSION = '1.1.2'  # Atualize conforme necessário

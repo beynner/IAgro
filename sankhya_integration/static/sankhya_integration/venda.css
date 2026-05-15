@@ -1104,16 +1104,23 @@ input:focus {
     .venda-grid {
         flex-direction: column;
         overflow-y: auto;
+        overflow-x: hidden;
+        /* Buffer pra barra inferior do Safari iOS (botões ←/→/+/abas) */
+        padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px));
     }
     #cardFiltros,
     .col-wrapper-central,
     .col-wrapper-itens {
         flex: 0 0 auto;
         width: 100%;
+        min-height: 0;
     }
     #cardFiltros {
-        max-height: 50vh;
+        max-height: 55vh;
     }
+    /* Cards de Pedidos e Itens ganham altura mínima */
+    .col-wrapper-central { min-height: 60vh; }
+    .col-wrapper-itens { min-height: 50vh; }
     /* Filtros: form 2 colunas pra economizar espaço vertical */
     #cardFiltros > #filtersForm {
         display: grid;
@@ -1137,7 +1144,13 @@ input:focus {
 /* Mobile (≤520px) */
 @media (max-width: 520px) {
     #cardFiltros > #filtersForm { grid-template-columns: 1fr; }
-    #cardFiltros { max-height: 60vh; }
+    #cardFiltros { max-height: 70vh; }
+    .col-wrapper-central { min-height: 55vh; }
+    .col-wrapper-itens { min-height: 45vh; }
+    /* Reforça safe-area no .venda-grid (Safari iOS) */
+    .venda-grid {
+        padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+    }
     .modal-card,
     .modal-content {
         width: 100vw !important;

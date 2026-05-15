@@ -695,9 +695,9 @@ CAPACIDADE_TANQUE = {
 }
 
 SALDO_INICIAL_TANQUE = {
-    392:  300.0,
-    1373: 3150.0,
-    1374: 300.0,
+    392:  896.0,    # DIESEL S10  — ajustado 2026-05-15 (balanço físico)
+    1373: 3204.0,   # DIESEL S500 — ajustado 2026-05-15 (balanço físico)
+    1374: 300.0,    # ARLA 32
 }
 ```
 

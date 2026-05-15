@@ -2872,17 +2872,32 @@
     .rastreio-layout { gap: 12px; }
 }
 
-/* Tablet vertical (≤900px) — empilhado, painéis com altura fixa pra
-   poder rolar dentro de cada um. */
+/* Tablet vertical (≤900px) — empilhado. Mudança chave (Mai/2026): em vez de
+   `minmax(40vh, 0.45fr)` (que dá só ~325px no iPhone) deixar a página rolar
+   inteira, cada painel com altura mínima generosa e auto pra crescer com
+   conteúdo. */
 @media (max-width: 900px) {
     .rastreio-layout {
         grid-template-columns: 1fr;
-        grid-template-rows: minmax(40vh, 0.45fr) minmax(40vh, 0.55fr);
-        gap: 10px;
+        grid-template-rows: minmax(70vh, auto) minmax(70vh, auto);
+        gap: 12px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        /* Buffer pra barra inferior do Safari iOS */
+        padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px));
     }
-    .list-panel { min-height: 0; }
-    /* Em touch, sempre revelar os botões de ação (hover não existe).
-       Mantém opacity alta nas linhas selecionáveis. */
+    .list-panel {
+        min-height: 70vh;
+        height: auto;
+    }
+    /* Lista interna do painel: scroll próprio se ficar muito longa */
+    .list-panel .list-scroll,
+    .list-panel .lotes-list,
+    .list-panel .pedidos-list {
+        max-height: 65vh;
+        overflow-y: auto;
+    }
+    /* Em touch, sempre revelar os botões de ação (hover não existe). */
     .btn-acao-linha,
     .btn-armar,
     .btn-olho {
@@ -2911,11 +2926,26 @@
 
 /* Mobile (≤520px) — barra de filtros vira coluna, cards mais compactos */
 @media (max-width: 520px) {
-    .rastreio-layout { padding: 0 !important; }
+    .rastreio-layout {
+        padding: 0 !important;
+        grid-template-rows: minmax(70vh, auto) minmax(70vh, auto);
+        padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px)) !important;
+    }
     .lote-card,
     .pedido-card {
         padding: 6px 8px !important;
     }
+    /* Header do painel + filtros viram coluna */
+    .ras-filtros-bar {
+        flex-direction: column !important;
+        gap: 6px !important;
+        align-items: stretch !important;
+    }
+    .ras-filtros-bar > * { width: 100% !important; }
+    /* Card de lote: recuo lateral menor pra ganhar área útil */
+    .card-lote.compacto { margin-left: 8px !important; }
+    /* Pedido bloco header: chevron menor */
+    .pedido-bloco-header { gap: 6px !important; padding: 6px 8px !important; }
     .modal-content,
     .modal-card {
         width: 100vw !important;

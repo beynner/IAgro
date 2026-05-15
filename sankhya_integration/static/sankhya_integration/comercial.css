@@ -725,21 +725,32 @@ body.vale-faturado #badgeFaturadoDist { display: flex !important; }
     }
 }
 
-/* Tablet vertical (≤900px) — coluna única com scroll vertical */
+/* Tablet vertical (≤900px) — coluna única com scroll vertical.
+   Layout original tem 3 camadas de grid (.layout → .zgrid → cards). Em mobile,
+   dar min-height pra cada card e deixar a página rolar inteira. */
 @media (max-width: 900px) {
     .layout {
         grid-template-columns: 1fr !important;
-        grid-template-rows: auto 1fr !important;
+        grid-template-rows: auto auto auto !important;
         overflow-y: auto !important;
+        overflow-x: hidden !important;
+        padding: 10px !important;
+        /* Buffer pra barra inferior do Safari iOS */
+        padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px)) !important;
     }
     .layout > .sidebar.group--pesquisa {
-        max-height: 50vh;
+        max-height: 55vh;
         min-width: 0 !important;
+        position: static !important;
     }
     .zgrid {
         grid-template-columns: 1fr !important;
-        grid-template-rows: minmax(240px, 0.6fr) minmax(220px, 1fr) !important;
+        grid-template-rows: auto auto !important;
+        gap: 10px !important;
     }
+    /* Cards Entrada/Distribuição/Simulação ganham altura mínima decente */
+    .zgrid > .panel,
+    .zgrid > section { min-height: 320px; }
     /* Card de Distribuição já era full-width — mantém.
        Classificação e Entrada empilham em coluna única. */
     #classCard .class-wrap {
@@ -747,6 +758,8 @@ body.vale-faturado #badgeFaturadoDist { display: flex !important; }
         grid-template-rows: auto auto auto;
         gap: 8px;
     }
+    /* Resumo lateral vira full-width */
+    .resumo-card { width: 100% !important; max-width: 100% !important; }
     /* Modal de faturamento + impressão */
     .modal-content,
     .modal-card {
@@ -757,8 +770,21 @@ body.vale-faturado #badgeFaturadoDist { display: flex !important; }
 
 /* Mobile (≤520px) */
 @media (max-width: 520px) {
-    .layout { padding: 8px !important; }
+    .layout {
+        padding: 6px !important;
+        gap: 6px !important;
+        padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px)) !important;
+    }
     .zgrid { gap: 8px !important; }
+    .layout > .sidebar.group--pesquisa { max-height: 50vh; }
+    .zgrid > .panel,
+    .zgrid > section { min-height: 280px; }
+    /* Inputs e selects do form interno menores */
+    #filtersCard input,
+    #filtersCard select { font-size: 12px !important; height: 30px !important; }
+    /* Botões de ação no rodapé do card de distribuição: empilhados */
+    .btn-faturar-final,
+    .btn-print-outline { width: 100% !important; justify-content: center; }
     .modal-content,
     .modal-card {
         width: 100vw !important;
