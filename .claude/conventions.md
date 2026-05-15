@@ -275,6 +275,7 @@ Tudo exposto sob `window.IAgro` em `iagro_helpers.js`.
 | `IAgro.debounce(fn, ms)` | `(fn, ms) => debounced` | Debounce simples |
 | `IAgro.confirmarAcao(opts)` | `async ({titulo, mensagem, tipo}) => boolean` | Modal custom — substitui `window.confirm`. Tipos: `'perigo'` (vermelho), `'aviso'` (laranja), `'info'` (azul). Suporta Esc/Enter |
 | `IAgro.cachedFetch(url, opts)` | `async (url, {ttl: 60_000}) => body` | Cache TTL em memória para typeahead/listas semi-estáticas. Não cacheia respostas de erro |
+| `IAgro.onDoubleActivate(el, fn, opts)` | `(el, fn, {delegateSelector?, tapWindowMs?}) => dispose` | Double-click (mouse) + double-tap (touch) cross-device. iOS Safari/Chrome (WKWebView) e DevTools mobile não disparam `dblclick` em touch — daí o fallback manual via click+timer. Sempre usar isso em vez de `addEventListener('dblclick', ...)` |
 | `IAOverlay.show()` / `IAOverlay.hide()` | — | Overlay de loading da página |
 
 ### Regras

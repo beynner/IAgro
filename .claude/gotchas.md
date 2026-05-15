@@ -726,3 +726,42 @@ Mesmo com `100dvh` e `viewport-fit=cover`, conteúdo dentro de containers com `o
 - Container interno com `overflow-y: auto` tem `padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px))` em ≤900px?
 - Modal fullscreen mobile usa `100dvh` (não só `100vh`)?
 - Modal flex column tem `flex-shrink: 0` no header e footer pra footer não ser empurrado pra fora?
+- Algum `body.app-shell .main-layout { padding: 0 }` específico do módulo? Se sim, reaplicar safe-area dentro do `@media ≤900px` (caso do `home.css`).
+
+---
+
+## `dblclick` não dispara em iOS Safari/Chrome + DevTools mobile emulation
+
+Limitação conhecida do **WebKit/WKWebView**: o evento `dblclick` é suprimido em touch screen em favor do gesto de double-tap-to-zoom. Vale pra:
+
+- iPhone Safari (todas as versões)
+- Chrome iOS, Firefox iOS, Edge iOS (todos usam WKWebView)
+- Chrome DevTools com "Toggle device toolbar" ativado (emula touch)
+
+**Sintoma:** linha de tabela com `addEventListener('dblclick', ...)` que abre modal de edição funciona em desktop, NÃO funciona no celular. Cliques simples viram seleção mas o duplo nunca dispara.
+
+### Solução padrão — `IAgro.onDoubleActivate`
+
+Helper em [`iagro_helpers.js`](../sankhya_integration/static/sankhya_integration/iagro_helpers.js) (Mai/2026 — 2026-05-15):
+
+```js
+IAgro.onDoubleActivate(element, handler, {
+    delegateSelector: 'tr.row--click',   // opcional: event delegation
+    tapWindowMs: 350,                     // opcional: janela do double-tap
+});
+```
+
+Registra `dblclick` nativo + fallback manual via `click + timer` quando o device é touch-capable (`'ontouchstart' in window || pointer:coarse || maxTouchPoints>0`). Sem dedup necessário — desktop puro nunca recebe touch event, mobile nunca dispara `dblclick` nativo.
+
+### Migração
+
+Substituir:
+```js
+el.addEventListener('dblclick', (ev) => { ... });
+```
+Por:
+```js
+IAgro.onDoubleActivate(el, (ev, target) => { ... }, { delegateSelector: 'tr' });
+```
+
+Aplicado em 5 lugares (Mai/2026): `entrada.js` (notas e itens), `classificacao.js` (item-row e tabela dinâmica), `venda.js` (pedidos).

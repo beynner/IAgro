@@ -615,6 +615,81 @@
     }
   }
 
+  /**
+   * onDoubleActivate — Helper "double click + double tap" cross-device.
+   *
+   * iOS Safari/Chrome (WKWebView) NÃO dispara `dblclick` em touch (é
+   * interceptado como gesto de zoom). DevTools mobile emulation no Chrome
+   * desktop também suprime. Mesmo problema em Android Chrome em alguns
+   * elementos.
+   *
+   * Solução: registra `dblclick` nativo (vale pra mouse desktop) E um
+   * fallback manual via `click` com timer 350ms (vale pra touch).
+   *
+   * Sem dedup: em desktop, `'ontouchstart' in window` é false → só o
+   * dblclick nativo é registrado. Em touch, `dblclick` não dispara →
+   * só o fallback dispara. Mesmo handler executa só uma vez por dupla.
+   *
+   * @param {Element} el — elemento alvo
+   * @param {Function} handler — chamado com (event, resolvedTarget)
+   * @param {object} [opts]
+   *   - delegateSelector: string CSS pra event delegation (ex: 'tr.row--click')
+   *   - tapWindowMs: tempo máximo entre 2 taps (default 350)
+   * @returns {Function} dispose — chame pra remover os listeners
+   */
+  function onDoubleActivate(el, handler, opts) {
+    opts = opts || {};
+    const delegate = opts.delegateSelector || null;
+    const tapMs = opts.tapWindowMs || 350;
+
+    function resolveTarget(ev) {
+      if (!delegate) return ev.currentTarget;
+      const t = ev.target && ev.target.closest ? ev.target.closest(delegate) : null;
+      if (!t) return null;
+      if (el !== document && el !== window && !el.contains(t)) return null;
+      return t;
+    }
+
+    // 1. dblclick nativo — funciona em desktop com mouse
+    const onDbl = (ev) => {
+      const t = resolveTarget(ev);
+      if (!t) return;
+      try { handler.call(t, ev, t); } catch (e) { console.error('onDoubleActivate handler', e); }
+    };
+    el.addEventListener('dblclick', onDbl);
+
+    // 2. Fallback manual via click+timer — registrado SÓ em devices touch
+    //    (em desktop puro, ontouchstart=false → não polui handlers).
+    const isTouchCapable = ('ontouchstart' in window)
+        || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0)
+        || window.matchMedia('(pointer: coarse)').matches;
+
+    let onClick = null;
+    if (isTouchCapable) {
+      let lastTs = 0;
+      let lastTarget = null;
+      onClick = (ev) => {
+        const t = resolveTarget(ev);
+        if (!t) return;
+        const now = Date.now();
+        if (lastTarget === t && (now - lastTs) < tapMs) {
+          lastTs = 0;
+          lastTarget = null;
+          try { handler.call(t, ev, t); } catch (e) { console.error('onDoubleActivate handler', e); }
+          return;
+        }
+        lastTs = now;
+        lastTarget = t;
+      };
+      el.addEventListener('click', onClick);
+    }
+
+    return function dispose() {
+      el.removeEventListener('dblclick', onDbl);
+      if (onClick) el.removeEventListener('click', onClick);
+    };
+  }
+
   // Expor os módulos para o escopo global (window)
   window.IAgro = {
     ...(window.IAgro || {}),
@@ -624,6 +699,8 @@
     attachTypeahead, installAutoSelect, wireFilterAuto,
     // Mai/2026 — layout v2 (sidebar)
     setupSidebar,
+    // Mai/2026 (2026-05-15) — double-click cross-device (mouse + touch)
+    onDoubleActivate,
   };
   window.IAOverlay = IAOverlay;
 

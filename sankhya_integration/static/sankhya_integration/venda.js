@@ -315,7 +315,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (btnAv)  btnAv.disabled  = false;
                     if (btnDev) btnDev.disabled = (topNum !== 35 && topNum !== 37);
                 });
-                tr.addEventListener('dblclick', function() {
+                // Double-click (mouse) + double-tap (touch) cross-device
+                IAgro.onDoubleActivate(tr, function() {
                     if (topNum !== 34) {
                         phToast('Apenas pedidos TOP 34 podem ser editados.', 'warning');
                         return;

@@ -224,11 +224,28 @@ body.app-shell .main-layout { overflow: auto; padding: 0; }
     .widgets-grid {
         grid-template-columns: repeat(2, 1fr);
         padding: 10px;
+        /* Buffer pra barra inferior do Safari iOS / Chrome iOS — sem isso o
+           último KPI fica cortado quando o usuário rola pro fim. */
+        padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px));
         gap: 10px;
     }
     .widget { padding: 12px; min-height: 100px; }
     .widget-value { font-size: 26px; }
     .dash-updated { display: none; }
+    /* Reaplica safe-area no .main-layout (a regra acima zerou o padding). */
+    body.app-shell .main-layout {
+        padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+    }
+}
+
+@media (max-width: 520px) {
+    .widgets-grid {
+        grid-template-columns: 1fr;
+        padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+    }
+    body.app-shell .main-layout {
+        padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+    }
 }
 
 @media (max-width: 520px) {

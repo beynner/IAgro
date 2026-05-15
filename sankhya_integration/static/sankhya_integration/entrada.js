@@ -182,25 +182,24 @@
       }, CLICK_DELAY);
     });
 
-    tbl.addEventListener('dblclick', (e) => {
-      const tr = e.target.closest('tr[data-central-url]');
-      if (!tr) return;
+    // Double-click (mouse) + double-tap (touch) via IAgro.onDoubleActivate.
+    // Em desktop: dblclick nativo. Em iOS Safari/Chrome (WKWebView) ou
+    // DevTools com touch emulation: detecção manual via click+timer.
+    IAgro.onDoubleActivate(tbl, function(_ev, tr) {
       if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
       const nunota = tr.dataset.nunota;
       if (!nunota) {
-        // fallback: navigate to central
-        window.location.href = tr.dataset.centralUrl;
+        try { window.location.href = tr.dataset.centralUrl; } catch(_){}
         return;
       }
-      // Dê preferência ao modal em-loco no duplo clique
       try{
         if (typeof openCabModalForEdit === 'function') openCabModalForEdit(nunota);
         if (typeof showItemsModal === 'function') showItemsModal(nunota);
-        return;
-      }catch(e){ console.error('Modal open failed', e); }
-      // Fallback: navegar para a central
-      try { IAOverlay.show(); window.location.href = `${API_URLS.CENTRAL_AJAX}?nunota=${encodeURIComponent(nunota)}`; } catch (e) { console.warn('Navigation failed', e); try{ IAOverlay.show(); }catch(e2){ console.warn('Overlay show failed', e2); } window.location.href = tr.dataset.centralUrl; }
-    });
+      }catch(e){
+        console.error('Modal open failed', e);
+        try { IAOverlay.show(); window.location.href = `${API_URLS.CENTRAL_AJAX}?nunota=${encodeURIComponent(nunota)}`; } catch (e2) { console.warn('Navigation fallback failed', e2); }
+      }
+    }, { delegateSelector: 'tr[data-central-url]' });
 
     // Navegação por teclado (setas) na lista de notas
     function getRows(){ return Array.from(tbl.querySelectorAll('tbody tr.row--click')); }
@@ -1857,9 +1856,9 @@ console.debug('showItemsModal resolved nunota', resolved);
 
       itemsListBody.appendChild(tr);
 
-      tr.addEventListener('dblclick', function(){
+      IAgro.onDoubleActivate(tr, function(){
         try {
-          const seq = tr.dataset.seq; 
+          const seq = tr.dataset.seq;
           if(!seq) return;
           
           const seqInp = document.getElementById('item_seq_edit'); 
@@ -2384,10 +2383,16 @@ document.getElementById('itemAddBtn')?.addEventListener('click', async function(
 /* =========================================================================
  * Mobile dock fix (2026-05-15)
  * Em desktop, cabCard/cabItemsCard/rodapeCard ficam lado a lado via
- * style.left calculado em JS. Em mobile (≤900px), isso não cabe na tela.
- * Solução: MutationObserver detecta mudança de style.left e em mobile
- * aplica fullscreen empilhado, escondendo os "modais de trás" via display:none.
- * Hierarquia de prioridade visível: rodape > items > cab.
+ * style.left calculado em JS. Em mobile (≤900px), o itemsCard cai em
+ * `left=cabRect.right+8` > 100vw → fica fora da tela.
+ *
+ * Solução: MutationObserver detecta mudança de style.left e em mobile,
+ * SÓ pra cards abertos, sobrepõe geometria pra fullscreen. NÃO mexe em
+ * display:none — z-index natural (cab z71 < items z76 < rod z81) faz
+ * o "modal mais à frente" cobrir os anteriores.
+ *
+ * Mantém integralmente o comportamento original em desktop (limpa
+ * overrides quando matchMedia detecta tela maior).
  * ========================================================================= */
 (function setupMobileDockEntrada(){
     'use strict';
@@ -2401,36 +2406,36 @@ document.getElementById('itemAddBtn')?.addEventListener('click', async function(
     function isMobile(){
         return window.matchMedia('(max-width: 900px)').matches;
     }
-    function isOpen(el, closedLeft){
+    function isOpen(el){
         if (!el) return false;
+        // Aberto quando JS setou style.left pra valor != fechado.
+        // Fechados conhecidos: '' (CSS base), '-1200px' (cab), '100%' (items/rod).
         const l = (el.style.left || '').trim();
-        return l !== '' && l !== closedLeft && l !== '-1200px' && l !== '100%';
+        return l !== '' && l !== '-1200px' && l !== '100%';
     }
     let _applying = false;
     function applyFullscreen(el, zIndex){
         if (!el) return;
-        el.style.position    = 'fixed';
-        el.style.top         = '56px';
-        el.style.left        = '0';
-        el.style.right       = '0';
-        el.style.bottom      = '0';
-        el.style.width       = '100vw';
-        el.style.maxWidth    = '100vw';
-        el.style.height      = 'calc(100dvh - 56px)';
-        el.style.maxHeight   = 'calc(100dvh - 56px)';
-        el.style.borderRadius= '0';
-        el.style.opacity     = '1';
-        el.style.zIndex      = String(zIndex);
-        el.style.display     = '';
-    }
-    function hideEl(el){
-        if (!el) return;
-        el.style.display = 'none';
+        el.style.position     = 'fixed';
+        el.style.top          = '56px';
+        el.style.left         = '0';
+        el.style.right        = '0';
+        el.style.bottom       = '0';
+        el.style.width        = '100vw';
+        el.style.maxWidth     = '100vw';
+        el.style.height       = 'calc(100dvh - 56px)';
+        el.style.maxHeight    = 'calc(100dvh - 56px)';
+        el.style.borderRadius = '0';
+        el.style.opacity      = '1';
+        el.style.zIndex       = String(zIndex);
+        // NÃO mexer em display — JS original controla via overlay parent.
     }
     function clearMobileOverrides(el){
         if (!el) return;
+        // Limpa apenas o que aplicamos — NÃO incluir display nem left
+        // (esses são controlados pelo JS original do entrada.js).
         ['position','top','right','bottom','width','maxWidth','height',
-         'maxHeight','borderRadius','zIndex','display'].forEach(p => {
+         'maxHeight','borderRadius','zIndex'].forEach(p => {
             el.style[p] = '';
         });
     }
@@ -2440,35 +2445,20 @@ document.getElementById('itemAddBtn')?.addEventListener('click', async function(
         try {
             const {cab, items, rod} = getEls();
             if (!cab && !items && !rod) return;
-            if (!isMobile()) {
-                // Desktop: limpa overrides nossos (volta ao CSS original)
-                clearMobileOverrides(cab);
-                clearMobileOverrides(items);
-                clearMobileOverrides(rod);
-                return;
+            const mobile = isMobile();
+            // Pra cada modal: se mobile E aberto → fullscreen; senão → clear.
+            // Z-index hierárquico (72/77/82) faz items cobrir cab, rod cobrir items.
+            function processar(el, zIndex){
+                if (!el) return;
+                if (mobile && isOpen(el)) {
+                    applyFullscreen(el, zIndex);
+                } else {
+                    clearMobileOverrides(el);
+                }
             }
-            const cabOpen   = isOpen(cab,   '-1200px');
-            const itemsOpen = isOpen(items, '100%');
-            const rodOpen   = isOpen(rod,   '100%');
-            // Prioridade visível: rodape > items > cab
-            if (rodOpen) {
-                applyFullscreen(rod, 82);
-                hideEl(items);
-                hideEl(cab);
-            } else if (itemsOpen) {
-                applyFullscreen(items, 77);
-                hideEl(cab);
-                hideEl(rod);
-            } else if (cabOpen) {
-                applyFullscreen(cab, 72);
-                hideEl(items);
-                hideEl(rod);
-            } else {
-                // Nenhum aberto — esconde os 3
-                hideEl(cab);
-                hideEl(items);
-                hideEl(rod);
-            }
+            processar(cab,   72);
+            processar(items, 77);
+            processar(rod,   82);
         } finally {
             setTimeout(()=>{ _applying = false; }, 0);
         }
@@ -2485,7 +2475,8 @@ document.getElementById('itemAddBtn')?.addEventListener('click', async function(
             obs.observe(el, { attributes: true, attributeFilter: ['style'] });
         });
         window.addEventListener('resize', applyMobile);
-        applyMobile();
+        // NÃO aplicar no boot — deixa estado inicial natural.
+        // Observer dispara só quando JS realmente abre um modal.
     }
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', setupObserver);

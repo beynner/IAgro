@@ -518,7 +518,43 @@ table { width: 100%; border-collapse: collapse; table-layout: fixed; }
     }
     /* Form inside cabCard que era grid 2 col → 1 col em mobile */
     #cabCard .modal-body > div { width: 100%; }
+
+    /* Form de itens do cabItemsCard: empilhar campos em coluna em mobile.
+       Em desktop os 5 campos (Produto/Vol/Qtd/Peso/Total KG) ficam horizontais
+       via `.flex.align-end`. Em mobile não cabe — vira coluna. */
+    #cabItemsCard .modal-body .flex.align-end {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 8px !important;
+    }
+    /* Cada campo do form ocupa 100% da largura */
+    #cabItemsCard .modal-body .flex.align-end > div {
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+    }
+    /* Inputs ficam full-width */
+    #cabItemsCard .modal-body .flex.align-end > div > input,
+    #cabItemsCard .modal-body .flex.align-end > div > select {
+        width: 100% !important;
+        box-sizing: border-box;
+    }
+    /* Linha dos botões (Adicionar + Limpar) volta a ser row,
+       mas alinhada à direita pra ficar acessível */
+    #cabItemsCard .modal-body .flex.align-end > .flex.gap-8 {
+        flex-direction: row !important;
+        justify-content: flex-end !important;
+        align-items: center !important;
+    }
+    /* Toggle Classifica + botões: row com wrap */
+    #cabItemsCard .modal-body .flex.align-end[style*="flex-end"] {
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        justify-content: flex-end !important;
+    }
+
     /* Tabela de itens da Entrada com scroll horizontal contido */
+    #cabItemsCard .scroll-panel,
     #cabItemsCard .ia-selectable-table-wrap { overflow-x: auto; }
-    #cabItemsCard .ia-selectable-table { min-width: 640px; }
+    #cabItemsCard .ia-selectable-table { min-width: 600px; }
 }

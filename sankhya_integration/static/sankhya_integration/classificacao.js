@@ -893,7 +893,8 @@
             };
 
             itemsBody.querySelectorAll('.item-edit-btn').forEach(btn => btn.addEventListener('click', puxarParaEdicao));
-            itemsBody.querySelectorAll('.item-row').forEach(row => row.addEventListener('dblclick', puxarParaEdicao));
+            // Double-click (mouse) + double-tap (touch) cross-device
+            itemsBody.querySelectorAll('.item-row').forEach(row => IAgro.onDoubleActivate(row, puxarParaEdicao));
 
             itemsBody.querySelectorAll('.item-delete-btn').forEach(btn => {
                 btn.addEventListener('click', async (ev) => {
@@ -989,10 +990,8 @@
                 }, 250);
             });
 
-            tabelaDinamica.addEventListener('dblclick', async (e) => {
-                const row = e.target.closest('tr.row--click');
-                if (!row) return;
-
+            // Double-click (mouse) + double-tap (touch) cross-device
+            IAgro.onDoubleActivate(tabelaDinamica, async function(_ev, row) {
                 clearTimeout(timerClique);
 
                 tabelaDinamica.querySelectorAll('tr.row--active').forEach(r => {
@@ -1101,7 +1100,7 @@
                     console.error('Erro ao abrir modais:', error);
                     if (window.mostrarToast) window.mostrarToast('Não foi possível carregar os dados completos.', 'error');
                 }
-            });
+            }, { delegateSelector: 'tr.row--click' });
         }
         const itemProdVis = document.getElementById('item_prod_vis');
         const itemProdHidden = document.getElementById('item_prod_hidden');
