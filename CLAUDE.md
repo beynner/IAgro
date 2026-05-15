@@ -9,9 +9,9 @@
 
 - **Nome:** IAgro
 - **Versão:** 1.1.0
-- **Tipo:** Sistema interno de gestão operacional integrado ao ERP Sankhya
-- **Organização:** NexusGTi / HF Semear
-- **Domínio:** Central de beneficiamento de produtos agrícolas (antigo "Packing House")
+- **Tipo:** Sistema de gestão operacional integrado ao ERP Sankhya. **Em transição para produto independente (spin-off SaaS multi-tenant agro)** — ver [`dependencias_sankhya.md`](.claude/dependencias_sankhya.md) e [memory `spin_off_iagro_estrategia`](../../memory).
+- **Organização:** NexusGTi / HF Semear (cliente atual: Agromil)
+- **Domínio:** Central de beneficiamento de produtos agrícolas (antigo "Packing House") + rastreabilidade SafeTrace/IAgro
 
 O sistema integra dados do Sankhya via Oracle e oferece **nove módulos operacionais**:
 
@@ -37,6 +37,17 @@ Todas as telas autenticadas usam o **novo layout**: sidebar lateral fixa (200px 
 
 - **Módulo Relatórios** — tela `/sankhya/relatorios/` ainda não iniciada. Backlog mapeado com 6 eixos (Financeiro / Vendas / Compras-Estoque / Rastreio-WMS / Combustível-Frota / Auditoria-Produtividade) e MVP recomendado de 5 relatórios. Detalhes em [`roadmap.md`](.claude/roadmap.md) → "Módulo Relatórios — Backlog planejado".
 
+### Estratégia de produto (Mai/2026)
+
+IAgro está sendo modelado pra virar **produto SaaS independente do Sankhya**, atendendo múltiplos clientes do agro com produtos diferentes (hortifrúti, grãos, carnes, defensivos, etc.). **Diretrizes:**
+
+- **Schema núcleo permanece igual ao Sankhya** (TGFCAB, TGFITE, TGFPAR, TGFPRO, TSIEMP, etc.) — quando desacoplar, recriar mesmos nomes em banco próprio.
+- **Tabelas auxiliares (`AD_*` ou `ANDRE_IAGRO_*`)** podem ser criadas livremente no banco atual — sem restrição.
+- **Evitar adicionar colunas em tabelas Sankhya nativas** — preferir tabela auxiliar.
+- **Evitar criar triggers** no Oracle — conflito potencial com triggers nativas.
+- **Dependências mapeadas** em [`dependencias_sankhya.md`](.claude/dependencias_sankhya.md) — atualizar a cada nova dependência descoberta (regra crítica #7).
+- **Risco principal:** triggers Sankhya proprietárias fazem coisas invisíveis que IAgro herda. Quando desacoplar, lógica delas precisa ser reimplementada em código Python.
+
 ---
 
 ## Stack
@@ -56,7 +67,7 @@ Todas as telas autenticadas usam o **novo layout**: sidebar lateral fixa (200px 
 
 ## Regras Críticas (sempre aplicar)
 
-Estas são as seis regras inegociáveis. Detalhes e regras complementares em [`.claude/rules.md`](./.claude/rules.md).
+Estas são as sete regras inegociáveis. Detalhes e regras complementares em [`.claude/rules.md`](./.claude/rules.md).
 
 1. **NUNCA alterar lógica de negócio** (queries Oracle, cálculos financeiros, regras de precificação, fluxo de faturamento) sem aprovação explícita do usuário.
 2. **🛑 BLOQUEIO EXPLÍCITO — alteração de dados no banco (queries NOVAS e ANTIGAS).** Qualquer código que vá escrever no Oracle — **nova ou já existente** — usando INSERT/UPDATE/DELETE/MERGE/ALTER/DROP/TRUNCATE (em funções de service, DDL direta, ou views Sankhya **não** prefixadas por `AD_`/`ANDRE_IAGRO_`) **PARA** e exige aprovação ponto-a-ponto com plano detalhado: **o quê · como · por quê · o que afeta**. Vale para função aditiva nova *com* INSERT/UPDATE/DELETE também — apenas SELECT puro fica fora. Detalhes em [`rules.md`](./.claude/rules.md) regras #2 e #4.
