@@ -2380,3 +2380,116 @@ document.getElementById('itemAddBtn')?.addEventListener('click', async function(
       try { document.getElementById('item_prod_vis')?.focus(); } catch(e) {}
   });
 })();
+
+/* =========================================================================
+ * Mobile dock fix (2026-05-15)
+ * Em desktop, cabCard/cabItemsCard/rodapeCard ficam lado a lado via
+ * style.left calculado em JS. Em mobile (≤900px), isso não cabe na tela.
+ * Solução: MutationObserver detecta mudança de style.left e em mobile
+ * aplica fullscreen empilhado, escondendo os "modais de trás" via display:none.
+ * Hierarquia de prioridade visível: rodape > items > cab.
+ * ========================================================================= */
+(function setupMobileDockEntrada(){
+    'use strict';
+    function getEls(){
+        return {
+            cab:   document.getElementById('cabCard'),
+            items: document.getElementById('cabItemsCard'),
+            rod:   document.getElementById('rodapeCard'),
+        };
+    }
+    function isMobile(){
+        return window.matchMedia('(max-width: 900px)').matches;
+    }
+    function isOpen(el, closedLeft){
+        if (!el) return false;
+        const l = (el.style.left || '').trim();
+        return l !== '' && l !== closedLeft && l !== '-1200px' && l !== '100%';
+    }
+    let _applying = false;
+    function applyFullscreen(el, zIndex){
+        if (!el) return;
+        el.style.position    = 'fixed';
+        el.style.top         = '56px';
+        el.style.left        = '0';
+        el.style.right       = '0';
+        el.style.bottom      = '0';
+        el.style.width       = '100vw';
+        el.style.maxWidth    = '100vw';
+        el.style.height      = 'calc(100dvh - 56px)';
+        el.style.maxHeight   = 'calc(100dvh - 56px)';
+        el.style.borderRadius= '0';
+        el.style.opacity     = '1';
+        el.style.zIndex      = String(zIndex);
+        el.style.display     = '';
+    }
+    function hideEl(el){
+        if (!el) return;
+        el.style.display = 'none';
+    }
+    function clearMobileOverrides(el){
+        if (!el) return;
+        ['position','top','right','bottom','width','maxWidth','height',
+         'maxHeight','borderRadius','zIndex','display'].forEach(p => {
+            el.style[p] = '';
+        });
+    }
+    function applyMobile(){
+        if (_applying) return;
+        _applying = true;
+        try {
+            const {cab, items, rod} = getEls();
+            if (!cab && !items && !rod) return;
+            if (!isMobile()) {
+                // Desktop: limpa overrides nossos (volta ao CSS original)
+                clearMobileOverrides(cab);
+                clearMobileOverrides(items);
+                clearMobileOverrides(rod);
+                return;
+            }
+            const cabOpen   = isOpen(cab,   '-1200px');
+            const itemsOpen = isOpen(items, '100%');
+            const rodOpen   = isOpen(rod,   '100%');
+            // Prioridade visível: rodape > items > cab
+            if (rodOpen) {
+                applyFullscreen(rod, 82);
+                hideEl(items);
+                hideEl(cab);
+            } else if (itemsOpen) {
+                applyFullscreen(items, 77);
+                hideEl(cab);
+                hideEl(rod);
+            } else if (cabOpen) {
+                applyFullscreen(cab, 72);
+                hideEl(items);
+                hideEl(rod);
+            } else {
+                // Nenhum aberto — esconde os 3
+                hideEl(cab);
+                hideEl(items);
+                hideEl(rod);
+            }
+        } finally {
+            setTimeout(()=>{ _applying = false; }, 0);
+        }
+    }
+    function setupObserver(){
+        const {cab, items, rod} = getEls();
+        if (!cab || !items || !rod) {
+            // DOM ainda não pronto — tenta de novo
+            setTimeout(setupObserver, 100);
+            return;
+        }
+        const obs = new MutationObserver(applyMobile);
+        [cab, items, rod].forEach(el => {
+            obs.observe(el, { attributes: true, attributeFilter: ['style'] });
+        });
+        window.addEventListener('resize', applyMobile);
+        applyMobile();
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setupObserver);
+    } else {
+        setupObserver();
+    }
+})();
