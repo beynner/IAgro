@@ -430,6 +430,73 @@
     font-weight: 400;
 }
 
+/* Modal de escolha de peso (Mai/2026) — quando o lote foi classificado
+   em embalagens diferentes (ex: tomate 22kg + 20kg), o operador escolhe
+   qual peso usar por SEQ antes de gerar o PDF de etiquetas. */
+.escolha-peso-modal {
+    max-width: min(560px, 95vw);
+    max-height: 92vh;
+    max-height: 92dvh;
+}
+.escolha-peso-intro {
+    font-size: 0.9rem;
+    margin: 0 0 14px 0;
+    line-height: 1.45;
+}
+.escolha-peso-lista {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 55vh;
+    overflow-y: auto;
+    margin-bottom: 14px;
+    padding-right: 4px;
+}
+.escolha-peso-linha {
+    border: 1px solid var(--cor-borda, #cbd5e1);
+    border-radius: var(--borda-raio-md, 8px);
+    padding: 10px 12px;
+    background: var(--cor-fundo-secundario, #f8fafc);
+}
+.escolha-peso-prod {
+    font-size: 0.92rem;
+    margin-bottom: 8px;
+    line-height: 1.35;
+}
+.escolha-peso-prod .text-muted {
+    font-size: 0.82rem;
+    color: var(--cor-texto-secundario, #64748b);
+}
+.escolha-peso-opcoes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.escolha-peso-radio {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1.5px solid var(--cor-borda, #cbd5e1);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+    background: #fff;
+    font-size: 0.92rem;
+}
+.escolha-peso-radio:hover {
+    border-color: var(--ras-primary, #5e7e4a);
+}
+.escolha-peso-radio:has(input:checked) {
+    border-color: var(--ras-primary, #5e7e4a);
+    background: rgba(94, 126, 74, 0.08);
+    font-weight: 600;
+}
+.escolha-peso-radio input[type="radio"] {
+    margin: 0;
+    accent-color: var(--ras-primary, #5e7e4a);
+}
+
 .huge-input {
     width: 100%;
     font-size: 2.5rem !important; /* Número gigante para touch */

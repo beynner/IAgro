@@ -70,7 +70,8 @@
 - `VLRTOT` — Valor total da linha
 - `CODLOCALORIG` — Local de origem do estoque (default 101)
 - `CODAGREGACAO` — **Lote** (rastreabilidade). Formato: `NUNOTAS{SEQ}D{YYMMDD}` (Entrada), livre (Venda), NULL (Venda até atribuição)
-- `QTDFIXADA` — Peso/unidade para cálculo de etiquetas (Mai/2026)
+- `PESO` — **Peso da caixa** (canônico em TODAS as TOPs IAgro). TOP 11 (Entrada): digitado pelo operador na pesagem. TOP 26 (Classificação): peso classificado. TOP 13 (Vale): propagado da TOP 11. TOP 34/35/37/30/36 (Venda/Avaria/Devolução — Mai/2026 / 2026-05-16): grava peso da caixa pra cálculo de etiqueta SafeTrace (`math.ceil(qtdneg/peso)`). Anteriormente o Rastreio usava `QTDFIXADA` aqui — migrado pra `PESO` por coerência semântica.
+- `QTDFIXADA` — Quantidade fixada por contrato (semântica nativa Sankhya). IAgro **não escreve** mais nesse campo na TOP 34/35/37/30/36 desde 2026-05-16. Mantém intocada — Sankhya nativo continua populando 0 por default em ~99.999% das vendas
 - `AD_QTDAVARIA` — Quantidade de avaria (descarte — Classificação)
 - `AD_PESO` — Peso registrado na pesagem (Entrada)
 - `AD_QTDCONFERIDA` — Quantidade conferida (Entrada)
@@ -78,10 +79,11 @@
 - `QTDENTREGUE` — Quantidade entregue (populada por trigger TGFVAR)
 
 **Funções que manipulam:**
-- `inserir_item_nota_banco` — INSERT (gera lote auto ou manual)
+- `inserir_item_nota_banco` — INSERT (gera lote auto ou manual; grava PESO em TOP 11/26/13)
 - `atualizar_item_nota_banco` — UPDATE
-- `atribuir_lote_item_pedido` — UPDATE (Rastreio: atribui CODAGREGACAO+QTDFIXADA)
-- `desvincular_lote_item_pedido` — UPDATE (Rastreio: limpa CODAGREGACAO+QTDFIXADA)
+- `atribuir_lote_item_pedido` — UPDATE/INSERT (Rastreio: atribui CODAGREGACAO+**PESO** na TOP 34/35/37 — Mai/2026 / 2026-05-16)
+- `desvincular_lote_item_pedido` — UPDATE (Rastreio: limpa CODAGREGACAO+**PESO** no caminho CLEAR)
+- `consultar_pesos_classificacao_lote` — SELECT DISTINCT PESO da TOP 26 (fallback de etiqueta — Mai/2026 / 2026-05-16)
 - `excluir_itens_nota_banco` — DELETE
 
 ---

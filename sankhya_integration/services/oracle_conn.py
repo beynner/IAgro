@@ -3626,13 +3626,13 @@ def desvincular_lote_item_pedido(nunota: int, sequencia: int) -> dict:
                 operacao = 'MERGE'
             else:
                 # Não há outra linha pendente — só limpa o lote desta.
-                # QTDFIXADA também é zerada (Mai/2026): sem lote, não há mais
+                # PESO também é zerado (Mai/2026): sem lote, não há mais
                 # caixa de origem pra peso da etiqueta. Mantém coerência com
                 # atribuir_lote_item_pedido que popula os dois juntos.
                 cur.execute("""
                     UPDATE TGFITE
                        SET CODAGREGACAO = NULL,
-                           QTDFIXADA    = NULL
+                           PESO         = NULL
                      WHERE NUNOTA = :n AND SEQUENCIA = :s
                 """, n=int(nunota), s=int(sequencia))
                 operacao = 'CLEAR'
@@ -3653,7 +3653,7 @@ def desvincular_lote_item_pedido(nunota: int, sequencia: int) -> dict:
 
 def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
                               qtd: float | None = None,
-                              qtdfixada: float | None = None) -> dict:
+                              peso: float | None = None) -> dict:
     """Atribui um lote a um item de pedido TOP 34 (em aberto OU já faturado).
 
     Mai/2026: aceita TOP 34 STATUSNOTA='L' (pedido já faturado pelo Sankhya).
@@ -3774,28 +3774,29 @@ def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
                         f'Reduza a quantidade ou desvincule alguma atribuição '
                         f'existente deste lote (clique no olho do card de lote pra ver quem usa).'}
 
-            # 3) Normaliza qtdfixada vindo do frontend (Mai/2026):
-            #    operador digita o peso da caixa no modal de atribuição.
+            # 3) Normaliza peso vindo do frontend (Mai/2026):
+            #    operador digita o peso da caixa no modal de atribuição (opcional).
             #    Valores inválidos (None / 0 / negativo / não-numérico) viram
-            #    None e o UPDATE/INSERT grava NULL. Etiqueta detecta depois.
-            qtdfixada_final = None
-            if qtdfixada is not None:
+            #    None e o UPDATE/INSERT grava NULL. Etiqueta resolve depois lendo
+            #    DISTINCT PESO da TOP 26 do mesmo lote (com modal de escolha se 2+).
+            peso_final = None
+            if peso is not None:
                 try:
-                    qf_val = float(qtdfixada)
-                    if qf_val > 0:
-                        qtdfixada_final = qf_val
+                    p_val = float(peso)
+                    if p_val > 0:
+                        peso_final = p_val
                 except (ValueError, TypeError):
                     pass
 
             # 4) Aplica a atribuição
             if abs(qtd_atribuir - qtd_item_f) < 1e-6:
-                # 4a) Atribuição total — UPDATE simples (CODAGREGACAO + QTDFIXADA)
+                # 4a) Atribuição total — UPDATE simples (CODAGREGACAO + PESO)
                 cur.execute("""
                     UPDATE TGFITE
                        SET CODAGREGACAO = :l,
-                           QTDFIXADA    = :qf
+                           PESO         = :p
                      WHERE NUNOTA = :n AND SEQUENCIA = :s
-                """, l=str(codagregacao), qf=qtdfixada_final,
+                """, l=str(codagregacao), p=peso_final,
                      n=int(nunota), s=int(sequencia))
                 operacao = 'UPDATE'
                 nova_seq = None
@@ -3808,8 +3809,8 @@ def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
                 nova_seq = int(cur.fetchone()[0])
 
                 # Reduz qtd da linha original e recalcula seu VLRTOT.
-                # QTDFIXADA da linha original NÃO é tocada — ela continua
-                # representando a "linha sem lote" do pedido.
+                # PESO da linha original NÃO é tocado — ela continua
+                # representando a "linha sem lote" do pedido (PESO=NULL).
                 cur.execute("""
                     UPDATE TGFITE
                        SET QTDNEG = QTDNEG - :q,
@@ -3818,21 +3819,21 @@ def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
                 """, q=qtd_atribuir, n=int(nunota), s=int(sequencia))
 
                 # Cria nova linha com o lote atribuído (espelha campos da
-                # original) e popula QTDFIXADA com o valor digitado pelo
+                # original) e popula PESO com o valor digitado pelo
                 # operador (ou NULL se não foi informado).
                 cur.execute("""
                     INSERT INTO TGFITE (
                         NUNOTA, SEQUENCIA, CODEMP, CODPROD, QTDNEG,
                         VLRUNIT, VLRTOT, CODVOL, CODLOCALORIG, CODAGREGACAO,
-                        QTDFIXADA, AD_NUMPEDIDOORIG
+                        PESO, AD_NUMPEDIDOORIG
                     )
                     SELECT :n_dest, :s_dest, CODEMP, CODPROD, :q,
                            VLRUNIT, NVL(VLRUNIT, 0) * :q, CODVOL, CODLOCALORIG, :l,
-                           :qf, AD_NUMPEDIDOORIG
+                           :p, AD_NUMPEDIDOORIG
                       FROM TGFITE
                      WHERE NUNOTA = :n_orig AND SEQUENCIA = :s_orig
                 """, n_dest=int(nunota), s_dest=nova_seq, q=qtd_atribuir,
-                     l=str(codagregacao), qf=qtdfixada_final,
+                     l=str(codagregacao), p=peso_final,
                      n_orig=int(nunota), s_orig=int(sequencia))
                 operacao = 'SPLIT'
 
@@ -8880,17 +8881,73 @@ def listar_filtros_distintos_auditoria():
 # a partir da TOP 11 origem do lote.
 # ==============================================================================
 
-def consultar_dados_etiqueta_pedido(nunota: int, codprod: int | None = None) -> dict:
+def consultar_pesos_classificacao_lote(codagregacao: str) -> list[float]:
+    """Retorna lista de pesos distintos (TGFITE.PESO > 0) da TOP 26 do lote.
+
+    Usado quando o operador NÃO informou peso ao vincular um lote a um pedido
+    TOP 34/35/37 — o sistema busca os pesos da classificação como fallback.
+
+    - 0 pesos achados: lote sem classificação registrada com peso → erro no print
+    - 1 peso achado: usa automático na etiqueta
+    - 2+ pesos: frontend abre modal pedindo escolha (operador classificou
+      o mesmo lote em embalagens diferentes — ex: tomate 22kg + 20kg)
+
+    Filtros aplicados:
+      - CODTIPOPER = 26 (classificação confirmada)
+      - STATUSNOTA <> 'E' (excluídas fora)
+      - PESO > 0 (zeros default Sankhya ignorados)
+
+    Retorna lista ordenada decrescente — operador vê o maior primeiro
+    (geralmente Extra > Médio).
+    """
+    if not codagregacao:
+        return []
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT DISTINCT i.PESO
+              FROM TGFITE i
+              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+             WHERE c.CODTIPOPER = 26
+               AND c.STATUSNOTA <> 'E'
+               AND i.CODAGREGACAO = :l
+               AND i.PESO > 0
+             ORDER BY i.PESO DESC
+            """,
+            l=str(codagregacao),
+        )
+        rows = cur.fetchall()
+    return [float(r[0]) for r in rows if r[0] is not None]
+
+
+def consultar_dados_etiqueta_pedido(
+    nunota: int,
+    codprod: int | None = None,
+    pesos_overrides: dict | None = None,
+) -> dict:
     """Retorna dados pra renderizar etiquetas de rastreabilidade de um pedido.
 
     Filtros:
         - ``nunota`` obrigatório (TGFCAB do pedido — pode ser TOP 34/35/37).
         - ``codprod`` opcional: limita aos itens daquele CODPROD específico
           (botão "imprimir etiquetas deste produto" na produto-linha).
+        - ``pesos_overrides`` opcional: dict {sequencia: peso} com escolhas
+          do operador no modal quando a TOP 26 tem múltiplos pesos pro lote.
+          Sobrepõe a resolução automática.
 
     Inclui apenas itens com ``CODAGREGACAO`` ≠ NULL — sem lote, sem
-    rastreabilidade, sem etiqueta. Itens sem ``QTDFIXADA`` (peso da caixa)
-    vão no retorno mas o frontend detecta e mostra aviso ao operador.
+    rastreabilidade, sem etiqueta.
+
+    **Resolução de peso por linha (Mai/2026 — uma linha por SEQ TGFITE):**
+        1. Override do operador (``pesos_overrides[seq]``) — vence tudo
+        2. ``TGFITE.PESO`` da própria linha — preenchido pelo operador no
+           vínculo (opcional desde Mai/2026)
+        3. Peso da TOP 26 do mesmo CODAGREGACAO:
+           - 1 peso único → usa direto
+           - 2+ pesos → marca ``precisa_escolha=True`` e devolve a lista
+             em ``pesos_top26`` pra o frontend pedir escolha
+        4. Nenhum → ``peso_resolvido=0``, etiqueta pula essa linha
 
     Retorna:
         {
@@ -8901,12 +8958,19 @@ def consultar_dados_etiqueta_pedido(nunota: int, codprod: int | None = None) -> 
           },
           'itens': [
             {'sequencia', 'codprod', 'descrprod', 'codvol',
-             'qtdneg', 'qtdfixada', 'codagregacao', 'referencia_ean'},
+             'qtdneg', 'codagregacao', 'referencia_ean',
+             'peso_proprio',         # PESO da linha TGFITE (NULL → 0)
+             'pesos_top26',          # lista da TOP 26 (>= 0 itens)
+             'peso_resolvido',       # valor final usado na etiqueta
+             'origem_peso',          # 'OVERRIDE'|'PROPRIO'|'TOP26_UNICO'|None
+             'precisa_escolha'},     # True se TOP 26 tem 2+ pesos e nenhum override
             ...
           ]
         }
         ou {'pedido': None, 'itens': []} se nada bater no filtro.
     """
+    overrides = pesos_overrides or {}
+
     with obter_conexao_oracle() as conn:
         cur = conn.cursor()
 
@@ -8932,7 +8996,7 @@ def consultar_dados_etiqueta_pedido(nunota: int, codprod: int | None = None) -> 
                 {sel_endereco}, {sel_cep},
                 i.SEQUENCIA, i.CODPROD,
                 pr.DESCRPROD, i.CODVOL,
-                NVL(i.QTDNEG, 0), NVL(i.QTDFIXADA, 0),
+                NVL(i.QTDNEG, 0), NVL(i.PESO, 0),
                 i.CODAGREGACAO, pr.REFERENCIA
               FROM TGFCAB c
               LEFT JOIN TSIEMP e  ON e.CODEMP = c.CODEMP
@@ -8968,16 +9032,66 @@ def consultar_dados_etiqueta_pedido(nunota: int, codprod: int | None = None) -> 
             'cep':           r0[10] or '',
         },
     }
-    itens = [{
-        'sequencia':      int(r[11]) if r[11] is not None else None,
-        'codprod':        int(r[12]) if r[12] is not None else None,
-        'descrprod':      r[13] or '',
-        'codvol':         r[14] or 'KG',
-        'qtdneg':         float(r[15] or 0),
-        'qtdfixada':      float(r[16] or 0),
-        'codagregacao':   str(r[17]) if r[17] is not None else None,
-        'referencia_ean': r[18] or '',
-    } for r in rows]
+
+    # Cache de pesos da TOP 26 por lote (evita N queries pra mesmo
+    # CODAGREGACAO quando o pedido tem vários SEQs do mesmo lote).
+    cache_top26: dict[str, list[float]] = {}
+
+    itens = []
+    for r in rows:
+        seq = int(r[11]) if r[11] is not None else None
+        codag = str(r[17]) if r[17] is not None else None
+        peso_proprio = float(r[16] or 0)
+
+        # Resolução de peso na ordem: override > PESO próprio > TOP 26 único
+        pesos_top26: list[float] = []
+        peso_resolvido = 0.0
+        origem_peso = None
+        precisa_escolha = False
+
+        # 1) Override (modal de escolha do operador)
+        if seq is not None and seq in overrides:
+            try:
+                ov = float(overrides[seq] or 0)
+                if ov > 0:
+                    peso_resolvido = ov
+                    origem_peso = 'OVERRIDE'
+            except (ValueError, TypeError):
+                pass
+
+        # 2) PESO próprio da linha
+        if origem_peso is None and peso_proprio > 0:
+            peso_resolvido = peso_proprio
+            origem_peso = 'PROPRIO'
+
+        # 3) Peso(s) da TOP 26 do mesmo lote
+        if origem_peso is None and codag:
+            if codag not in cache_top26:
+                cache_top26[codag] = consultar_pesos_classificacao_lote(codag)
+            pesos_top26 = cache_top26[codag]
+            if len(pesos_top26) == 1:
+                peso_resolvido = pesos_top26[0]
+                origem_peso = 'TOP26_UNICO'
+            elif len(pesos_top26) >= 2:
+                precisa_escolha = True
+                # peso_resolvido fica 0 — view bloqueia geração até operador
+                # fornecer overrides via query param ?pesos=seq:val,...
+            # 0 pesos: peso_resolvido=0, origem_peso=None — frontend trata
+
+        itens.append({
+            'sequencia':       seq,
+            'codprod':         int(r[12]) if r[12] is not None else None,
+            'descrprod':       r[13] or '',
+            'codvol':          r[14] or 'KG',
+            'qtdneg':          float(r[15] or 0),
+            'codagregacao':    codag,
+            'referencia_ean':  r[18] or '',
+            'peso_proprio':    peso_proprio,
+            'pesos_top26':     pesos_top26 if codag else [],
+            'peso_resolvido':  peso_resolvido,
+            'origem_peso':     origem_peso,
+            'precisa_escolha': precisa_escolha,
+        })
 
     return {'pedido': pedido, 'itens': itens}
 

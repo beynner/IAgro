@@ -3,9 +3,11 @@
 Cobertura:
     - calcular_qtd_etiquetas (arredondamento, edge cases)
     - gerar_pdf_etiquetas (smoke + valida bytes não-vazios)
-    - api_rastreio_etiqueta_pdf (sem nunota, sem itens, com itens, sem QTDFIXADA)
-    - atribuir_lote_item_pedido grava QTDFIXADA na TOP 34 (regressão B1)
-    - desvincular_lote_item_pedido limpa QTDFIXADA (regressão B2)
+    - api_rastreio_etiqueta_pdf (sem nunota, sem itens, sem peso resolvido,
+      precisa de escolha → 409, fluxo feliz com PESO próprio, com TOP 26)
+    - api_rastreio_resolver_peso (resposta direta vs precisa_escolha)
+    - atribuir_lote_item_pedido grava PESO na TOP 34 (regressão B1)
+    - desvincular_lote_item_pedido limpa PESO (regressão B2)
 """
 
 from __future__ import annotations
@@ -81,7 +83,7 @@ class GerarPdfEtiquetasTest(TestCase):
             'descrprod':      'ABOBORA ITALIA EXTRA',
             'codvol':         'UN',
             'qtdneg':         300.0,
-            'qtdfixada':      1.0,
+            'qtdfixada':      1.0,  # mantido pra compat com gerar_pdf_etiquetas
             'codagregacao':   '111777S01D260508',
             'referencia_ean': '1280001250157',
         }
@@ -98,7 +100,6 @@ class GerarPdfEtiquetasTest(TestCase):
         """0 etiquetas → PDF sem páginas. Caller deve validar antes."""
         from sankhya_integration.services.etiqueta_lote import gerar_pdf_etiquetas
         pdf = gerar_pdf_etiquetas(self._pedido_fake(), [])
-        # PDF "vazio" do reportlab ainda tem cabeçalho — bytes > 0 esperado
         self.assertGreater(len(pdf), 0)
 
     def test_item_sem_ean_nao_quebra(self):
@@ -118,7 +119,7 @@ class GerarPdfEtiquetasTest(TestCase):
 
 
 # --------------------------------------------------------------------------
-# View api_rastreio_etiqueta_pdf
+# View api_rastreio_etiqueta_pdf (Mai/2026 — schema novo com PESO + TOP 26)
 # --------------------------------------------------------------------------
 
 class ApiEtiquetaPdfViewTest(TestCase):
@@ -126,15 +127,43 @@ class ApiEtiquetaPdfViewTest(TestCase):
         self.factory = RequestFactory()
 
     def _request_com_sessao(self, url='/sankhya/rastreio/api/etiqueta-pdf/?nunota=111777'):
-        """Cria request com sessão simulando usuário do grupo rastreio."""
         req = self.factory.get(url)
         req.session = {
             'codusu': 1,
             'nomeusu': 'ANDRE',
             'nome': 'Andre',
-            'grupos': ['1'],  # Diretoria — acesso a tudo
+            'grupos': ['1'],  # Diretoria
         }
         return req
+
+    def _item(self, **overrides):
+        """Item no formato novo (Mai/2026) — com peso_resolvido + pesos_top26."""
+        base = {
+            'sequencia':       1,
+            'codprod':         100,
+            'descrprod':       'TOMATE',
+            'codvol':          'KG',
+            'qtdneg':          1000.0,
+            'codagregacao':    'L1',
+            'referencia_ean':  '',
+            'peso_proprio':    0.0,
+            'pesos_top26':     [],
+            'peso_resolvido':  20.0,
+            'origem_peso':     'PROPRIO',
+            'precisa_escolha': False,
+        }
+        base.update(overrides)
+        return base
+
+    def _pedido(self):
+        return {
+            'nunota': 111777, 'numnota': 6242, 'dtneg': None, 'codemp': 10,
+            'empresa': {
+                'razao': 'AGROMIL', 'nome_fantasia': '', 'cgc': '',
+                'latitude': None, 'longitude': None,
+                'endereco': '', 'cep': '',
+            },
+        }
 
     def test_sem_nunota_retorna_400(self):
         from sankhya_integration.views import api_rastreio_etiqueta_pdf
@@ -157,63 +186,153 @@ class ApiEtiquetaPdfViewTest(TestCase):
         self.assertEqual(resp.status_code, 404)
 
     @patch('sankhya_integration.views.consultar_dados_etiqueta_pedido')
-    def test_itens_sem_qtdfixada_retorna_400(self, mock_consulta):
-        """Todos itens sem peso da caixa → bloqueio com mensagem clara."""
+    def test_precisa_escolha_retorna_409(self, mock_consulta):
+        """Lote com 2+ pesos na TOP 26 sem override → 409 indicando que o
+        frontend precisa abrir modal de escolha."""
         from sankhya_integration.views import api_rastreio_etiqueta_pdf
         mock_consulta.return_value = {
-            'pedido': {'nunota': 111777, 'empresa': {}},
-            'itens': [
-                {'codprod': 100, 'descrprod': 'X', 'qtdneg': 300,
-                 'qtdfixada': 0, 'codagregacao': 'L1', 'codvol': 'KG',
-                 'referencia_ean': '', 'sequencia': 1},
-            ],
+            'pedido': self._pedido(),
+            'itens': [self._item(
+                peso_resolvido=0.0,
+                pesos_top26=[22.0, 20.0],
+                origem_peso=None,
+                precisa_escolha=True,
+            )],
+        }
+        req = self._request_com_sessao()
+        resp = api_rastreio_etiqueta_pdf(req)
+        self.assertEqual(resp.status_code, 409)
+        import json as _json
+        body = _json.loads(resp.content.decode())
+        self.assertTrue(body.get('precisa_escolha'))
+        self.assertEqual(len(body['itens_pendentes']), 1)
+        self.assertEqual(body['itens_pendentes'][0]['pesos_top26'], [22.0, 20.0])
+
+    @patch('sankhya_integration.views.consultar_dados_etiqueta_pedido')
+    def test_todos_sem_peso_resolvido_retorna_400(self, mock_consulta):
+        """Nenhuma linha tem PESO próprio nem TOP 26 com peso → 400."""
+        from sankhya_integration.views import api_rastreio_etiqueta_pdf
+        mock_consulta.return_value = {
+            'pedido': self._pedido(),
+            'itens': [self._item(peso_resolvido=0.0, origem_peso=None)],
         }
         req = self._request_com_sessao()
         resp = api_rastreio_etiqueta_pdf(req)
         self.assertEqual(resp.status_code, 400)
-        # Espera mensagem útil sobre QTDFIXADA
         import json as _json
         body = _json.loads(resp.content.decode())
         self.assertIn('peso', body['error'].lower())
 
     @patch('sankhya_integration.views.consultar_dados_etiqueta_pedido')
-    def test_fluxo_feliz_retorna_pdf(self, mock_consulta):
-        """Pedido com 1 item → PDF gerado, content-type correto."""
+    def test_fluxo_feliz_peso_proprio_retorna_pdf(self, mock_consulta):
+        """Pedido com 1 linha PESO próprio → PDF gerado."""
         from sankhya_integration.views import api_rastreio_etiqueta_pdf
         mock_consulta.return_value = {
-            'pedido': {
-                'nunota': 111777, 'numnota': 6242, 'dtneg': None, 'codemp': 10,
-                'empresa': {
-                    'razao': 'AGROMIL', 'nome_fantasia': '', 'cgc': '',
-                    'latitude': None, 'longitude': None,
-                    'endereco': '', 'cep': '',
-                },
-            },
-            'itens': [
-                {'codprod': 100, 'descrprod': 'TOMATE',
-                 'qtdneg': 1000, 'qtdfixada': 20.0,
-                 'codagregacao': 'L1', 'codvol': 'KG',
-                 'referencia_ean': '', 'sequencia': 1},
-            ],
+            'pedido': self._pedido(),
+            'itens': [self._item(peso_proprio=20.0, peso_resolvido=20.0,
+                                 origem_peso='PROPRIO')],
         }
         req = self._request_com_sessao()
         resp = api_rastreio_etiqueta_pdf(req)
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp['Content-Type'], 'application/pdf')
         self.assertTrue(resp.content.startswith(b'%PDF'))
-        # 1000 kg / 20 kg/caixa = 50 etiquetas — content deve ter tamanho
-        # consistente com isso (não vou contar páginas via libs externas)
-        self.assertGreater(len(resp.content), 1000)
+
+    @patch('sankhya_integration.views.consultar_dados_etiqueta_pedido')
+    def test_fluxo_top26_unico_retorna_pdf(self, mock_consulta):
+        """PESO próprio NULL + TOP 26 tem 1 só peso → resolve auto, PDF ok."""
+        from sankhya_integration.views import api_rastreio_etiqueta_pdf
+        mock_consulta.return_value = {
+            'pedido': self._pedido(),
+            'itens': [self._item(
+                peso_proprio=0.0,
+                pesos_top26=[22.0],
+                peso_resolvido=22.0,
+                origem_peso='TOP26_UNICO',
+            )],
+        }
+        req = self._request_com_sessao()
+        resp = api_rastreio_etiqueta_pdf(req)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp['Content-Type'], 'application/pdf')
 
 
 # --------------------------------------------------------------------------
-# atribuir_lote_item_pedido grava QTDFIXADA — agora vem do parâmetro
-# (operador digita no modal). Mai/2026: não busca mais automático da TOP 11.
+# View api_rastreio_resolver_peso (Mai/2026 — novo endpoint)
 # --------------------------------------------------------------------------
 
-class AtribuirGravaQtdfixadaTest(TestCase):
-    """Confirma que o UPDATE na TGFITE grava QTDFIXADA com o valor passado
-    no parâmetro qtdfixada (operador digita no modal de transferência)."""
+class ApiResolverPesoViewTest(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def _req(self, url='/sankhya/rastreio/api/resolver-peso/?nunota=1'):
+        req = self.factory.get(url)
+        req.session = {'codusu': 1, 'nomeusu': 'X', 'nome': 'X', 'grupos': ['1']}
+        return req
+
+    def test_sem_nunota_retorna_400(self):
+        from sankhya_integration.views import api_rastreio_resolver_peso
+        resp = api_rastreio_resolver_peso(self._req('/sankhya/rastreio/api/resolver-peso/'))
+        self.assertEqual(resp.status_code, 400)
+
+    @patch('sankhya_integration.views.consultar_dados_etiqueta_pedido')
+    def test_sem_itens_retorna_404(self, mock_consulta):
+        from sankhya_integration.views import api_rastreio_resolver_peso
+        mock_consulta.return_value = {'pedido': None, 'itens': []}
+        resp = api_rastreio_resolver_peso(self._req())
+        self.assertEqual(resp.status_code, 404)
+
+    @patch('sankhya_integration.views.consultar_dados_etiqueta_pedido')
+    def test_resolucao_direta_sem_escolha(self, mock_consulta):
+        """Nenhuma linha precisa de escolha → frontend abre PDF direto."""
+        from sankhya_integration.views import api_rastreio_resolver_peso
+        mock_consulta.return_value = {
+            'pedido': {'nunota': 1},
+            'itens': [{
+                'sequencia': 1, 'codprod': 100, 'descrprod': 'X',
+                'qtdneg': 300, 'codagregacao': 'L1', 'codvol': 'KG',
+                'peso_proprio': 16.0, 'pesos_top26': [],
+                'peso_resolvido': 16.0, 'origem_peso': 'PROPRIO',
+                'precisa_escolha': False,
+                'referencia_ean': '',
+            }],
+        }
+        resp = api_rastreio_resolver_peso(self._req())
+        self.assertEqual(resp.status_code, 200)
+        import json as _json
+        body = _json.loads(resp.content.decode())
+        self.assertTrue(body['ok'])
+        self.assertFalse(body['precisa_escolha'])
+
+    @patch('sankhya_integration.views.consultar_dados_etiqueta_pedido')
+    def test_resolucao_pede_escolha(self, mock_consulta):
+        """Pelo menos 1 linha com 2+ pesos TOP 26 → precisa_escolha=True."""
+        from sankhya_integration.views import api_rastreio_resolver_peso
+        mock_consulta.return_value = {
+            'pedido': {'nunota': 1},
+            'itens': [{
+                'sequencia': 1, 'codprod': 100, 'descrprod': 'TOMATE',
+                'qtdneg': 800, 'codagregacao': 'L1', 'codvol': 'KG',
+                'peso_proprio': 0.0, 'pesos_top26': [22.0, 20.0],
+                'peso_resolvido': 0.0, 'origem_peso': None,
+                'precisa_escolha': True,
+                'referencia_ean': '',
+            }],
+        }
+        resp = api_rastreio_resolver_peso(self._req())
+        self.assertEqual(resp.status_code, 200)
+        import json as _json
+        body = _json.loads(resp.content.decode())
+        self.assertTrue(body['precisa_escolha'])
+        self.assertEqual(body['itens'][0]['pesos_top26'], [22.0, 20.0])
+
+
+# --------------------------------------------------------------------------
+# Regressão B1 — atribuir_lote_item_pedido grava PESO (Mai/2026)
+# --------------------------------------------------------------------------
+
+class AtribuirGravaPesoTest(TestCase):
+    """Confirma que o UPDATE/INSERT grava PESO (não mais QTDFIXADA)."""
 
     def _mock_conn_ctx(self, mock_obter, cursor):
         conn = MagicMock()
@@ -225,7 +344,7 @@ class AtribuirGravaQtdfixadaTest(TestCase):
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
            return_value=True)
-    def test_qtdfixada_passado_grava_no_update(self, _mp, mock_obter):
+    def test_peso_passado_grava_no_update(self, _mp, mock_obter):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
             (None, 10.0, 100),    # FOR UPDATE: sem lote, qtd 10, codprod 100
@@ -237,7 +356,7 @@ class AtribuirGravaQtdfixadaTest(TestCase):
         from sankhya_integration.services.oracle_conn import atribuir_lote_item_pedido
         res = atribuir_lote_item_pedido(
             nunota=1, sequencia=1, codagregacao='L1',
-            qtdfixada=15.0,
+            peso=15.0,
         )
 
         self.assertTrue(res['ok'])
@@ -246,17 +365,23 @@ class AtribuirGravaQtdfixadaTest(TestCase):
         update_calls = [
             call for call in cursor.execute.call_args_list
             if 'UPDATE TGFITE' in (call[0][0] if call[0] else '')
-            and 'QTDFIXADA' in (call[0][0] if call[0] else '')
+            and 'PESO' in (call[0][0] if call[0] else '')
+            and 'CODAGREGACAO' in (call[0][0] if call[0] else '')
         ]
-        self.assertTrue(update_calls, "Nenhum UPDATE com QTDFIXADA encontrado")
+        self.assertTrue(update_calls, "Nenhum UPDATE com PESO encontrado")
         kwargs = update_calls[0][1]
-        self.assertEqual(kwargs.get('qf'), 15.0)
+        self.assertEqual(kwargs.get('p'), 15.0)
+        # Garantia: SQL não menciona mais QTDFIXADA
+        sql = update_calls[0][0][0]
+        self.assertNotIn('QTDFIXADA', sql)
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
            return_value=True)
-    def test_qtdfixada_omitido_grava_null(self, _mp, mock_obter):
-        """Sem qtdfixada no parâmetro → grava NULL (operador deixou vazio)."""
+    def test_peso_omitido_grava_null(self, _mp, mock_obter):
+        """Sem peso no parâmetro → grava NULL (operador deixou vazio).
+
+        Importante: campo agora é OPCIONAL no modal (Mai/2026)."""
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
             (None, 10.0, 100),
@@ -272,16 +397,16 @@ class AtribuirGravaQtdfixadaTest(TestCase):
         update_calls = [
             call for call in cursor.execute.call_args_list
             if 'UPDATE TGFITE' in (call[0][0] if call[0] else '')
-            and 'QTDFIXADA' in (call[0][0] if call[0] else '')
+            and 'PESO' in (call[0][0] if call[0] else '')
         ]
         self.assertTrue(update_calls)
         kwargs = update_calls[0][1]
-        self.assertIsNone(kwargs.get('qf'))
+        self.assertIsNone(kwargs.get('p'))
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
            return_value=True)
-    def test_qtdfixada_zero_ou_negativo_vira_null(self, _mp, mock_obter):
+    def test_peso_zero_ou_negativo_vira_null(self, _mp, mock_obter):
         """Valores inválidos (0, negativo) viram NULL — não passam."""
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
@@ -294,27 +419,27 @@ class AtribuirGravaQtdfixadaTest(TestCase):
         from sankhya_integration.services.oracle_conn import atribuir_lote_item_pedido
         res = atribuir_lote_item_pedido(
             nunota=1, sequencia=1, codagregacao='L1',
-            qtdfixada=0,
+            peso=0,
         )
 
         self.assertTrue(res['ok'])
         update_calls = [
             call for call in cursor.execute.call_args_list
             if 'UPDATE TGFITE' in (call[0][0] if call[0] else '')
-            and 'QTDFIXADA' in (call[0][0] if call[0] else '')
+            and 'PESO' in (call[0][0] if call[0] else '')
         ]
         self.assertTrue(update_calls)
         kwargs = update_calls[0][1]
-        self.assertIsNone(kwargs.get('qf'))
+        self.assertIsNone(kwargs.get('p'))
 
 
 # --------------------------------------------------------------------------
-# Regressão B2 — desvincular_lote_item_pedido limpa QTDFIXADA
+# Regressão B2 — desvincular_lote_item_pedido limpa PESO (Mai/2026)
 # --------------------------------------------------------------------------
 
-class DesvincularLimpaQtdfixadaTest(TestCase):
+class DesvincularLimpaPesoTest(TestCase):
     """No caminho CLEAR (sem MERGE), o UPDATE deve limpar tanto
-    CODAGREGACAO quanto QTDFIXADA."""
+    CODAGREGACAO quanto PESO."""
 
     def _mock_conn_ctx(self, mock_obter, cursor):
         conn = MagicMock()
@@ -326,7 +451,7 @@ class DesvincularLimpaQtdfixadaTest(TestCase):
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
            return_value=True)
-    def test_clear_inclui_qtdfixada_no_update(self, _mp, mock_obter):
+    def test_clear_inclui_peso_no_update(self, _mp, mock_obter):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
             (34, '0', 'L1', 100, 10.0),  # JOIN: top, status, codag, codprod, qtd
@@ -340,7 +465,6 @@ class DesvincularLimpaQtdfixadaTest(TestCase):
         self.assertTrue(res['ok'])
         self.assertEqual(res['operacao'], 'CLEAR')
 
-        # O UPDATE com SET CODAGREGACAO=NULL deve incluir também QTDFIXADA=NULL
         clear_calls = [
             call for call in cursor.execute.call_args_list
             if 'UPDATE TGFITE' in (call[0][0] if call[0] else '')
@@ -348,5 +472,54 @@ class DesvincularLimpaQtdfixadaTest(TestCase):
         ]
         self.assertTrue(clear_calls)
         sql = clear_calls[0][0][0]
-        self.assertIn('QTDFIXADA', sql)
+        self.assertIn('PESO', sql)
         self.assertIn('NULL', sql)
+        # Garantia: limpa PESO, não QTDFIXADA
+        self.assertNotIn('QTDFIXADA', sql)
+
+
+# --------------------------------------------------------------------------
+# consultar_pesos_classificacao_lote (Mai/2026 — nova função)
+# --------------------------------------------------------------------------
+
+class ConsultarPesosClassificacaoLoteTest(TestCase):
+    """SELECT DISTINCT PESO da TOP 26 do mesmo CODAGREGACAO, ordenado DESC."""
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_retorna_lista_ordenada_desc(self, mock_obter):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [(22.0,), (20.0,)]
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        mock_obter.return_value.__enter__.return_value = conn
+        mock_obter.return_value.__exit__.return_value = None
+
+        from sankhya_integration.services.oracle_conn import consultar_pesos_classificacao_lote
+        pesos = consultar_pesos_classificacao_lote('L1')
+
+        self.assertEqual(pesos, [22.0, 20.0])
+        # SQL filtra TOP 26 + STATUSNOTA<>'E' + PESO > 0
+        sql_used = cursor.execute.call_args[0][0]
+        self.assertIn('CODTIPOPER = 26', sql_used)
+        self.assertIn("STATUSNOTA <> 'E'", sql_used)
+        self.assertIn('PESO > 0', sql_used)
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_lote_vazio_retorna_lista_vazia(self, mock_obter):
+        """codagregacao vazio → curto-circuita sem ir ao banco."""
+        from sankhya_integration.services.oracle_conn import consultar_pesos_classificacao_lote
+        self.assertEqual(consultar_pesos_classificacao_lote(''), [])
+        self.assertEqual(consultar_pesos_classificacao_lote(None), [])
+        mock_obter.assert_not_called()
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_sem_classificacao_retorna_lista_vazia(self, mock_obter):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        mock_obter.return_value.__enter__.return_value = conn
+        mock_obter.return_value.__exit__.return_value = None
+
+        from sankhya_integration.services.oracle_conn import consultar_pesos_classificacao_lote
+        self.assertEqual(consultar_pesos_classificacao_lote('L1'), [])

@@ -5,7 +5,7 @@
 {% block active_module %}rastreio{% endblock %}
 
 {% block extra_css %}
-  <link rel="stylesheet" href="{% static 'sankhya_integration/rastreio.css' %}?v=2">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/rastreio.css' %}?v=3">
 {% endblock %}
 
 {% block header_title %}RASTREABILIDADE (WMS){% endblock %}
@@ -210,10 +210,11 @@
                 </div>
             </div>
             <div class="input-group-pesoCx">
-                <label for="inputQtdFixadaTransfer">Peso da caixa (kg) <span class="obrigatorio">*</span>:</label>
-                <input type="number" id="inputQtdFixadaTransfer" step="0.001" min="0.001" class="ras-input" placeholder="ex: 10" required />
+                <label for="inputPesoTransfer">Peso da caixa (kg):</label>
+                <input type="number" id="inputPesoTransfer" step="0.001" min="0.001" class="ras-input" placeholder="opcional — usa o da classificação" />
                 <div class="helper-text">
-                    Necessário pra imprimir etiquetas SafeTrace. Ex: REPOLHO = 16, TOMATE = 20, PIMENTÃO = 10.
+                    Opcional. Em branco = usa peso da TOP 26 (classificação) automaticamente.
+                    Se o lote foi classificado em embalagens diferentes (ex: tomate 22 e 20), o sistema pergunta na impressão. Ex: REPOLHO = 16, TOMATE = 20, PIMENTÃO = 10.
                 </div>
             </div>
             <div class="modal-footer-flex">
@@ -223,8 +224,29 @@
         </div>
     </div>
 </div>
+
+<!-- Modal: escolha de peso quando lote foi classificado em embalagens diferentes (Mai/2026) -->
+<div id="escolhaPesoOverlay" class="modal-overlay hidden">
+    <div class="modal-content escolha-peso-modal" role="dialog" aria-modal="true" aria-labelledby="escolhaPesoTitle">
+        <div class="modal-header">
+            <h3 id="escolhaPesoTitle">Escolha o peso da caixa</h3>
+            <button id="btnFecharEscolhaPeso" class="modal-close" aria-label="Fechar">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="text-muted escolha-peso-intro">
+                Esse pedido tem linhas cujo lote foi classificado em <strong>embalagens diferentes</strong>.
+                Escolha qual peso usar pra cada linha antes de imprimir.
+            </p>
+            <div id="escolhaPesoLista" class="escolha-peso-lista"></div>
+            <div class="modal-footer-flex">
+                <button id="btnCancelarEscolhaPeso" class="btn btn-clear">Cancelar</button>
+                <button id="btnConfirmarEscolhaPeso" class="btn btn-success">Imprimir</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
-  <script src="{% static 'sankhya_integration/rastreio.js' %}"></script>
+  <script src="{% static 'sankhya_integration/rastreio.js' %}?v=2"></script>
 {% endblock %}

@@ -292,7 +292,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const transferLoteName    = document.getElementById('transferLoteName');
     const transferDestino     = document.getElementById('transferDestino');
     const inputQtdTransfer    = document.getElementById('inputQtdTransfer');
-    const inputQtdFixadaTransfer = document.getElementById('inputQtdFixadaTransfer');
+    const inputPesoTransfer = document.getElementById('inputPesoTransfer');
     const maxLoteSpan         = document.getElementById('maxLote');
     const maxPedidoSpan       = document.getElementById('maxPedido');
     const btnFecharModal      = document.getElementById('btnFecharModal');
@@ -1473,14 +1473,12 @@ document.addEventListener('DOMContentLoaded', function () {
                   e.stopPropagation();
                   await resolverNotaOrfaFluxo(pedido);
               });
-        // Botão "Imprimir etiquetas do pedido" (Mai/2026) — abre PDF em nova aba
+        // Botão "Imprimir etiquetas do pedido" (Mai/2026) — resolve peso
+        // primeiro (modal de escolha se TOP 26 tem múltiplos), depois abre PDF.
         header.querySelector('.pb-btn-etiqueta')
               ?.addEventListener('click', (e) => {
                   e.stopPropagation();
-                  window.open(
-                      `/sankhya/rastreio/api/etiqueta-pdf/?nunota=${encodeURIComponent(pedido.nunota)}`,
-                      '_blank',
-                  );
+                  _abrirPdfEtiquetas(pedido.nunota, null);
               });
         // Botão "Desfazer" (vínculo manual)
         header.querySelector('.btn-desfazer-vinculo')
@@ -1686,8 +1684,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (etiquetaEl) {
             etiquetaEl.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const url = `/sankhya/rastreio/api/etiqueta-pdf/?nunota=${encodeURIComponent(pedido.nunota)}&codprod=${encodeURIComponent(prod.codprod)}`;
-                window.open(url, '_blank');
+                _abrirPdfEtiquetas(pedido.nunota, prod.codprod);
             });
         }
         const checkEl = linha.querySelector('.ras-row-check');
@@ -1803,12 +1800,12 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         }
         // Click no botão impressora → abre PDF de etiquetas só desse produto
+        // (resolve peso e modal de escolha se TOP 26 tem múltiplos — Mai/2026).
         const etiquetaEl = linha.querySelector('.btn-etiqueta');
         if (etiquetaEl) {
             etiquetaEl.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const url = `/sankhya/rastreio/api/etiqueta-pdf/?nunota=${encodeURIComponent(pedido.nunota)}&codprod=${encodeURIComponent(prod.codprod)}`;
-                window.open(url, '_blank');
+                _abrirPdfEtiquetas(pedido.nunota, prod.codprod);
             });
         }
 
@@ -1933,9 +1930,10 @@ document.addEventListener('DOMContentLoaded', function () {
         // Trava: nunca aceita vincular mais do que o pedido pediu
         inputQtdTransfer.max      = faltaProd;
         inputQtdTransfer.min      = 0.01;
-        // Peso da caixa — opcional, sempre começa vazio. Operador digita
-        // pra etiqueta ter peso. (Mai/2026)
-        if (inputQtdFixadaTransfer) inputQtdFixadaTransfer.value = '';
+        // Peso da caixa — opcional (Mai/2026). Sempre começa vazio. Se em
+        // branco, etiqueta resolve via TOP 26 do lote (modal de escolha se
+        // houver embalagens diferentes — ex: tomate classificado em 22 e 20).
+        if (inputPesoTransfer) inputPesoTransfer.value = '';
 
         modalTransfer.classList.remove('hidden');
         modalTransfer.style.display = 'flex';
@@ -1959,23 +1957,20 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        // Peso da caixa (Mai/2026) — obrigatório. Sem ele, etiqueta SafeTrace
-        // não funciona (precisa dividir qtd total pelo peso da caixa pra saber
-        // quantas etiquetas imprimir).
-        let qtdfixadaPayload = null;
-        const qfRaw = inputQtdFixadaTransfer ? inputQtdFixadaTransfer.value.trim() : '';
-        if (qfRaw === '') {
-            showToast('Informe o peso da caixa (kg) — obrigatório pra etiqueta SafeTrace.', 'warning');
-            if (inputQtdFixadaTransfer) inputQtdFixadaTransfer.focus();
-            return;
+        // Peso da caixa (Mai/2026) — OPCIONAL. Em branco vai NULL pra
+        // TGFITE.PESO e etiqueta resolve via TOP 26 do lote. Se digitado,
+        // precisa ser número > 0 (valida só formato).
+        let pesoPayload = null;
+        const qfRaw = inputPesoTransfer ? inputPesoTransfer.value.trim() : '';
+        if (qfRaw !== '') {
+            const qf = parseFloat(qfRaw);
+            if (!isFinite(qf) || qf <= 0) {
+                showToast('Peso da caixa precisa ser um número maior que zero, ou deixe em branco.', 'warning');
+                inputPesoTransfer.focus();
+                return;
+            }
+            pesoPayload = qf;
         }
-        const qf = parseFloat(qfRaw);
-        if (!isFinite(qf) || qf <= 0) {
-            showToast('Peso da caixa precisa ser um número maior que zero.', 'warning');
-            inputQtdFixadaTransfer.focus();
-            return;
-        }
-        qtdfixadaPayload = qf;
         const dispLote  = Number(lote.qtd_disponivel) || 0;
         const faltaProd = Number(prod.qtd_falta)      || 0;
         if (qtdRestante > dispLote + 1e-6) {
@@ -2020,7 +2015,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     sequencia:    linha.sequencia,
                     codagregacao: lote.codagregacao,
                     qtd:          qtdParaLinha,
-                    qtdfixada:    qtdfixadaPayload,   // Mai/2026 — peso da caixa
+                    peso:         pesoPayload,   // Mai/2026 — peso opcional
                 });
                 if (!res.ok || !res.body || !res.body.ok) {
                     erro = (res.body && res.body.error) || 'Falha ao atribuir lote.';
@@ -2382,6 +2377,118 @@ document.addEventListener('DOMContentLoaded', function () {
             );
         }
         recarregarTudo();
+    }
+
+    // ==========================================================================
+    // 10d. Etiquetas — fluxo de impressão com resolução de peso (Mai/2026)
+    // PESO da etiqueta vem em cascata:
+    //   1. TGFITE.PESO da linha (override do operador no vínculo, opcional)
+    //   2. PESO único da TOP 26 do mesmo lote (resolve auto)
+    //   3. 2+ pesos na TOP 26 → modal de escolha (operador decide)
+    // ==========================================================================
+    async function _abrirPdfEtiquetas(nunota, codprod) {
+        const baseUrl = `/sankhya/rastreio/api/etiqueta-pdf/?nunota=${encodeURIComponent(nunota)}`
+            + (codprod ? `&codprod=${encodeURIComponent(codprod)}` : '');
+        const resolverUrl = `/sankhya/rastreio/api/resolver-peso/?nunota=${encodeURIComponent(nunota)}`
+            + (codprod ? `&codprod=${encodeURIComponent(codprod)}` : '');
+
+        // Resolve peso primeiro — descobre se precisa de escolha antes
+        // de abrir aba nova com PDF (evita aba inútil com erro).
+        let res;
+        try {
+            res = await fetch(resolverUrl, { credentials: 'same-origin' });
+        } catch (e) {
+            showToast('Falha de rede ao resolver peso da etiqueta.', 'error');
+            return;
+        }
+        if (!res.ok) {
+            let msg = `Erro ${res.status}`;
+            try { const b = await res.json(); msg = b.error || msg; } catch (_) {}
+            showToast(msg, 'error');
+            return;
+        }
+        const body = await res.json();
+        if (!body.ok) {
+            showToast(body.error || 'Erro ao resolver peso.', 'error');
+            return;
+        }
+
+        // Sem ambiguidade → abre PDF direto
+        if (!body.precisa_escolha) {
+            window.open(baseUrl, '_blank');
+            return;
+        }
+
+        // Tem linhas com 2+ pesos na TOP 26 → modal de escolha
+        const overrides = await _abrirModalEscolhaPeso(body.itens);
+        if (overrides === null) return;  // cancelado
+
+        // Monta query param ?pesos=seq:val,seq:val
+        const partes = Object.entries(overrides).map(([seq, val]) => `${seq}:${val}`);
+        const urlComPesos = baseUrl + '&pesos=' + encodeURIComponent(partes.join(','));
+        window.open(urlComPesos, '_blank');
+    }
+
+    function _abrirModalEscolhaPeso(itens) {
+        return new Promise((resolve) => {
+            const overlay = document.getElementById('escolhaPesoOverlay');
+            const lista   = document.getElementById('escolhaPesoLista');
+            const btnOk   = document.getElementById('btnConfirmarEscolhaPeso');
+            const btnCanc = document.getElementById('btnCancelarEscolhaPeso');
+            const btnX    = document.getElementById('btnFecharEscolhaPeso');
+            if (!overlay || !lista) {
+                resolve(null);
+                return;
+            }
+
+            // Filtra só as linhas que realmente precisam de escolha
+            const pendentes = (itens || []).filter(it => it.precisa_escolha);
+            lista.innerHTML = pendentes.map(it => {
+                const radios = (it.pesos_top26 || []).map((p, idx) => {
+                    const id = `peso_${it.sequencia}_${idx}`;
+                    const checked = idx === 0 ? 'checked' : '';
+                    return `
+                        <label class="escolha-peso-radio" for="${id}">
+                            <input type="radio" id="${id}" name="peso_seq_${it.sequencia}" value="${p}" ${checked} />
+                            <strong>${fmtQtd(p)} kg</strong>
+                        </label>
+                    `;
+                }).join('');
+                return `
+                    <div class="escolha-peso-linha" data-seq="${it.sequencia}">
+                        <div class="escolha-peso-prod">
+                            <strong>${escapeHtml(it.descrprod || '—')}</strong>
+                            <span class="text-muted"> · ${fmtQtd(it.qtdneg || 0)} kg · lote ${escapeHtml(it.codagregacao || '—')}</span>
+                        </div>
+                        <div class="escolha-peso-opcoes">${radios}</div>
+                    </div>
+                `;
+            }).join('');
+
+            overlay.classList.remove('hidden');
+            overlay.style.display = 'flex';
+
+            const fechar = (out) => {
+                overlay.classList.add('hidden');
+                overlay.style.display = '';
+                btnOk?.removeEventListener('click', onOk);
+                btnCanc?.removeEventListener('click', onCanc);
+                btnX?.removeEventListener('click', onCanc);
+                resolve(out);
+            };
+            const onOk = () => {
+                const out = {};
+                for (const it of pendentes) {
+                    const sel = lista.querySelector(`input[name="peso_seq_${it.sequencia}"]:checked`);
+                    if (sel) out[it.sequencia] = parseFloat(sel.value);
+                }
+                fechar(out);
+            };
+            const onCanc = () => fechar(null);
+            btnOk?.addEventListener('click', onOk);
+            btnCanc?.addEventListener('click', onCanc);
+            btnX?.addEventListener('click', onCanc);
+        });
     }
 
     // ==========================================================================

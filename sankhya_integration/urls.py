@@ -152,6 +152,9 @@ urlpatterns = [
     path('rastreio/api/vinculo/resolver/',                views.api_rastreio_vinculo_resolver,                 name='api_rastreio_vinculo_resolver'),
     # Etiquetas SafeTrace/IAgro (Mai/2026): PDF 100×50mm pra impressora Zebra ZD220
     path('rastreio/api/etiqueta-pdf/',                    views.api_rastreio_etiqueta_pdf,                     name='api_rastreio_etiqueta_pdf'),
+    # Resolução de peso (TOP 26) — frontend chama antes do PDF pra detectar
+    # linhas com múltiplos pesos e abrir modal de escolha (Mai/2026)
+    path('rastreio/api/resolver-peso/',                   views.api_rastreio_resolver_peso,                    name='api_rastreio_resolver_peso'),
 
 # ==============================================================================
 # 📧 MÓDULO IMPORTAÇÃO POR E-MAIL (PEDIDOS COM PDF + LLM LOCAL)

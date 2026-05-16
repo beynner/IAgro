@@ -51,6 +51,7 @@ from .services.oracle_conn import (
     listar_filtros_distintos_auditoria,
     # Etiquetas SafeTrace/IAgro (Rastreio — Mai/2026)
     consultar_dados_etiqueta_pedido,
+    consultar_pesos_classificacao_lote,  # noqa: F401  (uso indireto via consultar_dados_etiqueta_pedido)
     calcular_qtd_etiquetas,
 )
 from .services.etiqueta_lote import gerar_pdf_etiquetas
@@ -3439,7 +3440,11 @@ def api_rastreio_atribuir_lote(request: HttpRequest) -> JsonResponse:
     sequencia    = _converter_para_inteiro(dados.get('sequencia'))
     codagregacao = (dados.get('codagregacao') or '').strip()
     qtd          = _converter_para_float(dados.get('qtd'))         # opcional
-    qtdfixada    = _converter_para_float(dados.get('qtdfixada'))   # opcional (Mai/2026 — peso da caixa pra etiqueta)
+    # Mai/2026: peso da caixa pra etiqueta — agora OPCIONAL. Se NULL, etiqueta
+    # resolve em runtime via TGFITE.PESO desta linha (NULL) → DISTINCT PESO da
+    # TOP 26 do mesmo lote (modal de escolha se houver 2+ embalagens).
+    # Aceita alias retro `qtdfixada` (JS antigo) durante transição.
+    peso         = _converter_para_float(dados.get('peso') if dados.get('peso') is not None else dados.get('qtdfixada'))
 
     if not nunota or not sequencia or not codagregacao:
         return JsonResponse(
@@ -3453,7 +3458,7 @@ def api_rastreio_atribuir_lote(request: HttpRequest) -> JsonResponse:
             sequencia=sequencia,
             codagregacao=codagregacao,
             qtd=qtd,
-            qtdfixada=qtdfixada,
+            peso=peso,
         )
         if not res.get('ok'):
             res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao atribuir lote')
@@ -3503,8 +3508,115 @@ def api_rastreio_atribuir_lote(request: HttpRequest) -> JsonResponse:
 # 🏷  ETIQUETAS SAFE TRACE / IAGRO (Mai/2026)
 # Gera PDF 100×50mm landscape com 1 etiqueta por caixa. Operador clica
 # 🖨 no header do pedido (todos os itens) ou na linha de cada produto.
-# Nº de etiquetas = QTDNEG (kg) / QTDFIXADA (kg por caixa), arredondado pra cima.
+# Nº de etiquetas = QTDNEG (kg) / PESO (kg por caixa), arredondado pra cima.
+#
+# Resolução do peso (em cascata):
+#  1. Override do operador via ?pesos=seq:val,seq:val (modal de escolha)
+#  2. TGFITE.PESO da própria linha (preenchido no vínculo, opcional)
+#  3. PESO da TOP 26 do mesmo lote (1 só → automático; 2+ → modal escolha)
 # ==============================================================================
+
+def _parse_pesos_overrides(raw: str) -> dict[int, float]:
+    """Parseia query param ?pesos=10:22,11:20 em {10: 22.0, 11: 20.0}.
+
+    Ignora segmentos inválidos sem explodir — modal sempre envia clean,
+    mas defesa em profundidade.
+    """
+    out: dict[int, float] = {}
+    if not raw:
+        return out
+    for parte in raw.split(','):
+        if ':' not in parte:
+            continue
+        seq_raw, val_raw = parte.split(':', 1)
+        try:
+            seq = int(seq_raw.strip())
+            val = float(val_raw.strip())
+            if seq > 0 and val > 0:
+                out[seq] = val
+        except (ValueError, TypeError):
+            continue
+    return out
+
+
+@require_http_methods(["GET"])
+@exige_grupo('rastreio')
+def api_rastreio_resolver_peso(request: HttpRequest) -> JsonResponse:
+    """Devolve quais linhas do pedido precisam de escolha de peso e os
+    pesos disponíveis na TOP 26 do lote. Frontend chama ANTES de abrir o PDF.
+
+    Query params:
+        ?nunota=X (obrigatório): NUNOTA do pedido (TOP 34/35/37)
+        ?codprod=Y (opcional):  limita à produto-linha
+
+    Resposta:
+      {
+        'ok': True,
+        'pedido_nunota': X,
+        'precisa_escolha': True/False,  # alguma linha tem 2+ pesos na TOP 26?
+        'itens': [
+          {'sequencia', 'codprod', 'descrprod', 'qtdneg', 'codagregacao',
+           'peso_proprio', 'pesos_top26', 'peso_resolvido', 'precisa_escolha'},
+          ...
+        ]
+      }
+
+    Se ``precisa_escolha=False`` em todos, frontend abre o PDF direto.
+    Se algum True, frontend abre modal com radios pra cada SEQ ambígua.
+    """
+    try:
+        nunota = int(request.GET.get('nunota') or 0)
+    except (TypeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'NUNOTA inválido'}, status=400)
+    if nunota <= 0:
+        return JsonResponse({'ok': False, 'error': 'NUNOTA obrigatório'}, status=400)
+
+    codprod = None
+    codprod_raw = request.GET.get('codprod')
+    if codprod_raw:
+        try:
+            codprod = int(codprod_raw)
+        except (TypeError, ValueError):
+            codprod = None
+
+    try:
+        dados = consultar_dados_etiqueta_pedido(nunota, codprod=codprod)
+    except Exception as e:
+        logger.exception("Erro em api_rastreio_resolver_peso")
+        return JsonResponse(
+            {'ok': False, 'error': humanizar_erro_oracle(e)}, status=500,
+        )
+
+    pedido = dados.get('pedido')
+    itens  = dados.get('itens') or []
+    if not pedido or not itens:
+        return JsonResponse({
+            'ok': False,
+            'error': ('Nenhum item com lote vinculado neste pedido. '
+                      'Vincule lotes antes de imprimir etiquetas.'),
+        }, status=404)
+
+    return JsonResponse({
+        'ok': True,
+        'pedido_nunota':   pedido.get('nunota'),
+        'precisa_escolha': any(it.get('precisa_escolha') for it in itens),
+        'itens': [
+            {
+                'sequencia':       it.get('sequencia'),
+                'codprod':         it.get('codprod'),
+                'descrprod':       it.get('descrprod'),
+                'qtdneg':          it.get('qtdneg'),
+                'codagregacao':    it.get('codagregacao'),
+                'peso_proprio':    it.get('peso_proprio'),
+                'pesos_top26':     it.get('pesos_top26'),
+                'peso_resolvido':  it.get('peso_resolvido'),
+                'origem_peso':     it.get('origem_peso'),
+                'precisa_escolha': it.get('precisa_escolha'),
+            }
+            for it in itens
+        ],
+    })
+
 
 @require_http_methods(["GET"])
 @exige_grupo('rastreio')
@@ -3514,10 +3626,14 @@ def api_rastreio_etiqueta_pdf(request: HttpRequest):
     Query params:
         ?nunota=X (obrigatório): NUNOTA do pedido (TOP 34/35/37)
         ?codprod=Y (opcional):  limita etiquetas a este CODPROD
+        ?pesos=seq:val,...     : overrides do modal de escolha (opcional)
 
-    Cada item gera ``calcular_qtd_etiquetas(qtdneg, qtdfixada)`` páginas.
-    Itens sem ``QTDFIXADA`` são pulados silenciosamente (operador percebe
-    pelo nº de páginas). Se nenhum item gerar etiqueta, retorna 400.
+    Cada linha TGFITE com lote vinculado gera N páginas (N=qtd/peso). Linhas
+    sem peso definido (sem PESO próprio e sem TOP 26 com peso > 0) são puladas
+    silenciosamente. Se NENHUMA linha gerar etiqueta, retorna 400.
+
+    Se alguma linha tem 2+ pesos disponíveis na TOP 26 e NÃO veio override,
+    retorna 409 indicando que o frontend precisa abrir o modal de escolha.
     """
     try:
         nunota = int(request.GET.get('nunota') or 0)
@@ -3538,8 +3654,12 @@ def api_rastreio_etiqueta_pdf(request: HttpRequest):
         except (TypeError, ValueError):
             codprod = None
 
+    overrides = _parse_pesos_overrides(request.GET.get('pesos', ''))
+
     try:
-        dados = consultar_dados_etiqueta_pedido(nunota, codprod=codprod)
+        dados = consultar_dados_etiqueta_pedido(
+            nunota, codprod=codprod, pesos_overrides=overrides,
+        )
     except Exception as e:
         logger.exception("Erro em api_rastreio_etiqueta_pdf")
         return JsonResponse(
@@ -3555,20 +3675,44 @@ def api_rastreio_etiqueta_pdf(request: HttpRequest):
                       'Vincule lotes antes de imprimir etiquetas.'),
         }, status=404)
 
-    # Calcula nº de cópias por item; pula itens sem peso da caixa
+    # Se alguma linha precisa de escolha sem override → frontend abre modal.
+    pendentes = [it for it in itens if it.get('precisa_escolha')]
+    if pendentes:
+        return JsonResponse({
+            'ok': False,
+            'precisa_escolha': True,
+            'itens_pendentes': [
+                {
+                    'sequencia':    it.get('sequencia'),
+                    'codprod':      it.get('codprod'),
+                    'descrprod':    it.get('descrprod'),
+                    'qtdneg':       it.get('qtdneg'),
+                    'codagregacao': it.get('codagregacao'),
+                    'pesos_top26':  it.get('pesos_top26'),
+                }
+                for it in pendentes
+            ],
+            'error': ('Esse lote foi classificado em pesos diferentes. '
+                      'Escolha qual peso usar antes de imprimir.'),
+        }, status=409)
+
+    # Calcula nº de cópias por linha; pula linhas sem peso resolvido
     itens_com_copias: list[tuple[dict, int]] = []
     for it in itens:
-        n = calcular_qtd_etiquetas(it.get('qtdneg', 0), it.get('qtdfixada', 0))
+        # Adapta dict pro gerar_pdf_etiquetas (que espera 'qtdfixada')
+        it_adapt = dict(it)
+        it_adapt['qtdfixada'] = it.get('peso_resolvido') or 0
+        n = calcular_qtd_etiquetas(it.get('qtdneg', 0), it.get('peso_resolvido', 0))
         if n > 0:
-            itens_com_copias.append((it, n))
+            itens_com_copias.append((it_adapt, n))
 
     if not itens_com_copias:
         return JsonResponse({
             'ok': False,
-            'error': ('Nenhum item tem peso da caixa definido — sem ele '
+            'error': ('Nenhuma linha tem peso da caixa definido — sem ele '
                       'não dá pra calcular quantas etiquetas imprimir. '
-                      'Desvincule o lote e vincule de novo, dessa vez '
-                      'preenchendo o campo "Peso da caixa (kg)" no modal.'),
+                      'Verifique se o lote foi classificado (TOP 26 com peso) '
+                      'ou informe o peso manualmente no vínculo.'),
         }, status=400)
 
     pdf_bytes = gerar_pdf_etiquetas(pedido, itens_com_copias)
