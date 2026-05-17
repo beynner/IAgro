@@ -795,3 +795,83 @@ body.vale-faturado #badgeFaturadoDist { display: flex !important; }
     }
     .section-head { font-size: 0.65rem !important; }
 }
+
+/* ===========================================================================
+   SPARKLINE — Evolução de preço/kg das vendas do lote (Mai/2026 — 2026-05-16)
+   Card abaixo da grade de distribuição, antes dos botões de ação.
+   SVG inline + tooltip absoluto. Verde Agromil (#5e7e4a).
+   =========================================================================== */
+.card-sparkline-vendas {
+    background: var(--card, #fff);
+    border: 1px solid #e5e7eb;
+    border-radius: var(--borda-raio-md, 10px);
+    padding: 10px 12px 6px;
+    margin-top: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.02);
+    box-sizing: border-box;
+}
+.card-sparkline-vendas .spark-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.card-sparkline-vendas .spark-titulo {
+    font-size: 0.78rem;
+    font-weight: 800;
+    color: #1e293b;
+    letter-spacing: -0.1px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.card-sparkline-vendas .spark-titulo .ph { color: #5e7e4a; font-size: 14px; }
+.card-sparkline-vendas .spark-stats {
+    font-size: 0.72rem;
+    color: #64748b;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+.card-sparkline-vendas .spark-stats strong {
+    color: #1e293b;
+    font-weight: 800;
+}
+.card-sparkline-vendas .spark-stats-sep {
+    color: #cbd5e1;
+    margin: 0 2px;
+}
+.card-sparkline-vendas .spark-svg-wrap {
+    position: relative;
+    width: 100%;
+    height: 120px;
+}
+.card-sparkline-vendas #sparkSvg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+.card-sparkline-vendas .spark-tooltip {
+    position: absolute;
+    background: rgba(15, 23, 42, 0.94);
+    color: #fff;
+    font-size: 11px;
+    padding: 6px 9px;
+    border-radius: 6px;
+    pointer-events: none;
+    z-index: 5;
+    line-height: 1.3;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    white-space: nowrap;
+}
+.card-sparkline-vendas .spark-tooltip.hidden { display: none; }
+
+/* Responsivo — altura reduzida e label de stats em coluna em telas estreitas */
+@media (max-width: 900px) {
+    .card-sparkline-vendas .spark-svg-wrap { height: 100px; }
+    .card-sparkline-vendas .spark-titulo { font-size: 0.72rem; }
+    .card-sparkline-vendas .spark-stats { font-size: 0.68rem; }
+}

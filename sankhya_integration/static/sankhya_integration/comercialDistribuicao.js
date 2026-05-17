@@ -939,25 +939,28 @@ window.ComercialDistribuicao = (function() {
         } catch (e) { console.warn("Aguardando Ticket.", e); }
 
         try {
-            const resVendas = await fetch(`/sankhya/comercial/api/lista-ultimas-vendas/?lote=${dadosDaLinha.codagregacao}`);
+            // Mai/2026: usar endpoint NOVO que filtra por CODAGREGACAO (lote
+            // selecionado) em vez de "produtos que existem no lote". Devolve
+            // o histórico real de saídas daquele lote — com dedup pedido↔nota.
+            const resVendas = await fetch(`/sankhya/comercial/api/vendas-lote/?lote=${encodeURIComponent(dadosDaLinha.codagregacao)}`);
             if (resVendas.ok) {
                 const vendas = await resVendas.json();
                 const listaContainer = document.getElementById('listaUltimasVendas');
                 if (listaContainer && vendas.ultimasVendas) {
-                    listaContainer.innerHTML = ''; 
-                    
+                    listaContainer.innerHTML = '';
+
                     if (vendas.ultimasVendas.length === 0) {
-                        listaContainer.innerHTML = '<div style="font-size: 0.7rem; color: #94a3b8; text-align: center; padding: 10px;">Nenhuma venda recente.</div>';
+                        listaContainer.innerHTML = '<div style="font-size: 0.7rem; color: #94a3b8; text-align: center; padding: 10px;">Sem vendas deste lote ainda.</div>';
                     } else {
                         vendas.ultimasVendas.forEach(v => {
                             const pCx = v.preco_cx !== undefined ? v.preco_cx : (v.preco_kg * pesoCx);
                             const pKg = v.preco_kg !== undefined ? v.preco_kg : 0;
                             const corBadge = v.tipo === 'EXTRA' ? '#2563eb' : (v.tipo === 'MÉDIO' ? '#ea580c' : (v.tipo === 'IN NATURA' ? '#16a34a' : '#64748b'));
-                            
+
                             listaContainer.innerHTML += `
                                 <div style="font-size: 0.65rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; margin-bottom: 3px;">
                                     <div style="display: flex; justify-content: space-between; font-weight: 700; color: #334155; margin-bottom: 1px;">
-                                        <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;" title="${v.cliente}">${v.cliente}</span>
+                                        <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;" title="${v.cliente_full || v.cliente}">${v.cliente}</span>
                                         <span style="color: #29292b; margin-left: 5px;">${v.data}</span>
                                     </div>
                                     <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -970,6 +973,14 @@ window.ComercialDistribuicao = (function() {
                                 </div>
                             `;
                         });
+                    }
+
+                    // Alimenta o sparkline com os mesmos dados (1 fetch). Cronológico:
+                    // o backend devolve DESC; aqui revertemos pra desenhar
+                    // esquerda=antigo, direita=recente (leitura natural).
+                    if (window.ComercialDistribuicao && typeof window.ComercialDistribuicao.renderSparkline === 'function') {
+                        const pontos = [...vendas.ultimasVendas].reverse();
+                        window.ComercialDistribuicao.renderSparkline(pontos);
                     }
                 }
             }
@@ -1025,6 +1036,18 @@ window.ComercialDistribuicao = (function() {
         });
 
         STATE = { nunotaOrigem: null, lote: null, pesos: null, qtdconferida: 0 };
+
+        // Mai/2026: limpa sparkline + lista de vendas do lote (estado anterior)
+        const sparkCard = document.getElementById('cardSparkVendas');
+        if (sparkCard) sparkCard.style.display = 'none';
+        const sparkSvg = document.getElementById('sparkSvg');
+        if (sparkSvg) sparkSvg.innerHTML = '';
+        const sparkStats = document.getElementById('sparkStats');
+        if (sparkStats) sparkStats.textContent = '';
+        const listaVendas = document.getElementById('listaUltimasVendas');
+        if (listaVendas) {
+            listaVendas.innerHTML = '<div style="font-size: 0.7rem; color: #94a3b8; text-align: center; padding: 10px;">Aguardando dados...</div>';
+        }
     };
 
     const toggleVendas = () => {
@@ -1287,5 +1310,175 @@ window.ComercialDistribuicao = (function() {
         }
     };
 
-    return { preencher, limpar, toggleVendas, salvar, zerarNegociacao, abrirModalMovimentacao, toggleMovMode, confirmarMovimento };
+    // ==========================================================================
+    // Sparkline de evolução de preço (Mai/2026 — 2026-05-16)
+    // Recebe array cronológico (mais antigo → mais recente) de pontos
+    // { data, data_iso, cliente, cliente_full, tipo, qtd_kg, preco_kg, preco_cx }.
+    // Desenha linha + pontos + média horizontal tracejada em SVG inline.
+    // Sem dependências externas (Chart.js/D3) — mantém coerência com tanques
+    // de combustível e gauge do comercial que já usam SVG inline.
+    // ==========================================================================
+    const renderSparkline = (pontos) => {
+        const card    = document.getElementById('cardSparkVendas');
+        const svg     = document.getElementById('sparkSvg');
+        const stats   = document.getElementById('sparkStats');
+        const tooltip = document.getElementById('sparkTooltip');
+        if (!card || !svg) return;
+
+        // Limpa estado anterior (cobre troca de lote + zerar)
+        svg.innerHTML = '';
+        if (tooltip) {
+            tooltip.classList.add('hidden');
+            tooltip.textContent = '';
+        }
+
+        if (!Array.isArray(pontos) || pontos.length === 0) {
+            card.style.display = 'none';
+            if (stats) stats.textContent = '';
+            return;
+        }
+        card.style.display = '';
+
+        // viewBox fixo — pontos são mapeados pra esse canvas e o SVG escala
+        // proporcionalmente com o container (preserveAspectRatio="none").
+        const W = 600, H = 120;
+        const PAD_L = 44, PAD_R = 12, PAD_T = 14, PAD_B = 22;
+        const plotW = W - PAD_L - PAD_R;
+        const plotH = H - PAD_T - PAD_B;
+
+        const precos = pontos.map(p => Number(p.preco_kg) || 0).filter(v => v > 0);
+        if (precos.length === 0) {
+            card.style.display = 'none';
+            if (stats) stats.textContent = '';
+            return;
+        }
+        const minP = Math.min(...precos);
+        const maxP = Math.max(...precos);
+        const avgP = precos.reduce((a, b) => a + b, 0) / precos.length;
+
+        // Range Y com margem visual de 5% pra cada lado (linha não cola no topo/base)
+        let yMin = minP, yMax = maxP;
+        if (yMin === yMax) { yMin -= 0.5; yMax += 0.5; }   // 1 só ponto
+        const margem = (yMax - yMin) * 0.10;
+        yMin -= margem;
+        yMax += margem;
+
+        const xAt = (i) => {
+            if (pontos.length === 1) return PAD_L + plotW / 2;
+            return PAD_L + (i / (pontos.length - 1)) * plotW;
+        };
+        const yAt = (v) => PAD_T + (1 - (v - yMin) / (yMax - yMin)) * plotH;
+
+        const fmtBRL = window.ComercialUtils && window.ComercialUtils.fmtBRL
+            ? window.ComercialUtils.fmtBRL
+            : (n) => 'R$ ' + Number(n || 0).toFixed(2).replace('.', ',');
+
+        // SVG namespace pra createElement funcionar
+        const NS = 'http://www.w3.org/2000/svg';
+        const mk = (tag, attrs) => {
+            const el = document.createElementNS(NS, tag);
+            for (const k in attrs) el.setAttribute(k, attrs[k]);
+            return el;
+        };
+
+        // Eixo Y — 3 linhas de grade (min, média, max)
+        [yMin, avgP, yMax].forEach((v, idx) => {
+            const y = yAt(v);
+            const line = mk('line', {
+                x1: PAD_L, x2: W - PAD_R, y1: y, y2: y,
+                stroke: idx === 1 ? '#94a3b8' : '#e2e8f0',
+                'stroke-width': 1,
+                'stroke-dasharray': idx === 1 ? '4 4' : '',
+            });
+            svg.appendChild(line);
+            const label = mk('text', {
+                x: PAD_L - 6, y: y + 3,
+                'text-anchor': 'end',
+                'font-size': '10',
+                fill: idx === 1 ? '#475569' : '#94a3b8',
+                'font-weight': idx === 1 ? '700' : '500',
+            });
+            label.textContent = fmtBRL(v).replace('R$ ', '');
+            svg.appendChild(label);
+        });
+
+        // Eixo X — primeira e última data (evita label denso)
+        if (pontos.length > 0) {
+            [0, pontos.length - 1].forEach((i, k) => {
+                if (k === 1 && pontos.length === 1) return;   // 1 só ponto
+                const label = mk('text', {
+                    x: xAt(i), y: H - 6,
+                    'text-anchor': i === 0 ? 'start' : 'end',
+                    'font-size': '10',
+                    fill: '#64748b',
+                });
+                label.textContent = pontos[i].data || '';
+                svg.appendChild(label);
+            });
+        }
+
+        // Linha conectando os pontos (só se >= 2 pontos)
+        if (pontos.length >= 2) {
+            const d = pontos.map((p, i) => {
+                const x = xAt(i).toFixed(1);
+                const y = yAt(Number(p.preco_kg) || 0).toFixed(1);
+                return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+            }).join(' ');
+            svg.appendChild(mk('path', {
+                d, fill: 'none',
+                stroke: '#5e7e4a',                  // verde Agromil
+                'stroke-width': 2,
+                'stroke-linejoin': 'round',
+                'stroke-linecap': 'round',
+            }));
+        }
+
+        // Pontos clicáveis (círculo + área transparente maior pra hit-test)
+        pontos.forEach((p, i) => {
+            const cx = xAt(i);
+            const cy = yAt(Number(p.preco_kg) || 0);
+            svg.appendChild(mk('circle', {
+                cx, cy, r: 4, fill: '#5e7e4a',
+                stroke: '#fff', 'stroke-width': 1.5,
+            }));
+            // Hit-test invisível (raio maior) — facilita hover em mobile/touch
+            const hit = mk('circle', {
+                cx, cy, r: 12, fill: 'transparent',
+                'data-idx': i, style: 'cursor: pointer;',
+            });
+            svg.appendChild(hit);
+            hit.addEventListener('mouseenter', (e) => {
+                if (!tooltip) return;
+                tooltip.innerHTML = `
+                    <div style="font-weight:700;">${p.cliente || '—'}</div>
+                    <div style="opacity:.85;">${p.data || '—'} · ${p.tipo || ''}</div>
+                    <div style="font-weight:700; margin-top:2px;">${fmtBRL(p.preco_kg)} <span style="font-weight:400; opacity:.7;">/kg</span></div>
+                `;
+                tooltip.classList.remove('hidden');
+                // Posiciona perto do cursor (coords relativas ao wrapper)
+                const wrap = svg.parentElement;
+                const rect = wrap.getBoundingClientRect();
+                tooltip.style.left = (e.clientX - rect.left + 10) + 'px';
+                tooltip.style.top  = (e.clientY - rect.top - 10)  + 'px';
+            });
+            hit.addEventListener('mouseleave', () => {
+                if (tooltip) tooltip.classList.add('hidden');
+            });
+        });
+
+        // Estatísticas: média · min · max · #vendas
+        if (stats) {
+            stats.innerHTML = `
+                <span>Média <strong>${fmtBRL(avgP)}/kg</strong></span>
+                <span class="spark-stats-sep">·</span>
+                <span>Min ${fmtBRL(minP)}</span>
+                <span class="spark-stats-sep">·</span>
+                <span>Max ${fmtBRL(maxP)}</span>
+                <span class="spark-stats-sep">·</span>
+                <span>${precos.length} venda${precos.length === 1 ? '' : 's'}</span>
+            `;
+        }
+    };
+
+    return { preencher, limpar, toggleVendas, salvar, zerarNegociacao, abrirModalMovimentacao, toggleMovMode, confirmarMovimento, renderSparkline };
 })();

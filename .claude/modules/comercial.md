@@ -117,6 +117,46 @@ Tanto `comercial.js` (card Entrada) quanto `comercialFinanceiro.js` (modalFatura
 
 ---
 
+## Últimas vendas DO LOTE + sparkline de preço (Mai/2026 — 2026-05-16)
+
+A lista lateral "ÚLTIMAS VENDAS" passou a filtrar por **lote selecionado** (`CODAGREGACAO`) em vez de "produtos que existem nesse lote". Função antiga `consultar_lista_ultimas_vendas` ficou preservada por retrocompat — a substituta é `consultar_vendas_do_lote(codagregacao)`.
+
+### Endpoint e fluxo
+
+- `GET /sankhya/comercial/api/vendas-lote/?lote=X` → [`api_vendas_do_lote`](../../sankhya_integration/views.py) → [`consultar_vendas_do_lote`](../../sankhya_integration/services/oracle_conn.py)
+- Frontend [comercialDistribuicao.js](../../sankhya_integration/static/sankhya_integration/comercialDistribuicao.js) faz **1 fetch único** que alimenta a lista lateral E o sparkline (sem dobrar query Oracle).
+
+### Dedup pedido↔nota
+
+Mesma regra da view `ANDRE_IAGRO_SALDO_LOTE` na perna `baixas_venda`:
+- Prefere TOP 34 STATUSNOTA='L' com lote vinculado (verdade IAgro — atribuição pelo Rastreio)
+- Aceita TOP 35/37 STATUSNOTA='L' **somente quando** não há par TGFVAR (operador faturou direto no Sankhya sem pedido pareado)
+
+Evita mostrar pedido + nota como duplicata.
+
+### Sparkline SVG inline
+
+Card `#cardSparkVendas` (full width, no fim do `#distGrid` antes dos botões de ação). Renderizado por `window.ComercialDistribuicao.renderSparkline(pontos)`:
+
+- Eixo Y: preço/kg auto-escalado com margem visual 10%
+- Eixo X: cronológico (esquerda = mais antigo, direita = mais recente)
+- Verde Agromil (`#5e7e4a`) — mesma paleta do Rastreio
+- Linha tracejada horizontal mostrando **média**
+- Pontos hover-ativos com tooltip (cliente + data + tipo + preço)
+- Estatísticas no header do card: média, min, max, nº de vendas
+- Estado vazio: `display: none` no card (não aparece se lote ainda não tem vendas)
+
+Sem dependência externa (Chart.js/D3) — consistente com tanques combustível e gauge do comercial que também usam SVG inline.
+
+### Decisões
+
+- **Filtra por lote, mostra TODAS as vendas** (sem `LIMIT`). Lote típico esvazia em ~7 dias, então naturalmente fica entre 5-15 vendas
+- **Sparkline mostra preço/kg, não margem real %**. Razão: preço/kg vem pronto da query; margem real exige cruzar com custo entrada (TOP 13 do mesmo lote) — fica pra etapa 2
+- **JS limpa sparkline no `limpar()`** junto com o resto do estado — sem isso, troca de lote mostraria fantasma do anterior
+
+---
+
 ## Testes
 
 - `test_views_comercial.py` — comercial, faturamento, vales
+- `test_vendas_lote.py` — `consultar_vendas_do_lote` (SQL+dedup+mapping) + endpoint `api_vendas_do_lote` (validação + delegação) — 10 tests

@@ -1894,6 +1894,134 @@ def consultar_lista_ultimas_vendas(lote: str):
         logger.error("Erro SQL Vendas: %s", e)
     return res_final
 
+
+def consultar_vendas_do_lote(codagregacao: str):
+    """Retorna todas as vendas (TGFITE faturadas) do CODAGREGACAO informado.
+
+    Mai/2026 — sucessora da `consultar_lista_ultimas_vendas`, mas filtrando
+    por LOTE (CODAGREGACAO) em vez de "produtos que existem no lote". Cada
+    linha representa uma SAÍDA real do estoque rastreado, com dedup pedido↔nota
+    (mesma regra da view ANDRE_IAGRO_SALDO_LOTE):
+      - PREFERE TOP 34 STATUSNOTA='L' (verdade IAgro, atribuído pelo Rastreio)
+      - FALLBACK TOP 35/37 STATUSNOTA='L' quando não existe par TGFVAR
+        (operador faturou direto pelo Sankhya sem pedido pareado)
+
+    Cada item devolvido tem o preço/kg e preço/cx prontos pra alimentar:
+      - Lista de últimas vendas do lote (lateral direita do Comercial)
+      - Sparkline de evolução de preço (mesma fonte → 1 fetch)
+
+    Returns:
+      {
+        "ultimasVendas": [
+          {
+            "data":      "16/05",        # DD/MM
+            "data_iso":  "2026-05-16",   # pra ordenação em JS
+            "nunota":    111777,
+            "numnota":   6242,           # NULL em TOP 34
+            "top":       35,
+            "cliente":   "ASSAI DF",     # nome curto pra exibição
+            "cliente_full": "SENDAS DISTRIBUIDORA S/A LJ176",
+            "tipo":      "EXTRA",        # EXTRA / MÉDIO / IN NATURA / OUTROS
+            "qtd_kg":    160.0,
+            "preco_kg":  3.25,
+            "preco_cx":  71.50,
+            "peso_cx":   22.0,           # de TGFITE.PESO (Mai/2026) ou TGFPRO.PESOBRUTO
+          },
+          ...
+        ]
+      }
+
+    Ordem: DTNEG DESC (mais recente primeiro). JS reverte se quiser X→D no
+    sparkline (esquerda velho, direita novo).
+    """
+    res_final = {"ultimasVendas": []}
+    if not codagregacao:
+        return res_final
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT
+                    c.DTNEG,
+                    c.NUNOTA,
+                    c.NUMNOTA,
+                    c.CODTIPOPER,
+                    NVL(matriz.OBSERVACOES, matriz.NOMEPARC) AS cliente_curto,
+                    matriz.NOMEPARC                          AS cliente_full,
+                    pr.SELECIONADO,
+                    NVL(i.QTDNEG, 0)                          AS qtd_kg,
+                    NVL(i.VLRTOT, 0)                          AS vlr_tot,
+                    NVL(i.PESO, NVL(pr.PESOBRUTO, 22))        AS peso_cx
+                  FROM TGFCAB c
+                  JOIN TGFITE i      ON i.NUNOTA = c.NUNOTA
+                  JOIN TGFPAR p      ON p.CODPARC = c.CODPARC
+                  JOIN TGFPAR matriz ON matriz.CODPARC = NVL(p.CODPARCMATRIZ, p.CODPARC)
+                  JOIN TGFPRO pr     ON pr.CODPROD = i.CODPROD
+                 WHERE i.CODAGREGACAO = :lote
+                   AND c.STATUSNOTA = 'L'
+                   AND c.CODTIPOPER IN (34, 35, 37)
+                   /* Dedup pedido vs nota — mesma regra de baixas_venda na
+                      view ANDRE_IAGRO_SALDO_LOTE: prefere TOP 34 (verdade
+                      IAgro). Quando só a TOP 35/37 tem o lote, aceita —
+                      mas só se não houver par TGFVAR (senão duplicaria
+                      com o pedido correspondente que vai entrar como TOP 34). */
+                   AND (
+                        c.CODTIPOPER = 34
+                        OR NOT EXISTS (
+                            SELECT 1 FROM TGFVAR v
+                             WHERE v.NUNOTA = c.NUNOTA
+                               AND v.NUNOTAORIG IS NOT NULL
+                        )
+                   )
+                 ORDER BY c.DTNEG DESC, c.NUNOTA DESC, i.SEQUENCIA
+                """,
+                lote=str(codagregacao),
+            )
+
+            for row in cur.fetchall():
+                (dtneg, nunota, numnota, codtipoper,
+                 cliente_curto, cliente_full, selecionado,
+                 qtd_kg, vlr_tot, peso_cx) = row
+
+                # Tipo via SELECIONADO da TGFPRO (mesma regra da função antiga)
+                sel = str(selecionado).strip() if selecionado is not None else ''
+                if sel == '1':
+                    tipo = "EXTRA"
+                elif sel == '2':
+                    tipo = "MÉDIO"
+                elif sel == '0':
+                    tipo = "IN NATURA"
+                else:
+                    tipo = "OUTROS"
+
+                qtd_f  = float(qtd_kg or 0)
+                vtot_f = float(vlr_tot or 0)
+                pcx_f  = float(peso_cx or 22)
+                pkg_f  = (vtot_f / qtd_f) if qtd_f > 0 else 0.0
+                pcx_calc = pkg_f * pcx_f
+
+                res_final["ultimasVendas"].append({
+                    "data":        dtneg.strftime('%d/%m')     if dtneg else "",
+                    "data_iso":    dtneg.strftime('%Y-%m-%d')  if dtneg else "",
+                    "nunota":      int(nunota)  if nunota  is not None else None,
+                    "numnota":     int(numnota) if numnota is not None else None,
+                    "top":         int(codtipoper) if codtipoper is not None else None,
+                    "cliente":     str(cliente_curto)[:24].strip() if cliente_curto else "",
+                    "cliente_full": str(cliente_full).strip()      if cliente_full  else "",
+                    "tipo":        tipo,
+                    "qtd_kg":      qtd_f,
+                    "preco_kg":    pkg_f,
+                    "preco_cx":    pcx_calc,
+                    "peso_cx":     pcx_f,
+                })
+    except Exception as e:
+        logger.exception("Erro em consultar_vendas_do_lote(lote=%s): %s", codagregacao, e)
+
+    return res_final
+
+
 def consultar_calculo_ticket_medio(lote: str):
     """Calcula o Ticket Médio e envia a 'Bandeira' de tipo de fluxo."""
     # 🚀 ADICIONAMOS A BANDEIRA 'tipo_fluxo' AQUI

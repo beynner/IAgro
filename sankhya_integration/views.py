@@ -2093,7 +2093,26 @@ def api_lista_ultimas_vendas(request: HttpRequest) -> JsonResponse:
     # CORREÇÃO: Importando o nome correto que você alterou!
     from sankhya_integration.services.oracle_conn import consultar_lista_ultimas_vendas
     dados = consultar_lista_ultimas_vendas(lote)
-    
+
+    return JsonResponse(dados)
+
+
+# ==============================================================================
+# ROTA 1.5 (Mai/2026): Vendas DO LOTE selecionado (não mais "do produto")
+# Alimenta lista lateral + sparkline de evolução de preço no card Margem.
+# Função sucessora de consultar_lista_ultimas_vendas — filtra por CODAGREGACAO
+# em vez de extrair CODPROD do lote e filtrar por produto.
+# ==============================================================================
+@require_http_methods(["GET"])
+def api_vendas_do_lote(request: HttpRequest) -> JsonResponse:
+    """Retorna todas as vendas faturadas (TOP 34/35/37 STATUSNOTA='L') que
+    consumiram o lote informado, com dedup pedido↔nota."""
+    lote = (request.GET.get('lote') or '').strip()
+    if not lote:
+        return JsonResponse({"ok": False, "error": "Lote não informado"}, status=400)
+
+    from sankhya_integration.services.oracle_conn import consultar_vendas_do_lote
+    dados = consultar_vendas_do_lote(lote)
     return JsonResponse(dados)
 
 
