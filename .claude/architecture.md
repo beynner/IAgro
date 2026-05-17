@@ -42,7 +42,8 @@ IAgro/
 │   │   ├── comercial.html
 │   │   ├── venda.html
 │   │   ├── venda_modais.html    # Modais do portal de Venda
-│   │   └── rastreio.html
+│   │   ├── rastreio.html
+│   │   └── relatorios.html      # 📊 Mai/2026 — 2026-05-17
 │   │
 │   ├── static/sankhya_integration/
 │   │   ├── global.css                       # Tokens de design + componentes globais
@@ -55,7 +56,8 @@ IAgro/
 │   │   ├── comercialFinanceiro.js           # Sub-módulo Comercial
 │   │   ├── comercialImpressao.js            # Sub-módulo Comercial
 │   │   ├── venda.css / venda.js
-│   │   └── rastreio.css / rastreio.js
+│   │   ├── rastreio.css / rastreio.js
+│   │   └── relatorios.css / relatorios.js   # 📊 Mai/2026 — 2026-05-17
 │   │
 │   ├── sql/
 │   │   ├── ANDRE_IAGRO_SALDO_LOTE.sql        # DDL da view do WMS (versionado)
@@ -66,12 +68,18 @@ IAgro/
 │       ├── test_views_entrada.py
 │       ├── test_views_comercial.py
 │       ├── test_views_venda.py              # 90 testes
-│       └── test_rastreio.py                 # 53 testes
+│       ├── test_rastreio.py                 # 53 testes (+24 desde Mai/2026)
+│       ├── test_etiqueta_lote.py            # 27 testes (Rastreio etiquetas SafeTrace)
+│       ├── test_vendas_lote.py              # 10 testes (Comercial vendas-do-lote)
+│       ├── test_margem_lote.py              # 13 testes (Comercial card Margem)
+│       ├── test_views_combustivel.py        # 84 testes
+│       ├── test_views_email_pedidos.py      # 40+ testes
+│       └── test_relatorios.py               # 56 testes (Módulo Relatórios MVP)
 │
 └── images/                      # Imagens (logo, etc.) — também em STATICFILES_DIRS
 ```
 
-**Total de testes:** 174, todos passando, todos sem dependência de Oracle.
+**Total de testes:** ~470 (em maio/2026 com 56 testes novos do módulo Relatórios), todos passando, todos sem dependência de Oracle real.
 
 ---
 
@@ -117,6 +125,14 @@ IAgro/
 /sankhya/combustivel/api/requisicoes/         → GET listagem paginada
 /sankhya/combustivel/api/requisicao/<nunota>/ → GET detalhe (cab + itens + metadata)
 /sankhya/combustivel/api/requisicao/criar/    → POST (501 enquanto B2 não aprovada)
+
+# APIs de Relatórios (Mai/2026 — 2026-05-17, exige grupo 'relatorios' = 1, 6, 9)
+/sankhya/relatorios/                              → tela HTML com 5 sub-abas
+/sankhya/relatorios/api/top-clientes-produtos/    → GET ranking clientes + produtos
+/sankhya/relatorios/api/lotes-envelhecidos/       → GET lotes parados > N dias
+/sankhya/relatorios/api/consumo-veiculos/         → GET ranking consumo combustível
+/sankhya/relatorios/api/fluxo-caixa/              → GET TGFFIN projeção 30/60/90d
+/sankhya/relatorios/api/margem-venda/             → GET margem por cliente/produto (cache 5min)
 ```
 
 ---
@@ -173,7 +189,7 @@ Consulta no Sankhya: `SELECT CODGRUPO, NOMEGRUPO FROM TSIGRU ORDER BY CODGRUPO`.
 | Venda | 1, 6, 10 |
 | Rastreio | 1, 6, 8, 10 _(Comercial perdeu acesso em 2026-05-14)_ |
 | Combustível | 1, 6, 10, 11 _(Administrativo ganhou acesso em 2026-05-14)_ |
-| Relatórios _(módulo futuro)_ | 1, 6, 9 |
+| Relatórios | 1, 6, 9 |
 
 ---
 
