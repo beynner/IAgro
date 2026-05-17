@@ -22,6 +22,14 @@ urlpatterns = [
 
     # 📋 AUDITORIA UNIVERSAL (Mai/2026 — Lote A)
     path("auditoria/",              views.view_auditoria_painel,  name="view_auditoria_painel"),
+
+    # 📊 RELATÓRIOS (Mai/2026 — 2026-05-17) — MVP com 5 relatórios em sub-abas
+    path("relatorios/",                       views.view_relatorios_painel,            name="view_relatorios_painel"),
+    path("relatorios/api/top-clientes-produtos/", views.api_relatorio_top_clientes_produtos, name="api_relatorio_top_clientes_produtos"),
+    path("relatorios/api/lotes-envelhecidos/",    views.api_relatorio_lotes_envelhecidos,    name="api_relatorio_lotes_envelhecidos"),
+    path("relatorios/api/consumo-veiculos/",      views.api_relatorio_consumo_veiculos,      name="api_relatorio_consumo_veiculos"),
+    path("relatorios/api/fluxo-caixa/",           views.api_relatorio_fluxo_caixa,           name="api_relatorio_fluxo_caixa"),
+    path("relatorios/api/margem-venda/",          views.api_relatorio_margem_venda,          name="api_relatorio_margem_venda"),
     path("api/auditoria/listar/",   views.api_auditoria_listar,   name="api_auditoria_listar"),
     path("api/auditoria/filtros/",  views.api_auditoria_filtros,  name="api_auditoria_filtros"),
     

@@ -35,7 +35,7 @@ GRUPOS_PERMITIDOS = {
     'venda':         ['1', '6', '10'],         # DIRETORIA + SUPORTE + ADMINISTRATIVO
     'rastreio':      ['1', '6', '8', '10'],    # DIRETORIA + SUPORTE + PACKING + ADMINISTRATIVO
     'combustivel':   ['1', '6', '10', '11'],   # DIRETORIA + SUPORTE + ADMINISTRATIVO + FROTA
-    'relatorios':    ['1', '6', '9'],          # DIRETORIA + SUPORTE + COMERCIAL (módulo futuro)
+    'relatorios':    ['1', '6', '9'],          # DIRETORIA + SUPORTE + COMERCIAL (Mai/2026)
 }
 
 def _get_json_payload(request: HttpRequest) -> dict:

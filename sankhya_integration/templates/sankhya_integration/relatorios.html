@@ -1,0 +1,182 @@
+{% extends "sankhya_integration/base.html" %}
+{% load static %}
+
+{% block title %}IAgro · Relatórios{% endblock %}
+{% block active_module %}relatorios{% endblock %}
+{% block header_title %}RELATÓRIOS{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/relatorios.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<div class="rel-layout">
+
+  <!-- Tabs principais (sub-relatórios) -->
+  <div class="rel-tabs" role="tablist" aria-label="Tipo de relatório">
+    <button type="button" class="rel-tab is-on"
+            data-rel="top-clientes" aria-pressed="true"
+            title="Quem mais comprou e o que mais saiu no período">
+      <i class="ph ph-trophy" aria-hidden="true"></i>
+      <span>Top Clientes &amp; Produtos</span>
+    </button>
+    <button type="button" class="rel-tab"
+            data-rel="lotes-envelhecidos" aria-pressed="false"
+            title="Lotes com saldo parado há mais de 30 dias">
+      <i class="ph ph-hourglass-medium" aria-hidden="true"></i>
+      <span>Lotes Envelhecidos</span>
+    </button>
+    <button type="button" class="rel-tab"
+            data-rel="consumo-veiculo" aria-pressed="false"
+            title="Ranking de consumo de combustível por veículo">
+      <i class="ph ph-gas-pump" aria-hidden="true"></i>
+      <span>Consumo por Veículo</span>
+    </button>
+    <button type="button" class="rel-tab"
+            data-rel="fluxo-caixa" aria-pressed="false"
+            title="Entradas e saídas previstas nos próximos 30/60/90 dias">
+      <i class="ph ph-currency-circle-dollar" aria-hidden="true"></i>
+      <span>Fluxo de Caixa</span>
+    </button>
+    <button type="button" class="rel-tab"
+            data-rel="margem-venda" aria-pressed="false"
+            title="Margem (receita − custo) por cliente × produto">
+      <i class="ph ph-chart-line-up" aria-hidden="true"></i>
+      <span>Margem por Venda</span>
+    </button>
+  </div>
+
+  <!-- Painel de cada relatório (1 ativo por vez) -->
+  <section id="relPainel" class="rel-painel">
+    <!-- Top Clientes/Produtos -->
+    <article id="painel-top-clientes" class="rel-pane is-active" data-rel="top-clientes">
+      <header class="rel-filtros">
+        <div class="rel-filtro-periodo">
+          <span class="rel-filtro-label">Período:</span>
+          <button type="button" class="rel-chip is-on" data-periodo="7">7 dias</button>
+          <button type="button" class="rel-chip" data-periodo="30">30 dias</button>
+          <button type="button" class="rel-chip" data-periodo="90">90 dias</button>
+          <button type="button" class="rel-chip" data-periodo="mes-atual">Mês atual</button>
+          <button type="button" class="rel-chip" data-periodo="mes-anterior">Mês anterior</button>
+        </div>
+        <div class="rel-filtro-extra">
+          <label for="topClientesMetrica" class="rel-filtro-label">Métrica:</label>
+          <select id="topClientesMetrica" class="rel-select">
+            <option value="valor" selected>Valor (R$)</option>
+            <option value="qtd">Quantidade (kg)</option>
+            <option value="pedidos">Nº pedidos</option>
+          </select>
+        </div>
+        <button type="button" class="rel-btn-refresh" data-action="refresh">
+          <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+          Atualizar
+        </button>
+      </header>
+      <div class="rel-conteudo rel-loading">
+        <div class="rel-empty">Selecione um período pra carregar.</div>
+      </div>
+    </article>
+
+    <!-- Lotes envelhecidos -->
+    <article id="painel-lotes-envelhecidos" class="rel-pane" data-rel="lotes-envelhecidos">
+      <header class="rel-filtros">
+        <div class="rel-filtro-periodo">
+          <span class="rel-filtro-label">Idade mín.:</span>
+          <button type="button" class="rel-chip" data-dias="15">15 dias</button>
+          <button type="button" class="rel-chip is-on" data-dias="30">30 dias</button>
+          <button type="button" class="rel-chip" data-dias="60">60 dias</button>
+          <button type="button" class="rel-chip" data-dias="90">90 dias</button>
+        </div>
+        <button type="button" class="rel-btn-refresh" data-action="refresh">
+          <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+          Atualizar
+        </button>
+      </header>
+      <div class="rel-conteudo">
+        <div class="rel-empty">Carregando...</div>
+      </div>
+    </article>
+
+    <!-- Consumo por veículo -->
+    <article id="painel-consumo-veiculo" class="rel-pane" data-rel="consumo-veiculo">
+      <header class="rel-filtros">
+        <div class="rel-filtro-periodo">
+          <span class="rel-filtro-label">Período:</span>
+          <button type="button" class="rel-chip" data-periodo="7">7 dias</button>
+          <button type="button" class="rel-chip is-on" data-periodo="30">30 dias</button>
+          <button type="button" class="rel-chip" data-periodo="90">90 dias</button>
+          <button type="button" class="rel-chip" data-periodo="mes-atual">Mês atual</button>
+          <button type="button" class="rel-chip" data-periodo="mes-anterior">Mês anterior</button>
+        </div>
+        <div class="rel-filtro-extra">
+          <span class="rel-filtro-label">Tipo:</span>
+          <select id="consumoTipoVeic" class="rel-select">
+            <option value="">Todos</option>
+            <option value="COM">Frota (carros/caminhões)</option>
+            <option value="MAQ">Maquinário</option>
+          </select>
+        </div>
+        <button type="button" class="rel-btn-refresh" data-action="refresh">
+          <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+          Atualizar
+        </button>
+      </header>
+      <div class="rel-conteudo">
+        <div class="rel-empty">Carregando...</div>
+      </div>
+    </article>
+
+    <!-- Fluxo de caixa -->
+    <article id="painel-fluxo-caixa" class="rel-pane" data-rel="fluxo-caixa">
+      <header class="rel-filtros">
+        <div class="rel-filtro-periodo">
+          <span class="rel-filtro-label">Horizonte:</span>
+          <button type="button" class="rel-chip" data-horizonte="30">30 dias</button>
+          <button type="button" class="rel-chip is-on" data-horizonte="60">60 dias</button>
+          <button type="button" class="rel-chip" data-horizonte="90">90 dias</button>
+        </div>
+        <button type="button" class="rel-btn-refresh" data-action="refresh">
+          <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+          Atualizar
+        </button>
+      </header>
+      <div class="rel-conteudo">
+        <div class="rel-empty">Carregando...</div>
+      </div>
+    </article>
+
+    <!-- Margem por venda -->
+    <article id="painel-margem-venda" class="rel-pane" data-rel="margem-venda">
+      <header class="rel-filtros">
+        <div class="rel-filtro-periodo">
+          <span class="rel-filtro-label">Período:</span>
+          <button type="button" class="rel-chip" data-periodo="7">7 dias</button>
+          <button type="button" class="rel-chip is-on" data-periodo="30">30 dias</button>
+          <button type="button" class="rel-chip" data-periodo="90">90 dias</button>
+          <button type="button" class="rel-chip" data-periodo="mes-atual">Mês atual</button>
+          <button type="button" class="rel-chip" data-periodo="mes-anterior">Mês anterior</button>
+        </div>
+        <div class="rel-filtro-extra">
+          <span class="rel-filtro-label">Agrupar por:</span>
+          <select id="margemAgrupar" class="rel-select">
+            <option value="cliente" selected>Cliente</option>
+            <option value="produto">Produto</option>
+          </select>
+        </div>
+        <button type="button" class="rel-btn-refresh" data-action="refresh">
+          <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+          Atualizar
+        </button>
+      </header>
+      <div class="rel-conteudo">
+        <div class="rel-empty">Carregando...</div>
+      </div>
+    </article>
+  </section>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'sankhya_integration/relatorios.js' %}?v=1" defer></script>
+{% endblock %}

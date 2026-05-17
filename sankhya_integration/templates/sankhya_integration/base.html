@@ -74,6 +74,12 @@
                 <span class="nav-icon"><i class="ph ph-gas-pump"></i></span>
                 <span class="nav-label">Combustível</span>
             </a>
+            {% if "1" in request.session.grupos or "6" in request.session.grupos or "9" in request.session.grupos %}
+            <a href="/sankhya/relatorios/" class="nav-item" data-mod="relatorios" title="Relatórios">
+                <span class="nav-icon"><i class="ph ph-chart-bar"></i></span>
+                <span class="nav-label">Relatórios</span>
+            </a>
+            {% endif %}
             {% if "1" in request.session.grupos or "6" in request.session.grupos %}
             <a href="/sankhya/auditoria/" class="nav-item" data-mod="auditoria" title="Auditoria">
                 <span class="nav-icon"><i class="ph ph-magnifying-glass"></i></span>

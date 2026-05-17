@@ -57,6 +57,7 @@ from .services.oracle_conn import (
 from .services.etiqueta_lote import gerar_pdf_etiquetas
 
 from django.contrib import messages
+from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render, redirect
 from django.views.decorators.clickjacking import xframe_options_sameorigin
@@ -272,6 +273,150 @@ def view_auditoria_painel(request: HttpRequest) -> HttpResponse:
         messages.error(request, 'Acesso restrito à Diretoria e ao Suporte.')
         return redirect('home')
     return render(request, "sankhya_integration/auditoria.html")
+
+
+# ==============================================================================
+# 📊 MÓDULO RELATÓRIOS (Mai/2026 — 2026-05-17)
+# MVP de 5 relatórios em sub-abas: Top Clientes/Produtos, Lotes Envelhecidos,
+# Consumo por Veículo, Fluxo de Caixa, Margem por Venda.
+# Acesso: grupos 1 (Diretoria), 6 (Suporte), 9 (Comercial) — mais info no
+# decorators.py / GRUPOS_PERMITIDOS['relatorios'].
+# ==============================================================================
+
+@ensure_csrf_cookie
+@exige_grupo('relatorios')
+def view_relatorios_painel(request: HttpRequest) -> HttpResponse:
+    """Tela principal de relatórios — operador escolhe a sub-aba e o
+    JS faz fetch sob demanda dos dados de cada relatório (lazy load)."""
+    return render(request, "sankhya_integration/relatorios.html")
+
+
+@require_http_methods(["GET"])
+@exige_grupo('relatorios')
+def api_relatorio_top_clientes_produtos(request: HttpRequest) -> JsonResponse:
+    """Top clientes + Top produtos no período (TOP 35/37 STATUSNOTA='L').
+
+    Query params:
+        date_de=YYYY-MM-DD  (obrigatório)
+        date_ate=YYYY-MM-DD (obrigatório)
+        metrica=valor|qtd|pedidos (default 'valor')
+        limite=N            (default 15)
+    """
+    date_de  = (request.GET.get('date_de')  or '').strip()
+    date_ate = (request.GET.get('date_ate') or '').strip()
+    metrica  = (request.GET.get('metrica')  or 'valor').strip()
+    if not date_de or not date_ate:
+        return JsonResponse({'ok': False, 'error': 'date_de e date_ate obrigatórios'}, status=400)
+    if metrica not in ('valor', 'qtd', 'pedidos'):
+        metrica = 'valor'
+    try:
+        limite = int(request.GET.get('limite') or 15)
+        limite = max(1, min(50, limite))
+    except (TypeError, ValueError):
+        limite = 15
+
+    from sankhya_integration.services.oracle_conn import consultar_top_clientes_produtos
+    dados = consultar_top_clientes_produtos(date_de, date_ate, metrica=metrica, limite=limite)
+    return JsonResponse({'ok': True, **dados})
+
+
+@require_http_methods(["GET"])
+@exige_grupo('relatorios')
+def api_relatorio_lotes_envelhecidos(request: HttpRequest) -> JsonResponse:
+    """Lotes com saldo parado há mais de N dias.
+
+    Query params:
+        dias_min=N  (default 30)
+        limite=N    (default 200)
+    """
+    try:
+        dias_min = int(request.GET.get('dias_min') or 30)
+        dias_min = max(0, min(365, dias_min))
+    except (TypeError, ValueError):
+        dias_min = 30
+
+    from sankhya_integration.services.oracle_conn import consultar_lotes_envelhecidos
+    dados = consultar_lotes_envelhecidos(dias_min=dias_min)
+    return JsonResponse({'ok': True, **dados})
+
+
+@require_http_methods(["GET"])
+@exige_grupo('relatorios')
+def api_relatorio_consumo_veiculos(request: HttpRequest) -> JsonResponse:
+    """Ranking de consumo de combustível por veículo no período.
+
+    Query params:
+        date_de=YYYY-MM-DD  (obrigatório)
+        date_ate=YYYY-MM-DD (obrigatório)
+        tipo=COM|MAQ        (opcional — '' = todos)
+    """
+    date_de  = (request.GET.get('date_de')  or '').strip()
+    date_ate = (request.GET.get('date_ate') or '').strip()
+    tipo     = (request.GET.get('tipo')     or '').strip().upper()
+    if not date_de or not date_ate:
+        return JsonResponse({'ok': False, 'error': 'date_de e date_ate obrigatórios'}, status=400)
+    if tipo not in ('', 'COM', 'MAQ'):
+        tipo = ''
+
+    from sankhya_integration.services.oracle_conn import consultar_consumo_ranking_veiculos
+    dados = consultar_consumo_ranking_veiculos(date_de, date_ate, tipo=tipo)
+    return JsonResponse({'ok': True, **dados})
+
+
+@require_http_methods(["GET"])
+@exige_grupo('relatorios')
+def api_relatorio_fluxo_caixa(request: HttpRequest) -> JsonResponse:
+    """Fluxo de caixa projetado nos próximos N dias.
+
+    Query params:
+        dias=30|60|90  (default 60, clipado entre 7 e 180)
+    """
+    try:
+        dias = int(request.GET.get('dias') or 60)
+    except (TypeError, ValueError):
+        dias = 60
+
+    from sankhya_integration.services.oracle_conn import consultar_fluxo_caixa
+    dados = consultar_fluxo_caixa(dias=dias)
+    return JsonResponse({'ok': True, **dados})
+
+
+# Cache TTL pra margem por venda — query pesada (JOIN cruzado via CODAGREGACAO).
+# 5 min é compromisso: operador vê dado quase-realtime, banco não é martelado.
+_RELATORIO_MARGEM_CACHE_TTL = 300
+
+@require_http_methods(["GET"])
+@exige_grupo('relatorios')
+def api_relatorio_margem_venda(request: HttpRequest) -> JsonResponse:
+    """Margem (receita − custo) agrupada por cliente OU produto no período.
+
+    Query params:
+        date_de=YYYY-MM-DD  (obrigatório)
+        date_ate=YYYY-MM-DD (obrigatório)
+        agrupar=cliente|produto (default 'cliente')
+        nocache=1 (opcional — força refetch ignorando cache)
+
+    Cache: 5 min por chave `(date_de, date_ate, agrupar)` — query pesada
+    (JOIN com CTE custos_lote), reuso entre operadores no mesmo período é
+    quase certo. Invalidação automática pelo TTL.
+    """
+    date_de  = (request.GET.get('date_de')  or '').strip()
+    date_ate = (request.GET.get('date_ate') or '').strip()
+    agrupar  = (request.GET.get('agrupar')  or 'cliente').strip()
+    nocache  = request.GET.get('nocache') == '1'
+    if not date_de or not date_ate:
+        return JsonResponse({'ok': False, 'error': 'date_de e date_ate obrigatórios'}, status=400)
+    if agrupar not in ('cliente', 'produto'):
+        agrupar = 'cliente'
+
+    cache_key = f'rel:margem:{date_de}:{date_ate}:{agrupar}'
+    dados = None if nocache else cache.get(cache_key)
+    if dados is None:
+        from sankhya_integration.services.oracle_conn import consultar_margem_por_venda
+        dados = consultar_margem_por_venda(date_de, date_ate, agrupar=agrupar)
+        cache.set(cache_key, dados, _RELATORIO_MARGEM_CACHE_TTL)
+
+    return JsonResponse({'ok': True, **dados})
 
 
 def api_auditoria_listar(request: HttpRequest) -> JsonResponse:

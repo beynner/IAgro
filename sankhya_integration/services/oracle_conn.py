@@ -2198,6 +2198,609 @@ def consultar_margem_do_lote(codagregacao: str) -> dict:
         return vazio
 
 
+# ============================================================================
+# 📊 RELATÓRIOS — Mai/2026 — 2026-05-17
+# Funções aditivas de leitura (Cat A) que alimentam a tela /sankhya/relatorios/.
+# Cada uma é dedicada a 1 sub-relatório do MVP.
+# ============================================================================
+
+def consultar_top_clientes_produtos(date_de: str, date_ate: str, metrica: str = 'valor', limite: int = 15) -> dict:
+    """Top clientes + Top produtos no período (TOP 35/37 STATUSNOTA='L').
+
+    Args:
+        date_de:  'YYYY-MM-DD' inclusive
+        date_ate: 'YYYY-MM-DD' inclusive
+        metrica:  'valor' (Σ VLRNOTA/VLRTOT) | 'qtd' (Σ QTDNEG) | 'pedidos' (count distinct)
+        limite:   nº de linhas por ranking (default 15)
+
+    Retorna:
+        {
+          'top_clientes': [{'codparc', 'nome', 'nome_full', 'metrica'}, ...],
+          'top_produtos': [{'codprod', 'descrprod', 'metrica'}, ...],
+          'total_geral_clientes': float,   # Σ métrica entre todos os clientes
+          'total_geral_produtos': float,   # Σ métrica entre todos os produtos
+        }
+    """
+    vazio = {
+        'top_clientes': [], 'top_produtos': [],
+        'total_geral_clientes': 0.0, 'total_geral_produtos': 0.0,
+    }
+    if not date_de or not date_ate:
+        return vazio
+
+    # SELECT da métrica conforme parâmetro — todas validadas na lista permitida
+    if metrica == 'qtd':
+        sel_metrica_cli = "SUM(NVL(i.QTDNEG, 0))"
+        sel_metrica_prod = "SUM(NVL(i.QTDNEG, 0))"
+    elif metrica == 'pedidos':
+        sel_metrica_cli = "COUNT(DISTINCT c.NUNOTA)"
+        sel_metrica_prod = "COUNT(DISTINCT c.NUNOTA)"
+    else:  # 'valor' (default)
+        sel_metrica_cli = "SUM(NVL(i.VLRTOT, 0))"
+        sel_metrica_prod = "SUM(NVL(i.VLRTOT, 0))"
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # Top clientes
+            cur.execute(
+                f"""
+                SELECT * FROM (
+                    SELECT
+                        matriz.CODPARC,
+                        NVL(matriz.OBSERVACOES, matriz.NOMEPARC) AS nome,
+                        matriz.NOMEPARC                          AS nome_full,
+                        {sel_metrica_cli}                        AS metrica
+                      FROM TGFCAB c
+                      JOIN TGFITE i      ON i.NUNOTA = c.NUNOTA
+                      JOIN TGFPAR p      ON p.CODPARC = c.CODPARC
+                      JOIN TGFPAR matriz ON matriz.CODPARC = NVL(p.CODPARCMATRIZ, p.CODPARC)
+                     WHERE c.STATUSNOTA = 'L'
+                       AND c.CODTIPOPER IN (35, 37)
+                       AND c.DTNEG BETWEEN TO_DATE(:de, 'YYYY-MM-DD')
+                                       AND TO_DATE(:ate, 'YYYY-MM-DD') + 0.99999
+                     GROUP BY matriz.CODPARC, matriz.OBSERVACOES, matriz.NOMEPARC
+                     ORDER BY metrica DESC
+                ) WHERE ROWNUM <= :lim
+                """,
+                de=date_de, ate=date_ate, lim=int(limite),
+            )
+            rows_cli = cur.fetchall()
+            top_clientes = [{
+                'codparc':   int(r[0]) if r[0] is not None else None,
+                'nome':      (r[1] or '')[:50].strip() if r[1] else '—',
+                'nome_full': (r[2] or '').strip(),
+                'metrica':   float(r[3] or 0),
+            } for r in rows_cli]
+
+            # Top produtos
+            cur.execute(
+                f"""
+                SELECT * FROM (
+                    SELECT
+                        pr.CODPROD,
+                        pr.DESCRPROD,
+                        {sel_metrica_prod} AS metrica
+                      FROM TGFCAB c
+                      JOIN TGFITE i  ON i.NUNOTA = c.NUNOTA
+                      JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
+                     WHERE c.STATUSNOTA = 'L'
+                       AND c.CODTIPOPER IN (35, 37)
+                       AND c.DTNEG BETWEEN TO_DATE(:de, 'YYYY-MM-DD')
+                                       AND TO_DATE(:ate, 'YYYY-MM-DD') + 0.99999
+                     GROUP BY pr.CODPROD, pr.DESCRPROD
+                     ORDER BY metrica DESC
+                ) WHERE ROWNUM <= :lim
+                """,
+                de=date_de, ate=date_ate, lim=int(limite),
+            )
+            rows_prod = cur.fetchall()
+            top_produtos = [{
+                'codprod':   int(r[0]) if r[0] is not None else None,
+                'descrprod': (r[1] or '').strip(),
+                'metrica':   float(r[2] or 0),
+            } for r in rows_prod]
+
+            # Totais gerais (mesma janela) — pra calcular % no frontend
+            cur.execute(
+                f"""
+                SELECT
+                    {sel_metrica_cli}  AS total_geral
+                  FROM TGFCAB c
+                  JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+                 WHERE c.STATUSNOTA = 'L'
+                   AND c.CODTIPOPER IN (35, 37)
+                   AND c.DTNEG BETWEEN TO_DATE(:de, 'YYYY-MM-DD')
+                                   AND TO_DATE(:ate, 'YYYY-MM-DD') + 0.99999
+                """,
+                de=date_de, ate=date_ate,
+            )
+            row_total = cur.fetchone()
+            total_geral = float((row_total or [0])[0] or 0)
+    except Exception as e:
+        logger.exception("Erro em consultar_top_clientes_produtos: %s", e)
+        return vazio
+
+    return {
+        'top_clientes': top_clientes,
+        'top_produtos': top_produtos,
+        # Mesmo total nos 2 — vendas envolvem cliente E produto simultaneamente
+        'total_geral_clientes': total_geral,
+        'total_geral_produtos': total_geral,
+    }
+
+
+def consultar_lotes_envelhecidos(dias_min: int = 30, limite: int = 200) -> dict:
+    """Lotes com saldo > 0 parados há mais de N dias.
+
+    Fonte: view `ANDRE_IAGRO_SALDO_LOTE` (já tem dedup baixa pedido↔nota +
+    soma todas as pernas de saída — avaria, devolução, baixa via venda).
+    Filtra `QTD_DISPONIVEL > 0` (lote ainda tem coisa pra vender) e
+    `DTNEG_ORIGEM < hoje − dias_min`. Agrupado por `(CODPROD, CODAGREGACAO)`
+    porque a view já está nessa granularidade.
+
+    Retorna lista ordenada por dias DECRESCENTE (mais parado primeiro) — o
+    operador vê o "mais urgente" no topo.
+    """
+    vazio = {'lotes': []}
+    try:
+        dias_min_i = max(0, int(dias_min or 0))
+        limite_i  = max(1, min(500, int(limite or 200)))
+    except (TypeError, ValueError):
+        dias_min_i = 30
+        limite_i  = 200
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            # ROW_NUMBER pra paginar sem OFFSET FETCH (Oracle 11g compat)
+            cur.execute(
+                """
+                SELECT * FROM (
+                    SELECT v.*,
+                           ROW_NUMBER() OVER (ORDER BY dias_parado DESC, codagregacao) AS rn
+                      FROM (
+                        SELECT
+                            CODPROD,
+                            DESCRPROD,
+                            CODAGREGACAO,
+                            NOMEPARC_ORIGEM    AS fornecedor,
+                            DTNEG_ORIGEM,
+                            NVL(QTD_ENTRADA, 0)    AS qtd_entrada,
+                            NVL(QTD_DISPONIVEL, 0) AS qtd_disponivel,
+                            TRUNC(SYSDATE - DTNEG_ORIGEM) AS dias_parado
+                          FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE
+                         WHERE VENDAVEL = 'S'
+                           AND QTD_DISPONIVEL > 0
+                           AND DTNEG_ORIGEM IS NOT NULL
+                           AND TRUNC(SYSDATE - DTNEG_ORIGEM) >= :dias
+                      ) v
+                ) WHERE rn <= :lim
+                  ORDER BY dias_parado DESC, codagregacao
+                """,
+                dias=dias_min_i, lim=limite_i,
+            )
+            rows = cur.fetchall()
+    except Exception as e:
+        logger.exception("Erro em consultar_lotes_envelhecidos: %s", e)
+        return vazio
+
+    lotes = [{
+        'codprod':        int(r[0]) if r[0] is not None else None,
+        'descrprod':      (r[1] or '').strip(),
+        'codagregacao':   str(r[2]) if r[2] is not None else None,
+        'fornecedor':     (r[3] or '').strip(),
+        'dtneg_origem':   r[4].strftime('%Y-%m-%d') if r[4] else None,
+        'qtd_entrada':    float(r[5] or 0),
+        'qtd_disponivel': float(r[6] or 0),
+        'dias_parado':    int(r[7] or 0),
+    } for r in rows]
+    return {'lotes': lotes}
+
+
+def consultar_consumo_ranking_veiculos(date_de: str, date_ate: str, tipo: str = '') -> dict:
+    """Ranking de consumo de combustível por veículo no período.
+
+    Agrega requisições internas (TOP 53 — INTERNA_FROTA/MAQUINARIO/EXTERNA_FRETE)
+    e abastecimento externo (TOP 53 EXTERNA_POSTO). Os 2 mexem com combustível
+    real do veículo; abastecimento externo não consome o tanque interno mas
+    importa pra ranking de gasto total.
+
+    Args:
+        date_de:  'YYYY-MM-DD' inclusive
+        date_ate: 'YYYY-MM-DD' inclusive
+        tipo:     '' (todos) | 'COM' (frota — não maquinário) | 'MAQ' (maquinário)
+
+    Retorna:
+        {
+          'veiculos': [
+            {
+              'codveiculo', 'placa', 'marcamodelo', 'especietipo', 'proprio',
+              'tipo',         # 'COM' | 'MAQ' (derivado da ESPECIETIPO)
+              'litros_total', 'valor_total', 'qtd_reqs',
+              'medidor_total',           # km (frota) ou horas (MAQ) percorridas no período
+              'eficiencia_label',        # 'X,XX km/L', 'X,XX L/h' ou '—'
+            }, ...
+          ],
+          'total_litros': float, 'total_valor': float,
+        }
+
+    Tipos no IAgro:
+      - Frota (COM) — `PROPRIO='S'` + ESPECIETIPO sem palavras-chave de máquina
+      - Maquinário (MAQ) — `PROPRIO='S'` + ESPECIETIPO contendo
+        TRATOR/COLHEIT/MAQUINA/PULVERIZ/EMPILHA/RETROESCAV/CARREGA
+    """
+    vazio = {'veiculos': [], 'total_litros': 0.0, 'total_valor': 0.0}
+    if not date_de or not date_ate:
+        return vazio
+
+    # Palavras-chave de maquinário (mesmas usadas no combustivel.js — toggle MAQ)
+    MAQ_KEYWORDS = ('TRATOR', 'COLHEIT', 'MAQUINA', 'PULVERIZ',
+                    'EMPILHA', 'RETROESCAV', 'CARREGA')
+
+    where_tipo = ""
+    if tipo == 'MAQ':
+        kw_or = " OR ".join([f"UPPER(v.ESPECIETIPO) LIKE '%{k}%'" for k in MAQ_KEYWORDS])
+        where_tipo = f" AND ({kw_or}) "
+    elif tipo == 'COM':
+        kw_not = " AND ".join([f"UPPER(NVL(v.ESPECIETIPO,'')) NOT LIKE '%{k}%'" for k in MAQ_KEYWORDS])
+        where_tipo = f" AND ({kw_not}) "
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                f"""
+                SELECT
+                    v.CODVEICULO,
+                    v.PLACA,
+                    v.MARCAMODELO,
+                    v.ESPECIETIPO,
+                    v.PROPRIO,
+                    SUM(NVL(i.QTDNEG, 0))               AS litros_total,
+                    SUM(NVL(i.VLRTOT, 0))               AS valor_total,
+                    COUNT(DISTINCT c.NUNOTA)            AS qtd_reqs,
+                    MAX(r.HODOMETRO_KM)                 AS hod_max,
+                    MIN(r.HODOMETRO_KM)                 AS hod_min,
+                    MAX(r.HORIMETRO_H)                  AS hor_max,
+                    MIN(r.HORIMETRO_H)                  AS hor_min
+                  FROM TGFCAB c
+                  JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+                  JOIN AD_REQUISICAO_COMBUSTIVEL r ON r.NUNOTA = c.NUNOTA
+                  JOIN TGFVEI v                   ON v.CODVEICULO = r.CODVEICULO
+                 WHERE c.CODTIPOPER = 53
+                   AND c.STATUSNOTA <> 'E'
+                   AND c.DTNEG BETWEEN TO_DATE(:de, 'YYYY-MM-DD')
+                                   AND TO_DATE(:ate, 'YYYY-MM-DD') + 0.99999
+                   {where_tipo}
+                 GROUP BY v.CODVEICULO, v.PLACA, v.MARCAMODELO, v.ESPECIETIPO, v.PROPRIO
+                 ORDER BY litros_total DESC
+                """,
+                de=date_de, ate=date_ate,
+            )
+            rows = cur.fetchall()
+    except Exception as e:
+        logger.exception("Erro em consultar_consumo_ranking_veiculos: %s", e)
+        return vazio
+
+    veiculos = []
+    total_l = 0.0
+    total_v = 0.0
+    for r in rows:
+        codvei, placa, marca, especietipo, proprio, litros, valor, qtd_reqs, hodmx, hodmn, hormx, hormn = r
+        litros_f = float(litros or 0)
+        valor_f  = float(valor  or 0)
+
+        # Tipo COM vs MAQ via keywords em ESPECIETIPO
+        esp_up = (especietipo or '').upper()
+        is_maq = any(k in esp_up for k in MAQ_KEYWORDS)
+        tipo_label = 'MAQ' if is_maq else 'COM'
+
+        # Eficiência: km/L (frota) ou L/h (máquina)
+        # Precisa de ao menos 2 leituras de medidor (max > min) — senão "—"
+        eficiencia_label = '—'
+        medidor_total = None
+        if is_maq:
+            if hormx is not None and hormn is not None and float(hormx) > float(hormn) and litros_f > 0:
+                horas = float(hormx) - float(hormn)
+                medidor_total = horas
+                if horas > 0:
+                    lh = litros_f / horas
+                    eficiencia_label = f"{lh:.2f}".replace('.', ',') + ' L/h'
+        else:
+            if hodmx is not None and hodmn is not None and float(hodmx) > float(hodmn) and litros_f > 0:
+                km = float(hodmx) - float(hodmn)
+                medidor_total = km
+                if km > 0 and litros_f > 0:
+                    kml = km / litros_f
+                    eficiencia_label = f"{kml:.2f}".replace('.', ',') + ' km/L'
+
+        veiculos.append({
+            'codveiculo':       int(codvei) if codvei is not None else None,
+            'placa':            (placa or '').strip(),
+            'marcamodelo':      (marca or '').strip(),
+            'especietipo':      (especietipo or '').strip(),
+            'proprio':          (proprio or '').strip(),
+            'tipo':             tipo_label,
+            'litros_total':     litros_f,
+            'valor_total':      valor_f,
+            'qtd_reqs':         int(qtd_reqs or 0),
+            'medidor_total':    medidor_total,
+            'eficiencia_label': eficiencia_label,
+        })
+        total_l += litros_f
+        total_v += valor_f
+
+    return {
+        'veiculos':     veiculos,
+        'total_litros': total_l,
+        'total_valor':  total_v,
+    }
+
+
+def consultar_fluxo_caixa(dias: int = 60) -> dict:
+    """Fluxo de caixa projetado: TGFFIN em aberto agrupado por buckets temporais.
+
+    "Em aberto" = `DHBAIXA IS NULL` OR `DHBAIXA <= TO_DATE('01/01/1998','DD/MM/YYYY')`
+    (Sankhya tem o sentinel 01/01/1998 que significa "ainda não baixado" — ver
+    convenção em oracle_conn.criar_entrada_combustivel_banco).
+
+    Sinal de receita/despesa:
+      - `RECDESP > 0` → entrada (a receber)
+      - `RECDESP < 0` → saída  (a pagar)
+
+    Buckets dependem do horizonte:
+      30 dias:  ATRASADO · HOJE · 1-7d · 8-15d · 16-30d
+      60 dias:  + 31-60d
+      90 dias:  + 61-90d
+
+    Retorna:
+      {
+        'buckets': [
+          {'label': 'ATRASADO', 'ordem': 0, 'entrada': float, 'saida': float, 'saldo_acumulado': float},
+          ...
+        ],
+        'total_entrada': float, 'total_saida': float,
+      }
+
+    `saldo_acumulado` é o saldo CRESCENTE bucket-a-bucket — ajuda o operador
+    a ver "se nada mudar, vou ter R$ X em N dias".
+    """
+    vazio = {'buckets': [], 'total_entrada': 0.0, 'total_saida': 0.0}
+    try:
+        horizonte = max(7, min(180, int(dias or 60)))
+    except (TypeError, ValueError):
+        horizonte = 60
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            # NOTA: filtramos por TRUNC(DTVENC - SYSDATE) — vencidos viram
+            # negativos, hoje=0, futuros positivos. ATRASADO inclui qualquer
+            # negativo (mesmo se for de 6 meses atrás — fica visível pro
+            # operador cobrar/negociar).
+            cur.execute(
+                """
+                SELECT
+                    CASE
+                        WHEN TRUNC(DTVENC) <  TRUNC(SYSDATE)           THEN 'ATRASADO'
+                        WHEN TRUNC(DTVENC) =  TRUNC(SYSDATE)           THEN 'HOJE'
+                        WHEN TRUNC(DTVENC) <= TRUNC(SYSDATE) + 7       THEN '1-7d'
+                        WHEN TRUNC(DTVENC) <= TRUNC(SYSDATE) + 15      THEN '8-15d'
+                        WHEN TRUNC(DTVENC) <= TRUNC(SYSDATE) + 30      THEN '16-30d'
+                        WHEN TRUNC(DTVENC) <= TRUNC(SYSDATE) + 60      THEN '31-60d'
+                        WHEN TRUNC(DTVENC) <= TRUNC(SYSDATE) + 90      THEN '61-90d'
+                        ELSE 'FORA'
+                    END AS bucket,
+                    SUM(CASE WHEN RECDESP > 0 THEN NVL(VLRDESDOB, 0) ELSE 0 END) AS entrada,
+                    SUM(CASE WHEN RECDESP < 0 THEN NVL(VLRDESDOB, 0) ELSE 0 END) AS saida
+                  FROM TGFFIN
+                 WHERE ( DHBAIXA IS NULL
+                      OR DHBAIXA <= TO_DATE('01/01/1998', 'DD/MM/YYYY') )
+                   AND DTVENC IS NOT NULL
+                   AND (
+                        TRUNC(DTVENC) < TRUNC(SYSDATE)
+                        OR TRUNC(DTVENC) <= TRUNC(SYSDATE) + :h
+                   )
+                 GROUP BY
+                    CASE
+                        WHEN TRUNC(DTVENC) <  TRUNC(SYSDATE)           THEN 'ATRASADO'
+                        WHEN TRUNC(DTVENC) =  TRUNC(SYSDATE)           THEN 'HOJE'
+                        WHEN TRUNC(DTVENC) <= TRUNC(SYSDATE) + 7       THEN '1-7d'
+                        WHEN TRUNC(DTVENC) <= TRUNC(SYSDATE) + 15      THEN '8-15d'
+                        WHEN TRUNC(DTVENC) <= TRUNC(SYSDATE) + 30      THEN '16-30d'
+                        WHEN TRUNC(DTVENC) <= TRUNC(SYSDATE) + 60      THEN '31-60d'
+                        WHEN TRUNC(DTVENC) <= TRUNC(SYSDATE) + 90      THEN '61-90d'
+                        ELSE 'FORA'
+                    END
+                """,
+                h=horizonte,
+            )
+            raw = cur.fetchall()
+    except Exception as e:
+        logger.exception("Erro em consultar_fluxo_caixa: %s", e)
+        return vazio
+
+    # Buckets ordenados — filtramos os que caem no horizonte selecionado
+    ORDEM_BUCKETS = [
+        ('ATRASADO', 0, 0),     # sempre visível
+        ('HOJE',     1, 0),
+        ('1-7d',     2, 7),
+        ('8-15d',    3, 15),
+        ('16-30d',   4, 30),
+        ('31-60d',   5, 60),
+        ('61-90d',   6, 90),
+    ]
+    data = {r[0]: (float(r[1] or 0), float(r[2] or 0)) for r in raw}
+
+    buckets = []
+    saldo_acumulado = 0.0
+    total_entrada = 0.0
+    total_saida   = 0.0
+    for label, ordem, dia_max in ORDEM_BUCKETS:
+        # Pula buckets fora do horizonte (ex: 31-60d quando horizonte=30)
+        # ATRASADO sempre entra (já está vencido — não é projeção)
+        if label not in ('ATRASADO', 'HOJE') and dia_max > horizonte:
+            continue
+        entrada, saida = data.get(label, (0.0, 0.0))
+        saldo_acumulado += (entrada - saida)
+        buckets.append({
+            'label':            label,
+            'ordem':            ordem,
+            'entrada':          entrada,
+            'saida':            saida,
+            'saldo_acumulado':  saldo_acumulado,
+        })
+        total_entrada += entrada
+        total_saida   += saida
+
+    return {
+        'buckets':       buckets,
+        'total_entrada': total_entrada,
+        'total_saida':   total_saida,
+    }
+
+
+def consultar_margem_por_venda(date_de: str, date_ate: str, agrupar: str = 'cliente', limite: int = 50) -> dict:
+    """Margem (receita − custo) agrupada por cliente OU produto no período.
+
+    Receita: Σ VLRTOT TGFITE de TOP 35/37 STATUSNOTA='L' no período, com
+             CODAGREGACAO != NULL (só linhas com lote dão pra calcular custo).
+    Custo:   custo_kg_lote × qtd_vendida_item
+             onde custo_kg_lote = (Σ VLRTOT TOP 13 do lote) / (Σ QTDNEG TOP 11 do lote)
+
+    O cálculo é via CTE `custos_lote` — agrega vale+entrada por CODAGREGACAO
+    uma vez e cruza com vendas via LEFT JOIN. Linhas sem vale/entrada caem
+    com custo_kg=NULL → não entram no cálculo (mais conservador que assumir 0).
+
+    Args:
+        date_de:  'YYYY-MM-DD'
+        date_ate: 'YYYY-MM-DD'
+        agrupar:  'cliente' (CODPARCMATRIZ) | 'produto' (CODPROD)
+        limite:   default 50
+
+    Retorna:
+        {
+          'linhas': [{'codigo', 'nome', 'receita', 'custo', 'lucro', 'margem_pct', 'qtd_vendida'}, ...],
+          'total_receita': float, 'total_custo': float,
+          'total_lucro': float,   'margem_media': float,
+        }
+
+    Query pesada — caller deve cachear (django.core.cache TTL ~5min).
+    """
+    vazio = {
+        'linhas': [], 'total_receita': 0.0, 'total_custo': 0.0,
+        'total_lucro': 0.0, 'margem_media': 0.0,
+    }
+    if not date_de or not date_ate:
+        return vazio
+    if agrupar not in ('cliente', 'produto'):
+        agrupar = 'cliente'
+
+    try:
+        limite_i = max(1, min(200, int(limite or 50)))
+    except (TypeError, ValueError):
+        limite_i = 50
+
+    # Pick agrupamento — chaves diferentes mas mesmo shape no retorno
+    if agrupar == 'produto':
+        sel_chave = "pr.CODPROD"
+        sel_nome  = "pr.DESCRPROD"
+        group_by  = "pr.CODPROD, pr.DESCRPROD"
+    else:  # cliente
+        sel_chave = "matriz.CODPARC"
+        sel_nome  = "NVL(matriz.OBSERVACOES, matriz.NOMEPARC)"
+        group_by  = "matriz.CODPARC, matriz.OBSERVACOES, matriz.NOMEPARC"
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                f"""
+                WITH custos_lote AS (
+                    SELECT
+                        ite.CODAGREGACAO,
+                        SUM(CASE WHEN cab.CODTIPOPER = 13 THEN NVL(ite.VLRTOT, 0) END) AS custo_total_vale,
+                        SUM(CASE WHEN cab.CODTIPOPER = 11 THEN NVL(ite.QTDNEG, 0) END) AS qtd_entrada_total
+                      FROM TGFCAB cab
+                      JOIN TGFITE ite ON ite.NUNOTA = cab.NUNOTA
+                     WHERE cab.STATUSNOTA <> 'E'
+                       AND cab.CODTIPOPER IN (11, 13)
+                       AND ite.CODAGREGACAO IS NOT NULL
+                     GROUP BY ite.CODAGREGACAO
+                )
+                SELECT * FROM (
+                    SELECT
+                        {sel_chave} AS chave,
+                        {sel_nome}  AS nome,
+                        SUM(NVL(i.VLRTOT, 0))      AS receita,
+                        SUM(
+                            NVL(i.QTDNEG, 0) *
+                            CASE
+                                WHEN cl.qtd_entrada_total > 0
+                                THEN cl.custo_total_vale / cl.qtd_entrada_total
+                                ELSE 0
+                            END
+                        )                          AS custo,
+                        SUM(NVL(i.QTDNEG, 0))      AS qtd_vendida
+                      FROM TGFCAB c
+                      JOIN TGFITE i      ON i.NUNOTA = c.NUNOTA
+                      JOIN TGFPAR p      ON p.CODPARC = c.CODPARC
+                      JOIN TGFPAR matriz ON matriz.CODPARC = NVL(p.CODPARCMATRIZ, p.CODPARC)
+                      JOIN TGFPRO pr     ON pr.CODPROD = i.CODPROD
+                 LEFT JOIN custos_lote cl ON cl.CODAGREGACAO = i.CODAGREGACAO
+                     WHERE c.STATUSNOTA = 'L'
+                       AND c.CODTIPOPER IN (35, 37)
+                       AND i.CODAGREGACAO IS NOT NULL
+                       AND c.DTNEG BETWEEN TO_DATE(:de, 'YYYY-MM-DD')
+                                       AND TO_DATE(:ate, 'YYYY-MM-DD') + 0.99999
+                     GROUP BY {group_by}
+                     ORDER BY receita DESC
+                ) WHERE ROWNUM <= :lim
+                """,
+                de=date_de, ate=date_ate, lim=limite_i,
+            )
+            rows = cur.fetchall()
+    except Exception as e:
+        logger.exception("Erro em consultar_margem_por_venda: %s", e)
+        return vazio
+
+    linhas = []
+    total_receita = 0.0
+    total_custo   = 0.0
+    for r in rows:
+        codigo  = int(r[0]) if r[0] is not None else None
+        nome    = (r[1] or '').strip() or '—'
+        receita = float(r[2] or 0)
+        custo   = float(r[3] or 0)
+        qtd_v   = float(r[4] or 0)
+        lucro   = receita - custo
+        margem  = (lucro / receita * 100) if receita > 0 else 0.0
+        linhas.append({
+            'codigo':      codigo,
+            'nome':        nome,
+            'receita':     receita,
+            'custo':       custo,
+            'lucro':       lucro,
+            'margem_pct':  margem,
+            'qtd_vendida': qtd_v,
+        })
+        total_receita += receita
+        total_custo   += custo
+
+    total_lucro  = total_receita - total_custo
+    margem_media = (total_lucro / total_receita * 100) if total_receita > 0 else 0.0
+
+    return {
+        'linhas':         linhas,
+        'total_receita':  total_receita,
+        'total_custo':    total_custo,
+        'total_lucro':    total_lucro,
+        'margem_media':   margem_media,
+    }
+
+
 def consultar_calculo_ticket_medio(lote: str):
     """Calcula o Ticket Médio e envia a 'Bandeira' de tipo de fluxo."""
     # 🚀 ADICIONAMOS A BANDEIRA 'tipo_fluxo' AQUI
