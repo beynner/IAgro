@@ -7,7 +7,7 @@
 {% block header_title %}COMERCIAL{% endblock %}
 
 {% block extra_css %}
-    <link rel="stylesheet" href="{% static 'sankhya_integration/comercial.css' %}?v=6">
+    <link rel="stylesheet" href="{% static 'sankhya_integration/comercial.css' %}?v=7">
 {% endblock %}
 
 {% block content %}
@@ -123,8 +123,10 @@
                                 <span id="distVlrTotCompra" class="dist-value" style="font-size: 1.4rem;">R$ 0,00</span>
                             </div>
                             <!-- Sparkline alinhado com os cards Margem (col 1) + Qtde Total (col 2)
-                                 — ocupa metade esquerda da row 2 do grid (Mai/2026 — 2026-05-16). -->
-                            <div id="cardSparkVendas" class="card-sparkline-vendas" style="grid-column: 1 / 3; display: none;">
+                                 — ocupa metade esquerda da row 2 do grid (Mai/2026 — 2026-05-16).
+                                 grid-row: 2 forçado pra não competir com auto-placement
+                                 e não empurrar o card "Médio" (que vive em row 3, col 3-5). -->
+                            <div id="cardSparkVendas" class="card-sparkline-vendas" style="display: none;">
                                 <div class="spark-header">
                                     <span class="spark-titulo" id="sparkTitulo"><i class="ph ph-chart-line-up" aria-hidden="true"></i> Evolução de preço — vendas deste lote</span>
                                     <span class="spark-stats" id="sparkStats"></span>

@@ -830,17 +830,20 @@ body.vale-faturado #badgeFaturadoDist { display: flex !important; }
 
 /* ===========================================================================
    SPARKLINE — Evolução de preço/kg das vendas do lote (Mai/2026 — 2026-05-16)
-   Card abaixo da grade de distribuição, antes dos botões de ação.
-   SVG inline + tooltip absoluto. Verde Agromil (#5e7e4a).
+   Posição no grid: col 1-2, row 2 (alinhado horizontalmente com cards
+   Margem + Qtde Total da row 1). Médio (row 3, col 3-5) e Extra (row 2,
+   col 3-5) ficam intocados. SVG inline + tooltip absoluto. Verde Agromil.
    =========================================================================== */
 .card-sparkline-vendas {
+    grid-column: 1 / 3;   /* mesma faixa horizontal de Margem + Qtde Total */
+    grid-row: 2;          /* mesma row do Extra (col 3-5); Médio segue em row 3 */
     background: var(--card, #fff);
     border: 1px solid #e5e7eb;
     border-radius: var(--borda-raio-md, 10px);
     padding: 10px 12px 6px;
-    margin-top: 4px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.02);
     box-sizing: border-box;
+    align-self: start;    /* não estica verticalmente */
 }
 .card-sparkline-vendas .spark-header {
     display: flex;
@@ -902,9 +905,13 @@ body.vale-faturado #badgeFaturadoDist { display: flex !important; }
 .card-sparkline-vendas .spark-tooltip.hidden { display: none; }
 
 /* Responsivo — em telas estreitas o sparkline volta a ocupar largura total
-   e ganha altura pra preservar legibilidade do gráfico. */
+   e ganha altura. Também solta o `grid-row: 2` pra que o auto-placement
+   resolva sozinho na ordem natural do DOM (mobile usa 2 colunas, não 4). */
 @media (max-width: 900px) {
-    #cardSparkVendas { grid-column: 1 / -1 !important; }
+    #cardSparkVendas {
+        grid-column: 1 / -1 !important;
+        grid-row: auto !important;
+    }
     .card-sparkline-vendas .spark-svg-wrap { height: 110px; }
     .card-sparkline-vendas .spark-titulo { font-size: 0.72rem; }
     .card-sparkline-vendas .spark-stats { font-size: 0.68rem; }
