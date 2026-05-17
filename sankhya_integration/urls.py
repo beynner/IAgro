@@ -107,6 +107,10 @@ urlpatterns = [
     # Vendas DO LOTE selecionado (Mai/2026) — filtra por CODAGREGACAO + dedup
     # pedido↔nota. Alimenta lista lateral + sparkline de evolução de preço.
     path('comercial/api/vendas-lote/',          views.api_vendas_do_lote,       name='api_vendas_do_lote'),
+    # Margem realizada/provisória do lote (Mai/2026 — 2026-05-17): preenche
+    # card "Margem Lote" no Distribuição. Receita − Devolução − Custo, com
+    # avaria informativa no tooltip.
+    path('comercial/api/margem-lote/',          views.api_margem_lote,          name='api_margem_lote'),
 
     # A rota do Ticket Médio
     path('comercial/api/ticket-calculo/', views.api_ticket_calculo, name='api_ticket_calculo'),

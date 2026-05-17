@@ -950,7 +950,119 @@ window.ComercialDistribuicao = (function() {
         // Mai/2026 — 2026-05-16: cachea dadosDaLinha pra permitir re-fetch
         // quando o operador troca a tab Lote↔Produto sem clicar de novo na linha.
         STATE.dadosDaLinha = dadosDaLinha;
-        await carregarVendasNoModoAtual(pesoCx);
+        // Mai/2026 — 2026-05-17: chamadas paralelas (margem + vendas/sparkline)
+        // pra reduzir tempo de espera do operador. Erros tratados independentemente.
+        await Promise.allSettled([
+            carregarMargemDoLote(dadosDaLinha.codagregacao),
+            carregarVendasNoModoAtual(pesoCx),
+        ]);
+    };
+
+    // ==========================================================================
+    // Carrega a margem do lote (card "Margem Lote") — Mai/2026 — 2026-05-17.
+    // Cálculo no backend: (RECEITA − DEVOLUÇÃO − CUSTO) / RECEITA × 100.
+    // Avaria mostrada no tooltip como perda destacada (custo já está no vale).
+    //
+    // Estados visuais aplicados em #distMini1:
+    //   data-margem-cor="positivo" (>0), "negativo" (<0), "neutro" (=0 ou sem dados)
+    //   data-tipo-calculo="PROVISORIA" | "FECHADA"  → badge "provisória" mostra
+    //   #distMargemTotal recebe title (tooltip) com detalhamento numérico
+    // ==========================================================================
+    const carregarMargemDoLote = async (codagregacao) => {
+        const card        = document.getElementById('distMini1');
+        const valEl       = document.getElementById('distMargemTotal');
+        const lucroEl     = document.getElementById('distLucroAbsoluto');
+        const badgeEl     = document.getElementById('distMargemBadge');
+        if (!card || !valEl || !lucroEl) return;
+
+        const fmtBRL = window.ComercialUtils && window.ComercialUtils.fmtBRL
+            ? window.ComercialUtils.fmtBRL
+            : (n) => 'R$ ' + Number(n || 0).toFixed(2).replace('.', ',');
+        const fmtPct = (n) => {
+            const v = Number(n || 0);
+            const txt = v.toFixed(1).replace('.', ',');
+            return (v > 0 ? '+' : '') + txt + '%';
+        };
+
+        // Estado "carregando"
+        valEl.textContent = '…';
+        lucroEl.textContent = '...';
+        card.dataset.margemCor = 'neutro';
+        if (badgeEl) badgeEl.classList.add('hidden');
+
+        try {
+            const res = await fetch(`/sankhya/comercial/api/margem-lote/?lote=${encodeURIComponent(codagregacao)}`);
+            if (!res.ok) {
+                valEl.textContent = '—';
+                lucroEl.textContent = '—';
+                return;
+            }
+            const m = await res.json();
+            if (!m || !m.ok) {
+                valEl.textContent = '—';
+                lucroEl.textContent = '—';
+                return;
+            }
+
+            const temCusto = !!m.tem_custo;
+            const margem   = Number(m.margem_pct || 0);
+            const lucro    = Number(m.lucro      || 0);
+
+            // Sem vale lançado ainda → não há custo → margem não calculável
+            if (!temCusto) {
+                valEl.textContent = '—';
+                valEl.title = 'Sem vale lançado ainda. Lance o vale (TOP 13) pra ver a margem.';
+                lucroEl.textContent = '—';
+                card.dataset.margemCor = 'neutro';
+                card.dataset.tipoCalculo = '';
+                if (badgeEl) badgeEl.classList.add('hidden');
+                return;
+            }
+
+            valEl.textContent = fmtPct(margem);
+            lucroEl.textContent = (lucro >= 0 ? '+ ' : '− ') + fmtBRL(Math.abs(lucro));
+
+            // Cor por sinal
+            card.dataset.margemCor =
+                margem > 0.05 ? 'positivo' :
+                margem < -0.05 ? 'negativo' :
+                'neutro';
+
+            // Badge "provisória" quando lote ainda tem saldo
+            card.dataset.tipoCalculo = m.tipo_calculo || 'PROVISORIA';
+            if (badgeEl) {
+                if (m.tipo_calculo === 'PROVISORIA') {
+                    badgeEl.classList.remove('hidden');
+                    const kgRest = Number(m.qtd_disponivel || 0).toFixed(0);
+                    badgeEl.title = `Margem provisória — lote ainda tem ${kgRest} kg disponíveis. Pode mudar com mais vendas, devolução ou avaria.`;
+                } else {
+                    badgeEl.classList.add('hidden');
+                }
+            }
+
+            // Tooltip detalhado no valor da margem
+            const tooltipLinhas = [
+                `Receita bruta:   ${fmtBRL(m.receita_bruta)}`,
+                `(−) Devolução:   ${fmtBRL(m.devolucoes)}`,
+                `Receita líq.:    ${fmtBRL(m.receita_liquida)}`,
+                `(−) Custo vale:  ${fmtBRL(m.custo_total)}`,
+                `= Lucro:         ${fmtBRL(m.lucro)}  (${fmtPct(margem)})`,
+            ];
+            if (Number(m.avaria_qtd) > 0) {
+                const avariaKg  = Number(m.avaria_qtd).toFixed(1);
+                tooltipLinhas.push(
+                    '',
+                    `Avaria: ${avariaKg} kg × ${fmtBRL(m.custo_medio_kg)}/kg = ${fmtBRL(m.avaria_vlr)}`,
+                    '   (custo perdido — já está no vale, não duplica)',
+                );
+            }
+            tooltipLinhas.push('', `Status: ${m.tipo_calculo === 'FECHADA' ? 'Lote fechado' : 'Provisória — lote ainda em estoque'}`);
+            valEl.title = tooltipLinhas.join('\n');
+        } catch (e) {
+            console.warn('Falha ao carregar margem do lote:', e);
+            valEl.textContent = '—';
+            lucroEl.textContent = '—';
+        }
     };
 
     // ==========================================================================
@@ -1116,6 +1228,22 @@ window.ComercialDistribuicao = (function() {
 
         STATE = { nunotaOrigem: null, lote: null, pesos: null, qtdconferida: 0,
                   dadosDaLinha: null, modoVendas: 'lote' };
+
+        // Mai/2026 — 2026-05-17: limpa card Margem
+        const cardMargem    = document.getElementById('distMini1');
+        const distMargemTot = document.getElementById('distMargemTotal');
+        const distLucroAbs  = document.getElementById('distLucroAbsoluto');
+        const margemBadge   = document.getElementById('distMargemBadge');
+        if (cardMargem) {
+            cardMargem.dataset.margemCor   = 'neutro';
+            cardMargem.dataset.tipoCalculo = '';
+        }
+        if (distMargemTot) {
+            distMargemTot.textContent = '—';
+            distMargemTot.title = 'Selecione um lote pra ver a margem';
+        }
+        if (distLucroAbs) distLucroAbs.textContent = 'R$ 0,00';
+        if (margemBadge) margemBadge.classList.add('hidden');
 
         // Mai/2026: limpa sparkline + lista de vendas do lote (estado anterior)
         const sparkCard = document.getElementById('cardSparkVendas');

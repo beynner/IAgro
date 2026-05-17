@@ -253,8 +253,40 @@ h3 { margin: 0 0 12px 0; }
     overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.02); 
     min-width: 0 !important;
 }
-.dist-mini.kpi-margin { display: flex; align-items: center; justify-content: center; }
-.dist-mini.kpi-margin .margin-value { font-size: clamp(28px,3.6vw,40px); font-weight: 900; color: #27272a; line-height: 1; }
+.dist-mini.kpi-margin { display: flex; align-items: center; justify-content: center; position: relative; }
+.dist-mini.kpi-margin .margin-value { font-size: clamp(28px,3.6vw,40px); font-weight: 900; color: #27272a; line-height: 1; cursor: help; transition: color 0.2s ease; }
+
+/* Cor por sinal da margem (Mai/2026 — 2026-05-17). Aplicada via
+   data-margem-cor no #distMini1 — pintando o valor da margem (verde +,
+   vermelho −, cinza neutro/sem dados). */
+.dist-mini.kpi-margin[data-margem-cor="positivo"] .margin-value { color: #16a34a; }
+.dist-mini.kpi-margin[data-margem-cor="negativo"] .margin-value { color: #dc2626; }
+.dist-mini.kpi-margin[data-margem-cor="neutro"]   .margin-value { color: #64748b; }
+
+/* Badge "provisória" — só aparece quando lote ainda tem saldo > 0
+   (data-tipo-calculo="PROVISORIA"). Ícone Phosphor + texto compacto. */
+.dist-mini.kpi-margin .margem-badge {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: #fef3c7;
+    color: #92400e;
+    font-size: 0.6rem;
+    font-weight: 800;
+    padding: 1px 6px;
+    border-radius: 999px;
+    letter-spacing: 0.2px;
+    cursor: help;
+    border: 1px solid rgba(146, 64, 14, 0.15);
+    text-transform: uppercase;
+}
+.dist-mini.kpi-margin .margem-badge .ph {
+    font-size: 10px;
+}
+.dist-mini.kpi-margin .margem-badge.hidden { display: none; }
 
 .dist-label { position: absolute; left: calc(var(--mini-label-w) / 2); top: 50%; transform: translate(-50%, -50%) rotate(-90deg); transform-origin: center; text-align: center; font-size: .75rem; font-weight: 500; color: var(--muted); letter-spacing: .03em; white-space: nowrap; }
 .dist-value { margin-top: 4px; font-size: clamp(20px,1.8vw,22px); font-weight: 800; line-height: 1.1; color: #27272a; text-align: center; align-self: stretch; width: 100%; }

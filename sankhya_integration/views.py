@@ -2117,6 +2117,24 @@ def api_vendas_do_lote(request: HttpRequest) -> JsonResponse:
 
 
 # ==============================================================================
+# ROTA 1.6 (Mai/2026 — 2026-05-17): Margem do lote (card "Margem Lote")
+# Cálculo: (RECEITA_BRUTA − DEVOLUÇÃO − CUSTO) / RECEITA_LIQUIDA × 100.
+# Avaria interna não duplica (custo já pago integralmente no vale TOP 13) —
+# devolvida no payload como informativa pro tooltip.
+# ==============================================================================
+@require_http_methods(["GET"])
+def api_margem_lote(request: HttpRequest) -> JsonResponse:
+    """Devolve a margem realizada/provisória do lote pra preencher card."""
+    lote = (request.GET.get('lote') or '').strip()
+    if not lote:
+        return JsonResponse({"ok": False, "error": "Lote não informado"}, status=400)
+
+    from sankhya_integration.services.oracle_conn import consultar_margem_do_lote
+    dados = consultar_margem_do_lote(lote)
+    return JsonResponse({"ok": True, **dados})
+
+
+# ==============================================================================
 # ROTA 2: O Ticket Médio em Background (Para não travar a tela)
 # ==============================================================================
 @require_http_methods(["GET"])

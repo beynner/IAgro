@@ -156,7 +156,64 @@ Sem dependência externa (Chart.js/D3) — consistente com tanques combustível 
 
 ---
 
+## Margem do lote — card preenchido (Mai/2026 — 2026-05-17)
+
+Card `#distMini1` "Margem Lote" agora calculado em runtime via novo endpoint.
+
+### Fórmula
+
+```
+RECEITA_BRUTA = Σ VLRTOT vendas (TOP 34 'L' + TOP 35/37 'L' sem par TGFVAR — mesmo dedup)
+DEVOLUÇÕES    = Σ VLRTOT TOP 36 STATUSNOTA='L' do lote
+CUSTO         = Σ VLRTOT TGFITE TOP 13 STATUSNOTA<>'E' do lote
+
+RECEITA_LIQ = RECEITA_BRUTA − DEVOLUÇÕES
+LUCRO       = RECEITA_LIQ − CUSTO
+MARGEM%     = LUCRO / RECEITA_LIQ × 100   (se RECEITA_LIQ > 0)
+```
+
+**Avaria interna (TOP 30) NÃO desconta no cálculo** — o vale (TOP 13) paga o lote inteiro independente de perdas, então a avaria naturalmente piora a margem via custo total sem receita correspondente. O backend devolve `avaria_qtd` + `avaria_vlr` (qtd × custo_médio/kg) **informativamente** pro tooltip mostrar a perda destacada — operador entende de onde veio o lucro menor sem dupla contagem.
+
+### Estados visuais
+
+| Estado | Quando | Aparência |
+|---|---|---|
+| **Sem dados** (—) | Nenhum lote selecionado OU `tem_custo=False` (vale ainda não lançado) | Cinza, valor "—" |
+| **Positiva** | `MARGEM% > 0,05` | Verde (#16a34a), prefixo "+" |
+| **Negativa** | `MARGEM% < -0,05` | Vermelho (#dc2626), prefixo "−" |
+| **Neutra** | `≈ 0%` | Cinza (#64748b) |
+| **Provisória** | `qtd_disponivel > 0` na view de saldo | Badge âmbar `⚠ provisória` no canto |
+| **Fechada** | Lote esvaziou | Sem badge — número é definitivo |
+
+### Tooltip detalhado (`title` HTML nativo)
+
+```
+Receita bruta:   R$ 9.000,00
+(−) Devolução:   R$ 500,00
+Receita líq.:    R$ 8.500,00
+(−) Custo vale:  R$ 8.000,00
+= Lucro:         R$ 500,00  (+5,9%)
+
+Avaria: 100,0 kg × R$ 8,00/kg = R$ 800,00
+   (custo perdido — já está no vale, não duplica)
+
+Status: Provisória — lote ainda em estoque
+```
+
+### Endpoint e fluxo
+
+- `GET /sankhya/comercial/api/margem-lote/?lote=X` → [`api_margem_lote`](../../sankhya_integration/views.py) → [`consultar_margem_do_lote`](../../sankhya_integration/services/oracle_conn.py)
+- Chamado em **paralelo** com `carregarVendasNoModoAtual()` via `Promise.allSettled` no `preencher()` — não bloqueia uma chamada na outra
+- Tolerância a falha da view `ANDRE_IAGRO_SALDO_LOTE`: assume `qtd_disponivel=0` (fechado) e segue retornando margem
+
+### Limpeza
+
+`limpar()` reseta: `data-margem-cor='neutro'`, `data-tipo-calculo=''`, valor "—", lucro "R$ 0,00", esconde badge. Cobre troca de lote.
+
+---
+
 ## Testes
 
 - `test_views_comercial.py` — comercial, faturamento, vales
 - `test_vendas_lote.py` — `consultar_vendas_do_lote` (SQL+dedup+mapping) + endpoint `api_vendas_do_lote` (validação + delegação) — 10 tests
+- `test_margem_lote.py` — `consultar_margem_do_lote` (positiva, negativa, zero, divisão por zero, devolução, avaria sem duplicar, PROVISORIA/FECHADA, tem_custo=False, falhas Oracle e da view) + endpoint `api_margem_lote` — 13 tests

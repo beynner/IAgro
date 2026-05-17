@@ -7,7 +7,7 @@
 {% block header_title %}COMERCIAL{% endblock %}
 
 {% block extra_css %}
-    <link rel="stylesheet" href="{% static 'sankhya_integration/comercial.css' %}?v=5">
+    <link rel="stylesheet" href="{% static 'sankhya_integration/comercial.css' %}?v=6">
 {% endblock %}
 
 {% block content %}
@@ -99,10 +99,14 @@
 
                         </h3>
                         <div id="distGrid">
-                            <div id="distMini1" class="dist-mini kpi-margin">
+                            <div id="distMini1" class="dist-mini kpi-margin" data-tipo-calculo="">
                                 <span class="dist-label">Margem Lote</span>
-                                <div class="margin-value" id="distMargemTotal">0%</div>
+                                <div class="margin-value" id="distMargemTotal" title="Selecione um lote pra ver a margem">—</div>
                                 <div style="font-size: 0.7rem; color: #64748b; font-weight: 700;" id="distLucroAbsoluto">R$ 0,00</div>
+                                <div id="distMargemBadge" class="margem-badge hidden" title="">
+                                    <i class="ph ph-warning-circle" aria-hidden="true"></i>
+                                    <span>provisória</span>
+                                </div>
                             </div>
                             <div id="distMini3" class="dist-mini qty-split">
                                 <span class="dist-label">Qtde Total</span>
@@ -427,6 +431,6 @@
 {% block extra_js %}
     <script src="{% static 'sankhya_integration/comercialImpressao.js' %}" defer></script>
     <script src="{% static 'sankhya_integration/comercialFinanceiro.js' %}" defer></script>
-    <script src="{% static 'sankhya_integration/comercialDistribuicao.js' %}?v=3" defer></script>
+    <script src="{% static 'sankhya_integration/comercialDistribuicao.js' %}?v=4" defer></script>
     <script src="{% static 'sankhya_integration/comercial.js' %}" defer></script>
 {% endblock %}

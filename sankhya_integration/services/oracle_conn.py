@@ -2022,6 +2022,182 @@ def consultar_vendas_do_lote(codagregacao: str):
     return res_final
 
 
+def consultar_margem_do_lote(codagregacao: str) -> dict:
+    """Calcula a margem do lote (preenche o card "Margem Lote" no Comercial).
+
+    Mai/2026 — 2026-05-17. Cálculo realizado / provisório do lote inteiro:
+
+      RECEITA_BRUTA = Σ VLRTOT das vendas do lote (TOP 34 'L' + TOP 35/37
+                       'L' sem par TGFVAR — mesmo dedup pedido↔nota usado
+                       em `consultar_vendas_do_lote` e na view ANDRE_IAGRO_SALDO_LOTE)
+      DEVOLUÇÃO     = Σ VLRTOT TOP 36 STATUSNOTA='L' deste lote
+                       (cliente devolveu = não pagou → reduz receita)
+      RECEITA_LIQ   = RECEITA_BRUTA − DEVOLUÇÃO
+
+      CUSTO_TOTAL   = Σ VLRTOT TGFITE TOP 13 (vale) STATUSNOTA<>'E'
+                       (valor pago ao fornecedor pelo lote inteiro)
+
+      LUCRO         = RECEITA_LIQ − CUSTO_TOTAL
+      MARGEM%       = LUCRO / RECEITA_LIQ × 100,  se RECEITA_LIQ > 0
+
+    Avaria interna (TOP 30) NÃO entra explicitamente no cálculo — o custo
+    já foi pago integralmente pelo lote (vale TOP 13), então a perda
+    naturalmente piora a margem (custo sem receita correspondente). Pra
+    transparência operacional, o backend devolve `avaria_qtd` + `avaria_vlr`
+    (qtd × custo_médio_kg) pro frontend mostrar como "perda destacada" no
+    tooltip — operador entende de onde veio o lucro menor.
+
+    Status `PROVISORIA` vs `FECHADA`:
+      - PROVISORIA: lote ainda tem `QTD_DISPONIVEL > 0` na view de saldo
+      - FECHADA: saldo zerou (todas as caixas saíram do estoque)
+
+    Retorna:
+      {
+        'receita_bruta':   9000.0,
+        'devolucoes':      500.0,
+        'receita_liquida': 8500.0,
+        'custo_total':     8000.0,
+        'qtd_entrada':     1000.0,    # Σ QTDNEG TOP 11 do lote
+        'qtd_disponivel':  50.0,      # da view ANDRE_IAGRO_SALDO_LOTE
+        'avaria_qtd':      100.0,     # Σ QTDNEG TOP 30 'L'
+        'avaria_vlr':      800.0,     # avaria_qtd × custo_medio_kg
+        'custo_medio_kg':  8.0,       # custo_total / qtd_entrada
+        'lucro':           500.0,
+        'margem_pct':      5.88,
+        'tipo_calculo':    'PROVISORIA',
+        'tem_custo':       True,      # False quando não há TOP 13 do lote
+                                      # (ainda não faturou vale) — frontend
+                                      # mostra "—" em vez de 0 pra evitar
+                                      # "margem 100%" enganosa
+      }
+    """
+    vazio = {
+        'receita_bruta':   0.0,
+        'devolucoes':      0.0,
+        'receita_liquida': 0.0,
+        'custo_total':     0.0,
+        'qtd_entrada':     0.0,
+        'qtd_disponivel':  0.0,
+        'avaria_qtd':      0.0,
+        'avaria_vlr':      0.0,
+        'custo_medio_kg':  0.0,
+        'lucro':           0.0,
+        'margem_pct':      0.0,
+        'tipo_calculo':    'PROVISORIA',
+        'tem_custo':       False,
+    }
+    if not codagregacao:
+        return vazio
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 1) Vendas (com dedup pedido↔nota) — receita bruta
+            cur.execute(
+                """
+                SELECT NVL(SUM(i.VLRTOT), 0)
+                  FROM TGFCAB c
+                  JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+                 WHERE i.CODAGREGACAO = :lote
+                   AND c.STATUSNOTA = 'L'
+                   AND c.CODTIPOPER IN (34, 35, 37)
+                   AND (
+                        c.CODTIPOPER = 34
+                        OR NOT EXISTS (
+                            SELECT 1 FROM TGFVAR v
+                             WHERE v.NUNOTA = c.NUNOTA
+                               AND v.NUNOTAORIG IS NOT NULL
+                        )
+                   )
+                """,
+                lote=str(codagregacao),
+            )
+            receita_bruta = float((cur.fetchone() or [0])[0] or 0)
+
+            # 2) Devolução (TOP 36 STATUSNOTA='L')
+            cur.execute(
+                """
+                SELECT NVL(SUM(i.VLRTOT), 0)
+                  FROM TGFCAB c
+                  JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+                 WHERE i.CODAGREGACAO = :lote
+                   AND c.STATUSNOTA = 'L'
+                   AND c.CODTIPOPER = 36
+                """,
+                lote=str(codagregacao),
+            )
+            devolucoes = float((cur.fetchone() or [0])[0] or 0)
+
+            # 3) Custo (TOP 13 vale) + qtd entrada (TOP 11)
+            cur.execute(
+                """
+                SELECT
+                    NVL(SUM(CASE WHEN c.CODTIPOPER = 13 THEN i.VLRTOT END), 0) AS custo,
+                    NVL(SUM(CASE WHEN c.CODTIPOPER = 11 THEN i.QTDNEG END), 0) AS qtd_entrada,
+                    NVL(SUM(CASE WHEN c.CODTIPOPER = 30 AND c.STATUSNOTA = 'L'
+                                  THEN i.QTDNEG END), 0)                       AS avaria_qtd
+                  FROM TGFCAB c
+                  JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+                 WHERE i.CODAGREGACAO = :lote
+                   AND c.STATUSNOTA <> 'E'
+                   AND c.CODTIPOPER IN (11, 13, 30)
+                """,
+                lote=str(codagregacao),
+            )
+            row = cur.fetchone() or (0, 0, 0)
+            custo_total = float(row[0] or 0)
+            qtd_entrada = float(row[1] or 0)
+            avaria_qtd  = float(row[2] or 0)
+
+            # 4) Saldo disponível na view (provisória/fechada)
+            qtd_disponivel = 0.0
+            try:
+                cur.execute(
+                    """
+                    SELECT NVL(SUM(QTD_DISPONIVEL), 0)
+                      FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE
+                     WHERE CODAGREGACAO = :lote
+                       AND VENDAVEL = 'S'
+                    """,
+                    lote=str(codagregacao),
+                )
+                qtd_disponivel = float((cur.fetchone() or [0])[0] or 0)
+            except Exception:
+                # View pode falhar — segue com saldo=0 (assume fechada)
+                logger.warning(
+                    "Falha lendo ANDRE_IAGRO_SALDO_LOTE em consultar_margem_do_lote(%s)",
+                    codagregacao,
+                )
+
+        # Cálculo
+        receita_liquida = receita_bruta - devolucoes
+        lucro = receita_liquida - custo_total
+        margem_pct = (lucro / receita_liquida * 100) if receita_liquida > 0 else 0.0
+        custo_medio_kg = (custo_total / qtd_entrada) if qtd_entrada > 0 else 0.0
+        avaria_vlr = avaria_qtd * custo_medio_kg
+        tipo_calculo = 'FECHADA' if qtd_disponivel <= 0.001 else 'PROVISORIA'
+
+        return {
+            'receita_bruta':   receita_bruta,
+            'devolucoes':      devolucoes,
+            'receita_liquida': receita_liquida,
+            'custo_total':     custo_total,
+            'qtd_entrada':     qtd_entrada,
+            'qtd_disponivel':  qtd_disponivel,
+            'avaria_qtd':      avaria_qtd,
+            'avaria_vlr':      avaria_vlr,
+            'custo_medio_kg':  custo_medio_kg,
+            'lucro':           lucro,
+            'margem_pct':      margem_pct,
+            'tipo_calculo':    tipo_calculo,
+            'tem_custo':       custo_total > 0,
+        }
+    except Exception as e:
+        logger.exception("Erro em consultar_margem_do_lote(lote=%s): %s", codagregacao, e)
+        return vazio
+
+
 def consultar_calculo_ticket_medio(lote: str):
     """Calcula o Ticket Médio e envia a 'Bandeira' de tipo de fluxo."""
     # 🚀 ADICIONAMOS A BANDEIRA 'tipo_fluxo' AQUI
