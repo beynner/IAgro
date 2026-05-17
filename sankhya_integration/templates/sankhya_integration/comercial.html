@@ -7,7 +7,7 @@
 {% block header_title %}COMERCIAL{% endblock %}
 
 {% block extra_css %}
-    <link rel="stylesheet" href="{% static 'sankhya_integration/comercial.css' %}?v=7">
+    <link rel="stylesheet" href="{% static 'sankhya_integration/comercial.css' %}?v=8">
 {% endblock %}
 
 {% block content %}
@@ -276,8 +276,10 @@
             <div class="zcell panel group group--class" id="classCard">
                 <h3 class="class-header" style="margin-bottom: 5px;">
                     <span class="class-left">Classificação</span>
-                    <span id="classFabricanteName" class="prod-name"></span>
-                    <span id="classLoteBadge" class="badge badge--lote" style="display:none;"></span>
+                    <span class="class-center">
+                        <span id="classFabricanteName" class="prod-name"></span>
+                        <span id="classLoteBadge" class="badge badge--lote hidden"></span>
+                    </span>
                     <a id="classOpenLink" href="#" target="_blank" class="class-open-link" style="display:none">Abrir</a>
                 </h3>
                 <div class="class-wrap" style="display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 15px; height: calc(100% - 40px);">
@@ -434,5 +436,5 @@
     <script src="{% static 'sankhya_integration/comercialImpressao.js' %}" defer></script>
     <script src="{% static 'sankhya_integration/comercialFinanceiro.js' %}" defer></script>
     <script src="{% static 'sankhya_integration/comercialDistribuicao.js' %}?v=4" defer></script>
-    <script src="{% static 'sankhya_integration/comercial.js' %}" defer></script>
+    <script src="{% static 'sankhya_integration/comercial.js' %}?v=2" defer></script>
 {% endblock %}

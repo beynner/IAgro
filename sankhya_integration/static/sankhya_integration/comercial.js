@@ -945,7 +945,13 @@ window.ComercialClassificacao = (function() {
             DOM.gaugeArc.style.transition = 'stroke-dashoffset 1.5s ease-out, stroke 1.5s ease-out'; 
         }
 
-        if (DOM.loteBadge) DOM.loteBadge.textContent = `LOTE ${lote}`;
+        // Mai/2026 — 2026-05-17: badge do lote agora aparece de fato no
+        // header (antes estava com display:none inline e só o textContent
+        // era atualizado). Mostra/esconde via .hidden — coerente com limpar().
+        if (DOM.loteBadge) {
+            DOM.loteBadge.textContent = `LOTE ${lote}`;
+            DOM.loteBadge.classList.remove('hidden');
+        }
         if (DOM.fabName) DOM.fabName.textContent = dadosDaLinha.fabricante || dadosDaLinha.produto || '';
 
         try {
@@ -1249,7 +1255,10 @@ window.ComercialClassificacao = (function() {
         if (DOM.kpiEstoque) DOM.kpiEstoque.textContent = '-';
         if (DOM.kpiEstoqueApprox) DOM.kpiEstoqueApprox.textContent = '';
         if (DOM.classBody) DOM.classBody.innerHTML = '';
-        if (DOM.loteBadge) DOM.loteBadge.style.display = 'none';
+        if (DOM.loteBadge) {
+            DOM.loteBadge.textContent = '';
+            DOM.loteBadge.classList.add('hidden');
+        }
         if (DOM.fabName) DOM.fabName.textContent = '';
         if (DOM.gaugeArc) atualizarGauge(0);
 
