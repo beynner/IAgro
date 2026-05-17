@@ -1,6 +1,12 @@
 window.ComercialDistribuicao = (function() {
     let DOM = {};
-    let STATE = { nunotaOrigem: null, lote: null, pesos: null, qtdconferida: 0 }; 
+    // Mai/2026 — 2026-05-16: campos novos pra suportar:
+    //  • dadosDaLinha: contexto completo do lote selecionado (cache pra re-fetch
+    //    de vendas quando operador troca tab Lote↔Produto sem clicar de novo na linha)
+    //  • modoVendas: aba ativa do painel "Últimas vendas". Default 'lote' (filtra
+    //    por CODAGREGACAO); 'produto' usa endpoint legacy filtrando por CODPROD.
+    let STATE = { nunotaOrigem: null, lote: null, pesos: null, qtdconferida: 0,
+                  dadosDaLinha: null, modoVendas: 'lote' }; 
     let isSimulacaoEventsBound = false; 
 
     const fmtBRL = (v) => window.ComercialUtils.toNumber(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -885,6 +891,9 @@ window.ComercialDistribuicao = (function() {
         }
 
         bindSimulacaoEvents();
+        // Mai/2026 — 2026-05-16: garante listeners das tabs Lote/Produto no
+        // painel de últimas vendas (idempotente via flag dataset).
+        bindVendasTabs();
 
         if (!isSimulacao) {
             const exQty = document.getElementById('sim-extra-qty');
@@ -938,53 +947,123 @@ window.ComercialDistribuicao = (function() {
             }
         } catch (e) { console.warn("Aguardando Ticket.", e); }
 
+        // Mai/2026 — 2026-05-16: cachea dadosDaLinha pra permitir re-fetch
+        // quando o operador troca a tab Lote↔Produto sem clicar de novo na linha.
+        STATE.dadosDaLinha = dadosDaLinha;
+        await carregarVendasNoModoAtual(pesoCx);
+    };
+
+    // ==========================================================================
+    // Carrega "Últimas vendas" no modo ativo (lote OU produto) + alimenta o
+    // sparkline com os mesmos dados (1 fetch só).
+    //
+    // Modo 'lote'     → /comercial/api/vendas-lote/        (filtra CODAGREGACAO)
+    // Modo 'produto'  → /comercial/api/lista-ultimas-vendas/ (legacy, por CODPROD)
+    //
+    // Ambos retornam o mesmo shape { ultimasVendas: [...] } — frontend trata igual.
+    // ==========================================================================
+    const carregarVendasNoModoAtual = async (pesoCxArg) => {
+        const dadosDaLinha = STATE.dadosDaLinha;
+        if (!dadosDaLinha || !dadosDaLinha.codagregacao) return;
+
+        const pesoCx = (typeof pesoCxArg === 'number' && pesoCxArg > 0)
+            ? pesoCxArg
+            : (window.ComercialUtils && window.ComercialUtils.toNumber
+                ? window.ComercialUtils.toNumber(dadosDaLinha.pesocxstd || 22)
+                : 22);
+        const fmtBRL = window.ComercialUtils && window.ComercialUtils.fmtBRL
+            ? window.ComercialUtils.fmtBRL
+            : (n) => 'R$ ' + Number(n || 0).toFixed(2).replace('.', ',');
+
+        const modo = STATE.modoVendas === 'produto' ? 'produto' : 'lote';
+        const url  = modo === 'produto'
+            ? `/sankhya/comercial/api/lista-ultimas-vendas/?lote=${encodeURIComponent(dadosDaLinha.codagregacao)}`
+            : `/sankhya/comercial/api/vendas-lote/?lote=${encodeURIComponent(dadosDaLinha.codagregacao)}`;
+
+        // Atualiza título do sparkline conforme modo
+        const sparkTitulo = document.getElementById('sparkTitulo');
+        if (sparkTitulo) {
+            sparkTitulo.innerHTML = modo === 'produto'
+                ? '<i class="ph ph-chart-line-up" aria-hidden="true"></i> Evolução de preço — vendas deste produto'
+                : '<i class="ph ph-chart-line-up" aria-hidden="true"></i> Evolução de preço — vendas deste lote';
+        }
+
+        const listaContainer = document.getElementById('listaUltimasVendas');
+        if (listaContainer) {
+            listaContainer.innerHTML = '<div style="font-size: 0.7rem; color: #94a3b8; text-align: center; padding: 10px;">Aguardando dados...</div>';
+        }
+
         try {
-            // Mai/2026: usar endpoint NOVO que filtra por CODAGREGACAO (lote
-            // selecionado) em vez de "produtos que existem no lote". Devolve
-            // o histórico real de saídas daquele lote — com dedup pedido↔nota.
-            const resVendas = await fetch(`/sankhya/comercial/api/vendas-lote/?lote=${encodeURIComponent(dadosDaLinha.codagregacao)}`);
-            if (resVendas.ok) {
-                const vendas = await resVendas.json();
-                const listaContainer = document.getElementById('listaUltimasVendas');
-                if (listaContainer && vendas.ultimasVendas) {
-                    listaContainer.innerHTML = '';
+            const resVendas = await fetch(url);
+            if (!resVendas.ok) return;
+            const vendas = await resVendas.json();
+            if (!listaContainer || !vendas.ultimasVendas) return;
 
-                    if (vendas.ultimasVendas.length === 0) {
-                        listaContainer.innerHTML = '<div style="font-size: 0.7rem; color: #94a3b8; text-align: center; padding: 10px;">Sem vendas deste lote ainda.</div>';
-                    } else {
-                        vendas.ultimasVendas.forEach(v => {
-                            const pCx = v.preco_cx !== undefined ? v.preco_cx : (v.preco_kg * pesoCx);
-                            const pKg = v.preco_kg !== undefined ? v.preco_kg : 0;
-                            const corBadge = v.tipo === 'EXTRA' ? '#2563eb' : (v.tipo === 'MÉDIO' ? '#ea580c' : (v.tipo === 'IN NATURA' ? '#16a34a' : '#64748b'));
+            listaContainer.innerHTML = '';
+            if (vendas.ultimasVendas.length === 0) {
+                const msgVazia = modo === 'produto'
+                    ? 'Sem vendas deste produto.'
+                    : 'Sem vendas deste lote ainda.';
+                listaContainer.innerHTML = `<div style="font-size: 0.7rem; color: #94a3b8; text-align: center; padding: 10px;">${msgVazia}</div>`;
+            } else {
+                vendas.ultimasVendas.forEach(v => {
+                    const pCx = v.preco_cx !== undefined ? v.preco_cx : (v.preco_kg * pesoCx);
+                    const pKg = v.preco_kg !== undefined ? v.preco_kg : 0;
+                    const corBadge = v.tipo === 'EXTRA' ? '#2563eb' : (v.tipo === 'MÉDIO' ? '#ea580c' : (v.tipo === 'IN NATURA' ? '#16a34a' : '#64748b'));
 
-                            listaContainer.innerHTML += `
-                                <div style="font-size: 0.65rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; margin-bottom: 3px;">
-                                    <div style="display: flex; justify-content: space-between; font-weight: 700; color: #334155; margin-bottom: 1px;">
-                                        <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;" title="${v.cliente_full || v.cliente}">${v.cliente}</span>
-                                        <span style="color: #29292b; margin-left: 5px;">${v.data}</span>
-                                    </div>
-                                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                                        <span style="background: ${corBadge}; color: white; padding: 1px 4px; border-radius: 4px; font-size: 0.55rem; font-weight: 800; letter-spacing: 0.5px;">${v.tipo}</span>
-                                        <div style="text-align: right; display: flex; flex-direction: column; line-height: 1;">
-                                            <span style="font-weight: 900; color: #505d70; font-size: 0.75rem; margin-top: 1px;">${fmtBRL(pKg)} <small style="font-size: 0.55rem; color: #94a3b8; font-weight: 500;">/kg</small></span>
-                                            <span style="font-weight: 900; color: #505d70; font-size: 0.75rem;">${fmtBRL(pCx)} <small style="font-size: 0.55rem; color: #94a3b8; font-weight: 600;">/cx</small></span>
-                                        </div>
-                                    </div>
+                    listaContainer.innerHTML += `
+                        <div style="font-size: 0.65rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; margin-bottom: 3px;">
+                            <div style="display: flex; justify-content: space-between; font-weight: 700; color: #334155; margin-bottom: 1px;">
+                                <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;" title="${v.cliente_full || v.cliente}">${v.cliente}</span>
+                                <span style="color: #29292b; margin-left: 5px;">${v.data}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="background: ${corBadge}; color: white; padding: 1px 4px; border-radius: 4px; font-size: 0.55rem; font-weight: 800; letter-spacing: 0.5px;">${v.tipo}</span>
+                                <div style="text-align: right; display: flex; flex-direction: column; line-height: 1;">
+                                    <span style="font-weight: 900; color: #505d70; font-size: 0.75rem; margin-top: 1px;">${fmtBRL(pKg)} <small style="font-size: 0.55rem; color: #94a3b8; font-weight: 500;">/kg</small></span>
+                                    <span style="font-weight: 900; color: #505d70; font-size: 0.75rem;">${fmtBRL(pCx)} <small style="font-size: 0.55rem; color: #94a3b8; font-weight: 600;">/cx</small></span>
                                 </div>
-                            `;
-                        });
-                    }
+                            </div>
+                        </div>
+                    `;
+                });
+            }
 
-                    // Alimenta o sparkline com os mesmos dados (1 fetch). Cronológico:
-                    // o backend devolve DESC; aqui revertemos pra desenhar
-                    // esquerda=antigo, direita=recente (leitura natural).
-                    if (window.ComercialDistribuicao && typeof window.ComercialDistribuicao.renderSparkline === 'function') {
-                        const pontos = [...vendas.ultimasVendas].reverse();
-                        window.ComercialDistribuicao.renderSparkline(pontos);
-                    }
-                }
+            // Sparkline com os mesmos dados (1 fetch). Cronológico: backend
+            // devolve DESC; revertemos pra desenhar esq=antigo, dir=recente.
+            if (window.ComercialDistribuicao && typeof window.ComercialDistribuicao.renderSparkline === 'function') {
+                const pontos = [...vendas.ultimasVendas].reverse();
+                window.ComercialDistribuicao.renderSparkline(pontos);
             }
         } catch (e) { console.warn("Aguardando vendas.", e); }
+    };
+
+    // Troca o modo da tab Lote↔Produto e dispara re-fetch sem precisar do
+    // operador clicar de novo na linha. Idempotente.
+    const setModoVendas = (modo) => {
+        const novo = (modo === 'produto') ? 'produto' : 'lote';
+        if (STATE.modoVendas === novo) return;
+        STATE.modoVendas = novo;
+        document.querySelectorAll('.vendas-tab').forEach(btn => {
+            const on = btn.dataset.modo === novo;
+            btn.classList.toggle('is-on', on);
+            btn.setAttribute('aria-pressed', String(on));
+        });
+        if (STATE.dadosDaLinha) carregarVendasNoModoAtual();
+    };
+
+    // Bind das tabs uma vez só (idempotente — guarda flag em dataset). Chamado
+    // no boot do módulo + defensivamente no preencher caso DOM seja
+    // re-renderizado.
+    const bindVendasTabs = () => {
+        document.querySelectorAll('.vendas-tab').forEach(btn => {
+            if (btn.dataset.bound === '1') return;
+            btn.dataset.bound = '1';
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                setModoVendas(btn.dataset.modo);
+            });
+        });
     };
 
     const limpar = () => {
@@ -1035,7 +1114,8 @@ window.ComercialDistribuicao = (function() {
             if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; }
         });
 
-        STATE = { nunotaOrigem: null, lote: null, pesos: null, qtdconferida: 0 };
+        STATE = { nunotaOrigem: null, lote: null, pesos: null, qtdconferida: 0,
+                  dadosDaLinha: null, modoVendas: 'lote' };
 
         // Mai/2026: limpa sparkline + lista de vendas do lote (estado anterior)
         const sparkCard = document.getElementById('cardSparkVendas');
@@ -1044,10 +1124,21 @@ window.ComercialDistribuicao = (function() {
         if (sparkSvg) sparkSvg.innerHTML = '';
         const sparkStats = document.getElementById('sparkStats');
         if (sparkStats) sparkStats.textContent = '';
+        const sparkTitulo = document.getElementById('sparkTitulo');
+        if (sparkTitulo) {
+            sparkTitulo.innerHTML = '<i class="ph ph-chart-line-up" aria-hidden="true"></i> Evolução de preço — vendas deste lote';
+        }
         const listaVendas = document.getElementById('listaUltimasVendas');
         if (listaVendas) {
             listaVendas.innerHTML = '<div style="font-size: 0.7rem; color: #94a3b8; text-align: center; padding: 10px;">Aguardando dados...</div>';
         }
+        // Reseta tabs visualmente — modo Lote ativo
+        document.querySelectorAll('.vendas-tab').forEach(btn => {
+            const on = btn.dataset.modo === 'lote';
+            btn.classList.toggle('is-on', on);
+            btn.setAttribute('aria-pressed', String(on));
+        });
+        bindVendasTabs();
     };
 
     const toggleVendas = () => {
@@ -1341,8 +1432,10 @@ window.ComercialDistribuicao = (function() {
 
         // viewBox fixo — pontos são mapeados pra esse canvas e o SVG escala
         // proporcionalmente com o container (preserveAspectRatio="none").
-        const W = 600, H = 120;
-        const PAD_L = 44, PAD_R = 12, PAD_T = 14, PAD_B = 22;
+        // Mai/2026 — 2026-05-16: card agora ocupa col 1-2 do grid (alinhado
+        // com Margem + Qtde Total), então viewBox encolhido proporcionalmente.
+        const W = 400, H = 90;
+        const PAD_L = 40, PAD_R = 10, PAD_T = 10, PAD_B = 18;
         const plotW = W - PAD_L - PAD_R;
         const plotH = H - PAD_T - PAD_B;
 
@@ -1480,5 +1573,5 @@ window.ComercialDistribuicao = (function() {
         }
     };
 
-    return { preencher, limpar, toggleVendas, salvar, zerarNegociacao, abrirModalMovimentacao, toggleMovMode, confirmarMovimento, renderSparkline };
+    return { preencher, limpar, toggleVendas, salvar, zerarNegociacao, abrirModalMovimentacao, toggleMovMode, confirmarMovimento, renderSparkline, setModoVendas };
 })();

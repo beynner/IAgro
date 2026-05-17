@@ -847,7 +847,7 @@ body.vale-faturado #badgeFaturadoDist { display: flex !important; }
 .card-sparkline-vendas .spark-svg-wrap {
     position: relative;
     width: 100%;
-    height: 120px;
+    height: 90px;            /* alinhado com altura dos mini-cards do topo */
 }
 .card-sparkline-vendas #sparkSvg {
     width: 100%;
@@ -869,9 +869,45 @@ body.vale-faturado #badgeFaturadoDist { display: flex !important; }
 }
 .card-sparkline-vendas .spark-tooltip.hidden { display: none; }
 
-/* Responsivo — altura reduzida e label de stats em coluna em telas estreitas */
+/* Responsivo — em telas estreitas o sparkline volta a ocupar largura total
+   e ganha altura pra preservar legibilidade do gráfico. */
 @media (max-width: 900px) {
-    .card-sparkline-vendas .spark-svg-wrap { height: 100px; }
+    #cardSparkVendas { grid-column: 1 / -1 !important; }
+    .card-sparkline-vendas .spark-svg-wrap { height: 110px; }
     .card-sparkline-vendas .spark-titulo { font-size: 0.72rem; }
     .card-sparkline-vendas .spark-stats { font-size: 0.68rem; }
+}
+
+/* ===========================================================================
+   TABS Lote/Produto no painel "Últimas vendas" (Mai/2026 — 2026-05-16)
+   Segmented control compacto que substitui o título estático antigo.
+   =========================================================================== */
+.vendas-tabs {
+    display: inline-flex;
+    background: #f1f5f9;
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+}
+.vendas-tab {
+    background: transparent;
+    border: none;
+    padding: 4px 10px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+    font-family: inherit;
+}
+.vendas-tab:hover:not(.is-on) {
+    color: #1e293b;
+}
+.vendas-tab.is-on {
+    background: #fff;
+    color: #1e293b;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
 }
