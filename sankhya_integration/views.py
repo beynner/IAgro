@@ -57,6 +57,16 @@ from .services.oracle_conn import (
     listar_usuarios,
     consultar_usuario_detalhe,
     consultar_grupos_disponiveis,
+    # Controle de Caixas (Mai/2026) — Cat A (leitura) + Cat B (escritas)
+    consultar_saldo_caixas,
+    obter_timeline_caixas,
+    listar_coletas_caixas,
+    listar_produtos_caixa,
+    criar_coleta_caixas_banco,
+    estornar_coleta_caixas_banco,
+    upsert_produto_caixa_banco,
+    # [TEMPORÁRIO Mai/2026] backfill PESO — remover quando IAgro virar fluxo único
+    popular_pesos_top34_35_37_via_moda_TEMP,
 )
 from .services.etiqueta_lote import gerar_pdf_etiquetas
 
@@ -5866,3 +5876,226 @@ def api_usuarios_adicionar_grupo(request: HttpRequest, codusu: int) -> JsonRespo
 @exige_grupo('usuarios')
 def api_usuarios_remover_grupo(request: HttpRequest, codusu: int) -> JsonResponse:
     return _stub_cat_b_pendente('Remover grupo (B6)')
+
+
+# ==============================================================================
+# 📦 MÓDULO CAIXAS (Mai/2026, 2026-05-18)
+# Controle de vasilhame retornável (caixa plástica). Saídas calculadas em
+# runtime via CEIL(QTDNEG/PESO) de TGFITE TOP 35/37 'L' (mesma fórmula da
+# etiqueta SafeTrace). Devoluções TOP 36 'L' descontam. Coletas/quebras/
+# perdas são manuais em AD_COLETA_CAIXAS. Produtos PAPELAO (cadastrados em
+# AD_PRODUTO_CAIXA) não contam saldo.
+#
+# Cat A entregue: saldo por cliente + timeline + lista de coletas + lista
+# de produtos cadastrados + página HTML.
+# Cat B pendente (B1-B3): criar coleta / estornar coleta / upsert tipo de
+# caixa por produto — endpoints abaixo retornam 501 até aprovação.
+# ==============================================================================
+
+@ensure_csrf_cookie
+@exige_grupo('caixas')
+def view_caixas_painel(request: HttpRequest) -> HttpResponse:
+    """Tela principal de controle de caixas (Layout v2)."""
+    return render(request, "sankhya_integration/caixas.html")
+
+
+@require_http_methods(["GET"])
+@exige_grupo('caixas')
+def api_caixas_saldo(request: HttpRequest) -> JsonResponse:
+    """Lista saldo de caixas plásticas em campo por cliente.
+
+    Querystring:
+      q                       — UPPER LIKE em NOMEPARC
+      apenas_saldo_positivo   — default true
+      codparc                 — filtra um cliente específico (drill-down)
+    """
+    apenas_pos_raw = (request.GET.get('apenas_saldo_positivo', 'true') or '').lower()
+    filtros = {
+        'q':                     (request.GET.get('q') or '').strip() or None,
+        'apenas_saldo_positivo': apenas_pos_raw not in ('false', '0', 'no', 'n'),
+    }
+    codparc = request.GET.get('codparc')
+    if codparc:
+        try:
+            filtros['codparc'] = int(codparc)
+        except (TypeError, ValueError):
+            return JsonResponse({'ok': False, 'error': 'codparc inválido.'}, status=400)
+    try:
+        linhas = consultar_saldo_caixas(filtros=filtros)
+        total_caixas = sum(l['saldo'] for l in linhas if l['saldo'] > 0)
+        return JsonResponse({
+            'ok': True,
+            'linhas': linhas,
+            'total_clientes': len(linhas),
+            'total_caixas': total_caixas,
+        })
+    except Exception as exc:
+        logger.exception("Falha em api_caixas_saldo")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('caixas')
+def api_caixas_timeline(request: HttpRequest, codparc: int) -> JsonResponse:
+    """Timeline cronológica de eventos de caixa pra 1 cliente."""
+    try:
+        dias_raw = request.GET.get('dias') or '90'
+        dias = max(1, min(730, int(dias_raw)))
+    except (TypeError, ValueError):
+        dias = 90
+    try:
+        eventos = obter_timeline_caixas(codparc=int(codparc), dias=dias)
+        return JsonResponse({'ok': True, 'eventos': eventos, 'dias': dias})
+    except Exception as exc:
+        logger.exception("Falha em api_caixas_timeline codparc=%s", codparc)
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('caixas')
+def api_caixas_coletas_listar(request: HttpRequest) -> JsonResponse:
+    """Lista paginada de coletas manuais."""
+    filtros = {
+        'codparc':           request.GET.get('codparc') or None,
+        'motivo':            (request.GET.get('motivo') or '').strip().upper() or None,
+        'date_de':           (request.GET.get('date_de') or '').strip() or None,
+        'date_ate':          (request.GET.get('date_ate') or '').strip() or None,
+        'incluir_estornadas': (request.GET.get('incluir_estornadas', 'false') or '').lower() in ('1', 'true', 'yes', 's'),
+    }
+    if filtros['codparc']:
+        try:
+            filtros['codparc'] = int(filtros['codparc'])
+        except (TypeError, ValueError):
+            filtros['codparc'] = None
+    try:
+        limite = max(1, min(500, int(request.GET.get('limite') or 100)))
+    except (TypeError, ValueError):
+        limite = 100
+    try:
+        offset = max(0, int(request.GET.get('offset') or 0))
+    except (TypeError, ValueError):
+        offset = 0
+    try:
+        coletas = listar_coletas_caixas(filtros=filtros, limite=limite, offset=offset)
+        return JsonResponse({'ok': True, 'coletas': coletas, 'limite': limite, 'offset': offset})
+    except Exception as exc:
+        logger.exception("Falha em api_caixas_coletas_listar")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('caixas')
+def api_caixas_produtos_listar(request: HttpRequest) -> JsonResponse:
+    """Lista produtos cadastrados em AD_PRODUTO_CAIXA. Suporta filtro `tipo`."""
+    tipo = (request.GET.get('tipo') or '').strip().upper() or None
+    if tipo and tipo not in ('PLASTICA', 'PAPELAO'):
+        tipo = None
+    try:
+        produtos = listar_produtos_caixa(tipo=tipo)
+        return JsonResponse({'ok': True, 'produtos': produtos})
+    except Exception as exc:
+        logger.exception("Falha em api_caixas_produtos_listar")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+# ------------------------------------------------------------------
+# Stubs Cat B (B1-B3) — retornam 501 até serem aprovados ponto-a-ponto
+# ------------------------------------------------------------------
+
+@require_http_methods(["POST"])
+@exige_grupo('caixas')
+def api_caixas_coleta_criar(request: HttpRequest) -> JsonResponse:
+    """B1 — lança coleta/quebra/perda manual."""
+    payload = _get_json_payload(request)
+    codusu  = request.session.get('codusu') or 0
+    nomeusu = request.session.get('nomeusu') or ''
+    try:
+        result = criar_coleta_caixas_banco(payload, codusu=int(codusu), nomeusu=str(nomeusu))
+    except Exception as exc:
+        logger.exception("Falha em api_caixas_coleta_criar")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+    if not result.get('ok'):
+        return JsonResponse(result, status=400)
+    return JsonResponse(result)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('caixas')
+def api_caixas_coleta_estornar(request: HttpRequest, id_coleta: int) -> JsonResponse:
+    """B2 — soft-delete de coleta (ESTORNADO='S')."""
+    payload = _get_json_payload(request)
+    motivo  = (payload.get('motivo_estorno') or payload.get('motivo') or '').strip()
+    codusu  = request.session.get('codusu') or 0
+    nomeusu = request.session.get('nomeusu') or ''
+    try:
+        result = estornar_coleta_caixas_banco(
+            id_coleta=int(id_coleta), motivo_estorno=motivo,
+            codusu=int(codusu), nomeusu=str(nomeusu),
+        )
+    except Exception as exc:
+        logger.exception("Falha em api_caixas_coleta_estornar id=%s", id_coleta)
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+    if not result.get('ok'):
+        return JsonResponse(result, status=400)
+    return JsonResponse(result)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('caixas')
+def api_caixas_produto_upsert(request: HttpRequest) -> JsonResponse:
+    """B3 — cadastra/atualiza tipo de caixa por produto."""
+    payload    = _get_json_payload(request)
+    codprod    = payload.get('codprod')
+    tipo_caixa = payload.get('tipo_caixa') or payload.get('tipo')
+    codusu     = request.session.get('codusu') or 0
+    nomeusu    = request.session.get('nomeusu') or ''
+    try:
+        result = upsert_produto_caixa_banco(
+            codprod=int(codprod or 0), tipo_caixa=str(tipo_caixa or ''),
+            codusu=int(codusu), nomeusu=str(nomeusu),
+        )
+    except Exception as exc:
+        logger.exception("Falha em api_caixas_produto_upsert")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+    if not result.get('ok'):
+        return JsonResponse(result, status=400)
+    return JsonResponse(result)
+
+
+# =============================================================================
+# !!! TEMPORÁRIO Mai/2026 — REMOVER QUANDO IAGRO VIRAR FLUXO ÚNICO !!!
+#
+# Endpoint chamado pelo botão "Atualizar" da tela /sankhya/caixas/ pra fazer
+# backfill de TGFITE.PESO via moda da TOP 26 (vendas faturadas direto no
+# Sankhya chegam com PESO=0).
+#
+# Quando todas as vendas passarem pelo IAgro, peso vem populado pelo Rastreio
+# e essa rota deixa de ter razão. Pra remover (ver detalhes na função service):
+#   1. Apagar este endpoint + import
+#   2. Apagar a rota em urls.py (caixas/api/refresh-pesos/)
+#   3. Reverter o bloco TEMPORÁRIO em caixas.js (handler do botão Atualizar)
+# =============================================================================
+@require_http_methods(["POST"])
+@exige_grupo('caixas')
+def api_caixas_refresh_pesos(request: HttpRequest) -> JsonResponse:
+    """[TEMPORÁRIO Mai/2026] Backfill TGFITE.PESO via moda da TOP 26.
+
+    Idempotente: linhas com PESO > 0 ficam intactas.
+    Primeira chamada em base grande pode demorar alguns minutos (MERGE em
+    centenas de milhares de linhas + triggers Sankhya). Próximas chamadas
+    cobrem apenas vendas novas → rápido.
+    """
+    codusu  = request.session.get('codusu') or 0
+    nomeusu = request.session.get('nomeusu') or ''
+    try:
+        result = popular_pesos_top34_35_37_via_moda_TEMP(
+            codusu=int(codusu), nomeusu=str(nomeusu),
+        )
+    except Exception as exc:
+        logger.exception("Falha em api_caixas_refresh_pesos")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+    if not result.get('ok'):
+        return JsonResponse(result, status=400)
+    return JsonResponse(result)
+
+

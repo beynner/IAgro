@@ -92,14 +92,15 @@
             </div>
             {% endif %}
 
-            {# ADMINISTRATIVO — grupos 1, 6, 10 #}
-            {% if "1" in request.session.grupos or "6" in request.session.grupos or "10" in request.session.grupos %}
+            {# ADMINISTRATIVO — Venda/Importação grupos 1,6,10; Caixas amplo 1,6,8,9,10,11 #}
+            {% if "1" in request.session.grupos or "6" in request.session.grupos or "8" in request.session.grupos or "9" in request.session.grupos or "10" in request.session.grupos or "11" in request.session.grupos %}
             <div class="sidebar-section" data-section="administrativo">
                 <button type="button" class="sidebar-section-toggle" data-section-toggle="administrativo" aria-expanded="false">
                     <span class="sidebar-section-title">Administrativo</span>
                     <i class="ph ph-caret-right sidebar-section-chevron" aria-hidden="true"></i>
                 </button>
                 <div class="sidebar-section-body">
+                    {% if "1" in request.session.grupos or "6" in request.session.grupos or "10" in request.session.grupos %}
                     <a href="/sankhya/venda/portal/" class="nav-item" data-mod="venda" title="Administrativo · Venda">
                         <span class="nav-icon"><i class="ph ph-cash-register"></i></span>
                         <span class="nav-label">Venda</span>
@@ -107,6 +108,11 @@
                     <a href="/sankhya/venda/email-importar/" class="nav-item" data-mod="email" title="Administrativo · Importação por e-mail">
                         <span class="nav-icon"><i class="ph ph-tray-arrow-down"></i></span>
                         <span class="nav-label">Importação</span>
+                    </a>
+                    {% endif %}
+                    <a href="/sankhya/caixas/" class="nav-item" data-mod="caixas" title="Administrativo · Controle de Caixas (vasilhame retornável)">
+                        <span class="nav-icon"><i class="ph ph-package"></i></span>
+                        <span class="nav-label">Caixas</span>
                     </a>
                 </div>
             </div>

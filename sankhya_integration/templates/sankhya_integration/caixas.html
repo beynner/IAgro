@@ -1,0 +1,351 @@
+{% extends "sankhya_integration/base.html" %}
+{% load static %}
+
+{% block title %}IAgro · Caixas{% endblock %}
+{% block active_module %}caixas{% endblock %}
+{% block header_title %}CONTROLE DE CAIXAS{% endblock %}
+
+{% block header_actions %}
+  <button type="button" id="btnAjustarSaldo" class="btn btn-acao-ajuste" title="Cadastrar saldo inicial ou ajustar divergência (uso excepcional)">
+    <i class="ph ph-pencil-simple" aria-hidden="true"></i>
+    <span>Ajustar saldo</span>
+  </button>
+  <button type="button" id="btnLancarColeta" class="btn btn-primario" title="Lançar coleta, quebra ou perda de caixas">
+    <i class="ph ph-truck" aria-hidden="true"></i>
+    <span>Lançar coleta</span>
+  </button>
+{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/caixas.css' %}?v=7">
+{% endblock %}
+
+{% block content %}
+<div class="cx-layout">
+
+  {# Indicadores agregados (topo) #}
+  <header class="cx-resumo">
+    <div class="cx-resumo-card">
+      <div class="cx-resumo-label">Caixas em campo</div>
+      <div class="cx-resumo-valor" id="cxResumoEmCampo">—</div>
+      <div class="cx-resumo-hint">Saldo total não devolvido</div>
+    </div>
+    <div class="cx-resumo-card">
+      <div class="cx-resumo-label">Clientes c/ caixa</div>
+      <div class="cx-resumo-valor" id="cxResumoClientes">—</div>
+      <div class="cx-resumo-hint">Com saldo &gt; 0</div>
+    </div>
+    <div class="cx-resumo-card cx-resumo-card--warn">
+      <div class="cx-resumo-label">Quebradas (30d)</div>
+      <div class="cx-resumo-valor" id="cxResumoQuebradas">—</div>
+      <div class="cx-resumo-hint">Voltaram quebradas no mês</div>
+    </div>
+    <div class="cx-resumo-card cx-resumo-card--danger">
+      <div class="cx-resumo-label">Perdidas (30d)</div>
+      <div class="cx-resumo-valor" id="cxResumoPerdidas">—</div>
+      <div class="cx-resumo-hint">Não voltaram no mês</div>
+    </div>
+  </header>
+
+  {# Abas: Saldo (default) + Cadastro de Produtos #}
+  <nav class="cx-tabs" role="tablist">
+    <button type="button" class="cx-tab is-active" data-tab="saldo" role="tab" aria-selected="true">
+      <i class="ph ph-list-checks" aria-hidden="true"></i>
+      <span>Saldo por cliente</span>
+    </button>
+    <button type="button" class="cx-tab" data-tab="produtos" role="tab" aria-selected="false">
+      <i class="ph ph-package" aria-hidden="true"></i>
+      <span>Tipo de caixa por produto</span>
+    </button>
+    <button type="button" id="cxBtnRefresh" class="cx-btn-refresh" title="Atualizar dados">
+      <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+    </button>
+  </nav>
+
+  {# ============================== ABA SALDO ============================== #}
+  <article class="cx-pane cx-pane--saldo" data-pane="saldo">
+
+    <div class="cx-pane-grid">
+      {# Coluna esquerda — lista de clientes #}
+      <aside class="cx-clientes-panel">
+        <header class="cx-clientes-header">
+          <h3>Clientes com caixa em campo</h3>
+          <span class="cx-clientes-contador" id="cxClientesContador">—</span>
+        </header>
+
+        <div class="cx-clientes-filtros">
+          <div class="cx-filtro-busca">
+            <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+            <input type="search" id="cxBusca" placeholder="Buscar cliente…" autocomplete="off">
+          </div>
+          <label class="cx-toggle" title="Por padrão a lista esconde clientes com saldo zero. Marque pra ver todos">
+            <input type="checkbox" id="cxIncluirZerados">
+            <span>Incluir saldo zerado</span>
+          </label>
+        </div>
+
+        <div class="cx-clientes-lista" id="cxClientesLista">
+          <div class="cx-empty">Carregando…</div>
+        </div>
+      </aside>
+
+      {# Coluna direita — detalhe do cliente selecionado #}
+      <section class="cx-detalhe-panel">
+        <div class="cx-detalhe-vazio" id="cxDetalheVazio">
+          <i class="ph ph-package" aria-hidden="true"></i>
+          <p>Selecione um cliente à esquerda pra ver a timeline completa.</p>
+          <small>Saídas (vendas) e coletas vão aparecer ordenadas cronologicamente.</small>
+        </div>
+
+        <div class="cx-detalhe" id="cxDetalheCard" hidden>
+          <header class="cx-detalhe-header">
+            <div class="cx-detalhe-nome">
+              <h2 id="cxDetalheNome">—</h2>
+              <span class="cx-detalhe-codparc" id="cxDetalheCodparc">—</span>
+            </div>
+            <div class="cx-detalhe-saldo">
+              <div class="cx-detalhe-saldo-label">Saldo atual</div>
+              <div class="cx-detalhe-saldo-valor" id="cxDetalheSaldo">—</div>
+            </div>
+          </header>
+
+          <div class="cx-detalhe-stats">
+            <div class="cx-stat cx-stat--enviadas">
+              <i class="ph ph-arrow-up-right" aria-hidden="true"></i>
+              <div class="cx-stat-info">
+                <span class="cx-stat-label">Enviadas</span>
+                <span class="cx-stat-valor" id="cxStatEnviadas">—</span>
+              </div>
+            </div>
+            <div class="cx-stat cx-stat--devolvidas">
+              <i class="ph ph-arrow-down-left" aria-hidden="true"></i>
+              <div class="cx-stat-info">
+                <span class="cx-stat-label">Devolução (TOP 36)</span>
+                <span class="cx-stat-valor" id="cxStatDevolvidas">—</span>
+              </div>
+            </div>
+            <div class="cx-stat cx-stat--coletadas">
+              <i class="ph ph-truck" aria-hidden="true"></i>
+              <div class="cx-stat-info">
+                <span class="cx-stat-label">Coletadas</span>
+                <span class="cx-stat-valor" id="cxStatColetadas">—</span>
+              </div>
+            </div>
+            <div class="cx-stat cx-stat--quebradas">
+              <i class="ph ph-warning" aria-hidden="true"></i>
+              <div class="cx-stat-info">
+                <span class="cx-stat-label">Quebradas</span>
+                <span class="cx-stat-valor" id="cxStatQuebradas">—</span>
+              </div>
+            </div>
+            <div class="cx-stat cx-stat--perdidas">
+              <i class="ph ph-x-circle" aria-hidden="true"></i>
+              <div class="cx-stat-info">
+                <span class="cx-stat-label">Perdidas</span>
+                <span class="cx-stat-valor" id="cxStatPerdidas">—</span>
+              </div>
+            </div>
+            <div class="cx-stat cx-stat--ajuste">
+              <i class="ph ph-pencil-simple" aria-hidden="true"></i>
+              <div class="cx-stat-info">
+                <span class="cx-stat-label">Ajuste</span>
+                <span class="cx-stat-valor" id="cxStatAjuste">—</span>
+              </div>
+            </div>
+          </div>
+          <div class="cx-sem-peso-alerta" id="cxSemPesoAlerta" hidden>
+            <i class="ph ph-info" aria-hidden="true"></i>
+            <span>Este cliente tem vendas mas sem peso de caixa registrado. Saldo precisa ser informado via <strong>Ajustar saldo</strong>.</span>
+          </div>
+
+          <header class="cx-timeline-header">
+            <h3>Timeline (últimos <span id="cxTimelineDias">90</span> dias)</h3>
+            <div class="cx-timeline-acoes">
+              <button type="button" class="cx-btn-pill" id="cxBtnColetaCliente" title="Lançar coleta deste cliente">
+                <i class="ph ph-plus" aria-hidden="true"></i>
+                <span>Lançar coleta</span>
+              </button>
+            </div>
+          </header>
+
+          <div class="cx-timeline" id="cxTimeline">
+            <div class="cx-empty">Selecione um cliente.</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </article>
+
+  {# ========================== ABA PRODUTOS =========================== #}
+  <article class="cx-pane cx-pane--produtos" data-pane="produtos" hidden>
+    <header class="cx-pane-header">
+      <div>
+        <h3>Tipo de caixa por produto</h3>
+        <p class="cx-pane-hint">
+          Produtos cadastrados aqui têm seu tipo de caixa controlado.
+          <strong>Produto sem cadastro = PLÁSTICA</strong> (default — conta saldo).
+          Cadastre apenas as exceções (produtos que vão em papelão).
+        </p>
+      </div>
+      <button type="button" id="cxBtnNovoProduto" class="btn btn-primario">
+        <i class="ph ph-plus" aria-hidden="true"></i>
+        <span>Cadastrar produto</span>
+      </button>
+    </header>
+
+    <div class="cx-produtos-filtros">
+      <select id="cxProdFiltroTipo" class="cx-select">
+        <option value="">Todos</option>
+        <option value="PLASTICA">Plástica</option>
+        <option value="PAPELAO">Papelão</option>
+      </select>
+    </div>
+
+    <div class="cx-produtos-tabela-wrap">
+      <table class="cx-tabela" id="cxProdTabela">
+        <thead>
+          <tr>
+            <th>CODPROD</th>
+            <th>Produto</th>
+            <th>Vol</th>
+            <th>Tipo de caixa</th>
+            <th>Cadastrado por</th>
+            <th>Em</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody id="cxProdTbody">
+          <tr><td colspan="7" class="cx-empty">Carregando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+</div>
+
+{# ================== MODAL — LANÇAR COLETA (B1 stub) ================== #}
+<div class="modal-overlay cx-modal hidden" id="cxColetaModal" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="modal-card cx-modal-card">
+    <header class="modal-header">
+      <h3>Lançar coleta de caixas</h3>
+      <button type="button" class="modal-close" data-modal-close>
+        <i class="ph ph-x" aria-hidden="true"></i>
+      </button>
+    </header>
+    <div class="modal-body">
+      <form id="cxColetaForm">
+        <div class="cx-form-row">
+          <label for="cxColetaCliente">Cliente *</label>
+          <input type="text" id="cxColetaCliente" placeholder="Buscar por nome ou CODPARC…" autocomplete="off" required>
+          <input type="hidden" id="cxColetaCodparc">
+          <div id="cxColetaClienteDropdown" class="dropdown-abs"></div>
+        </div>
+        <div class="cx-form-row">
+          <label for="cxColetaData">Data *</label>
+          <input type="date" id="cxColetaData" required>
+        </div>
+        <div class="cx-form-row">
+          <label for="cxColetaQtd">Quantidade de caixas *</label>
+          <input type="number" id="cxColetaQtd" step="1" required>
+          <small class="cx-form-hint" id="cxColetaQtdHint" hidden>
+            Em <strong>Ajuste</strong>: positivo soma ao saldo (caixa apareceu); negativo desconta (caixa sumiu sem registro).
+          </small>
+        </div>
+        <div class="cx-form-row">
+          <label>Motivo *</label>
+          <div class="cx-radios">
+            <label class="cx-radio">
+              <input type="radio" name="motivo" value="COLETA" checked>
+              <span class="cx-radio-label cx-radio-label--coleta">
+                <i class="ph ph-truck"></i> Coleta normal
+              </span>
+            </label>
+            <label class="cx-radio">
+              <input type="radio" name="motivo" value="QUEBRA">
+              <span class="cx-radio-label cx-radio-label--quebra">
+                <i class="ph ph-warning"></i> Quebra
+              </span>
+            </label>
+            <label class="cx-radio">
+              <input type="radio" name="motivo" value="PERDA">
+              <span class="cx-radio-label cx-radio-label--perda">
+                <i class="ph ph-x-circle"></i> Perda
+              </span>
+            </label>
+            <label class="cx-radio">
+              <input type="radio" name="motivo" value="AJUSTE_SALDO">
+              <span class="cx-radio-label cx-radio-label--ajuste">
+                <i class="ph ph-pencil-simple"></i> Ajuste de saldo <em>(excepcional)</em>
+              </span>
+            </label>
+          </div>
+        </div>
+        <div class="cx-form-row">
+          <label for="cxColetaObs">Observação</label>
+          <textarea id="cxColetaObs" rows="2" placeholder="(opcional) ex: motorista trouxe na rota XYZ"></textarea>
+        </div>
+        <div class="cx-form-msg" id="cxColetaMsg" hidden></div>
+      </form>
+    </div>
+    <footer class="modal-footer">
+      <button type="button" class="btn btn-secundario" data-modal-close>Cancelar</button>
+      <button type="button" class="btn btn-primario" id="cxColetaSalvar">
+        <i class="ph ph-check"></i>
+        <span>Salvar coleta</span>
+      </button>
+    </footer>
+  </div>
+</div>
+
+{# ============= MODAL — CADASTRAR PRODUTO (B3 stub) ================= #}
+<div class="modal-overlay cx-modal hidden" id="cxProdutoModal" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="modal-card cx-modal-card">
+    <header class="modal-header">
+      <h3>Tipo de caixa do produto</h3>
+      <button type="button" class="modal-close" data-modal-close>
+        <i class="ph ph-x" aria-hidden="true"></i>
+      </button>
+    </header>
+    <div class="modal-body">
+      <form id="cxProdutoForm">
+        <div class="cx-form-row">
+          <label for="cxProdSearch">Produto *</label>
+          <input type="text" id="cxProdSearch" placeholder="Buscar por código ou nome…" autocomplete="off" required>
+          <input type="hidden" id="cxProdCodprod">
+          <div id="cxProdSearchDropdown" class="dropdown-abs"></div>
+        </div>
+        <div class="cx-form-row">
+          <label>Tipo de caixa *</label>
+          <div class="cx-radios">
+            <label class="cx-radio">
+              <input type="radio" name="tipo_caixa" value="PLASTICA" checked>
+              <span class="cx-radio-label cx-radio-label--coleta">
+                <i class="ph ph-package"></i> Plástica (retornável — conta saldo)
+              </span>
+            </label>
+            <label class="cx-radio">
+              <input type="radio" name="tipo_caixa" value="PAPELAO">
+              <span class="cx-radio-label cx-radio-label--quebra">
+                <i class="ph ph-file-archive"></i> Papelão (descartável — ignora saldo)
+              </span>
+            </label>
+          </div>
+        </div>
+        <div class="cx-form-msg" id="cxProdMsg" hidden></div>
+      </form>
+    </div>
+    <footer class="modal-footer">
+      <button type="button" class="btn btn-secundario" data-modal-close>Cancelar</button>
+      <button type="button" class="btn btn-primario" id="cxProdSalvar">
+        <i class="ph ph-check"></i>
+        <span>Salvar</span>
+      </button>
+    </footer>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'sankhya_integration/caixas.js' %}?v=6"></script>
+{% endblock %}

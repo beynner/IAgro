@@ -10329,3 +10329,937 @@ def consultar_grupos_disponiveis() -> list:
             logger.exception("Falha em consultar_grupos_disponiveis (fallback)")
             return []
     return grupos
+
+
+# =============================================================================
+# Controle de Caixas (vasilhame retornável) — Mai/2026 (2026-05-18)
+#
+# Saldo de caixas plásticas por cliente:
+#   saldo = Σ caixas_enviadas (TOP 35/37 L) − Σ caixas_devolvidas (TOP 36 L)
+#         − Σ AD_COLETA_CAIXAS (ESTORNADO='N')
+#
+# Onde caixas em TGFITE = CEIL(QTDNEG / PESO) — mesma fórmula da etiqueta
+# SafeTrace. PESO=0 OR NULL não conta. Filtro: produto NÃO está em
+# AD_PRODUTO_CAIXA como PAPELAO (default PLASTICA quando sem cadastro).
+#
+# Schema-resilient: se AD_COLETA_CAIXAS / AD_PRODUTO_CAIXA não existirem
+# (migration não rodou), funções caem em fallback que retorna só saídas −
+# devoluções com TODOS os produtos contando como PLASTICA.
+# =============================================================================
+
+
+def consultar_saldo_caixas(filtros: Optional[dict] = None) -> list:
+    """Saldo de caixas plásticas em campo por cliente (CODPARC).
+
+    Aceita filtros opcionais:
+      - q: str          — UPPER LIKE em NOMEPARC do parceiro
+      - apenas_saldo_positivo: bool (default True) — esconde clientes saldo 0
+      - codparc: int    — filtra um cliente específico (drill-down)
+
+    Comportamento quando `apenas_saldo_positivo=False`:
+      Inclui clientes que TÊM vendas TOP 35/37 'L' mas cuja fórmula resulta
+      em 0 caixas calculadas (CODVOL='KG' sem PESO populado — caso típico
+      de vendas legadas). Operador precisa ajustar saldo manualmente via
+      AJUSTE_SALDO. Sem esse fallback, esses clientes (ex: Assaí/Sendas)
+      ficavam invisíveis na tela.
+
+    Retorna lista de dicts ordenada por saldo DESC:
+      [{'codparc', 'nomeparc', 'caixas_enviadas', 'caixas_devolvidas',
+        'caixas_coletadas', 'caixas_perdidas', 'caixas_quebradas',
+        'caixas_ajuste', 'saldo', 'ultima_saida', 'ultima_coleta'}, ...]
+    """
+    filtros = filtros or {}
+    apenas_saldo_positivo = bool(filtros.get('apenas_saldo_positivo', True))
+    codparc_filtro = filtros.get('codparc')
+    q_filtro = (filtros.get('q') or '').strip().upper()
+
+    binds: dict = {}
+
+    # Filtro de produto: exclui linhas cujo CODPROD está em AD_PRODUTO_CAIXA
+    # como PAPELAO. Produtos não cadastrados caem em PLASTICA por default.
+    filtro_plastica = (
+        "AND NOT EXISTS (SELECT 1 FROM AD_PRODUTO_CAIXA pc "
+        "                WHERE pc.CODPROD = i.CODPROD "
+        "                  AND pc.TIPO_CAIXA = 'PAPELAO')"
+    )
+
+    # WHERE de cliente
+    where_parceiro = []
+    if codparc_filtro:
+        where_parceiro.append("c.CODPARC = :codparc")
+        binds['codparc'] = int(codparc_filtro)
+    if q_filtro:
+        where_parceiro.append("UPPER(par.NOMEPARC) LIKE :q")
+        binds['q'] = f"%{q_filtro}%"
+    where_parceiro_sql = (" AND " + " AND ".join(where_parceiro)) if where_parceiro else ""
+
+    # Fórmula (Mai/2026 — 2026-05-18 final):
+    # Caixas reais = CEIL(QTDNEG / TGFITE.PESO) quando PESO está populado
+    # (vendas IAgro recentes via Rastreio). Vendas legadas (sem PESO) NÃO
+    # entram no cálculo de saídas — operador usa AJUSTE_SALDO pra clientes
+    # importantes (Assaí, Sendas) cujas vendas vêm faturadas direto no Sankhya.
+    #
+    # Histórico: tentamos cascata com tabela AD_PESO_CAIXA_PRODUTO (cadastro
+    # de peso por produto). Descartado porque peso varia por LOTE — cadastro
+    # fixo por produto era chute (~50% errado). Esperar IAgro virar fluxo
+    # padrão é o caminho honesto: novas vendas trazem PESO real via Rastreio.
+    sql_saidas = f"""
+        SELECT c.CODPARC,
+               par.NOMEPARC,
+               SUM(CEIL(NVL(i.QTDNEG, 0) / i.PESO)) AS caixas,
+               MAX(c.DTNEG) AS ultima
+          FROM TGFCAB c
+          JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+          JOIN TGFPAR par ON par.CODPARC = c.CODPARC
+         WHERE c.CODTIPOPER IN (35, 37)
+           AND c.STATUSNOTA = 'L'
+           AND NVL(i.QTDNEG, 0) > 0
+           AND NVL(i.PESO, 0) > 0
+           {filtro_plastica}
+           {where_parceiro_sql}
+         GROUP BY c.CODPARC, par.NOMEPARC
+    """
+
+    # Devoluções: TOP 36 STATUSNOTA='L' — mesma fórmula
+    sql_devolucoes = f"""
+        SELECT c.CODPARC,
+               SUM(CEIL(NVL(i.QTDNEG, 0) / i.PESO)) AS caixas
+          FROM TGFCAB c
+          JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+         WHERE c.CODTIPOPER = 36
+           AND c.STATUSNOTA = 'L'
+           AND NVL(i.QTDNEG, 0) > 0
+           AND NVL(i.PESO, 0) > 0
+           {filtro_plastica}
+           {(" AND c.CODPARC = :codparc" if codparc_filtro else "")}
+         GROUP BY c.CODPARC
+    """
+
+    # Coletas manuais agregadas por motivo + última data
+    sql_coletas = """
+        SELECT CODPARC, MOTIVO,
+               SUM(QTD_CAIXAS) AS qtd,
+               MAX(DATA_COLETA) AS ultima
+          FROM AD_COLETA_CAIXAS
+         WHERE ESTORNADO = 'N'
+           {filtro_codparc}
+         GROUP BY CODPARC, MOTIVO
+    """.format(filtro_codparc=("AND CODPARC = :codparc" if codparc_filtro else ""))
+
+    resultado: dict[int, dict] = {}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # Saídas (sempre) — base do dicionário
+            cur.execute(sql_saidas, binds)
+            for r in cur.fetchall():
+                cp = int(r[0])
+                resultado[cp] = {
+                    'codparc':           cp,
+                    'nomeparc':          (r[1] or '').strip() or '—',
+                    'caixas_enviadas':   int(r[2] or 0),
+                    'caixas_devolvidas': 0,
+                    'caixas_coletadas':  0,
+                    'caixas_perdidas':   0,
+                    'caixas_quebradas':  0,
+                    'caixas_ajuste':     0,    # AJUSTE_SALDO (pode ser negativo)
+                    'saldo':             int(r[2] or 0),
+                    'ultima_saida':      r[3].strftime('%Y-%m-%d') if r[3] else None,
+                    'ultima_coleta':     None,
+                    'sem_peso':          False,  # marca cliente que tem vendas só em KG sem PESO
+                }
+
+            # Clientes "fantasma": têm vendas TOP 35/37 'L' mas nenhuma com
+            # CODVOL='CX' nem PESO populado. Só entram quando o operador
+            # marca "Incluir saldo zerado". Caso típico: Assaí/Sendas em KG.
+            if not apenas_saldo_positivo:
+                where_fantasma = []
+                binds_f = {}
+                if codparc_filtro:
+                    where_fantasma.append("c.CODPARC = :codparc")
+                    binds_f['codparc'] = int(codparc_filtro)
+                if q_filtro:
+                    where_fantasma.append("UPPER(par.NOMEPARC) LIKE :q")
+                    binds_f['q'] = f"%{q_filtro}%"
+                where_fantasma_sql = (" AND " + " AND ".join(where_fantasma)) if where_fantasma else ""
+                cur.execute(f"""
+                    SELECT c.CODPARC, par.NOMEPARC, MAX(c.DTNEG)
+                      FROM TGFCAB c
+                      JOIN TGFPAR par ON par.CODPARC = c.CODPARC
+                     WHERE c.CODTIPOPER IN (35, 37)
+                       AND c.STATUSNOTA = 'L'
+                       AND EXISTS (
+                           SELECT 1 FROM TGFITE i
+                            WHERE i.NUNOTA = c.NUNOTA
+                              AND NVL(i.QTDNEG, 0) > 0
+                       )
+                       {filtro_plastica.replace('NOT EXISTS', 'AND NOT EXISTS').replace('AND AND', 'AND') if False else ''}
+                       {where_fantasma_sql}
+                     GROUP BY c.CODPARC, par.NOMEPARC
+                """, binds_f)
+                for r in cur.fetchall():
+                    cp = int(r[0])
+                    if cp in resultado:
+                        continue  # já apareceu via saídas calculadas
+                    resultado[cp] = {
+                        'codparc':           cp,
+                        'nomeparc':          (r[1] or '').strip() or '—',
+                        'caixas_enviadas':   0,
+                        'caixas_devolvidas': 0,
+                        'caixas_coletadas':  0,
+                        'caixas_perdidas':   0,
+                        'caixas_quebradas':  0,
+                        'caixas_ajuste':     0,
+                        'saldo':             0,
+                        'ultima_saida':      r[2].strftime('%Y-%m-%d') if r[2] else None,
+                        'ultima_coleta':     None,
+                        'sem_peso':          True,  # operador pode usar AJUSTE_SALDO pra cadastrar saldo conhecido
+                    }
+
+            # Devoluções
+            binds_dev = {'codparc': int(codparc_filtro)} if codparc_filtro else {}
+            cur.execute(sql_devolucoes, binds_dev)
+            for r in cur.fetchall():
+                cp = int(r[0])
+                if cp not in resultado:
+                    continue  # cliente sem saída mas com devolução é caso raríssimo; ignora
+                resultado[cp]['caixas_devolvidas'] = int(r[1] or 0)
+                resultado[cp]['saldo'] -= int(r[1] or 0)
+
+            # Coletas (schema-resilient — só se a tabela existir).
+            # AJUSTE_SALDO permite QTD negativa: SOMA ao saldo (operador
+            # registra qtd>0 quando caixa "apareceu"; qtd<0 quando "sumiu"
+            # sem motivo identificado). Cliente que só aparece em AJUSTE_SALDO
+            # (sem saídas) ENTRA no resultado — situação válida: operador
+            # cadastrou saldo inicial antes de qualquer venda no IAgro.
+            if _existe_coluna(cur, 'AD_COLETA_CAIXAS', 'ID'):
+                cur.execute(sql_coletas, binds_dev)
+                ultimas_coletas: dict[int, str] = {}
+                # Buscar nome de parceiros que aparecem só em AD_COLETA (não em vendas)
+                codparcs_orfaos = set()
+                rows_coletas = cur.fetchall()
+                for r in rows_coletas:
+                    cp = int(r[0])
+                    if cp not in resultado:
+                        codparcs_orfaos.add(cp)
+                if codparcs_orfaos:
+                    placeholders = ','.join(f':o{i}' for i in range(len(codparcs_orfaos)))
+                    binds_orf = {f'o{i}': cp for i, cp in enumerate(codparcs_orfaos)}
+                    cur.execute(
+                        f"SELECT CODPARC, NOMEPARC FROM TGFPAR WHERE CODPARC IN ({placeholders})",
+                        binds_orf,
+                    )
+                    for rp in cur.fetchall():
+                        cp = int(rp[0])
+                        resultado[cp] = {
+                            'codparc':           cp,
+                            'nomeparc':          (rp[1] or '').strip() or '—',
+                            'caixas_enviadas':   0,
+                            'caixas_devolvidas': 0,
+                            'caixas_coletadas':  0,
+                            'caixas_perdidas':   0,
+                            'caixas_quebradas':  0,
+                            'caixas_ajuste':     0,
+                            'saldo':             0,
+                            'ultima_saida':      None,
+                            'ultima_coleta':     None,
+                            'sem_peso':          False,
+                        }
+
+                for r in rows_coletas:
+                    cp = int(r[0])
+                    motivo = (r[1] or '').upper()
+                    qtd = int(r[2] or 0)
+                    ult = r[3].strftime('%Y-%m-%d') if r[3] else None
+                    if cp not in resultado:
+                        continue
+                    if motivo == 'COLETA':
+                        resultado[cp]['caixas_coletadas'] = qtd
+                        resultado[cp]['saldo'] -= qtd
+                    elif motivo == 'QUEBRA':
+                        resultado[cp]['caixas_quebradas'] = qtd
+                        resultado[cp]['saldo'] -= qtd
+                    elif motivo == 'PERDA':
+                        resultado[cp]['caixas_perdidas'] = qtd
+                        resultado[cp]['saldo'] -= qtd
+                    elif motivo == 'AJUSTE_SALDO':
+                        # qtd vem com sinal natural (pode ser negativo)
+                        resultado[cp]['caixas_ajuste'] = qtd
+                        resultado[cp]['saldo'] += qtd
+                    if ult and (cp not in ultimas_coletas or ult > ultimas_coletas[cp]):
+                        ultimas_coletas[cp] = ult
+                for cp, dt in ultimas_coletas.items():
+                    if cp in resultado:
+                        resultado[cp]['ultima_coleta'] = dt
+    except Exception:
+        logger.exception("Falha em consultar_saldo_caixas")
+        return []
+
+    linhas = list(resultado.values())
+    if apenas_saldo_positivo:
+        linhas = [l for l in linhas if l['saldo'] > 0]
+    linhas.sort(key=lambda x: (-x['saldo'], x['nomeparc']))
+    return linhas
+
+
+def obter_timeline_caixas(codparc: int, dias: int = 90) -> list:
+    """Timeline cronológica de eventos de caixa pra 1 cliente.
+
+    Args:
+        codparc: CODPARC do cliente (obrigatório).
+        dias:    janela em dias retroativa a partir de hoje (default 90).
+
+    Retorna lista ordenada por data DESC:
+      [{'tipo': 'SAIDA'|'DEVOLUCAO'|'COLETA'|'QUEBRA'|'PERDA',
+        'data', 'nunota', 'qtd_caixas', 'descricao', 'observacao',
+        'id_coleta', 'estornado'}, ...]
+    """
+    if not codparc:
+        return []
+
+    eventos: list[dict] = []
+    binds = {'codparc': int(codparc), 'dias': int(max(1, min(dias, 730)))}
+
+    filtro_plastica = (
+        "AND NOT EXISTS (SELECT 1 FROM AD_PRODUTO_CAIXA pc "
+        "                WHERE pc.CODPROD = i.CODPROD "
+        "                  AND pc.TIPO_CAIXA = 'PAPELAO')"
+    )
+
+    # Fórmula (Mai/2026 — 2026-05-18 final):
+    # Caixas = CEIL(QTDNEG / TGFITE.PESO). Vendas sem PESO não entram —
+    # ver doc em consultar_saldo_caixas.
+    sql_saidas = f"""
+        SELECT c.DTNEG,
+               c.NUNOTA,
+               c.NUMNOTA,
+               c.CODTIPOPER,
+               SUM(CEIL(NVL(i.QTDNEG, 0) / i.PESO)) AS caixas,
+               LISTAGG(pr.DESCRPROD, ', ') WITHIN GROUP (ORDER BY pr.DESCRPROD) AS produtos
+          FROM TGFCAB c
+          JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+          JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
+         WHERE c.CODPARC = :codparc
+           AND c.CODTIPOPER IN (35, 37)
+           AND c.STATUSNOTA = 'L'
+           AND NVL(i.QTDNEG, 0) > 0
+           AND NVL(i.PESO, 0) > 0
+           AND c.DTNEG >= TRUNC(SYSDATE) - :dias
+           {filtro_plastica}
+         GROUP BY c.DTNEG, c.NUNOTA, c.NUMNOTA, c.CODTIPOPER
+         ORDER BY c.DTNEG DESC
+    """
+
+    sql_devolucoes = f"""
+        SELECT c.DTNEG,
+               c.NUNOTA,
+               c.NUMNOTA,
+               SUM(CEIL(NVL(i.QTDNEG, 0) / i.PESO)) AS caixas,
+               LISTAGG(pr.DESCRPROD, ', ') WITHIN GROUP (ORDER BY pr.DESCRPROD) AS produtos
+          FROM TGFCAB c
+          JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+          JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
+         WHERE c.CODPARC = :codparc
+           AND c.CODTIPOPER = 36
+           AND c.STATUSNOTA = 'L'
+           AND NVL(i.QTDNEG, 0) > 0
+           AND NVL(i.PESO, 0) > 0
+           AND c.DTNEG >= TRUNC(SYSDATE) - :dias
+           {filtro_plastica}
+         GROUP BY c.DTNEG, c.NUNOTA, c.NUMNOTA
+         ORDER BY c.DTNEG DESC
+    """
+
+    sql_coletas = """
+        SELECT ID, DATA_COLETA, MOTIVO, QTD_CAIXAS, OBSERVACAO, ESTORNADO,
+               CODUSU, NOMEUSU, CRIADO_EM
+          FROM AD_COLETA_CAIXAS
+         WHERE CODPARC = :codparc
+           AND DATA_COLETA >= TRUNC(SYSDATE) - :dias
+         ORDER BY DATA_COLETA DESC, ID DESC
+    """
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            cur.execute(sql_saidas, binds)
+            for r in cur.fetchall():
+                eventos.append({
+                    'tipo':         'SAIDA',
+                    'data':         r[0].strftime('%Y-%m-%d') if r[0] else None,
+                    'nunota':       int(r[1]) if r[1] else None,
+                    'numnota':      int(r[2]) if r[2] else None,
+                    'top':          int(r[3]) if r[3] else None,
+                    'qtd_caixas':   int(r[4] or 0),
+                    'descricao':    (r[5] or '')[:200] if r[5] else '',
+                    'observacao':   None,
+                    'id_coleta':    None,
+                    'estornado':    False,
+                })
+
+            cur.execute(sql_devolucoes, binds)
+            for r in cur.fetchall():
+                eventos.append({
+                    'tipo':         'DEVOLUCAO',
+                    'data':         r[0].strftime('%Y-%m-%d') if r[0] else None,
+                    'nunota':       int(r[1]) if r[1] else None,
+                    'numnota':      int(r[2]) if r[2] else None,
+                    'top':          36,
+                    'qtd_caixas':   int(r[3] or 0),
+                    'descricao':    (r[4] or '')[:200] if r[4] else '',
+                    'observacao':   None,
+                    'id_coleta':    None,
+                    'estornado':    False,
+                })
+
+            if _existe_coluna(cur, 'AD_COLETA_CAIXAS', 'ID'):
+                cur.execute(sql_coletas, binds)
+                for r in cur.fetchall():
+                    motivo = (r[2] or '').upper()
+                    obs_clob = r[4]
+                    if hasattr(obs_clob, 'read'):
+                        try: obs_clob = obs_clob.read()
+                        except Exception: obs_clob = ''
+                    eventos.append({
+                        'tipo':         motivo,  # COLETA | QUEBRA | PERDA | AJUSTE_SALDO
+                        'data':         r[1].strftime('%Y-%m-%d') if r[1] else None,
+                        'nunota':       None,
+                        'numnota':      None,
+                        'top':          None,
+                        'qtd_caixas':   int(r[3] or 0),  # AJUSTE_SALDO pode vir negativo
+                        'descricao':    None,
+                        'observacao':   (obs_clob or '')[:500] if obs_clob else '',
+                        'id_coleta':    int(r[0]),
+                        'estornado':    (r[5] or 'N') == 'S',
+                        'codusu':       int(r[6]) if r[6] else None,
+                        'nomeusu':      (r[7] or '').strip() or None,
+                    })
+    except Exception:
+        logger.exception("Falha em obter_timeline_caixas (codparc=%s)", codparc)
+        return []
+
+    eventos.sort(key=lambda e: (e['data'] or '', e['tipo']), reverse=True)
+    return eventos
+
+
+def listar_coletas_caixas(filtros: Optional[dict] = None,
+                          limite: int = 100,
+                          offset: int = 0) -> list:
+    """Lista paginada de coletas manuais (AD_COLETA_CAIXAS).
+
+    Filtros opcionais:
+      - codparc: int
+      - motivo:  'COLETA' | 'QUEBRA' | 'PERDA'
+      - incluir_estornadas: bool (default False)
+      - date_de:  'YYYY-MM-DD'
+      - date_ate: 'YYYY-MM-DD'
+    """
+    filtros = filtros or {}
+    where = []
+    binds: dict = {}
+
+    if not filtros.get('incluir_estornadas'):
+        where.append("c.ESTORNADO = 'N'")
+    if filtros.get('codparc'):
+        where.append("c.CODPARC = :codparc")
+        binds['codparc'] = int(filtros['codparc'])
+    if filtros.get('motivo') in ('COLETA', 'QUEBRA', 'PERDA'):
+        where.append("c.MOTIVO = :motivo")
+        binds['motivo'] = filtros['motivo']
+    if filtros.get('date_de'):
+        where.append("c.DATA_COLETA >= TO_DATE(:de, 'YYYY-MM-DD')")
+        binds['de'] = filtros['date_de']
+    if filtros.get('date_ate'):
+        where.append("c.DATA_COLETA <= TO_DATE(:ate, 'YYYY-MM-DD')")
+        binds['ate'] = filtros['date_ate']
+
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+    sql = f"""
+        SELECT * FROM (
+            SELECT c.ID, c.CODPARC, par.NOMEPARC,
+                   c.QTD_CAIXAS, c.DATA_COLETA, c.MOTIVO,
+                   c.OBSERVACAO, c.ESTORNADO,
+                   c.CODUSU, c.NOMEUSU, c.CRIADO_EM,
+                   ROW_NUMBER() OVER (ORDER BY c.DATA_COLETA DESC, c.ID DESC) AS rn
+              FROM AD_COLETA_CAIXAS c
+              JOIN TGFPAR par ON par.CODPARC = c.CODPARC
+              {where_sql}
+        ) WHERE rn BETWEEN :ini AND :fim
+    """
+    binds['ini'] = int(offset) + 1
+    binds['fim'] = int(offset) + int(limite)
+
+    coletas: list[dict] = []
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            if not _existe_coluna(cur, 'AD_COLETA_CAIXAS', 'ID'):
+                return []
+            cur.execute(sql, binds)
+            for r in cur.fetchall():
+                obs = r[6]
+                if hasattr(obs, 'read'):
+                    try: obs = obs.read()
+                    except Exception: obs = ''
+                coletas.append({
+                    'id':          int(r[0]),
+                    'codparc':     int(r[1]),
+                    'nomeparc':    (r[2] or '').strip() or '—',
+                    'qtd_caixas':  int(r[3] or 0),
+                    'data_coleta': r[4].strftime('%Y-%m-%d') if r[4] else None,
+                    'motivo':      r[5],
+                    'observacao':  (obs or '')[:500] if obs else '',
+                    'estornado':   (r[7] or 'N') == 'S',
+                    'codusu':      int(r[8]) if r[8] else None,
+                    'nomeusu':     (r[9] or '').strip() or None,
+                    'criado_em':   r[10].strftime('%Y-%m-%d %H:%M') if r[10] else None,
+                })
+    except Exception:
+        logger.exception("Falha em listar_coletas_caixas")
+        return []
+    return coletas
+
+
+def listar_produtos_caixa(tipo: Optional[str] = None) -> list:
+    """Lista produtos cadastrados em AD_PRODUTO_CAIXA com JOIN em TGFPRO.
+
+    Args:
+        tipo: 'PLASTICA' | 'PAPELAO' | None (lista os 2).
+
+    Retorna [{'codprod', 'descrprod', 'codvol', 'tipo_caixa', 'codusu',
+              'nomeusu', 'criado_em', 'atualizado_em'}, ...]
+    """
+    where = ""
+    binds: dict = {}
+    if tipo in ('PLASTICA', 'PAPELAO'):
+        where = "WHERE pc.TIPO_CAIXA = :tipo"
+        binds['tipo'] = tipo
+
+    sql = f"""
+        SELECT pc.CODPROD, pr.DESCRPROD, pr.CODVOL, pc.TIPO_CAIXA,
+               pc.CODUSU, pc.NOMEUSU, pc.CRIADO_EM, pc.ATUALIZADO_EM
+          FROM AD_PRODUTO_CAIXA pc
+          JOIN TGFPRO pr ON pr.CODPROD = pc.CODPROD
+          {where}
+         ORDER BY pc.TIPO_CAIXA ASC, pr.DESCRPROD ASC
+    """
+
+    produtos: list[dict] = []
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            if not _existe_coluna(cur, 'AD_PRODUTO_CAIXA', 'CODPROD'):
+                return []
+            cur.execute(sql, binds)
+            for r in cur.fetchall():
+                produtos.append({
+                    'codprod':       int(r[0]),
+                    'descrprod':     (r[1] or '').strip(),
+                    'codvol':        (r[2] or '').strip() or 'KG',
+                    'tipo_caixa':    r[3],
+                    'codusu':        int(r[4]) if r[4] else None,
+                    'nomeusu':       (r[5] or '').strip() or None,
+                    'criado_em':     r[6].strftime('%Y-%m-%d %H:%M') if r[6] else None,
+                    'atualizado_em': r[7].strftime('%Y-%m-%d %H:%M') if r[7] else None,
+                })
+    except Exception:
+        logger.exception("Falha em listar_produtos_caixa")
+        return []
+    return produtos
+
+
+# -----------------------------------------------------------------------------
+# Caixas — escritas Cat B (Mai/2026, 2026-05-18)
+# -----------------------------------------------------------------------------
+
+def criar_coleta_caixas_banco(dados: dict, codusu: int, nomeusu: str = '') -> dict:
+    """B1 — INSERT em AD_COLETA_CAIXAS pra registrar coleta/quebra/perda/ajuste.
+
+    Payload (`dados`):
+      codparc:     int (obrigatório — cliente)
+      qtd_caixas:  int (obrigatório)
+                   - COLETA/QUEBRA/PERDA: > 0
+                   - AJUSTE_SALDO: != 0 (positivo soma saldo, negativo desconta)
+      data_coleta: str 'YYYY-MM-DD' (obrigatório, não-futura)
+      motivo:      'COLETA' | 'QUEBRA' | 'PERDA' | 'AJUSTE_SALDO'
+      observacao:  str (opcional, máx 500 chars — recomendado em AJUSTE_SALDO)
+
+    Retorno:
+      {'ok': True, 'id': <novo_id>}
+      {'ok': False, 'error': str}
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
+
+    # 1. Validações
+    erros = []
+    try:
+        codparc = int(dados.get('codparc') or 0)
+    except (TypeError, ValueError):
+        codparc = 0
+    try:
+        qtd_caixas = int(dados.get('qtd_caixas') or 0)
+    except (TypeError, ValueError):
+        qtd_caixas = 0
+    data_coleta = (dados.get('data_coleta') or '').strip()
+    motivo      = (dados.get('motivo') or '').upper().strip()
+    observacao  = (dados.get('observacao') or '').strip()[:500]
+
+    if not codparc:                erros.append('codparc obrigatório')
+    if not data_coleta:            erros.append('data_coleta obrigatória')
+    if motivo not in ('COLETA', 'QUEBRA', 'PERDA', 'AJUSTE_SALDO'):
+        erros.append('motivo inválido (COLETA/QUEBRA/PERDA/AJUSTE_SALDO)')
+
+    # QTD: COLETA/QUEBRA/PERDA exigem > 0; AJUSTE_SALDO exige != 0
+    if motivo == 'AJUSTE_SALDO':
+        if qtd_caixas == 0:
+            erros.append('qtd_caixas em AJUSTE_SALDO deve ser != 0 (positivo soma saldo, negativo desconta)')
+    else:
+        if qtd_caixas <= 0:
+            erros.append('qtd_caixas deve ser > 0')
+
+    # Data não-futura
+    try:
+        from datetime import datetime as _dt, date as _date
+        d = _dt.strptime(data_coleta, '%Y-%m-%d').date()
+        if d > _date.today():
+            erros.append('data_coleta não pode ser futura')
+    except (TypeError, ValueError):
+        erros.append('data_coleta no formato YYYY-MM-DD')
+
+    if erros:
+        return {'ok': False, 'error': ' · '.join(erros)}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # Valida CODPARC existe em TGFPAR
+            cur.execute("SELECT 1 FROM TGFPAR WHERE CODPARC = :c", c=codparc)
+            if not cur.fetchone():
+                return {'ok': False, 'error': f'Cliente {codparc} não encontrado em TGFPAR.'}
+
+            # INSERT
+            id_var = cur.var(int)
+            cur.execute(
+                """
+                INSERT INTO AD_COLETA_CAIXAS
+                    (ID, CODPARC, QTD_CAIXAS, DATA_COLETA, MOTIVO, OBSERVACAO,
+                     CODUSU, NOMEUSU)
+                VALUES
+                    (SEQ_AD_COLETA_CAIXAS.NEXTVAL, :codparc, :qtd,
+                     TO_DATE(:dt, 'YYYY-MM-DD'), :motivo, :obs,
+                     :codusu, :nomeusu)
+                RETURNING ID INTO :id_out
+                """,
+                codparc=codparc, qtd=qtd_caixas, dt=data_coleta,
+                motivo=motivo, obs=observacao or None,
+                codusu=int(codusu), nomeusu=(nomeusu or '')[:80] or None,
+                id_out=id_var,
+            )
+            novo_id = int(id_var.getvalue()[0])
+            conn.commit()
+
+        # Audit pós-commit (tolerante a falha — não desfaz)
+        try:
+            registrar_auditoria(
+                modulo='caixas',
+                operacao='CRIAR_COLETA',
+                tabela_alvo='AD_COLETA_CAIXAS',
+                registro_id=str(novo_id),
+                codusu=int(codusu),
+                nomeusu=nomeusu or '',
+                snapshot_antes=None,
+                snapshot_depois={
+                    'id': novo_id, 'codparc': codparc, 'qtd_caixas': qtd_caixas,
+                    'data_coleta': data_coleta, 'motivo': motivo,
+                    'observacao': observacao,
+                },
+            )
+        except Exception:
+            logger.warning("Audit falhou ao registrar CRIAR_COLETA id=%s", novo_id)
+
+        return {'ok': True, 'id': novo_id}
+    except Exception as exc:
+        logger.exception("Falha em criar_coleta_caixas_banco")
+        return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+
+def estornar_coleta_caixas_banco(id_coleta: int,
+                                  motivo_estorno: str,
+                                  codusu: int,
+                                  nomeusu: str = '') -> dict:
+    """B2 — Soft-delete em AD_COLETA_CAIXAS preservando audit.
+
+    UPDATE seta ESTORNADO='S' + ESTORNADO_EM/POR + MOTIVO_ESTORNO. Linha
+    continua existindo no banco mas não conta no saldo (queries filtram
+    ESTORNADO='N').
+
+    Validações:
+      - id_coleta existe e está com ESTORNADO='N'
+      - motivo_estorno obrigatório (texto explicativo do operador)
+
+    Retorno:
+      {'ok': True}
+      {'ok': False, 'error': str}
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
+
+    try:
+        id_coleta = int(id_coleta)
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': 'id_coleta inválido.'}
+
+    motivo_estorno = (motivo_estorno or '').strip()[:500]
+    if not motivo_estorno:
+        return {'ok': False, 'error': 'Informe o motivo do estorno.'}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # Snapshot antes (audit)
+            cur.execute(
+                "SELECT CODPARC, QTD_CAIXAS, DATA_COLETA, MOTIVO, ESTORNADO "
+                "FROM AD_COLETA_CAIXAS WHERE ID = :id FOR UPDATE",
+                id=id_coleta,
+            )
+            row = cur.fetchone()
+            if not row:
+                return {'ok': False, 'error': f'Coleta {id_coleta} não encontrada.'}
+            if (row[4] or 'N') == 'S':
+                return {'ok': False, 'error': 'Esta coleta já foi estornada.'}
+
+            snapshot_antes = {
+                'id':          id_coleta,
+                'codparc':     int(row[0]),
+                'qtd_caixas':  int(row[1] or 0),
+                'data_coleta': row[2].strftime('%Y-%m-%d') if row[2] else None,
+                'motivo':      row[3],
+                'estornado':   'N',
+            }
+
+            cur.execute(
+                """
+                UPDATE AD_COLETA_CAIXAS
+                   SET ESTORNADO      = 'S',
+                       ESTORNADO_EM   = SYSTIMESTAMP,
+                       ESTORNADO_POR  = :codusu,
+                       MOTIVO_ESTORNO = :motivo
+                 WHERE ID = :id AND ESTORNADO = 'N'
+                """,
+                codusu=int(codusu), motivo=motivo_estorno, id=id_coleta,
+            )
+            if cur.rowcount == 0:
+                return {'ok': False, 'error': 'Estorno bloqueado (linha já estornada por outro usuário).'}
+            conn.commit()
+
+        try:
+            registrar_auditoria(
+                modulo='caixas',
+                operacao='ESTORNAR_COLETA',
+                tabela_alvo='AD_COLETA_CAIXAS',
+                registro_id=str(id_coleta),
+                codusu=int(codusu),
+                nomeusu=nomeusu or '',
+                snapshot_antes=snapshot_antes,
+                snapshot_depois={**snapshot_antes, 'estornado': 'S',
+                                  'motivo_estorno': motivo_estorno},
+            )
+        except Exception:
+            logger.warning("Audit falhou ao registrar ESTORNAR_COLETA id=%s", id_coleta)
+
+        return {'ok': True}
+    except Exception as exc:
+        logger.exception("Falha em estornar_coleta_caixas_banco id=%s", id_coleta)
+        return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+
+def upsert_produto_caixa_banco(codprod: int,
+                                tipo_caixa: str,
+                                codusu: int,
+                                nomeusu: str = '') -> dict:
+    """B3 — MERGE em AD_PRODUTO_CAIXA. Cria ou atualiza o mapeamento
+    CODPROD → TIPO_CAIXA (PLASTICA/PAPELAO).
+
+    Validações:
+      - codprod existe em TGFPRO
+      - tipo_caixa IN ('PLASTICA','PAPELAO')
+
+    Retorno:
+      {'ok': True, 'acao': 'INSERT'|'UPDATE'}
+      {'ok': False, 'error': str}
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
+
+    try:
+        codprod = int(codprod)
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': 'codprod inválido.'}
+
+    tipo_caixa = (tipo_caixa or '').upper().strip()
+    if tipo_caixa not in ('PLASTICA', 'PAPELAO'):
+        return {'ok': False, 'error': 'tipo_caixa inválido (PLASTICA/PAPELAO).'}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # Valida produto existe
+            cur.execute("SELECT 1 FROM TGFPRO WHERE CODPROD = :c", c=codprod)
+            if not cur.fetchone():
+                return {'ok': False, 'error': f'Produto {codprod} não encontrado em TGFPRO.'}
+
+            # Detecta INSERT vs UPDATE pra audit + retorno
+            cur.execute(
+                "SELECT TIPO_CAIXA FROM AD_PRODUTO_CAIXA WHERE CODPROD = :c",
+                c=codprod,
+            )
+            row_anterior = cur.fetchone()
+            acao = 'UPDATE' if row_anterior else 'INSERT'
+            tipo_anterior = row_anterior[0] if row_anterior else None
+
+            cur.execute(
+                """
+                MERGE INTO AD_PRODUTO_CAIXA t
+                USING (SELECT :codprod AS CODPROD FROM DUAL) src
+                   ON (t.CODPROD = src.CODPROD)
+                WHEN MATCHED THEN
+                  UPDATE SET TIPO_CAIXA      = :tipo,
+                             ATUALIZADO_EM   = SYSTIMESTAMP,
+                             ATUALIZADO_POR  = :codusu
+                WHEN NOT MATCHED THEN
+                  INSERT (CODPROD, TIPO_CAIXA, CODUSU, NOMEUSU)
+                  VALUES (:codprod, :tipo, :codusu, :nomeusu)
+                """,
+                codprod=codprod, tipo=tipo_caixa,
+                codusu=int(codusu),
+                nomeusu=(nomeusu or '')[:80] or None,
+            )
+            conn.commit()
+
+        try:
+            registrar_auditoria(
+                modulo='caixas',
+                operacao=f'{acao}_PRODUTO_CAIXA',
+                tabela_alvo='AD_PRODUTO_CAIXA',
+                registro_id=str(codprod),
+                codusu=int(codusu),
+                nomeusu=nomeusu or '',
+                snapshot_antes={'codprod': codprod, 'tipo_caixa': tipo_anterior}
+                                 if row_anterior else None,
+                snapshot_depois={'codprod': codprod, 'tipo_caixa': tipo_caixa},
+            )
+        except Exception:
+            logger.warning("Audit falhou ao registrar UPSERT_PRODUTO_CAIXA codprod=%s", codprod)
+
+        return {'ok': True, 'acao': acao}
+    except Exception as exc:
+        logger.exception("Falha em upsert_produto_caixa_banco codprod=%s", codprod)
+        return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+
+# =============================================================================
+# !!! TEMPORÁRIO Mai/2026 — REMOVER QUANDO IAGRO VIRAR FLUXO ÚNICO !!!
+#
+# Hoje ~99% das vendas TGFITE TOP 34/35/37 são faturadas direto no Sankhya
+# (sem passar pelo Rastreio do IAgro), portanto chegam com PESO=0. Sem peso,
+# o cálculo de caixas no saldo não funciona.
+#
+# Esta função faz BACKFILL via moda do PESO da TOP 26 por CODPROD. É chamada
+# pelo botão "Atualizar" da tela /sankhya/caixas/ pra garantir que vendas
+# recém-faturadas ganhem peso a cada refresh.
+#
+# QUANDO REMOVER:
+# Quando todas as vendas começarem a passar pelo IAgro (pedido → Rastreio →
+# faturamento), TGFITE.PESO virá populado por padrão. A partir desse ponto:
+#   1. Apagar esta função (popular_pesos_top34_35_37_via_moda_TEMP)
+#   2. Apagar o endpoint api_caixas_refresh_pesos (em views.py)
+#   3. Apagar a rota /sankhya/caixas/api/refresh-pesos/ (em urls.py)
+#   4. Reverter o handler do botão Atualizar em caixas.js (bloco marcado
+#      [TEMPORÁRIO Mai/2026])
+#
+# Trade-off da estratégia (moda do peso por CODPROD):
+#   - Cobre ~70% das vendas em kg (produtos com classificação TOP 26)
+#   - Precisão ~90-95% por lote (pode errar ~10% quando lote tem peso
+#     diferente da moda; ex: tomate moda=20kg mas lote específico vendido
+#     a 22kg). Erro aceitável enquanto não temos dado por lote.
+# =============================================================================
+
+def popular_pesos_top34_35_37_via_moda_TEMP(codusu: int, nomeusu: str = '') -> dict:
+    """[TEMPORÁRIO Mai/2026] Backfill TGFITE.PESO via moda da TOP 26.
+
+    Atualiza linhas de:
+      - TOP 34 STATUSNOTA <> 'E' (pedidos ativos)
+      - TOP 35/37 STATUSNOTA = 'L' (vendas faturadas)
+    onde PESO está 0 e existe peso resolvível pela moda da TOP 26 do CODPROD.
+
+    Idempotente: linhas com PESO > 0 ficam intactas (não sobrescreve peso
+    explícito vindo do Rastreio).
+
+    Retorna {'ok': True, 'linhas_atualizadas': N} ou {'ok': False, 'error': ...}.
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                MERGE INTO TGFITE i
+                USING (
+                    WITH peso_moda_top26 AS (
+                        SELECT i26.CODPROD,
+                               i26.PESO AS peso_moda,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY i26.CODPROD
+                                   ORDER BY COUNT(*) DESC, i26.PESO DESC
+                               ) AS rn
+                          FROM TGFITE i26
+                          JOIN TGFCAB c26 ON c26.NUNOTA = i26.NUNOTA
+                         WHERE c26.CODTIPOPER = 26
+                           AND c26.STATUSNOTA <> 'E'
+                           AND NVL(i26.PESO, 0) > 0
+                         GROUP BY i26.CODPROD, i26.PESO
+                    )
+                    SELECT CODPROD, peso_moda
+                      FROM peso_moda_top26
+                     WHERE rn = 1
+                ) pdef
+                ON (pdef.CODPROD = i.CODPROD)
+                WHEN MATCHED THEN UPDATE
+                   SET i.PESO = pdef.peso_moda
+                 WHERE i.NUNOTA IN (
+                       SELECT NUNOTA FROM TGFCAB
+                        WHERE (CODTIPOPER = 34 AND STATUSNOTA <> 'E')
+                           OR (CODTIPOPER IN (35, 37) AND STATUSNOTA = 'L')
+                   )
+                   AND NVL(i.PESO, 0) = 0
+            """)
+            afetadas = cur.rowcount
+            conn.commit()
+
+        try:
+            registrar_auditoria(
+                modulo='caixas',
+                operacao='REFRESH_PESOS_VIA_MODA_TEMP',
+                tabela_alvo='TGFITE',
+                registro_id='*',
+                codusu=int(codusu),
+                nomeusu=nomeusu or '',
+                snapshot_antes=None,
+                snapshot_depois={'linhas_atualizadas': int(afetadas)},
+            )
+        except Exception:
+            logger.warning("Audit falhou em REFRESH_PESOS_VIA_MODA_TEMP")
+
+        return {'ok': True, 'linhas_atualizadas': int(afetadas)}
+    except Exception as exc:
+        logger.exception("Falha em popular_pesos_top34_35_37_via_moda_TEMP")
+        return {'ok': False, 'error': humanizar_erro_oracle(exc)}

@@ -43,7 +43,7 @@ CREATE TABLE SANKHYA.AD_AUDITORIA_GERAL (
     OBSERVACAO         VARCHAR2(500),
     CONSTRAINT CK_AD_AUDIT_MODULO CHECK (MODULO IN (
         'venda','combustivel','rastreio','comercial',
-        'entrada','classificacao','email'
+        'entrada','classificacao','email','caixas'
     ))
 );
 

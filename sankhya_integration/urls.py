@@ -234,4 +234,20 @@ urlpatterns = [
     path('usuarios/api/<int:codusu>/reativar/',        views.api_usuarios_reativar,       name='api_usuarios_reativar'),
     path('usuarios/api/<int:codusu>/grupo/adicionar/', views.api_usuarios_adicionar_grupo, name='api_usuarios_adicionar_grupo'),
     path('usuarios/api/<int:codusu>/grupo/remover/',   views.api_usuarios_remover_grupo,   name='api_usuarios_remover_grupo'),
+
+    # ==============================================================================
+    # 📦 MÓDULO CAIXAS (Mai/2026) — Controle de vasilhame retornável
+    # Cat A entregue (saldo + timeline + listagens). Escritas Cat B em stubs 501.
+    # ==============================================================================
+    path('caixas/',                                    views.view_caixas_painel,           name='view_caixas_painel'),
+    path('caixas/api/saldo/',                          views.api_caixas_saldo,             name='api_caixas_saldo'),
+    path('caixas/api/timeline/<int:codparc>/',         views.api_caixas_timeline,          name='api_caixas_timeline'),
+    path('caixas/api/coletas/',                        views.api_caixas_coletas_listar,    name='api_caixas_coletas_listar'),
+    path('caixas/api/produtos/',                       views.api_caixas_produtos_listar,   name='api_caixas_produtos_listar'),
+    # Cat B (stubs 501 até aprovação ponto-a-ponto)
+    path('caixas/api/coleta/criar/',                   views.api_caixas_coleta_criar,      name='api_caixas_coleta_criar'),
+    path('caixas/api/coleta/<int:id_coleta>/estornar/',views.api_caixas_coleta_estornar,   name='api_caixas_coleta_estornar'),
+    path('caixas/api/produto/upsert/',                 views.api_caixas_produto_upsert,    name='api_caixas_produto_upsert'),
+    # [TEMPORÁRIO Mai/2026] Backfill PESO via moda TOP 26 — REMOVER quando IAgro virar fluxo único
+    path('caixas/api/refresh-pesos/',                  views.api_caixas_refresh_pesos,     name='api_caixas_refresh_pesos'),
 ]

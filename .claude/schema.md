@@ -540,6 +540,65 @@ ORDEM_TANQUE = {
 
 ---
 
+## 7.8 Módulo Controle de Caixas — `AD_COLETA_CAIXAS` + `AD_PRODUTO_CAIXA` (Mai/2026 — 2026-05-18)
+
+Controle de vasilhame retornável (caixa plástica) circulando entre Agromil e clientes. Saídas derivadas em runtime (sem persistência); coletas/quebras/perdas manuais; tipo de caixa por produto (default PLASTICA, exceções cadastradas).
+
+### Tabela `AD_COLETA_CAIXAS`
+
+DDL em [`sankhya_integration/sql/AD_COLETA_CAIXAS.sql`](../sankhya_integration/sql/AD_COLETA_CAIXAS.sql).
+
+| Coluna | Tipo | Função |
+|---|---|---|
+| `ID` | NUMBER PK | Sequence `SEQ_AD_COLETA_CAIXAS` |
+| `CODPARC` | NUMBER NOT NULL | FK lógica TGFPAR — cliente que devolveu/perdeu/quebrou |
+| `QTD_CAIXAS` | NUMBER NOT NULL | Qtd inteira positiva (CHECK > 0) |
+| `DATA_COLETA` | DATE NOT NULL | Data do evento |
+| `MOTIVO` | VARCHAR2(20) NOT NULL CHECK | `COLETA` / `QUEBRA` / `PERDA` / `AJUSTE_SALDO` |
+| `OBSERVACAO` | VARCHAR2(500) | Texto livre opcional (recomendado em AJUSTE_SALDO) |
+| `ESTORNADO` | CHAR(1) DEFAULT 'N' | Soft-delete pra preservar audit |
+| `ESTORNADO_EM`, `ESTORNADO_POR`, `MOTIVO_ESTORNO` | — | Audit do estorno |
+| `CODUSU`, `NOMEUSU`, `CRIADO_EM` | — | Audit da criação |
+
+Índices: `IDX_AD_COLETA_CODPARC(CODPARC, ESTORNADO)` + `IDX_AD_COLETA_DATA(DATA_COLETA DESC)`.
+
+### Tabela `AD_PRODUTO_CAIXA`
+
+DDL em [`sankhya_integration/sql/AD_PRODUTO_CAIXA.sql`](../sankhya_integration/sql/AD_PRODUTO_CAIXA.sql).
+
+| Coluna | Tipo | Função |
+|---|---|---|
+| `CODPROD` | NUMBER PK | FK lógica TGFPRO |
+| `TIPO_CAIXA` | VARCHAR2(20) CHECK | `PLASTICA` (retornável) / `PAPELAO` (descartável) |
+| `CODUSU`, `NOMEUSU`, `CRIADO_EM`, `ATUALIZADO_EM`, `ATUALIZADO_POR` | — | Audit |
+
+**Default**: produto SEM linha = `PLASTICA`. Operador cadastra só as exceções de papelão (mudas, embalagens pequenas).
+
+### Fórmula de saldo (calculada em runtime, não persistida)
+
+```
+saldo_cliente = Σ caixas_enviadas (TOP 35/37 'L')
+              − Σ caixas_devolvidas (TOP 36 'L')
+              − Σ AD_COLETA_CAIXAS (motivo IN COLETA/QUEBRA/PERDA, ESTORNADO='N')
+              + Σ AD_COLETA_CAIXAS (motivo = AJUSTE_SALDO, ESTORNADO='N')   ← com sinal natural (pos soma, neg desconta)
+```
+
+Onde `caixas` por TGFITE = `CEIL(QTDNEG / TGFITE.PESO)` quando `PESO > 0`. Descoberto Mai/2026 (2026-05-18) que `CODVOL='CX'` na Agromil NÃO significa "QTDNEG é nº de caixas" — QTDNEG está sempre em kg, mesmo em vendas marcadas CX. Vendas sem PESO populado (legadas, faturadas direto no Sankhya sem passar pelo Rastreio) ficam **fora do cálculo automático**; operador usa `AJUSTE_SALDO` pra clientes importantes (Assaí/Sendas) cujo saldo precisa ser controlado. Conforme IAgro vira fluxo único, novas vendas trazem PESO real (gravado no modal de vínculo do Rastreio) e saldo passa a funcionar naturalmente. Filtro de plástica: `NOT EXISTS (SELECT 1 FROM AD_PRODUTO_CAIXA WHERE CODPROD=i.CODPROD AND TIPO_CAIXA='PAPELAO')`.
+
+### Funções service (`oracle_conn.py`)
+
+| Função | Operação | Cat |
+|---|---|:-:|
+| `consultar_saldo_caixas(filtros)` | Saldo agregado por CODPARC. Filtros: `q`, `apenas_saldo_positivo`, `codparc`. Schema-resilient via `_existe_coluna` | A |
+| `obter_timeline_caixas(codparc, dias)` | Timeline cronológica DESC (saídas + devoluções + coletas) | A |
+| `listar_coletas_caixas(filtros, limite, offset)` | Paginação ROW_NUMBER de AD_COLETA_CAIXAS + JOIN TGFPAR | A |
+| `listar_produtos_caixa(tipo?)` | Lista AD_PRODUTO_CAIXA + JOIN TGFPRO | A |
+| `criar_coleta_caixas_banco` | INSERT em AD_COLETA_CAIXAS + audit | **B1** (pendente) |
+| `estornar_coleta_caixas_banco` | UPDATE ESTORNADO='S' + motivo (não DELETE) | **B2** (pendente) |
+| `upsert_produto_caixa_banco` | INSERT/UPDATE em AD_PRODUTO_CAIXA | **B3** (pendente) |
+
+---
+
 ## 8. Modelos SQLite (Django)
 
 ### `Simulation`

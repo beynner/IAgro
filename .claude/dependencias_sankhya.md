@@ -617,6 +617,22 @@ Detalhes em `.claude/modules/` (referências cruzadas).
 
 ---
 
+### 5.9 AD_COLETA_CAIXAS + AD_PRODUTO_CAIXA (Mai/2026 — 2026-05-18)
+
+**DDLs:**
+- `sankhya_integration/sql/AD_COLETA_CAIXAS.sql`
+- `sankhya_integration/sql/AD_PRODUTO_CAIXA.sql`
+
+**Propósito:** Controle de vasilhame retornável (caixa plástica). Saídas calculadas em runtime via `CEIL(QTDNEG / TGFITE.PESO)` quando `PESO > 0` (vendas IAgro recentes via Rastreio); coletas/quebras/perdas/ajustes manuais em `AD_COLETA_CAIXAS`; tipo de caixa por produto (default PLASTICA) em `AD_PRODUTO_CAIXA`. Vendas legadas sem PESO ficam fora — operador usa AJUSTE_SALDO pra controlar saldo de clientes importantes. Descoberto Mai/2026 que `CODVOL='CX'` na Agromil **não** significa "QTDNEG é nº de caixas" (sempre kg). Tentativa de cadastrar peso default por produto (tabela `AD_PESO_CAIXA_PRODUTO`) foi descartada porque peso varia por lote — cadastro fixo era chute.
+
+Detalhes em `.claude/modules/caixas.md` e `.claude/schema.md` §7.8.
+
+**Tabelas Sankhya consumidas (LEITURA APENAS):** TGFCAB, TGFITE (PESO + QTDNEG), TGFPAR (NOMEPARC), TGFPRO. Nenhuma escrita em Sankhya nativo.
+
+**Zero impacto em queries existentes:** tabelas auxiliares 100% isoladas; views existentes não consultam.
+
+---
+
 ## 6. Constantes de Domínio Sankhya (Codificadas em Python)
 
 ### 6.1 TOPs (Tipos de Operação)

@@ -38,6 +38,7 @@ GRUPOS_PERMITIDOS = {
     'relatorios':    ['1', '6', '9'],          # DIRETORIA + SUPORTE + COMERCIAL (Mai/2026)
     'usuarios':      ['1', '6'],               # DIRETORIA + SUPORTE — gestão de acesso TSIUSU/TSIGPU (Mai/2026)
     'configuracoes': ['1', '6'],               # DIRETORIA + SUPORTE — hub de configurações administrativas (Mai/2026)
+    'caixas':        ['1', '6', '8', '9', '10', '11'],  # Controle de caixas — quase todos (Mai/2026)
 }
 
 def _get_json_payload(request: HttpRequest) -> dict:
