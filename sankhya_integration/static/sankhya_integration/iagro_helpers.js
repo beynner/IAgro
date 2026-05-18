@@ -690,6 +690,49 @@
     };
   }
 
+  // ===========================================================================
+  // IAgro.setupSidebarSections — Mai/2026 (acordeão)
+  // Agrupamento retrátil da sidebar. Comportamento ACORDEÃO: apenas 1 section
+  // aberta por vez. Clicar em outra fecha a anterior. Clicar na já aberta
+  // fecha (nenhuma aberta).
+  // Storage: 'iagro:sidebar:section:v1' = string com nome da section aberta
+  // (vazia = nenhuma). Pré-paint no base.html prioriza módulo ativo.
+  // ===========================================================================
+  function setupSidebarSections() {
+    const STORAGE_KEY = 'iagro:sidebar:section:v1';
+
+    function salvarAtiva(nome) {
+      try { localStorage.setItem(STORAGE_KEY, nome || ''); } catch (_) {}
+    }
+    function fecharTodas() {
+      document.querySelectorAll('.sidebar-section.is-open').forEach((el) => {
+        el.classList.remove('is-open');
+        const btn = el.querySelector('.sidebar-section-toggle');
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+      });
+    }
+
+    document.querySelectorAll('.sidebar-section-toggle').forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const key = btn.getAttribute('data-section-toggle');
+        const section = btn.closest('.sidebar-section');
+        if (!section || !key) return;
+        const jaAberta = section.classList.contains('is-open');
+        // Acordeão: fecha tudo, depois abre só a clicada (se não era a aberta)
+        fecharTodas();
+        if (!jaAberta) {
+          section.classList.add('is-open');
+          btn.setAttribute('aria-expanded', 'true');
+          salvarAtiva(key);
+        } else {
+          salvarAtiva('');
+        }
+      });
+    });
+  }
+
   // Expor os módulos para o escopo global (window)
   window.IAgro = {
     ...(window.IAgro || {}),
@@ -697,8 +740,8 @@
     cachedFetch, cachedFetchClear,
     // Mai/2026 — UX patterns centralizados
     attachTypeahead, installAutoSelect, wireFilterAuto,
-    // Mai/2026 — layout v2 (sidebar)
-    setupSidebar,
+    // Mai/2026 — layout v2 (sidebar + sections retráteis)
+    setupSidebar, setupSidebarSections,
     // Mai/2026 (2026-05-15) — double-click cross-device (mouse + touch)
     onDoubleActivate,
   };

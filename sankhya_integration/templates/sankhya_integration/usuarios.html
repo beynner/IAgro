@@ -1,0 +1,243 @@
+{% extends "sankhya_integration/base.html" %}
+{% load static %}
+
+{% block title %}IAgro · Usuários{% endblock %}
+{% block active_module %}usuarios{% endblock %}
+{% block header_title %}USUÁRIOS{% endblock %}
+
+{% block header_actions %}
+  <button type="button" id="btnNovoUsuario" class="btn btn-primario" title="Cadastrar novo usuário">
+    <i class="ph ph-user-plus" aria-hidden="true"></i>
+    <span>Novo usuário</span>
+  </button>
+{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/usuarios.css' %}?v=2">
+{% endblock %}
+
+{% block content %}
+<div class="usu-layout">
+
+  {# Coluna esquerda — lista de usuários #}
+  <aside class="usu-lista-panel" id="usuListaPanel">
+    <header class="usu-lista-header">
+      <h3>Usuários do Sankhya</h3>
+      <span class="usu-lista-contador" id="usuContador">—</span>
+    </header>
+
+    <div class="usu-filtros">
+      <div class="usu-filtro-busca">
+        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+        <input type="search" id="usuBusca" placeholder="Buscar login ou nome completo…"
+               autocomplete="off">
+      </div>
+      <div class="usu-filtro-row">
+        <select id="usuFiltroGrupo" class="usu-select" title="Filtrar por grupo principal">
+          <option value="">Todos os grupos</option>
+        </select>
+      </div>
+      <label class="usu-toggle-inativos" title="Por padrão a lista mostra só usuários ativos. Marque para incluir os inativos na lista.">
+        <input type="checkbox" id="usuMostrarInativos">
+        <span>Mostrar inativos</span>
+      </label>
+    </div>
+
+    <div class="usu-lista" id="usuLista">
+      <div class="usu-lista-empty">Carregando…</div>
+    </div>
+  </aside>
+
+  {# Coluna direita — detalhe do usuário selecionado #}
+  <section class="usu-detalhe-panel" id="usuDetalhePanel">
+    <div class="usu-detalhe-vazio" id="usuDetalheVazio">
+      <i class="ph ph-user-circle" aria-hidden="true"></i>
+      <p>Selecione um usuário à esquerda pra ver os detalhes.</p>
+      <small>Ou clique em <strong>Novo usuário</strong> no topo pra cadastrar.</small>
+    </div>
+
+    <div class="usu-detalhe" id="usuDetalheCard" hidden>
+      <header class="usu-detalhe-header">
+        <div class="usu-detalhe-avatar" id="usuDetalheAvatar">?</div>
+        <div class="usu-detalhe-titulo">
+          <h2 id="usuDetalheNome">—</h2>
+          <span class="usu-detalhe-login">@<span id="usuDetalheLogin">—</span></span>
+          <div class="usu-detalhe-badges" id="usuDetalheBadges"></div>
+        </div>
+        <div class="usu-detalhe-acoes">
+          <button type="button" class="btn btn-secundario" id="usuBtnEditar" title="Editar dados cadastrais">
+            <i class="ph ph-pencil-simple" aria-hidden="true"></i>
+            <span>Editar</span>
+          </button>
+          <button type="button" class="btn btn-perigo" id="usuBtnInativar" title="Inativar usuário">
+            <i class="ph ph-user-minus" aria-hidden="true"></i>
+            <span>Inativar</span>
+          </button>
+          <button type="button" class="btn btn-sucesso" id="usuBtnReativar" hidden title="Reativar usuário">
+            <i class="ph ph-user-check" aria-hidden="true"></i>
+            <span>Reativar</span>
+          </button>
+        </div>
+      </header>
+
+      <div class="usu-detalhe-grid">
+
+        <article class="usu-card usu-card-cadastrais">
+          <h4><i class="ph ph-identification-card" aria-hidden="true"></i> Dados cadastrais</h4>
+          <dl class="usu-dl">
+            <dt>Nome completo</dt><dd id="usuFldNome">—</dd>
+            <dt>E-mail</dt><dd id="usuFldEmail">—</dd>
+            <dt>CPF</dt><dd id="usuFldCpf">—</dd>
+            <dt>Login (NOMEUSU)</dt><dd id="usuFldLogin">—</dd>
+            <dt>Código</dt><dd id="usuFldCodusu">—</dd>
+          </dl>
+        </article>
+
+        <article class="usu-card usu-card-status">
+          <h4><i class="ph ph-clock-clockwise" aria-hidden="true"></i> Status de acesso</h4>
+          <dl class="usu-dl">
+            <dt>Situação</dt><dd id="usuFldSituacao">—</dd>
+            <dt>Senha definida</dt><dd id="usuFldSenha">—</dd>
+            <dt>Última troca de senha</dt><dd id="usuFldUltimaSenha">—</dd>
+            <dt>Último acesso</dt><dd id="usuFldUltAcesso">—</dd>
+            <dt>Limite de acesso</dt><dd id="usuFldDtLimite">—</dd>
+          </dl>
+        </article>
+
+        <article class="usu-card usu-card-grupos">
+          <h4>
+            <i class="ph ph-users-three" aria-hidden="true"></i>
+            Permissões
+            <button type="button" class="btn btn-secundario btn-pequeno" id="usuBtnAddGrupo"
+                    title="Adicionar grupo extra">
+              <i class="ph ph-plus"></i>
+              <span>Adicionar grupo</span>
+            </button>
+          </h4>
+
+          <div class="usu-grupo-principal-bloco">
+            <span class="usu-grupo-label">Grupo principal:</span>
+            <span class="usu-grupo-principal-pill" id="usuGrupoPrincipal">—</span>
+          </div>
+
+          <div class="usu-grupos-extras-bloco">
+            <span class="usu-grupo-label">Grupos extras (TSIGPU):</span>
+            <ul class="usu-grupos-extras" id="usuGruposExtras">
+              <li class="usu-grupos-empty">Carregando…</li>
+            </ul>
+          </div>
+        </article>
+
+      </div>
+    </div>
+  </section>
+</div>
+
+{# ============================================================== #}
+{# Modal: criar/editar usuário #}
+{# ============================================================== #}
+<div class="modal-overlay hidden" id="usuModalCadastro" role="dialog" aria-labelledby="usuModalCadastroTitulo">
+  <div class="modal-card usu-modal">
+    <header class="modal-header">
+      <h3 id="usuModalCadastroTitulo">Novo usuário</h3>
+      <button type="button" class="modal-close" data-fechar="cadastro" aria-label="Fechar">
+        <i class="ph ph-x"></i>
+      </button>
+    </header>
+
+    <div class="modal-body">
+      <form id="usuFormCadastro" autocomplete="off">
+        <input type="hidden" id="usuFormCodusu" value="">
+
+        <div class="form-grid-2">
+          <div class="form-field">
+            <label for="usuFormNomeusu">Login <span class="req">*</span></label>
+            <input type="text" id="usuFormNomeusu" maxlength="10" required
+                   placeholder="até 10 caracteres">
+            <small class="form-hint">Limite do Sankhya: 10 caracteres. Não pode mudar depois.</small>
+          </div>
+          <div class="form-field">
+            <label for="usuFormNomecplt">Nome completo</label>
+            <input type="text" id="usuFormNomecplt" maxlength="40">
+          </div>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-field">
+            <label for="usuFormEmail">E-mail</label>
+            <input type="email" id="usuFormEmail" maxlength="80">
+          </div>
+          <div class="form-field">
+            <label for="usuFormCpf">CPF</label>
+            <input type="text" id="usuFormCpf" maxlength="11" inputmode="numeric"
+                   placeholder="só números">
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label for="usuFormCodgrupo">Grupo principal <span class="req">*</span></label>
+          <select id="usuFormCodgrupo" required>
+            <option value="">Selecione…</option>
+          </select>
+          <small class="form-hint">Define o grupo padrão. Outros podem ser adicionados depois.</small>
+        </div>
+
+        <div class="usu-aviso-senha" id="usuAvisoSenha">
+          <i class="ph ph-warning-circle" aria-hidden="true"></i>
+          <div>
+            <strong>Sobre a senha:</strong> usuário será criado <em>sem senha</em>.
+            Após o cadastro, peça à TI para definir a senha pelo painel do Sankhya
+            (módulo de Cadastro de Usuários). Enquanto isso, o login não vai funcionar.
+          </div>
+        </div>
+
+        <div class="usu-msg-erro" id="usuMsgErroCadastro" hidden></div>
+      </form>
+    </div>
+
+    <footer class="modal-footer">
+      <button type="button" class="btn btn-secundario" data-fechar="cadastro">Cancelar</button>
+      <button type="button" class="btn btn-primario" id="usuBtnSalvarCadastro">
+        <i class="ph ph-floppy-disk"></i>
+        <span>Salvar</span>
+      </button>
+    </footer>
+  </div>
+</div>
+
+{# ============================================================== #}
+{# Modal: adicionar grupo extra #}
+{# ============================================================== #}
+<div class="modal-overlay hidden" id="usuModalAddGrupo" role="dialog" aria-labelledby="usuModalAddGrupoTitulo">
+  <div class="modal-card usu-modal usu-modal-pequeno">
+    <header class="modal-header">
+      <h3 id="usuModalAddGrupoTitulo">Adicionar grupo extra</h3>
+      <button type="button" class="modal-close" data-fechar="addgrupo" aria-label="Fechar">
+        <i class="ph ph-x"></i>
+      </button>
+    </header>
+    <div class="modal-body">
+      <p class="usu-modal-info" id="usuAddGrupoUsuario">—</p>
+      <div class="form-field">
+        <label for="usuAddGrupoSelect">Grupo a adicionar</label>
+        <select id="usuAddGrupoSelect">
+          <option value="">Selecione…</option>
+        </select>
+      </div>
+      <div class="usu-msg-erro" id="usuMsgErroAddGrupo" hidden></div>
+    </div>
+    <footer class="modal-footer">
+      <button type="button" class="btn btn-secundario" data-fechar="addgrupo">Cancelar</button>
+      <button type="button" class="btn btn-primario" id="usuBtnConfirmarAddGrupo">
+        <i class="ph ph-plus"></i>
+        <span>Adicionar</span>
+      </button>
+    </footer>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'sankhya_integration/usuarios.js' %}?v=2" defer></script>
+{% endblock %}

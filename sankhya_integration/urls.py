@@ -211,4 +211,27 @@ urlpatterns = [
     path('combustivel/api/ultimo-preco/',                    views.api_ultimo_preco_combustivel,       name='api_combustivel_ultimo_preco'),
     path('combustivel/api/veiculo-foto/<str:placa>/',        views.api_foto_veiculo,                   name='api_combustivel_veiculo_foto'),
     path('combustivel/api/relatorio/consumo/',               views.api_relatorio_consumo_veiculo,      name='api_combustivel_relatorio_consumo'),
+
+    # ==============================================================================
+    # ⚙️ HUB DE CONFIGURAÇÕES (Mai/2026)
+    # Acessado pela engrenagem no header. Sidebar fica só com módulos
+    # operacionais. Acesso restrito: grupos 1 (Diretoria) + 6 (Suporte).
+    # ==============================================================================
+    path('configuracoes/',                             views.view_configuracoes_painel,   name='view_configuracoes_painel'),
+
+    # ==============================================================================
+    # 👥 MÓDULO USUÁRIOS (Mai/2026) — gestão de acesso TSIUSU/TSIGPU
+    # Cat A entregue (leituras + página). Escritas Cat B em stubs 501.
+    # ==============================================================================
+    path('usuarios/',                                  views.view_usuarios_painel,        name='view_usuarios_painel'),
+    path('usuarios/api/listar/',                       views.api_usuarios_listar,         name='api_usuarios_listar'),
+    path('usuarios/api/grupos/',                       views.api_usuarios_grupos,         name='api_usuarios_grupos'),
+    path('usuarios/api/<int:codusu>/',                 views.api_usuarios_detalhe,        name='api_usuarios_detalhe'),
+    # Cat B (stubs 501 até aprovação ponto-a-ponto)
+    path('usuarios/api/criar/',                        views.api_usuarios_criar,          name='api_usuarios_criar'),
+    path('usuarios/api/<int:codusu>/editar/',          views.api_usuarios_atualizar,      name='api_usuarios_atualizar'),
+    path('usuarios/api/<int:codusu>/inativar/',        views.api_usuarios_inativar,       name='api_usuarios_inativar'),
+    path('usuarios/api/<int:codusu>/reativar/',        views.api_usuarios_reativar,       name='api_usuarios_reativar'),
+    path('usuarios/api/<int:codusu>/grupo/adicionar/', views.api_usuarios_adicionar_grupo, name='api_usuarios_adicionar_grupo'),
+    path('usuarios/api/<int:codusu>/grupo/remover/',   views.api_usuarios_remover_grupo,   name='api_usuarios_remover_grupo'),
 ]

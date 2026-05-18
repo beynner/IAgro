@@ -53,6 +53,10 @@ from .services.oracle_conn import (
     consultar_dados_etiqueta_pedido,
     consultar_pesos_classificacao_lote,  # noqa: F401  (uso indireto via consultar_dados_etiqueta_pedido)
     calcular_qtd_etiquetas,
+    # Gestão de Usuários (Mai/2026) — leituras Cat A; escritas Cat B pendentes
+    listar_usuarios,
+    consultar_usuario_detalhe,
+    consultar_grupos_disponiveis,
 )
 from .services.etiqueta_lote import gerar_pdf_etiquetas
 
@@ -5720,3 +5724,145 @@ def api_prazo_tipvenda(request: HttpRequest) -> JsonResponse:
     except Exception as exc:
         logger.exception("Falha em api_prazo_tipvenda")
         return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+# ==============================================================================
+# ⚙️ HUB DE CONFIGURAÇÕES (Mai/2026)
+# Acessado pela engrenagem no header. Concentra opções administrativas
+# (Usuários hoje, mais módulos no futuro). Sidebar fica só com operacional.
+# Acesso: grupos 1 (Diretoria) + 6 (Suporte).
+# ==============================================================================
+
+@ensure_csrf_cookie
+@exige_grupo('configuracoes')
+def view_configuracoes_painel(request: HttpRequest) -> HttpResponse:
+    """Hub de configurações — cards de subseções (Usuários, etc)."""
+    return render(request, "sankhya_integration/configuracoes.html")
+
+
+# ==============================================================================
+# 👥 MÓDULO USUÁRIOS (Mai/2026)
+# Tela de gestão de acesso: lista TSIUSU, detalhe com grupos TSIGPU, catálogo
+# de grupos TSIGRU. Acesso restrito a grupos 1 (Diretoria) e 6 (Suporte).
+#
+# Cat A entregue: leituras (listar, detalhe, grupos) + página + frontend.
+# Cat B pendente (B1-B6): inserir/atualizar/inativar/reativar/add+rem grupo —
+# endpoints abaixo retornam 501 Not Implemented até serem aprovados.
+# ==============================================================================
+
+@ensure_csrf_cookie
+@exige_grupo('usuarios')
+def view_usuarios_painel(request: HttpRequest) -> HttpResponse:
+    """Tela principal de gestão de usuários (Layout v2 com sidebar + 2 colunas)."""
+    return render(request, "sankhya_integration/usuarios.html")
+
+
+@require_http_methods(["GET"])
+@exige_grupo('usuarios')
+def api_usuarios_listar(request: HttpRequest) -> JsonResponse:
+    """Lista paginada de usuários com filtros opcionais.
+
+    Querystring:
+      busca, codgrupo, limite (max 200, default 50), offset,
+      apenas_ativos (default true), apenas_inativos (default false)
+    """
+    filtros = {
+        'busca':           (request.GET.get('busca') or '').strip() or None,
+        'codgrupo':        (request.GET.get('codgrupo') or '').strip() or None,
+        'apenas_ativos':   (request.GET.get('apenas_ativos', 'true').lower() not in ('false', '0', 'no', 'n')),
+        'apenas_inativos': (request.GET.get('apenas_inativos', 'false').lower() in ('true', '1', 'yes', 's')),
+    }
+    try:
+        limite = int(request.GET.get('limite') or 50)
+        limite = max(1, min(200, limite))
+    except (TypeError, ValueError):
+        limite = 50
+    try:
+        offset = max(0, int(request.GET.get('offset') or 0))
+    except (TypeError, ValueError):
+        offset = 0
+
+    try:
+        dados = listar_usuarios(filtros=filtros, limite=limite, offset=offset)
+        return JsonResponse({'ok': True, **dados})
+    except Exception as exc:
+        logger.exception("Falha em api_usuarios_listar")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('usuarios')
+def api_usuarios_detalhe(request: HttpRequest, codusu: int) -> JsonResponse:
+    """Detalhe completo de um usuário (cabeçalho + grupos extras ativos)."""
+    try:
+        dados = consultar_usuario_detalhe(int(codusu))
+        if not dados:
+            return JsonResponse({'ok': False, 'error': 'Usuário não encontrado.'}, status=404)
+        return JsonResponse({'ok': True, 'usuario': dados})
+    except Exception as exc:
+        logger.exception("Falha em api_usuarios_detalhe codusu=%s", codusu)
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('usuarios')
+def api_usuarios_grupos(request: HttpRequest) -> JsonResponse:
+    """Catálogo de grupos TSIGRU ativos pra dropdowns da UI."""
+    try:
+        grupos = consultar_grupos_disponiveis()
+        return JsonResponse({'ok': True, 'grupos': grupos})
+    except Exception as exc:
+        logger.exception("Falha em api_usuarios_grupos")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+# ------------------------------------------------------------------
+# Stubs Cat B (B1-B6) — retornam 501 até serem aprovados ponto-a-ponto
+# Frontend já chama esses endpoints, mas com tratamento de erro amigável.
+# ------------------------------------------------------------------
+
+def _stub_cat_b_pendente(operacao: str) -> JsonResponse:
+    return JsonResponse({
+        'ok': False,
+        'pendente_cat_b': True,
+        'error': (
+            f'Operação "{operacao}" aguardando aprovação ponto-a-ponto do bloco '
+            f'Cat B correspondente. Backend de leitura já entregue.'
+        ),
+    }, status=501)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('usuarios')
+def api_usuarios_criar(request: HttpRequest) -> JsonResponse:
+    return _stub_cat_b_pendente('Criar usuário (B1)')
+
+
+@require_http_methods(["POST"])
+@exige_grupo('usuarios')
+def api_usuarios_atualizar(request: HttpRequest, codusu: int) -> JsonResponse:
+    return _stub_cat_b_pendente('Atualizar dados (B2)')
+
+
+@require_http_methods(["POST"])
+@exige_grupo('usuarios')
+def api_usuarios_inativar(request: HttpRequest, codusu: int) -> JsonResponse:
+    return _stub_cat_b_pendente('Inativar usuário (B3)')
+
+
+@require_http_methods(["POST"])
+@exige_grupo('usuarios')
+def api_usuarios_reativar(request: HttpRequest, codusu: int) -> JsonResponse:
+    return _stub_cat_b_pendente('Reativar usuário (B4)')
+
+
+@require_http_methods(["POST"])
+@exige_grupo('usuarios')
+def api_usuarios_adicionar_grupo(request: HttpRequest, codusu: int) -> JsonResponse:
+    return _stub_cat_b_pendente('Adicionar grupo (B5)')
+
+
+@require_http_methods(["POST"])
+@exige_grupo('usuarios')
+def api_usuarios_remover_grupo(request: HttpRequest, codusu: int) -> JsonResponse:
+    return _stub_cat_b_pendente('Remover grupo (B6)')

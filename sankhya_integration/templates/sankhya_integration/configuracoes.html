@@ -1,0 +1,49 @@
+{% extends "sankhya_integration/base.html" %}
+{% load static %}
+
+{% block title %}IAgro · Configurações{% endblock %}
+{% block active_module %}configuracoes{% endblock %}
+{% block header_title %}CONFIGURAÇÕES{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/configuracoes.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<div class="cfg-layout">
+
+  <p class="cfg-intro">
+    Painel administrativo do IAgro. Mais opções serão adicionadas conforme
+    novas configurações ficarem disponíveis.
+  </p>
+
+  <div class="cfg-cards">
+    <a href="/sankhya/usuarios/" class="cfg-card" data-modulo="usuarios">
+      <div class="cfg-card-icone">
+        <i class="ph ph-users-three" aria-hidden="true"></i>
+      </div>
+      <div class="cfg-card-info">
+        <h3>Usuários</h3>
+        <p>Gestão de acesso. Cadastrar, editar, inativar usuários e gerenciar grupos de permissão.</p>
+      </div>
+      <div class="cfg-card-seta">
+        <i class="ph ph-caret-right" aria-hidden="true"></i>
+      </div>
+    </a>
+
+    <a href="/sankhya/auditoria/" class="cfg-card" data-modulo="auditoria">
+      <div class="cfg-card-icone">
+        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+      </div>
+      <div class="cfg-card-info">
+        <h3>Auditoria</h3>
+        <p>Log centralizado de todos os eventos de escrita do IAgro. Filtros por módulo, operação, usuário e período.</p>
+      </div>
+      <div class="cfg-card-seta">
+        <i class="ph ph-caret-right" aria-hidden="true"></i>
+      </div>
+    </a>
+  </div>
+
+</div>
+{% endblock %}

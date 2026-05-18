@@ -1,0 +1,141 @@
+/* =====================================================================
+   HUB DE CONFIGURAÇÕES (Mai/2026)
+   /sankhya/configuracoes/ — acessado pela engrenagem no header.
+   ===================================================================== */
+
+:root {
+    --cfg-primary:   #5e7e4a;   /* verde Agromil */
+    --cfg-bg-card:   #ffffff;
+    --cfg-bg-hover:  #f4f6f4;
+    --cfg-border:    #d9dbd5;
+    --cfg-shadow:    0 1px 3px rgba(0, 0, 0, 0.06);
+    --cfg-shadow-hover: 0 4px 12px rgba(94, 126, 74, 0.15);
+}
+
+.cfg-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    max-width: 920px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 4px;
+    box-sizing: border-box;
+}
+
+.cfg-intro {
+    margin: 0;
+    color: #555;
+    font-size: 13.5px;
+    line-height: 1.55;
+    padding: 12px 16px;
+    background: var(--cfg-bg-card);
+    border-left: 3px solid var(--cfg-primary);
+    border-radius: 4px;
+}
+
+.cfg-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 16px;
+}
+
+.cfg-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 20px;
+    background: var(--cfg-bg-card);
+    border: 1px solid var(--cfg-border);
+    border-radius: 8px;
+    box-shadow: var(--cfg-shadow);
+    text-decoration: none;
+    color: inherit;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    cursor: pointer;
+}
+
+.cfg-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--cfg-shadow-hover);
+    border-color: var(--cfg-primary);
+    background: var(--cfg-bg-hover);
+}
+
+.cfg-card:active {
+    transform: translateY(0);
+}
+
+.cfg-card-icone {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--cfg-primary), #4a6438);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    flex-shrink: 0;
+    box-shadow: 0 2px 6px rgba(94, 126, 74, 0.25);
+}
+
+.cfg-card-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.cfg-card-info h3 {
+    margin: 0 0 4px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #2d2d2d;
+}
+
+.cfg-card-info p {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: #666;
+}
+
+.cfg-card-seta {
+    color: #999;
+    font-size: 18px;
+    transition: color 0.18s ease, transform 0.18s ease;
+    flex-shrink: 0;
+}
+
+.cfg-card:hover .cfg-card-seta {
+    color: var(--cfg-primary);
+    transform: translateX(4px);
+}
+
+/* Responsivo */
+@media (max-width: 900px) {
+    .cfg-cards {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    .cfg-card {
+        padding: 14px 16px;
+    }
+    .cfg-card-icone {
+        width: 48px;
+        height: 48px;
+        font-size: 24px;
+    }
+}
+
+@media (max-width: 520px) {
+    .cfg-intro {
+        font-size: 12.5px;
+        padding: 10px 12px;
+    }
+    .cfg-card-info h3 {
+        font-size: 14.5px;
+    }
+    .cfg-card-info p {
+        font-size: 11.5px;
+    }
+}

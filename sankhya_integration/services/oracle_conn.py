@@ -83,7 +83,14 @@ def obter_parametros_globais():
     return params
 
 def verificar_permissao_escrita() -> bool:
-    """Verifica se o sistema tem permissão para salvar/alterar dados no Oracle."""
+    """Verifica se o sistema tem permissão para salvar/alterar dados no Oracle.
+
+    Bloqueia escrita quando ``IAGRO_WRITE_ENABLED=false`` ou
+    ``SANKHYA_CONFIG.WRITE_ENABLED`` é False. Em tests, é patchado globalmente
+    pelo ``IAgroTestRunner`` retornando True (pra mocks funcionarem). A
+    proteção REAL contra escritas em Oracle de produção durante tests vive
+    em ``obter_conexao_oracle`` (detecção via sys.argv lá).
+    """
     try:
         cfg = obter_configuracoes_sistema()
         if isinstance(cfg, dict) and cfg.get('WRITE_ENABLED') is True: return True
@@ -170,7 +177,24 @@ def _montar_string_conexao(host: str, port: int, service_name: str | None, sid: 
 
 @contextmanager
 def obter_conexao_oracle():
-    """Gerenciador de contexto para abrir e fechar a conexão com o Oracle de forma segura."""
+    """Gerenciador de contexto para abrir e fechar a conexão com o Oracle de forma segura.
+
+    Mai/2026 (2026-05-18): bloqueio físico em ambiente de testes.
+    Quando ``'test' in sys.argv`` (rodando ``manage.py test ...``), levanta
+    RuntimeError em vez de conectar Oracle real. Tests bem-mockados não
+    chegam aqui (o ``@patch('...obter_conexao_oracle')`` intercepta antes).
+    Tests mal-mockados batem nesse erro e ficam VISÍVEIS — sem poluir
+    Oracle de produção com fakes da sessão `Teste/1`.
+
+    Bypass consciente: rodar com ``IAGRO_TEST_REAL_DB=true``.
+    """
+    import sys
+    if 'test' in sys.argv and not os.getenv('IAGRO_TEST_REAL_DB', '').lower() in ('1','true','yes','on'):
+        raise RuntimeError(
+            "obter_conexao_oracle bloqueado em ambiente de testes. "
+            "Mock essa função no teste com @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle'). "
+            "Bypass intencional: setar IAGRO_TEST_REAL_DB=true."
+        )
     global _POOL_CONEXOES
     db = obter_configuracoes_banco()
     dsn = _montar_string_conexao(db['host'], db['port'], db.get('service_name'), db.get('sid'), db.get('dsn'))
@@ -824,6 +848,11 @@ def recalcular_totais_nota_banco(nunota: int, conexao_existente=None) -> dict:
     Soma QTDNEG e VLRTOT de todos os itens da TGFITE e atualiza VLRNOTA e QTDVOL no Cabeçalho.
     Se não houver itens restantes, deleta o cabeçalho para não ficar órfão.
     """
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    # Defesa em profundidade — função geralmente é chamada por outras já
+    # protegidas, mas se for chamada direto (testes), evita escrita.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     if not nunota: return {'ok': False, 'error': 'NUNOTA inválido'}
 
     # Separamos a execução SQL pura para poder reaproveitar com ou sem conexão existente
@@ -3263,6 +3292,9 @@ def consultar_detalhes_vale_banco(nunota_13: int, lote: str) -> dict:
 
 def atualizar_simulacao_item_banco(nunota: int, lote: str, sim_data: dict) -> dict:
     """Atualiza os campos de simulação de negócio na TGFITE da TOP 11."""
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     try:
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
@@ -5367,6 +5399,9 @@ def inserir_pedido_email_recebido(dados: dict, conexao_existente=None) -> dict:
     Falha com UNIQUE em (MESSAGE_ID, SUB_ID) significa duplicado — caller
     deve ignorar.
     """
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     def _operar(conn):
         cur = conn.cursor()
         novo_id = _proximo_id_sequence(cur, 'SEQ_AD_PEDIDO_EMAIL_RECEBIDO')
@@ -5454,6 +5489,9 @@ def inserir_pedido_email_item(dados: dict, conexao_existente=None) -> dict:
       COD_CLIENTE (opcional — código do produto na visão do cliente, ex: 8117
       em pedidos Consinco; só persiste se a coluna existir no schema).
     """
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     def _operar(conn):
         cur = conn.cursor()
         novo_id = _proximo_id_sequence(cur, 'SEQ_AD_PEDIDO_EMAIL_ITEM')
@@ -5697,6 +5735,9 @@ def atualizar_pedido_email_parser_resultado(recebido_id: int, resultado: dict,
       LLM_CONFIANCA_GERAL, CODPARC_SUGERIDO, CODEMP_SUGERIDO,
       DTNEG_SUGERIDA, CODTIPVENDA_SUGERIDO, OBSERVACAO_EXTRAIDA.
     """
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     def _operar(conn):
         cur = conn.cursor()
         cur.execute(
@@ -5754,6 +5795,9 @@ def atualizar_pedido_email_status(recebido_id: int, novo_status: str,
         cur = conn.cursor()
         cur.execute(
             """
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
             UPDATE AD_PEDIDO_EMAIL_RECEBIDO
                SET STATUS = :st,
                    MOTIVO_DESCARTE = COALESCE(:motivo, MOTIVO_DESCARTE)
@@ -5778,6 +5822,9 @@ def atualizar_pedido_email_status(recebido_id: int, novo_status: str,
 def atualizar_pedido_email_item(item_id: int, dados: dict,
                                   conexao_existente=None) -> dict:
     """Operador editou um item na tela de revisão. Aceita campos parciais."""
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     campos_permitidos = {
         'DESCRICAO_PDF', 'CODPROD_FINAL', 'QTD', 'CODVOL', 'PRECO_UNIT', 'OBSERVACAO',
     }
@@ -5813,6 +5860,9 @@ def atualizar_pedido_email_item(item_id: int, dados: dict,
 
 def deletar_itens_do_pedido_email(recebido_id: int, conexao_existente=None) -> dict:
     """Remove TODOS os itens de um pré-pedido. Usado por 'Restaurar tudo'."""
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     def _operar(conn):
         cur = conn.cursor()
         cur.execute("DELETE FROM AD_PEDIDO_EMAIL_ITEM WHERE RECEBIDO_ID = :rid",
@@ -5833,6 +5883,9 @@ def deletar_itens_do_pedido_email(recebido_id: int, conexao_existente=None) -> d
 
 def deletar_pedido_email_item(item_id: int, conexao_existente=None) -> dict:
     """Remove um item da revisão (operador clicou lixeira na tela)."""
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     def _operar(conn):
         cur = conn.cursor()
         cur.execute("DELETE FROM AD_PEDIDO_EMAIL_ITEM WHERE ID = :id", id=item_id)
@@ -5857,6 +5910,9 @@ def vincular_nunota_pedido_email(recebido_id: int, nunota: int, codusu: int,
         cur = conn.cursor()
         cur.execute(
             """
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
             UPDATE AD_PEDIDO_EMAIL_RECEBIDO
                SET STATUS         = 'CONFIRMADO',
                    NUNOTA_GERADO  = :nunota,
@@ -5947,6 +6003,9 @@ def buscar_alias_produto(descricao_normalizada: str,
 
     Side effect: incrementa COUNT_USADO + atualiza ULTIMO_USO ao retornar match.
     """
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     if not descricao_normalizada:
         return None
     try:
@@ -5994,6 +6053,9 @@ def buscar_alias_parceiro(nome_normalizado: str) -> int | None:
 
     Side effect: incrementa COUNT_USADO + atualiza ULTIMO_USO ao retornar match.
     """
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     if not nome_normalizado:
         return None
     try:
@@ -6027,6 +6089,9 @@ def gravar_alias_produto(descricao_normalizada: str, codprod: int,
     UPSERT: se já existe (descr, codparc), atualiza CODPROD (operador mudou de
     ideia, vale a última escolha). Senão, insere novo.
     """
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     if not descricao_normalizada or not codprod:
         return {'ok': False, 'error': 'descricao ou codprod vazio'}
 
@@ -6076,6 +6141,9 @@ def gravar_alias_parceiro(nome_normalizado: str, codparc: int,
                            confirmado_por: int | None = None,
                            conexao_existente=None) -> dict:
     """Grava ou atualiza um alias parceiro após confirmação do operador. UPSERT."""
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     if not nome_normalizado or not codparc:
         return {'ok': False, 'error': 'nome ou codparc vazio'}
 
@@ -6169,6 +6237,9 @@ def gravar_cod_cliente_codprod(codparc: int, cod_cliente: str, codprod: int,
     retorna {'ok': False, 'error': '...'} sem quebrar o fluxo de confirmação
     do pedido (que vai gravar TGFCAB normalmente).
     """
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     if not codparc or not cod_cliente or not codprod:
         return {'ok': False, 'error': 'codparc, cod_cliente ou codprod vazio'}
     cod_cliente = str(cod_cliente).strip()[:50]
@@ -7577,6 +7648,11 @@ def criar_requisicao_combustivel_banco(dados: dict, codusu: int, nomeusu: str = 
       {'ok': True,  'nunota': int, 'requisicao_id': int}
       {'ok': False, 'error': str}
     """
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    # Sem isso, tests rodados contra Oracle real criavam requisições fakes
+    # (8+ NUNOTAs com CODUSU=1 NOMEUSU='Teste' detectados no smoke).
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     # 1. Validações
     erros = []
     codveiculo = int(dados.get('codveiculo') or 0)
@@ -7799,6 +7875,9 @@ def editar_requisicao_combustivel_banco(nunota: int, dados: dict, codusu: int, n
       {'ok': True,  'nunota': int}
       {'ok': False, 'error': str}
     """
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     nunota = int(nunota)
     try:
         with obter_conexao_oracle() as conn:
@@ -8212,6 +8291,9 @@ def excluir_requisicao_combustivel_banco(nunota: int, motivo: str, codusu: int, 
     Trava: bloqueia se STATUSNOTA='L' (Sankhya já confirmou — estorno deve ser
     feito no ERP pra reverter financeiro/contábil corretamente).
     """
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     nunota = int(nunota)
     motivo = (motivo or '').strip()
     if not motivo:
@@ -8338,6 +8420,9 @@ def criar_entrada_combustivel_banco(dados: dict, codusu: int, nomeusu: str = '')
       {'ok': True, 'nunota': int, 'numnota': int, 'nufin': int, 'qtd_itens': int}
       {'ok': False, 'error': str}
     """
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     # 1. Itens — aceita lista nova OU campos avulsos (compat retroativa)
     itens_payload = dados.get('itens')
     if not itens_payload:
@@ -8586,6 +8671,9 @@ def criar_abastecimento_externo_banco(dados: dict, codusu: int, nomeusu: str = '
       {'ok': True,  'nunota': int, 'requisicao_id': int, 'nufin': int}
       {'ok': False, 'error': str}
     """
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     # 1. Validações
     erros = []
     codveiculo = int(dados.get('codveiculo') or 0)
@@ -9064,6 +9152,9 @@ def editar_entrada_combustivel_banco(nunota: int, dados: dict, codusu: int, nome
       {'ok': True, 'nunota': int, 'numnota': int, 'nufin': int, 'qtd_itens': int}
       {'ok': False, 'error': str}
     """
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     nunota = int(nunota)
     try:
         with obter_conexao_oracle() as conn:
@@ -9287,6 +9378,9 @@ def excluir_entrada_combustivel_banco(nunota: int, motivo: str, codusu: int, nom
     Mesma estratégia da B6/B12: trigger Sankhya TRG_UPD_TGFCAB bloqueia
     UPDATE STATUSNOTA='E', então é DELETE físico.
     """
+    # Mai/2026 (2026-05-18): guard contra escrita sem IAGRO_WRITE_ENABLED.
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
     nunota = int(nunota)
     motivo = (motivo or '').strip()
     if not motivo:
@@ -9560,7 +9654,17 @@ def registrar_auditoria(
       observacao: texto livre opcional (motivo, contexto).
 
     Não retorna nada — efeitos colaterais via logger.warning em caso de falha.
+
+    Mai/2026 (2026-05-18) — fix poluição AD_AUDITORIA_GERAL:
+    respeita ``verificar_permissao_escrita()`` (flag IAGRO_WRITE_ENABLED).
+    Quando False (dev/CI/testes), vira no-op silencioso. Antes desse guard,
+    tests da suíte de views rodados contra Oracle real escreviam ~776
+    registros fake (CODUSU=1, NOMEUSU='Teste') porque os mocks dos tests
+    não cobriam `registrar_auditoria` — ela abre conexão própria via
+    `obter_conexao_oracle` sem reusar a conn mockada do caller.
     """
+    if not verificar_permissao_escrita():
+        return  # ambiente sem permissão de escrita — no-op silencioso
     try:
         import json
         snap_a = json.dumps(snapshot_antes, ensure_ascii=False, default=str) if snapshot_antes else None
@@ -10023,3 +10127,205 @@ def calcular_qtd_etiquetas(qtd_total_kg: float, peso_caixa_kg: float) -> int:
     if peso <= 0 or qtd <= 0:
         return 0
     return math.ceil(qtd / peso)
+
+
+# =============================================================================
+# MÓDULO USUÁRIOS (Mai/2026)
+# Gestão de acesso: lista de usuários TSIUSU, detalhe com grupos TSIGPU,
+# catálogo de grupos TSIGRU disponíveis. Funções de escrita virão em Cat B
+# separado (B1-B6: criar, editar, inativar, reativar, add/remove grupo).
+# =============================================================================
+
+def listar_usuarios(filtros: Optional[dict] = None,
+                    limite: int = 50,
+                    offset: int = 0) -> dict:
+    """Lista paginada de usuários TSIUSU com grupo principal e contagem de
+    grupos extras ativos em TSIGPU.
+    """
+    filtros = filtros or {}
+    binds = {}
+    where = ["1=1"]
+
+    busca = (filtros.get('busca') or '').strip()
+    if busca:
+        where.append("(UPPER(u.NOMEUSU) LIKE :busca OR UPPER(NVL(u.NOMEUSUCPLT,'')) LIKE :busca)")
+        binds['busca'] = f"%{busca.upper()}%"
+
+    codgrupo = filtros.get('codgrupo')
+    if codgrupo is not None and str(codgrupo).strip() != '':
+        try:
+            binds['codgrupo'] = int(codgrupo)
+            where.append("u.CODGRUPO = :codgrupo")
+        except (TypeError, ValueError):
+            pass
+
+    if filtros.get('apenas_inativos'):
+        where.append("u.DTLIMACESSO IS NOT NULL AND TRUNC(u.DTLIMACESSO) < TRUNC(SYSDATE)")
+    elif filtros.get('apenas_ativos', True):
+        where.append("(u.DTLIMACESSO IS NULL OR TRUNC(u.DTLIMACESSO) >= TRUNC(SYSDATE))")
+
+    where_sql = " AND ".join(where)
+
+    sql_count = f"SELECT COUNT(*) FROM TSIUSU u WHERE {where_sql}"
+
+    sql = f"""
+        SELECT * FROM (
+            SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.NOMEUSU ASC) AS rn FROM (
+                SELECT
+                    u.CODUSU, u.NOMEUSU,
+                    NVL(u.NOMEUSUCPLT, '')  AS NOMEUSUCPLT,
+                    NVL(u.EMAIL, '')        AS EMAIL,
+                    NVL(u.CPF, '')          AS CPF,
+                    u.CODGRUPO,
+                    NVL(g.NOMEGRUPO, '?')   AS NOMEGRUPO,
+                    u.DTLIMACESSO,
+                    CASE WHEN u.DTLIMACESSO IS NULL
+                              OR TRUNC(u.DTLIMACESSO) >= TRUNC(SYSDATE)
+                         THEN 'S' ELSE 'N' END AS ATIVO,
+                    (
+                        SELECT COUNT(*) FROM TSIGPU gpu
+                         WHERE gpu.CODUSU = u.CODUSU AND gpu.DATAFIM IS NULL
+                           AND gpu.CODGRUPO <> u.CODGRUPO
+                    ) AS GRUPOS_EXTRAS
+                  FROM TSIUSU u
+                  LEFT JOIN TSIGRU g ON g.CODGRUPO = u.CODGRUPO
+                 WHERE {where_sql}
+            ) t
+        )
+        WHERE rn BETWEEN :ini AND :fim
+    """
+    binds_pag = dict(binds)
+    binds_pag['ini'] = int(offset) + 1
+    binds_pag['fim'] = int(offset) + int(limite)
+
+    usuarios = []
+    total = 0
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql_count, binds)
+            total = int(cur.fetchone()[0] or 0)
+            cur.execute(sql, binds_pag)
+            for r in cur.fetchall():
+                dtl = r[7]
+                dt_str = dtl.strftime('%Y-%m-%d') if dtl else ''
+                usuarios.append({
+                    'codusu':      int(r[0]),
+                    'nomeusu':     r[1] or '',
+                    'nomeusucplt': r[2] or '',
+                    'email':       r[3] or '',
+                    'cpf':         r[4] or '',
+                    'codgrupo':    int(r[5] or 0),
+                    'nomegrupo':   r[6] or '',
+                    'dtlimacesso': dt_str,
+                    'ativo':       (r[8] == 'S'),
+                    'grupos_extras': int(r[9] or 0),
+                })
+    except Exception:
+        logger.exception("Falha em listar_usuarios")
+        return {'usuarios': [], 'total': 0, 'limite': int(limite), 'offset': int(offset)}
+
+    return {'usuarios': usuarios, 'total': total, 'limite': int(limite), 'offset': int(offset)}
+
+
+def consultar_usuario_detalhe(codusu: int) -> Optional[dict]:
+    """Detalhe completo de 1 usuário + lista de grupos (principal + extras)."""
+    try:
+        codusu_int = int(codusu)
+    except (TypeError, ValueError):
+        return None
+
+    sql_cab = """
+        SELECT u.CODUSU, u.NOMEUSU,
+            NVL(u.NOMEUSUCPLT, '') AS NOMEUSUCPLT,
+            NVL(u.EMAIL, '')       AS EMAIL,
+            NVL(u.CPF, '')         AS CPF,
+            u.CODGRUPO,
+            NVL(g.NOMEGRUPO, '?')  AS NOMEGRUPO,
+            u.DTLIMACESSO, u.DTULTACESSO, u.DTULTIMASENHA,
+            CASE WHEN u.INTERNO IS NULL THEN 'N' ELSE 'S' END AS TEM_SENHA,
+            CASE WHEN u.DTLIMACESSO IS NULL
+                      OR TRUNC(u.DTLIMACESSO) >= TRUNC(SYSDATE)
+                 THEN 'S' ELSE 'N' END AS ATIVO
+          FROM TSIUSU u
+          LEFT JOIN TSIGRU g ON g.CODGRUPO = u.CODGRUPO
+         WHERE u.CODUSU = :codusu
+    """
+    sql_extras = """
+        SELECT gpu.SEQUENCIA, gpu.CODGRUPO, NVL(g.NOMEGRUPO,'?'), gpu.DATAINICIO
+          FROM TSIGPU gpu
+          LEFT JOIN TSIGRU g ON g.CODGRUPO = gpu.CODGRUPO
+         WHERE gpu.CODUSU = :codusu AND gpu.DATAFIM IS NULL
+         ORDER BY g.NOMEGRUPO ASC
+    """
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql_cab, codusu=codusu_int)
+            row = cur.fetchone()
+            if not row:
+                return None
+
+            dtl, dtu, dts = row[7], row[8], row[9]
+            cab = {
+                'codusu': int(row[0]), 'nomeusu': row[1] or '',
+                'nomeusucplt': row[2] or '', 'email': row[3] or '', 'cpf': row[4] or '',
+                'codgrupo_principal': int(row[5] or 0),
+                'nomegrupo_principal': row[6] or '',
+                'dtlimacesso':   dtl.strftime('%Y-%m-%d') if dtl else '',
+                'dtultacesso':   dtu.strftime('%Y-%m-%d %H:%M') if dtu else '',
+                'dtultimasenha': dts.strftime('%Y-%m-%d') if dts else '',
+                'tem_senha': (row[10] == 'S'),
+                'ativo':     (row[11] == 'S'),
+            }
+            cur.execute(sql_extras, codusu=codusu_int)
+            extras = []
+            for er in cur.fetchall():
+                if int(er[1] or 0) == cab['codgrupo_principal']:
+                    continue
+                di = er[3]
+                extras.append({
+                    'sequencia':  int(er[0]),
+                    'codgrupo':   int(er[1] or 0),
+                    'nomegrupo':  er[2] or '',
+                    'datainicio': di.strftime('%Y-%m-%d') if di else '',
+                })
+            cab['grupos_extras'] = extras
+            return cab
+    except Exception:
+        logger.exception("Falha em consultar_usuario_detalhe codusu=%s", codusu_int)
+        return None
+
+
+def consultar_grupos_disponiveis() -> list:
+    """Lista TSIGRU ATIVO='S' ordenada por CODGRUPO."""
+    sql = """
+        SELECT CODGRUPO, NOMEGRUPO, NVL(DESCRICAO,'') AS DESCRICAO
+          FROM TSIGRU
+         WHERE ATIVO = 'S' ORDER BY CODGRUPO ASC
+    """
+    grupos = []
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql)
+            for r in cur.fetchall():
+                grupos.append({
+                    'codgrupo':  int(r[0]),
+                    'nomegrupo': r[1] or '',
+                    'descricao': r[2] or '',
+                })
+    except Exception:
+        try:
+            with obter_conexao_oracle() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT CODGRUPO, NOMEGRUPO FROM TSIGRU WHERE ATIVO = 'S' ORDER BY CODGRUPO ASC")
+                grupos = [
+                    {'codgrupo': int(r[0]), 'nomegrupo': r[1] or '', 'descricao': ''}
+                    for r in cur.fetchall()
+                ]
+        except Exception:
+            logger.exception("Falha em consultar_grupos_disponiveis (fallback)")
+            return []
+    return grupos

@@ -7,7 +7,7 @@
     <title>{% block title %}IAgro{% endblock %}</title>
 
     {% load static %}
-    <link rel="stylesheet" href="{% static 'sankhya_integration/global.css' %}?v=10">
+    <link rel="stylesheet" href="{% static 'sankhya_integration/global.css' %}?v=12">
     <link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}?v=10">
     <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
     <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
@@ -42,50 +42,133 @@
         </div>
 
         <nav class="sidebar-nav" aria-label="Módulos">
+            {# Painel solto no topo — todos veem, sem grupo #}
             <a href="/sankhya/" class="nav-item" data-mod="home" title="Painel">
                 <span class="nav-icon"><i class="ph ph-squares-four"></i></span>
                 <span class="nav-label">Painel</span>
             </a>
-            <a href="/sankhya/compras/portal/" class="nav-item" data-mod="entrada" title="Entrada">
-                <span class="nav-icon"><i class="ph ph-shopping-cart-simple"></i></span>
-                <span class="nav-label">Entrada</span>
-            </a>
-            <a href="/sankhya/compras/classificacao/" class="nav-item" data-mod="classificacao" title="Classificação">
-                <span class="nav-icon"><i class="ph ph-arrows-split"></i></span>
-                <span class="nav-label">Classificação</span>
-            </a>
-            <a href="/sankhya/comercial/" class="nav-item" data-mod="comercial" title="Comercial">
-                <span class="nav-icon"><i class="ph ph-crosshair"></i></span>
-                <span class="nav-label">Comercial</span>
-            </a>
-            <a href="/sankhya/venda/portal/" class="nav-item" data-mod="venda" title="Venda">
-                <span class="nav-icon"><i class="ph ph-cash-register"></i></span>
-                <span class="nav-label">Venda</span>
-            </a>
-            <a href="/sankhya/rastreio/" class="nav-item" data-mod="rastreio" title="Rastreio">
-                <span class="nav-icon"><i class="ph ph-flow-arrow"></i></span>
-                <span class="nav-label">Rastreio</span>
-            </a>
-            <a href="/sankhya/venda/email-importar/" class="nav-item" data-mod="email" title="Importação">
-                <span class="nav-icon"><i class="ph ph-tray-arrow-down"></i></span>
-                <span class="nav-label">Importação</span>
-            </a>
-            <a href="/sankhya/combustivel/" class="nav-item" data-mod="combustivel" title="Combustível">
-                <span class="nav-icon"><i class="ph ph-gas-pump"></i></span>
-                <span class="nav-label">Combustível</span>
-            </a>
+
+            {# PACKING HOUSE — grupos 1, 6, 8, 10 (rastreio aceita 10) #}
+            {% if "1" in request.session.grupos or "6" in request.session.grupos or "8" in request.session.grupos or "10" in request.session.grupos %}
+            <div class="sidebar-section" data-section="packing">
+                <button type="button" class="sidebar-section-toggle" data-section-toggle="packing" aria-expanded="false">
+                    <span class="sidebar-section-title">Packing House</span>
+                    <i class="ph ph-caret-right sidebar-section-chevron" aria-hidden="true"></i>
+                </button>
+                <div class="sidebar-section-body">
+                    <a href="/sankhya/compras/portal/" class="nav-item" data-mod="entrada" title="Packing House · Entrada">
+                        <span class="nav-icon"><i class="ph ph-shopping-cart-simple"></i></span>
+                        <span class="nav-label">Entrada</span>
+                    </a>
+                    <a href="/sankhya/compras/classificacao/" class="nav-item" data-mod="classificacao" title="Packing House · Classificação">
+                        <span class="nav-icon"><i class="ph ph-arrows-split"></i></span>
+                        <span class="nav-label">Classificação</span>
+                    </a>
+                    <a href="/sankhya/rastreio/" class="nav-item" data-mod="rastreio" title="Packing House · Rastreio">
+                        <span class="nav-icon"><i class="ph ph-flow-arrow"></i></span>
+                        <span class="nav-label">Rastreio</span>
+                    </a>
+                </div>
+            </div>
+            {% endif %}
+
+            {# COMERCIAL — grupos 1, 6, 9 #}
             {% if "1" in request.session.grupos or "6" in request.session.grupos or "9" in request.session.grupos %}
-            <a href="/sankhya/relatorios/" class="nav-item" data-mod="relatorios" title="Relatórios">
-                <span class="nav-icon"><i class="ph ph-chart-bar"></i></span>
-                <span class="nav-label">Relatórios</span>
-            </a>
+            <div class="sidebar-section" data-section="comercial">
+                <button type="button" class="sidebar-section-toggle" data-section-toggle="comercial" aria-expanded="false">
+                    <span class="sidebar-section-title">Comercial</span>
+                    <i class="ph ph-caret-right sidebar-section-chevron" aria-hidden="true"></i>
+                </button>
+                <div class="sidebar-section-body">
+                    <a href="/sankhya/comercial/" class="nav-item" data-mod="comercial" title="Comercial · Vales">
+                        <span class="nav-icon"><i class="ph ph-crosshair"></i></span>
+                        <span class="nav-label">Comercial</span>
+                    </a>
+                    <a href="/sankhya/relatorios/" class="nav-item" data-mod="relatorios" title="Comercial · Relatórios">
+                        <span class="nav-icon"><i class="ph ph-chart-bar"></i></span>
+                        <span class="nav-label">Relatórios</span>
+                    </a>
+                </div>
+            </div>
             {% endif %}
-            {% if "1" in request.session.grupos or "6" in request.session.grupos %}
-            <a href="/sankhya/auditoria/" class="nav-item" data-mod="auditoria" title="Auditoria">
-                <span class="nav-icon"><i class="ph ph-magnifying-glass"></i></span>
-                <span class="nav-label">Auditoria</span>
-            </a>
+
+            {# ADMINISTRATIVO — grupos 1, 6, 10 #}
+            {% if "1" in request.session.grupos or "6" in request.session.grupos or "10" in request.session.grupos %}
+            <div class="sidebar-section" data-section="administrativo">
+                <button type="button" class="sidebar-section-toggle" data-section-toggle="administrativo" aria-expanded="false">
+                    <span class="sidebar-section-title">Administrativo</span>
+                    <i class="ph ph-caret-right sidebar-section-chevron" aria-hidden="true"></i>
+                </button>
+                <div class="sidebar-section-body">
+                    <a href="/sankhya/venda/portal/" class="nav-item" data-mod="venda" title="Administrativo · Venda">
+                        <span class="nav-icon"><i class="ph ph-cash-register"></i></span>
+                        <span class="nav-label">Venda</span>
+                    </a>
+                    <a href="/sankhya/venda/email-importar/" class="nav-item" data-mod="email" title="Administrativo · Importação por e-mail">
+                        <span class="nav-icon"><i class="ph ph-tray-arrow-down"></i></span>
+                        <span class="nav-label">Importação</span>
+                    </a>
+                </div>
+            </div>
             {% endif %}
+
+            {# FROTA — grupos 1, 6, 10, 11 #}
+            {% if "1" in request.session.grupos or "6" in request.session.grupos or "10" in request.session.grupos or "11" in request.session.grupos %}
+            <div class="sidebar-section" data-section="frota">
+                <button type="button" class="sidebar-section-toggle" data-section-toggle="frota" aria-expanded="false">
+                    <span class="sidebar-section-title">Frota</span>
+                    <i class="ph ph-caret-right sidebar-section-chevron" aria-hidden="true"></i>
+                </button>
+                <div class="sidebar-section-body">
+                    <a href="/sankhya/combustivel/" class="nav-item" data-mod="combustivel" title="Frota · Combustível">
+                        <span class="nav-icon"><i class="ph ph-gas-pump"></i></span>
+                        <span class="nav-label">Combustível</span>
+                    </a>
+                </div>
+            </div>
+            {% endif %}
+
+            {# FINANCEIRO — placeholder roadmap (sempre visível, esmaecido) #}
+            <div class="sidebar-section sidebar-section--placeholder" data-section="financeiro">
+                <button type="button" class="sidebar-section-toggle" data-section-toggle="financeiro" aria-expanded="false">
+                    <span class="sidebar-section-title">Financeiro</span>
+                    <i class="ph ph-caret-right sidebar-section-chevron" aria-hidden="true"></i>
+                </button>
+                <div class="sidebar-section-body">
+                    <span class="nav-item nav-item--placeholder" title="Financeiro · em desenvolvimento" aria-disabled="true">
+                        <span class="nav-icon"><i class="ph ph-bank"></i></span>
+                        <span class="nav-label">Em breve</span>
+                    </span>
+                </div>
+            </div>
+
+            {# DP/RH — placeholder roadmap (sempre visível, esmaecido) #}
+            <div class="sidebar-section sidebar-section--placeholder" data-section="dprh">
+                <button type="button" class="sidebar-section-toggle" data-section-toggle="dprh" aria-expanded="false">
+                    <span class="sidebar-section-title">DP/RH</span>
+                    <i class="ph ph-caret-right sidebar-section-chevron" aria-hidden="true"></i>
+                </button>
+                <div class="sidebar-section-body">
+                    <span class="nav-item nav-item--placeholder" title="DP/RH · em desenvolvimento" aria-disabled="true">
+                        <span class="nav-icon"><i class="ph ph-user"></i></span>
+                        <span class="nav-label">Em breve</span>
+                    </span>
+                </div>
+            </div>
+
+            {# PRODUÇÃO — placeholder roadmap (sempre visível, esmaecido) #}
+            <div class="sidebar-section sidebar-section--placeholder" data-section="producao">
+                <button type="button" class="sidebar-section-toggle" data-section-toggle="producao" aria-expanded="false">
+                    <span class="sidebar-section-title">Produção</span>
+                    <i class="ph ph-caret-right sidebar-section-chevron" aria-hidden="true"></i>
+                </button>
+                <div class="sidebar-section-body">
+                    <span class="nav-item nav-item--placeholder" title="Produção · em desenvolvimento" aria-disabled="true">
+                        <span class="nav-icon"><i class="ph ph-factory"></i></span>
+                        <span class="nav-label">Em breve</span>
+                    </span>
+                </div>
+            </div>
         </nav>
 
         <div class="sidebar-footer">
@@ -107,6 +190,34 @@
                         if (s) s.classList.add('collapsed');
                     }
                 }
+
+                // Sections retráteis (acordeão): apenas 1 aberta por vez.
+                // Pré-paint: módulo ativo tem prioridade; senão usa a que
+                // estava aberta antes (localStorage). Default = nenhuma aberta.
+                var moduloAtivo = document.body.getAttribute('data-active-module') || '';
+                var mapModuloSecao = {
+                    entrada:        'packing',
+                    classificacao:  'packing',
+                    rastreio:       'packing',
+                    comercial:      'comercial',
+                    relatorios:     'comercial',
+                    venda:          'administrativo',
+                    email:          'administrativo',
+                    combustivel:    'frota'
+                };
+                var secaoAbrir = mapModuloSecao[moduloAtivo] || '';
+                if (!secaoAbrir) {
+                    try { secaoAbrir = localStorage.getItem('iagro:sidebar:section:v1') || ''; }
+                    catch (e) { secaoAbrir = ''; }
+                }
+                if (secaoAbrir) {
+                    var elSec = document.querySelector('.sidebar-section[data-section="' + secaoAbrir + '"]');
+                    if (elSec) {
+                        elSec.classList.add('is-open');
+                        var btnSec = elSec.querySelector('.sidebar-section-toggle');
+                        if (btnSec) btnSec.setAttribute('aria-expanded', 'true');
+                    }
+                }
             } catch (e) {}
         })();
     </script>
@@ -119,6 +230,12 @@
             </div>
             <div class="content-actions">
                 {% block header_actions %}{% endblock %}
+                {% if "1" in request.session.grupos or "6" in request.session.grupos %}
+                <a href="/sankhya/configuracoes/" class="btn-config-header"
+                   title="Configurações" aria-label="Configurações">
+                    <i class="ph ph-gear" aria-hidden="true"></i>
+                </a>
+                {% endif %}
                 <div class="user-badge-inline">
                     <i class="ph ph-user" aria-hidden="true"></i>
                     <span>{{ request.session.nomeusu|default:"Usuário" }}</span>
@@ -137,13 +254,15 @@
         </footer>
     </div>
 
-    <script src="{% static 'sankhya_integration/iagro_helpers.js' %}?v=3"></script>
+    <script src="{% static 'sankhya_integration/iagro_helpers.js' %}?v=5"></script>
 
     <script>
         // Mai/2026 — Auto-select global on focus em todos os inputs de texto/número.
         try { window.IAgro && IAgro.installAutoSelect && IAgro.installAutoSelect(); } catch (e) {}
         // Setup do sidebar (toggle expand/collapse + estado persistido)
         try { window.IAgro && IAgro.setupSidebar && IAgro.setupSidebar(); } catch (e) {}
+        // Mai/2026 — agrupamento retrátil (click no header expande/colapsa)
+        try { window.IAgro && IAgro.setupSidebarSections && IAgro.setupSidebarSections(); } catch (e) {}
     </script>
 
     <script>

@@ -94,6 +94,11 @@ STATICFILES_DIRS = [
 # Default primary key field type for models (Django 3.2+)
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Test runner customizado (Mai/2026) — patcha verificar_permissao_escrita
+# automaticamente em tests + obter_conexao_oracle tem bloqueio físico via
+# sys.argv. Ver tests/test_runner.py.
+TEST_RUNNER = 'sankhya_integration.tests.test_runner.IAgroTestRunner'
+
 # Sankhya integration config
 SANKHYA_CONFIG = {
     # Habilita gravação no Oracle para lançamentos assistidos

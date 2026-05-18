@@ -1010,6 +1010,146 @@ body.app-shell>.sidebar.collapsed .nav-item:hover::after {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
+/* =================================================================
+   Sidebar agrupada por departamento — RETRÁTIL (Mai/2026)
+   Cada departamento é uma <div class="sidebar-section"> com
+   <button class="sidebar-section-toggle"> que toggla o body. Estado
+   persistido em localStorage. Pré-paint via script inline no
+   base.html evita flash de aberto→fechado.
+   ================================================================= */
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--cor-sidebar-borda, rgba(255, 255, 255, 0.07));
+}
+
+.sidebar-section:first-of-type {
+  margin-top: 6px;
+}
+
+/* Botão header do departamento */
+.sidebar-section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 5px 11px 4px 11px;
+  cursor: pointer;
+  color: var(--cor-sidebar-texto-fraco, rgba(255, 255, 255, 0.55));
+  text-align: left;
+  border-radius: 4px;
+  transition: background 0.15s ease, color 0.15s ease;
+  user-select: none;
+}
+
+.sidebar-section-toggle:hover {
+  background: var(--cor-sidebar-hover, rgba(255, 255, 255, 0.06));
+  color: #fff;
+}
+
+.sidebar-section-toggle:focus-visible {
+  outline: 2px solid var(--cor-acao-primaria, #5e7e4a);
+  outline-offset: -2px;
+}
+
+.sidebar-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.sidebar-section-chevron {
+  font-size: 11px;
+  transition: transform 0.18s ease;
+  opacity: 0.7;
+}
+
+/* Body com os módulos — fechado por padrão */
+.sidebar-section-body {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 2px;
+}
+
+/* Aberto (via JS) — mostra módulos + gira chevron */
+.sidebar-section.is-open .sidebar-section-body {
+  display: flex;
+}
+
+.sidebar-section.is-open .sidebar-section-chevron {
+  transform: rotate(90deg);
+}
+
+/* Sidebar colapsada (56px) — ignora retrair; ícones sempre visíveis.
+   Esconde o header (texto+chevron) e mostra o body em todos os casos. */
+body.app-shell>.sidebar.collapsed .sidebar-section-toggle {
+  display: none;
+}
+
+body.app-shell>.sidebar.collapsed .sidebar-section-body {
+  display: flex !important;
+}
+
+body.app-shell>.sidebar.collapsed .sidebar-section {
+  margin-top: 6px;
+  padding-top: 4px;
+}
+
+/* Placeholders — departamentos no roadmap, sem módulo ainda */
+.sidebar-section--placeholder {
+  opacity: 0.5;
+}
+
+.nav-item--placeholder {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 11px;
+  border-radius: 6px;
+  color: var(--cor-sidebar-texto-fraco, rgba(255, 255, 255, 0.55));
+  font-size: 13px;
+  font-weight: 500;
+  font-style: italic;
+  white-space: nowrap;
+  cursor: not-allowed;
+  position: relative;
+}
+
+.nav-item--placeholder:hover {
+  background: transparent;
+  color: var(--cor-sidebar-texto-fraco, rgba(255, 255, 255, 0.55));
+}
+
+body.app-shell>.sidebar.collapsed .nav-item--placeholder {
+  justify-content: center;
+  padding: 9px 0;
+}
+
+body.app-shell>.sidebar.collapsed .nav-item--placeholder:hover::after {
+  content: attr(title);
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: #1f2937;
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 200;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  font-style: normal;
+}
+
 .sidebar-footer {
   padding: 10px 14px;
   border-top: 1px solid var(--cor-sidebar-borda);
@@ -1122,6 +1262,28 @@ body.app-shell>.sidebar.collapsed .sidebar-footer {
 
 .btn-logout-inline:hover {
   background: #fee2e2;
+}
+
+/* Engrenagem de configurações no header (Mai/2026) — visível só para
+   grupos 1 (Diretoria) e 6 (Suporte) via guard no base.html. Leva ao hub
+   /sankhya/configuracoes/ que agrupa subseções administrativas. */
+.btn-config-header {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  color: #4a5568;
+  text-decoration: none;
+  font-size: 18px;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.25s ease;
+}
+
+.btn-config-header:hover {
+  background: #e5e7eb;
+  color: var(--cor-acao-primaria, #5e7e4a);
+  transform: rotate(45deg);
 }
 
 /* Override .main-layout pra funcionar dentro do .app-content (não mais com
