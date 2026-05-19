@@ -33,6 +33,139 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 # ==============================================================================
+# Cache Django do módulo Rastreio (Mai/2026)
+# ------------------------------------------------------------------------------
+# Endpoints do Rastreio (lotes + pedidos) consultam a view ANDRE_IAGRO_SALDO_LOTE
+# e a TGFVAR via subquery correlacionada — 10-15s por query em prod. Cache de
+# memória (LocMemCache default) com TTL 60s reduz drasticamente as repetições
+# (Ctrl+F5, troca de aba, polling). Invalidação por versionamento: bump_rastreio
+# muda o número da versão, chaves antigas viram inalcançáveis e expiram por TTL.
+#
+# Usa o backend Django padrão — em runserver/NSSM single-process é LocMem.
+# Quando IAgro escalar pra multi-worker, migrar pra Redis sem mudar este código.
+# ==============================================================================
+_RASTREIO_CACHE_VER_KEY = 'iagro:rastreio:cache_ver'
+_RASTREIO_CACHE_TTL_S   = 60   # segundos
+
+def _rastreio_cache_chave(prefixo: str, kwargs_chave: dict) -> str:
+    """Calcula a chave de cache a partir do prefixo + filtros + versão atual."""
+    from django.core.cache import cache
+    ver = cache.get(_RASTREIO_CACHE_VER_KEY, 0)
+    payload = {'v': ver, 'p': prefixo, **kwargs_chave}
+    blob = __import__('json').dumps(payload, default=str, sort_keys=True)
+    return f"{prefixo}:{hashlib.md5(blob.encode()).hexdigest()}"
+
+def _rastreio_cache_get(prefixo: str, kwargs_chave: dict):
+    """Devolve (chave, valor) — valor é None se não há hit."""
+    from django.core.cache import cache
+    chave = _rastreio_cache_chave(prefixo, kwargs_chave)
+    return chave, cache.get(chave)
+
+def _rastreio_cache_set(chave: str, valor) -> None:
+    from django.core.cache import cache
+    try:
+        cache.set(chave, valor, timeout=_RASTREIO_CACHE_TTL_S)
+    except Exception:
+        logger.warning("Falha ao gravar cache Rastreio (chave=%s)", chave, exc_info=True)
+
+def invalidar_cache_rastreio() -> None:
+    """Bump da versão — invalida todas as chaves cacheadas do Rastreio.
+    Chamar após escritas (atribuir/desvincular lote, criar vínculo manual etc).
+    Chaves antigas viram inalcançáveis e expiram pelo TTL natural."""
+    from django.core.cache import cache
+    cache.set(_RASTREIO_CACHE_VER_KEY, time.time(), timeout=None)
+
+
+# ==============================================================================
+# Materialização do saldo do Rastreio (Mai/2026)
+# ------------------------------------------------------------------------------
+# Função chamada pelo Windows Task Scheduler a cada 5 min via:
+#     python manage.py refresh_saldo_lote
+#
+# Estratégia: TRUNCATE + INSERT-SELECT da view ANDRE_IAGRO_SALDO_LOTE pra
+# tabela AD_SALDO_LOTE_CACHE. View leva ~12s pra computar; refresh roda em
+# background — operador nunca espera essa janela.
+#
+# DDL da tabela em: sankhya_integration/sql/AD_SALDO_LOTE_CACHE.sql
+# Consumidor: consultar_saldo_lote_disponivel (lê desta tabela em vez da view).
+#
+# Cache Django (acima) continua valendo em cima desta tabela — 60s TTL +
+# invalidação por versão nas escritas.
+# ==============================================================================
+def refresh_saldo_lote_cache() -> dict:
+    """Atualiza AD_SALDO_LOTE_CACHE com snapshot de ANDRE_IAGRO_SALDO_LOTE.
+
+    Retorna dict com:
+        - ok            : bool
+        - rows          : int  — linhas inseridas
+        - duracao_s     : float — segundos totais
+        - error         : str  (somente quando ok=False)
+
+    Estratégia (single-process safe — chamado só pelo cron):
+        1. TRUNCATE TABLE AD_SALDO_LOTE_CACHE  (rápido, libera espaço)
+        2. INSERT INTO ... SELECT FROM ANDRE_IAGRO_SALDO_LOTE
+        3. COMMIT
+
+    Janela de "cache vazia" entre TRUNCATE e fim do INSERT (~12s).
+    Frontend retorna "Sem lotes" momentaneamente. Operador raramente vê.
+
+    NÃO chamar em request síncrono — usar SEMPRE via management command no
+    background. Bloqueia ~12s na sessão Oracle, e o servidor Django ficaria
+    com timeout.
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+
+    sql_insert = """
+        INSERT INTO SANKHYA.AD_SALDO_LOTE_CACHE (
+            CODEMP, CODPROD, DESCRPROD, FABRICANTE, SELECIONADO,
+            CODAGREGACAO, STATUS_LINHA,
+            QTD_ENTRADA, QTD_BAIXADA_VENDA, QTD_BAIXADA_AVARIA,
+            QTD_RESERVADA, QTD_DEVOLVIDA, QTD_DISPONIVEL,
+            QTD_PENDENTE, QTD_AVARIA_INTERNA,
+            VENDAVEL, NUNOTA_ORIGEM, DTNEG_ORIGEM,
+            CODPARC_ORIGEM, NOMEPARC_ORIGEM, ATUALIZADO_EM
+        )
+        SELECT
+            CODEMP, CODPROD, DESCRPROD, FABRICANTE, SELECIONADO,
+            CODAGREGACAO, STATUS_LINHA,
+            QTD_ENTRADA, QTD_BAIXADA_VENDA, QTD_BAIXADA_AVARIA,
+            QTD_RESERVADA, QTD_DEVOLVIDA, QTD_DISPONIVEL,
+            QTD_PENDENTE, QTD_AVARIA_INTERNA,
+            VENDAVEL, NUNOTA_ORIGEM, DTNEG_ORIGEM,
+            CODPARC_ORIGEM, NOMEPARC_ORIGEM, SYSTIMESTAMP
+          FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE
+    """
+
+    t0 = time.perf_counter()
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute("TRUNCATE TABLE SANKHYA.AD_SALDO_LOTE_CACHE")
+            cur.execute(sql_insert)
+            rows = int(cur.rowcount or 0)
+            conn.commit()
+        duracao = time.perf_counter() - t0
+        logger.info(
+            "[refresh_saldo_lote_cache] OK rows=%d duracao=%.2fs",
+            rows, duracao,
+        )
+        # Invalida cache Django pra próximos hits pegarem dado fresco
+        try:
+            invalidar_cache_rastreio()
+        except Exception:
+            logger.warning("Falha ao invalidar cache Rastreio após refresh", exc_info=True)
+        return {'ok': True, 'rows': rows, 'duracao_s': round(duracao, 2)}
+    except Exception as exc:
+        duracao = time.perf_counter() - t0
+        logger.exception(
+            "[refresh_saldo_lote_cache] FALHOU após %.2fs: %s",
+            duracao, exc,
+        )
+        return {'ok': False, 'error': str(exc), 'duracao_s': round(duracao, 2)}
+
+
+# ==============================================================================
 # 🌍 1. INFRAESTRUTURA E UTILITÁRIOS GLOBAIS
 # Conexão, permissões e consultas genéricas usadas em todo o sistema
 # ==============================================================================
@@ -3339,6 +3472,42 @@ def gerar_financeiro_banco(nunota_13: int, descontar_inss: bool = False, histori
             if cur.fetchone()[0]:
                 return {'ok': False, 'error': 'Esta nota já possui um título financeiro gerado.'}
 
+            # 1.5 Trava de classificação (Mai/2026) — defesa em profundidade.
+            # Frontend (comercialFinanceiro.js) também bloqueia, mas operador pode
+            # burlar via API. Regra: pra cada lote do vale TOP 13 cujo produto
+            # original (TOP 11) tem GERAPRODUCAO='S', precisa existir TGFCAB TOP 26
+            # com PENDENTE='N' (classificação finalizada). Não-classificáveis ficam
+            # de fora — só preço (validado pela soma do VLRTOT do vale).
+            cur.execute("""
+                SELECT COUNT(DISTINCT i13.CODAGREGACAO)
+                  FROM TGFITE i13
+                  JOIN TGFITE i11 ON i11.CODAGREGACAO = i13.CODAGREGACAO
+                  JOIN TGFCAB c11 ON c11.NUNOTA = i11.NUNOTA
+                                  AND c11.CODTIPOPER = 11
+                 WHERE i13.NUNOTA = :n
+                   AND i13.CODAGREGACAO IS NOT NULL
+                   AND NVL(i11.GERAPRODUCAO, 'N') = 'S'
+                   AND NOT EXISTS (
+                       SELECT 1
+                         FROM TGFCAB c26
+                         JOIN TGFITE i26 ON i26.NUNOTA = c26.NUNOTA
+                        WHERE c26.CODTIPOPER  = 26
+                          AND c26.STATUSNOTA <> 'E'
+                          AND c26.PENDENTE    = 'N'
+                          AND i26.CODAGREGACAO = i13.CODAGREGACAO
+                   )
+            """, n=nunota_13)
+            qtd_lotes_nao_finalizados = int(cur.fetchone()[0] or 0)
+            if qtd_lotes_nao_finalizados > 0:
+                return {
+                    'ok': False,
+                    'error': (
+                        f'Há {qtd_lotes_nao_finalizados} lote(s) classificável(eis) '
+                        'com classificação ainda não finalizada (TOP 26). '
+                        'Finalize a classificação antes de faturar.'
+                    ),
+                }
+
             # 2. Busca dados do Cabeçalho
             cur.execute("""
                 SELECT CODEMP, CODPARC, CODNAT, CODCENCUS, DTNEG, VLRNOTA, NUMNOTA, DHTIPOPER
@@ -3894,6 +4063,16 @@ def consultar_saldo_lote_disponivel(filtros: dict | None = None,
     Paginação: limite (default 50) e offset (default 0).
     """
     filtros = filtros or {}
+
+    # Cache 60s (Mai/2026) — chave inclui filtros+pagina, invalidação via
+    # `invalidar_cache_rastreio()` em escritas (atribuir/desvincular).
+    _chave_cache, _cached = _rastreio_cache_get(
+        'lotes', {'filtros': filtros, 'limite': int(limite), 'offset': int(offset)},
+    )
+    if _cached is not None:
+        logger.info("[perf] consultar_saldo_lote_disponivel CACHE_HIT rows=%d", len(_cached))
+        return _cached
+
     where = ["QTD_DISPONIVEL > 0"]
     binds: dict = {}
 
@@ -3998,6 +4177,12 @@ def consultar_saldo_lote_disponivel(filtros: dict | None = None,
 
     # Paginação compatível com Oracle 11g (ROW_NUMBER + BETWEEN). Mesmo padrão
     # já usado em listar_vendas_paginado.
+    # FROM aponta pra tabela materializada AD_SALDO_LOTE_CACHE (Mai/2026) —
+    # espelho da view ANDRE_IAGRO_SALDO_LOTE refresh-ado a cada 5 min pelo
+    # Windows Task Scheduler (manage.py refresh_saldo_lote). Reduz hit de
+    # 10-22s pra ~200ms. Outros consumidores da view (validação de saldo
+    # em escritas, lock pessimista, relatórios) continuam usando a view
+    # real pra integridade transacional. Latência máxima do display: 5 min.
     sql_base = f"""
         SELECT
             CODEMP, CODPROD, DESCRPROD, FABRICANTE, SELECIONADO,
@@ -4006,7 +4191,7 @@ def consultar_saldo_lote_disponivel(filtros: dict | None = None,
             QTD_RESERVADA, QTD_DISPONIVEL, QTD_PENDENTE, QTD_AVARIA_INTERNA,
             VENDAVEL,
             NUNOTA_ORIGEM, DTNEG_ORIGEM, CODPARC_ORIGEM, NOMEPARC_ORIGEM
-        FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE
+        FROM SANKHYA.AD_SALDO_LOTE_CACHE
         WHERE {' AND '.join(where)}
     """
     # Ordenação pedida pelo usuário: data DESC (mais recente primeiro)
@@ -4035,12 +4220,21 @@ def consultar_saldo_lote_disponivel(filtros: dict | None = None,
         'nunota_origem', 'dtneg_origem', 'codparc_origem', 'nomeparc_origem',
     ]
 
+    import time as _time
+    _t0 = _time.perf_counter()
     with obter_conexao_oracle() as conn:
         cur = conn.cursor()
         cur.execute(sql, binds)
         rows = cur.fetchall()
+    _dur = _time.perf_counter() - _t0
+    logger.info(
+        "[perf] consultar_saldo_lote_disponivel %.3fs rows=%d filtros=%s limit=%d offset=%d",
+        _dur, len(rows), {k: filtros.get(k) for k in ('q', 'codprod', 'codagregacao', 'tipo', 'fabricante', 'desde_dias')}, limite, offset,
+    )
 
-    return [dict(zip(cols, row)) for row in rows]
+    resultado = [dict(zip(cols, row)) for row in rows]
+    _rastreio_cache_set(_chave_cache, resultado)
+    return resultado
 
 
 def consultar_vinculos_de_lote(codagregacao: str) -> list[dict]:
@@ -4131,6 +4325,17 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
     deles. Isso evita "cortar" um pedido ao meio em scroll infinito.
     """
     filtros = filtros or {}
+
+    # Cache 60s (Mai/2026) — chave inclui filtros+pagina, invalidação via
+    # `invalidar_cache_rastreio()` em escritas (atribuir/desvincular/criar
+    # vínculo manual). Veja docstring do módulo de cache no topo do arquivo.
+    _chave_cache, _cached = _rastreio_cache_get(
+        'pedidos', {'filtros': filtros, 'limite': int(limite), 'offset': int(offset)},
+    )
+    if _cached is not None:
+        logger.info("[perf] consultar_pedidos_abertos_para_atribuicao CACHE_HIT rows=%d", len(_cached))
+        return _cached
+
     # Toggle Pendente/Finalizado (Mai/2026, B9): substitui Pendente/Faturado.
     # O critério deixa de ser STATUSNOTA da nota e passa a ser **completude do
     # rastreio** (existem itens com CODAGREGACAO IS NULL?).
@@ -4324,18 +4529,48 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
     # (ou só os filtrados, quando há filtro de item ativo).
     # LEFT JOIN em ANDRE_IAGRO_SALDO_LOTE traz dados de ORIGEM do lote
     # (data, parceiro do fornecedor, NUNOTA da TOP 11) p/ exibir no modal de vínculos.
-    # NOTA_NUMNOTA e NOTA_NUNOTA (Mai/2026): quando o pedido tem nota correlata,
-    # busca NUMNOTA + NUNOTA via UNIÃO de 2 fontes:
-    #   (1) TGFVAR (vínculo nativo Sankhya)
-    #   (2) AD_VINCULO_PEDIDO_NOTA (vínculo manual IAgro — Op 1 ou pedido retro Op 2)
-    # VINCULO_ORIGEM expõe qual fonte resolveu: 'TGFVAR' | 'MANUAL' | NULL.
-    # Frontend usa pra distinguir badge `FATURADO Nota Y` vs `FATURADO Nota Y · MANUAL`.
-    SUBQ_NOTAS_DO_PEDIDO = (
-        "SELECT v.NUNOTA FROM TGFVAR v WHERE v.NUNOTAORIG = c.NUNOTA"
-        "  UNION ALL"
-        "  SELECT av.NUNOTA_NOTA FROM AD_VINCULO_PEDIDO_NOTA av WHERE av.NUNOTA_PEDIDO = c.NUNOTA"
-    )
+    #
+    # CTE `notas_pedido` (Mai/2026, refactor B):
+    # Consolida em 1 passada o vínculo pedido ↔ nota gerada (NUMNOTA + NUNOTA +
+    # ORIGEM). Antes eram 2 subqueries escalares + 3 EXISTS correlacionados
+    # por linha de pedido (5 operações repetidas = ~10s em prod). Agora uma
+    # CTE única materializa o UNION ALL de TGFVAR + AD_VINCULO_PEDIDO_NOTA e
+    # o GROUP BY decide o VINCULO_ORIGEM via prioridade (TGFVAR > RETROATIVO
+    # > MANUAL) sem repetir scan. Fontes:
+    #   (1) TGFVAR (vínculo nativo Sankhya — prioridade 1)
+    #   (2) AD_VINCULO_PEDIDO_NOTA ORIGEM='PEDIDO_RETROATIVO' (Leva B, prio 2)
+    #   (3) AD_VINCULO_PEDIDO_NOTA ORIGEM='VINCULADO' (Leva A — manual, prio 3)
+    # Frontend usa `vinculo_origem` pra distinguir badges no card.
     sql = f"""
+        WITH notas_pedido_raw AS (
+            SELECT v.NUNOTAORIG AS NUNOTA_PED,
+                   c2.NUNOTA     AS NOTA_NUNOTA,
+                   c2.NUMNOTA    AS NOTA_NUMNOTA,
+                   'TGFVAR'      AS VINC_ORIGEM,
+                   1             AS PRIO
+              FROM TGFVAR v
+              JOIN TGFCAB c2 ON c2.NUNOTA = v.NUNOTA
+             WHERE c2.CODTIPOPER IN (35, 37)
+               AND c2.STATUSNOTA <> 'E'
+            UNION ALL
+            SELECT av.NUNOTA_PEDIDO,
+                   av.NUNOTA_NOTA,
+                   c2.NUMNOTA,
+                   CASE WHEN av.ORIGEM = 'PEDIDO_RETROATIVO' THEN 'RETROATIVO' ELSE 'MANUAL' END,
+                   CASE WHEN av.ORIGEM = 'PEDIDO_RETROATIVO' THEN 2 ELSE 3 END
+              FROM AD_VINCULO_PEDIDO_NOTA av
+              JOIN TGFCAB c2 ON c2.NUNOTA = av.NUNOTA_NOTA
+             WHERE c2.CODTIPOPER IN (35, 37)
+               AND c2.STATUSNOTA <> 'E'
+        ),
+        notas_pedido AS (
+            SELECT NUNOTA_PED,
+                   MAX(NOTA_NUNOTA)  AS NOTA_NUNOTA,
+                   MAX(NOTA_NUMNOTA) AS NOTA_NUMNOTA,
+                   MAX(VINC_ORIGEM) KEEP (DENSE_RANK FIRST ORDER BY PRIO) AS VINCULO_ORIGEM
+              FROM notas_pedido_raw
+             GROUP BY NUNOTA_PED
+        )
         SELECT
             cp.NUNOTA, cp.NUMNOTA, cp.CODEMP, cp.CODPARC, cp.NOMEPARC, cp.DTNEG,
             cp.CODTIPOPER, cp.STATUSNOTA,
@@ -4357,35 +4592,9 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
                 FROM (
                     SELECT c.NUNOTA, c.NUMNOTA, c.CODEMP, c.CODPARC, c.DTNEG, p.NOMEPARC,
                            c.CODTIPOPER, c.STATUSNOTA,
-                           (SELECT MAX(c2.NUMNOTA)
-                              FROM TGFCAB c2
-                             WHERE c2.NUNOTA IN ({SUBQ_NOTAS_DO_PEDIDO})
-                               AND c2.CODTIPOPER IN (35, 37)
-                               AND c2.STATUSNOTA <> 'E') AS NOTA_NUMNOTA,
-                           (SELECT MAX(c2.NUNOTA)
-                              FROM TGFCAB c2
-                             WHERE c2.NUNOTA IN ({SUBQ_NOTAS_DO_PEDIDO})
-                               AND c2.CODTIPOPER IN (35, 37)
-                               AND c2.STATUSNOTA <> 'E') AS NOTA_NUNOTA,
-                           CASE
-                             WHEN EXISTS (
-                                 SELECT 1 FROM TGFVAR v
-                                   JOIN TGFCAB c2 ON c2.NUNOTA = v.NUNOTA
-                                  WHERE v.NUNOTAORIG = c.NUNOTA
-                                    AND c2.CODTIPOPER IN (35, 37)
-                                    AND c2.STATUSNOTA <> 'E'
-                             ) THEN 'TGFVAR'
-                             WHEN EXISTS (
-                                 SELECT 1 FROM AD_VINCULO_PEDIDO_NOTA av
-                                  WHERE av.NUNOTA_PEDIDO = c.NUNOTA
-                                    AND av.ORIGEM = 'PEDIDO_RETROATIVO'
-                             ) THEN 'RETROATIVO'
-                             WHEN EXISTS (
-                                 SELECT 1 FROM AD_VINCULO_PEDIDO_NOTA av
-                                  WHERE av.NUNOTA_PEDIDO = c.NUNOTA
-                             ) THEN 'MANUAL'
-                             ELSE NULL
-                           END AS VINCULO_ORIGEM,
+                           np.NOTA_NUMNOTA,
+                           np.NOTA_NUNOTA,
+                           np.VINCULO_ORIGEM,
                            CASE
                              WHEN c.CODTIPOPER = 34 THEN 'PEDIDO'
                              ELSE 'NOTA_ORFA'
@@ -4425,6 +4634,7 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
                                 ) THEN 1 ELSE 0 END AS TEM_CANDIDATO_PEDIDO
                     FROM TGFCAB c
                     LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC
+                    LEFT JOIN notas_pedido np ON np.NUNOTA_PED = c.NUNOTA
                     WHERE {' AND '.join(where)}
                 ) t
             ) WHERE RN BETWEEN :start_row AND :end_row
@@ -4432,18 +4642,19 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
         JOIN TGFITE i ON i.NUNOTA = cp.NUNOTA
         LEFT JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
         LEFT JOIN (
-            SELECT i11.CODAGREGACAO,
-                   MIN(c11.NUNOTA)   AS NUNOTA_ORIGEM,
-                   MIN(c11.DTNEG)    AS DTNEG_ORIGEM,
-                   MIN(c11.CODPARC)  AS CODPARC_ORIGEM,
-                   MIN(p11.NOMEPARC) AS NOMEPARC_ORIGEM
-            FROM TGFITE i11
-            JOIN TGFCAB c11      ON c11.NUNOTA = i11.NUNOTA
-            LEFT JOIN TGFPAR p11 ON p11.CODPARC = c11.CODPARC
-            WHERE c11.CODTIPOPER = 11
-              AND c11.STATUSNOTA <> 'E'
-              AND i11.CODAGREGACAO IS NOT NULL
-            GROUP BY i11.CODAGREGACAO
+            -- Dados de origem do lote (TOP 11) — Mai/2026 servidos da tabela
+            -- materializada AD_SALDO_LOTE_CACHE (refresh por cron 5min) em vez
+            -- da agregação dinâmica em TGFITE+TGFCAB+TGFPAR. Tabela tem todas
+            -- as pernas; GROUP BY CODAGREGACAO consolida (valores são iguais
+            -- entre pernas de um mesmo lote). Latência aceitável: dados de
+            -- entrada raramente mudam (TOP 11 é evento único de recebimento).
+            SELECT CODAGREGACAO,
+                   MIN(NUNOTA_ORIGEM)   AS NUNOTA_ORIGEM,
+                   MIN(DTNEG_ORIGEM)    AS DTNEG_ORIGEM,
+                   MIN(CODPARC_ORIGEM)  AS CODPARC_ORIGEM,
+                   MIN(NOMEPARC_ORIGEM) AS NOMEPARC_ORIGEM
+              FROM SANKHYA.AD_SALDO_LOTE_CACHE
+             GROUP BY CODAGREGACAO
         ) sl ON sl.CODAGREGACAO = i.CODAGREGACAO
         {item_filter_sql}
         ORDER BY cp.DTNEG DESC, cp.NUNOTA DESC, i.SEQUENCIA
@@ -4461,12 +4672,23 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
         'lote_nunota', 'lote_dtneg', 'lote_codparc', 'lote_nomeparc',
     ]
 
+    import time as _time
+    _t0 = _time.perf_counter()
     with obter_conexao_oracle() as conn:
         cur = conn.cursor()
         cur.execute(sql, binds)
         rows = cur.fetchall()
+    _dur = _time.perf_counter() - _t0
+    logger.info(
+        "[perf] consultar_pedidos_abertos_para_atribuicao %.3fs rows=%d filtros=%s limit=%d offset=%d",
+        _dur, len(rows),
+        {k: filtros.get(k) for k in ('q', 'codprod', 'codprods', 'desde_dias', 'fabricante', 'somente_pendentes', 'mostrar_finalizados', 'mostrar_pendentes')},
+        limite, offset,
+    )
 
-    return [dict(zip(cols, row)) for row in rows]
+    resultado = [dict(zip(cols, row)) for row in rows]
+    _rastreio_cache_set(_chave_cache, resultado)
+    return resultado
 
 
 def desvincular_lote_item_pedido(nunota: int, sequencia: int) -> dict:
@@ -4580,6 +4802,7 @@ def desvincular_lote_item_pedido(nunota: int, sequencia: int) -> dict:
             recalcular_totais_nota_banco(int(nunota), conexao_existente=conn)
 
             conn.commit()
+            invalidar_cache_rastreio()
             return {
                 'ok': True,
                 'operacao': operacao,
@@ -4780,6 +5003,7 @@ def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
             recalcular_totais_nota_banco(int(nunota), conexao_existente=conn)
 
             conn.commit()
+            invalidar_cache_rastreio()
             return {
                 'ok': True,
                 'operacao': operacao,
@@ -4970,6 +5194,7 @@ def inserir_vinculo_manual_pedido_nota(nunota_pedido: int, nunota_nota: int,
             )
 
             conn.commit()
+            invalidar_cache_rastreio()
             return {'ok': True, 'id': novo_id}
     except Exception as e:
         logger.exception("Erro em inserir_vinculo_manual_pedido_nota")
@@ -5233,6 +5458,7 @@ def criar_pedido_retroativo_a_partir_de_nota(nunota_nota: int, codusu: int,
             )
 
             conn.commit()
+            invalidar_cache_rastreio()
             return {
                 'ok': True,
                 'nunota_pedido': nunota_pedido_novo,
@@ -5319,6 +5545,7 @@ def remover_vinculo_manual_pedido_nota(*, nunota_pedido: int | None = None,
             cur.execute("DELETE FROM AD_VINCULO_PEDIDO_NOTA WHERE ID = :id", id=int(id_v))
             removidos = int(cur.rowcount or 0)
             conn.commit()
+            invalidar_cache_rastreio()
             return {
                 'ok': True,
                 'removidos':      removidos,

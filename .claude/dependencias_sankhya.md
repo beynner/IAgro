@@ -633,6 +633,24 @@ Detalhes em `.claude/modules/caixas.md` e `.claude/schema.md` §7.8.
 
 ---
 
+### 5.10 AD_SALDO_LOTE_CACHE (Mai/2026 — 2026-05-19)
+
+**DDL:** [`sankhya_integration/sql/AD_SALDO_LOTE_CACHE.sql`](../sankhya_integration/sql/AD_SALDO_LOTE_CACHE.sql)
+
+**Propósito:** Espelho materializado da view `ANDRE_IAGRO_SALDO_LOTE`. View leva 10-22s por hit (5 CTEs com agregações em TGFITE/TGFCAB/TGFVAR); tabela retorna em ~200ms. Refresh por cron Windows Task Scheduler a cada 5 min via `python manage.py refresh_saldo_lote` (TRUNCATE + INSERT-SELECT, ~12s em background — operador nunca espera). Latência máxima de display: 5 min. Lock pessimista em `atribuir_lote_item_pedido` continua validando contra a view real — integridade transacional preservada. Detalhes em `.claude/modules/rastreio.md`.
+
+**Estrutura:** mesmas 19 colunas do retorno da view + `ATUALIZADO_EM`. PK `(CODEMP, CODPROD, CODAGREGACAO, STATUS_LINHA)`. 4 índices (QTD_DISPONIVEL, DTNEG_ORIGEM DESC, CODPROD, VENDAVEL).
+
+**Função service:** `refresh_saldo_lote_cache()` em `oracle_conn.py` (Cat B — escrita em AD_*). Único consumidor swap-ado pra tabela: `consultar_saldo_lote_disponivel` (endpoint do Rastreio). Demais usos da view continuam diretos (relatórios, validação de saldo, lock pessimista).
+
+**Cache Django** (60s TTL + versionamento por escrita) continua em cima — combinado, leituras subsequentes ≤60s são instantâneas. Operador sente Rastreio fluido.
+
+**Tabelas Sankhya consumidas (LEITURA APENAS):** apenas via view (que por sua vez consulta TGFCAB, TGFITE, TGFVAR, TGFPRO, TGFPAR). Nenhuma escrita em tabela Sankhya nativa.
+
+**Zero impacto em queries existentes:** tabela auxiliar 100% isolada; outras funções continuam apontadas pra view real.
+
+---
+
 ## 6. Constantes de Domínio Sankhya (Codificadas em Python)
 
 ### 6.1 TOPs (Tipos de Operação)

@@ -212,6 +212,81 @@ Status: Provisória — lote ainda em estoque
 
 ---
 
+## Travas do botão FATURAR (Mai/2026 — 2026-05-19)
+
+Botão **FATURAR** do modal de faturamento ([comercialFinanceiro.js](../../sankhya_integration/static/sankhya_integration/comercialFinanceiro.js)) tem 2 travas dinâmicas pra evitar gerar TGFFIN inválido:
+
+### Trava 1 — Preço (existente, mantida)
+
+Em cada item iterado:
+- **Classificáveis** (`item.geraproducao === 'S'`): bloqueia se `vlrTotal <= 0` (sem preço no vale TOP 13)
+- **Não-classificáveis**: bloqueia se `vlrUnit <= 0 || vlrTotal <= 0`
+
+### Trava 2 — Classificação finalizada (Mai/2026, nova)
+
+**Apenas em produtos classificáveis** (`geraproducao = 'S'`):
+- Bloqueia se `item.pendente !== 'N'` — ou seja, classificação ainda **pendente** (PENDENTE='S') ou inexistente (NULL, sem TGFCAB TOP 26)
+
+Pra produtos NÃO-classificáveis, só preço importa (não há classificação envolvida).
+
+### Tooltip discrimina os 2 motivos
+
+```
+"Existem produtos sem preço definido."
+"Há classificáveis com classificação ainda não finalizada (finalize a TOP 26 antes)."
+```
+
+Se ambos faltam, mostra os 2 em linhas separadas.
+
+### Defesa em profundidade — backend
+
+Mesma trava replicada em `gerar_financeiro_banco` ([oracle_conn.py:3385-3415](../../sankhya_integration/services/oracle_conn.py#L3385)) **antes do INSERT do TGFFIN**:
+
+```sql
+SELECT COUNT(DISTINCT i13.CODAGREGACAO)
+  FROM TGFITE i13
+  JOIN TGFITE i11 ON i11.CODAGREGACAO = i13.CODAGREGACAO
+  JOIN TGFCAB c11 ON c11.NUNOTA = i11.NUNOTA AND c11.CODTIPOPER = 11
+ WHERE i13.NUNOTA = :n
+   AND i13.CODAGREGACAO IS NOT NULL
+   AND NVL(i11.GERAPRODUCAO, 'N') = 'S'
+   AND NOT EXISTS (
+       SELECT 1 FROM TGFCAB c26
+       JOIN TGFITE i26 ON i26.NUNOTA = c26.NUNOTA
+       WHERE c26.CODTIPOPER = 26 AND c26.STATUSNOTA <> 'E'
+         AND c26.PENDENTE = 'N'
+         AND i26.CODAGREGACAO = i13.CODAGREGACAO
+   )
+```
+
+Operador burlando JS via console/API recebe `{ok: False, error: "Há N lote(s) classificável(eis) com classificação ainda não finalizada (TOP 26). Finalize a classificação antes de faturar."}`.
+
+### Botão começa desabilitado (Mai/2026 — 2026-05-19)
+
+Antes: ao abrir o modal, FATURAR aparecia clicável (`disabled=false` default do HTML) e só era desabilitado após o loop de validação. Causava "flash" visual enganoso.
+
+Agora: o HTML do botão tem `disabled` + `title="Verificando travas..."` por default ([comercial.html:370](../../sankhya_integration/templates/sankhya_integration/comercial.html#L370)). Logo após `modal.style.display = 'flex'`, o JS reforça `disabled = true; cursor = 'wait'` ([comercialFinanceiro.js:33-40](../../sankhya_integration/static/sankhya_integration/comercialFinanceiro.js#L33)). Só após o loop de validação completo é que decide entre habilitar FATURAR, mostrar DESFATURAR (modo já-faturado), ou manter desabilitado com tooltip explicativo.
+
+### Simulação de Negócio — ratio_medio default (Mai/2026 — 2026-05-19)
+
+Bug: ao clicar **Aplicar** preenchendo só Extra (Qtd CX + Valor/CX) e deixando Médio em branco, `ratio_medio` virava `0` (vMd / vEx = 0 / X = 0). Aí em `preencher()` o cálculo distribuía 100% do total pro Extra e Médio ficava `R$ 0,00` em todos os campos — mesmo tendo kg físico de Médio.
+
+Fix em [comercialDistribuicao.js:256-260](../../sankhya_integration/static/sankhya_integration/comercialDistribuicao.js#L256):
+
+```js
+// Antes
+if (vEx > 0) dadosDaLinha.ratio_medio = vMd / vEx;
+else dadosDaLinha.ratio_medio = 0.5;
+
+// Depois
+if (vEx > 0 && vMd > 0) dadosDaLinha.ratio_medio = vMd / vEx;
+else dadosDaLinha.ratio_medio = 0.5;
+```
+
+Quando operador não preenche Médio, o sistema assume **default histórico 0.5** (Médio vale metade do Extra) — mesma constante usada como fallback no `?? 0.5` da linha 538 do `preencher()`.
+
+---
+
 ## Testes
 
 - `test_views_comercial.py` — comercial, faturamento, vales

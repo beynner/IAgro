@@ -253,7 +253,11 @@ window.ComercialDistribuicao = (function() {
 
                         dadosDaLinha.vlrtot_simulado = totGeral;
                         dadosDaLinha.vlrtot_simulado_base = dadosDaLinha.vlrtot;
-                        if (vEx > 0) dadosDaLinha.ratio_medio = vMd / vEx;
+                        // Só calcula proporção quando ambos foram informados.
+                        // Se operador deixou Médio em branco/zero, usa default
+                        // 0.5 (Médio vale metade do Extra) — alinhado ao
+                        // fallback de preencher() na linha 538.
+                        if (vEx > 0 && vMd > 0) dadosDaLinha.ratio_medio = vMd / vEx;
                         else dadosDaLinha.ratio_medio = 0.5;
                         
                         preencher(dadosDaLinha, STATE.pesos, true);

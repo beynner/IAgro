@@ -5,7 +5,7 @@
 {% block active_module %}rastreio{% endblock %}
 
 {% block extra_css %}
-  <link rel="stylesheet" href="{% static 'sankhya_integration/rastreio.css' %}?v=3">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/rastreio.css' %}?v=15">
 {% endblock %}
 
 {% block header_title %}RASTREABILIDADE (WMS){% endblock %}
@@ -48,21 +48,19 @@
                 </div>
             </div>
             <div class="ras-header-row ras-controls">
-                <div class="ras-segmented" role="tablist" aria-label="Tipo de lote">
-                    <input type="radio" name="tipoLote" id="tipoTodos" value="todos" checked>
-                    <label for="tipoTodos">Todos</label>
-
-                    <input type="radio" name="tipoLote" id="tipoClass" value="classificavel">
-                    <label for="tipoClass">Classific.</label>
-
-                    <input type="radio" name="tipoLote" id="tipoNclass" value="nao_classificavel">
-                    <label for="tipoNclass">Não-class.</label>
+                <div class="ras-grupo-actions">
+                    <button type="button" id="btnLotesAgruparTudo" class="ras-icon-btn-tiny" title="Agrupar tudo (recolher)" aria-label="Agrupar tudo">
+                        <i class="ph ph-minus" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" id="btnLotesDesagruparTudo" class="ras-icon-btn-tiny" title="Desagrupar tudo (expandir)" aria-label="Desagrupar tudo">
+                        <i class="ph ph-plus" aria-hidden="true"></i>
+                    </button>
                 </div>
                 <div class="ras-segmented" role="tablist" aria-label="Agrupar lotes por">
-                    <input type="radio" name="grpLotes" id="grpLotesParceiro" value="parceiro" checked>
+                    <input type="radio" name="grpLotes" id="grpLotesParceiro" value="parceiro">
                     <label for="grpLotesParceiro">Por parceiro</label>
 
-                    <input type="radio" name="grpLotes" id="grpLotesProduto" value="produto">
+                    <input type="radio" name="grpLotes" id="grpLotesProduto" value="produto" checked>
                     <label for="grpLotesProduto">Por produto</label>
                 </div>
                 <div class="ras-range-pill" title="Período (DTNEG do lote)">
@@ -72,6 +70,8 @@
                     <input type="date" id="dataFimLotes" class="ras-range-input" title="Data final">
                     <button type="button" id="btnLimparPeriodoLotes" class="ras-range-clear" title="Limpar período (mostra tudo)" aria-label="Limpar período">×</button>
                 </div>
+                <!-- Filtro Tipo de lote (Todos/Classific./Não-class.) removido em Mai/2026.
+                     Variável JS `tipoLote` permanece como 'todos' fixo. -->
             </div>
         </header>
         <div id="lotesContainer" class="card-list"></div>
@@ -97,10 +97,10 @@
                     </button>
                 </div>
                 <div class="ras-segmented" role="tablist" aria-label="Agrupar por">
-                    <input type="radio" name="grpPedidos" id="grpParceiro" value="parceiro" checked>
+                    <input type="radio" name="grpPedidos" id="grpParceiro" value="parceiro">
                     <label for="grpParceiro">Por parceiro</label>
 
-                    <input type="radio" name="grpPedidos" id="grpProduto" value="produto">
+                    <input type="radio" name="grpPedidos" id="grpProduto" value="produto" checked>
                     <label for="grpProduto">Por produto</label>
                 </div>
                 <div class="ras-range-pill" title="Período (DTNEG do pedido)">
@@ -248,5 +248,5 @@
 {% endblock %}
 
 {% block extra_js %}
-  <script src="{% static 'sankhya_integration/rastreio.js' %}?v=2"></script>
+  <script src="{% static 'sankhya_integration/rastreio.js' %}?v=9"></script>
 {% endblock %}

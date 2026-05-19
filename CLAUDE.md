@@ -22,7 +22,7 @@ O sistema integra dados do Sankhya via Oracle e oferece **onze módulos operacio
 | Classificação | 26 | Triagem de lotes por qualidade, com controle de descartes. Header do card mostra **badge `LOTE NNNS01D260512`** ao lado do nome do produto (Mai/2026) |
 | Comercial | 13 | Faturamento de vales, precificação, geração de financeiro. **Card "Margem Lote" preenchido** em runtime — `(RECEITA − DEVOLUÇÃO − CUSTO) / RECEITA × 100` com avaria informativa no tooltip. **"Últimas Vendas DESTE LOTE"** com toggle Lote/Produto + sparkline SVG de evolução de preço — **sparkline span 2 rows** (fix 2026-05-18) pra não desalinhar card Médio |
 | Venda | 34 → 35/37 | Pedidos, edição de itens, faturamento (NFe ou s/ NFe), avaria (TOP 30) e devolução (TOP 36) |
-| Rastreio (WMS) | — | Vínculo de lotes a pedidos com auditoria e lock pessimista. Suporta vínculo manual pedido↔nota órfã e pedido retroativo. **Etiquetas SafeTrace 100×50mm** com QR + EAN13 (Zebra ZD220). Peso da etiqueta vem da TOP 26 (classificação) automaticamente — operador só digita se for múltiplos pesos ou override manual (Mai/2026 — 2026-05-16) |
+| Rastreio (WMS) | — | Vínculo de lotes a pedidos com auditoria e lock pessimista. Suporta vínculo manual pedido↔nota órfã e pedido retroativo. **Etiquetas SafeTrace 100×50mm** com QR + EAN13 (Zebra ZD220). Peso da etiqueta vem da TOP 26 (classificação) automaticamente — operador só digita se for múltiplos pesos ou override manual (Mai/2026 — 2026-05-16). **Saldo materializado em `AD_SALDO_LOTE_CACHE` com refresh por cron 5min** + cache Django 60s + WITH clause na query de pedidos (Mai/2026 — 2026-05-19): tela carrega em ~700ms (vs 25s antes) |
 | E-mail (importação) | 34 (após confirmação) | Coleta IMAP de pedidos com PDF anexo, parser via LLM local (Ollama), revisão humana |
 | Combustível (Frota) | 10 → 53 | Entrada de combustível (TOP 10) e requisições internas (TOP 53 — frota/maquinário/freteiro/posto externo). Discrimina frota própria + maquinário + freteiros. Inclui abastecimento externo (não desconta tanque interno) |
 | **Caixas** | — | Controle de vasilhame retornável (caixa plástica). Saldo por cliente derivado de vendas via `CEIL(QTDNEG/PESO)`; coletas/quebras/perdas/ajustes manuais em `AD_COLETA_CAIXAS`; tipo de caixa por produto em `AD_PRODUTO_CAIXA`. **Botão Atualizar faz backfill `[TEMPORÁRIO Mai/2026]`** via moda da TOP 26 enquanto IAgro não vira fluxo único. Acesso amplo (grupos 1/6/8/9/10/11). Mai/2026 — 2026-05-18 |
@@ -58,6 +58,69 @@ Após incidente onde tests rodados contra Oracle de produção poluíram TGFCAB/
 **Resultado**: zero escritas no Oracle real durante tests + zero regressão de suíte existente. Bypass intencional via `IAGRO_TEST_REAL_DB=true` libera conexão real pra testes de integração reais. Detalhes em [memory `incidente_fakes_em_oracle_18_05_26`](../../memory/incidente_fakes_em_oracle_18_05_26.md).
 
 Adicionalmente, **15 funções de escrita** ganharam guard `verificar_permissao_escrita()` antes do INSERT/UPDATE/DELETE — defesa em profundidade (combustível, email, alias, audit, etc).
+
+### 🚀 Performance do Rastreio — materialização + cache em 3 camadas (Mai/2026 — 2026-05-19)
+
+Antes: tela carregava em **25s** (lotes 12s + pedidos 14.5s rodando em paralelo). Operador travado a cada acesso. Pipeline final entrega **<1s** em uso típico — combinação de 3 técnicas complementares.
+
+**1. Tabela materializada `SANKHYA.AD_SALDO_LOTE_CACHE` (Cat B aplicada)**
+
+Espelho da view pesada `ANDRE_IAGRO_SALDO_LOTE` (5 CTEs com agregações sobre TGFITE/TGFCAB/TGFVAR — centenas de milhares de linhas). Estrutura: 19 colunas + `ATUALIZADO_EM`, PK `(CODEMP, CODPROD, CODAGREGACAO, STATUS_LINHA)`, 4 índices (`QTD_DISPONIVEL`, `DTNEG_ORIGEM DESC`, `CODPROD`, `VENDAVEL`). DDL em [`sankhya_integration/sql/AD_SALDO_LOTE_CACHE.sql`](sankhya_integration/sql/AD_SALDO_LOTE_CACHE.sql).
+
+Função `refresh_saldo_lote_cache()` em `oracle_conn.py` faz **TRUNCATE + INSERT-SELECT** da view (~12s em background). Comando Django `python manage.py refresh_saldo_lote` é disparado pelo **Windows Task Scheduler a cada 5 min** + manualmente via `POST /sankhya/rastreio/api/refresh-saldo/` (botão **Atualizar** do header).
+
+`consultar_saldo_lote_disponivel` agora aponta `FROM SANKHYA.AD_SALDO_LOTE_CACHE` em vez da view — leitura indexada **~80ms**. Outros consumidores da view (lock pessimista em `atribuir_lote_item_pedido`, relatórios, validações de saldo em escritas) **continuam usando a view real** pra integridade transacional.
+
+**Coerência**: defasagem máxima de 5 min entre escrita e reflexo visual. Lock pessimista valida sempre na view real — não dá pra atribuir lote inexistente mesmo com cache atrasada.
+
+**2. Refactor da query de pedidos com WITH clause (Cat A aplicada)**
+
+`consultar_pedidos_abertos_para_atribuicao` tinha **2 subqueries escalares + 3 EXISTS correlacionados por linha** (NOTA_NUMNOTA, NOTA_NUNOTA, VINCULO_ORIGEM) — 5 operações em TGFVAR/AD_VINCULO_PEDIDO_NOTA scanned por cada cabeçalho de pedido. Em 347 pedidos = ~1700 scans em TGFVAR (211k linhas).
+
+Refatorado pra **1 CTE única `notas_pedido`** que materializa o UNION ALL de TGFVAR + AD_VINCULO_PEDIDO_NOTA uma vez, com `MAX KEEP (DENSE_RANK FIRST ORDER BY PRIO)` resolvendo VINCULO_ORIGEM com prioridade (TGFVAR > RETROATIVO > MANUAL). Query externa faz LEFT JOIN simples.
+
+Mais o `LEFT JOIN` agregado de origem do lote também trocado pra `AD_SALDO_LOTE_CACHE`.
+
+Resultado: pedidos **14.5s → 590ms** (24× mais rápido).
+
+**3. Cache Django (LocMemCache) com versionamento**
+
+`oracle_conn.py:35-77` — TTL 60s + versionamento por `cache.set(_RASTREIO_CACHE_VER_KEY, time.time())`. Invalidação automática em **6 escritas** do Rastreio (atribuir, desvincular, inserir/remover vínculo manual, criar pedido retroativo, refresh manual). Chaves antigas viram inalcançáveis e expiram pelo TTL.
+
+Segunda visita à tela em ≤60s = ~1ms (não toca Oracle).
+
+**Resultado consolidado em prod**:
+
+| Cenário | Antes | Depois |
+|---|:-:|:-:|
+| 1ª carga fresh | ~25s | **~700ms** |
+| 2ª carga em <60s (cache Django) | ~25s | **~1ms** |
+| Após atribuir/desvincular | ~25s | ~700ms (cache invalidado) |
+| Botão Atualizar manual (refresh + reload) | ~25s | ~12-15s (refresh sincronizado) |
+
+**Próxima evolução (registrada no roadmap #15)**: refresh on-demand (C2) — MERGE pontual na linha afetada após escrita, eliminando defasagem de 5min. Implementar **só se aparecer reclamação real** após 2 semanas de uso.
+
+Detalhes completos em [`modules/rastreio.md`](.claude/modules/rastreio.md) "Materialização do saldo" + "Padrão de compactação visual".
+
+### 🔓 Travas Classificação ↔ Comercial revisadas (Mai/2026 — 2026-05-19)
+
+**Classificação só trava se TGFITE TOP 13 (Vale) existe** — vendas TOP 35/37 não bloqueiam mais. Pra destravar, Comercial usa `zerar_negociacao_banco` (DELETE em TGFITE TOP 13 do lote, preservando outros produtos). Regra aplicada em 3 lugares: abertura do modal de itens, salvar/editar item, excluir item. Sem filtro de STATUSNOTA — qualquer estado da TGFCAB conta. Detalhes em [`modules/classificacao.md`](.claude/modules/classificacao.md).
+
+**Comercial faturar exige preço E classificação finalizada** (em produtos classificáveis):
+- Trava 1: `vlrTotal > 0` no item TGFITE TOP 13 (já existia)
+- Trava 2 (nova): TGFCAB TOP 26 com `PENDENTE = 'N'` pro lote
+- Não-classificáveis (`GERAPRODUCAO != 'S'`): só preço importa
+- Defesa em profundidade: backend em `gerar_financeiro_banco` valida via NOT EXISTS antes do INSERT TGFFIN
+- Botão FATURAR começa **disabled** (`Verificando travas…`) — só libera após o loop de validação
+
+Detalhes em [`modules/comercial.md`](.claude/modules/comercial.md) → "Travas do botão FATURAR".
+
+### Bug fixes pontuais (Mai/2026 — 2026-05-19)
+
+- **Descarte (`api_update_descarte_lote`)** não excluía após zerar negociação. SELECT sem filtro `CODTIPOPER` pegava linha errada (TOP 26 em vez de TOP 11). Forçado `c.CODTIPOPER = 11` no SELECT.
+- **Cabeçalho do modal de classificação** mostrava cliente da venda em vez de fornecedor da compra. `MAX(NUNOTA)` filtrando só `GERAPRODUCAO='S'` pegava o NUNOTA mais recente — quase sempre venda. Forçado `c.CODTIPOPER = 11` em ambas as queries de `api_consultar_lote`.
+- **Filtro fornecedor não limpava** ao remover chip. Case `'fabricante'` em `removerFiltro` (rastreio.js:566) limpava `inputFiltroLotes` em vez de `inputFiltroFabricante` — resquício do split de Mai/2026 quando os 2 inputs eram um só.
+- **Aplicar simulação Comercial não distribuía Médio** quando Médio em branco. `ratio_medio = vMd / vEx = 0` zerava o lado do Médio. Fix: `if (vEx > 0 && vMd > 0)` mantém proporção, senão usa default `0.5`.
 
 ### Backlog planejado
 

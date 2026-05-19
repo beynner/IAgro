@@ -367,7 +367,7 @@
         </div>
         <div class="modal-footer" style="padding: 15px 20px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 10px; background: #fff;">
             <button class="btn-print-outline" onclick="window.ComercialImpressao.abrir()" title="Imprimir"><i class="ph ph-printer" style="font-size: 18px; color: #475569;" aria-hidden="true"></i></button>
-            <button id="btnEfetivarFaturamento" class="btn-faturar-final" onclick="window.ComercialFinanceiro.faturar()">FATURAR</button>
+            <button id="btnEfetivarFaturamento" class="btn-faturar-final" onclick="window.ComercialFinanceiro.faturar()" disabled title="Verificando travas...">FATURAR</button>
         </div>
     </div>
 </div>
@@ -434,7 +434,7 @@
 
 {% block extra_js %}
     <script src="{% static 'sankhya_integration/comercialImpressao.js' %}" defer></script>
-    <script src="{% static 'sankhya_integration/comercialFinanceiro.js' %}" defer></script>
-    <script src="{% static 'sankhya_integration/comercialDistribuicao.js' %}?v=4" defer></script>
+    <script src="{% static 'sankhya_integration/comercialFinanceiro.js' %}?v=3" defer></script>
+    <script src="{% static 'sankhya_integration/comercialDistribuicao.js' %}?v=5" defer></script>
     <script src="{% static 'sankhya_integration/comercial.js' %}?v=2" defer></script>
 {% endblock %}

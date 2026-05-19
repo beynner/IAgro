@@ -1108,11 +1108,13 @@ def api_salvar_item_nota(request: HttpRequest) -> JsonResponse:
                         if cur.fetchone()[0] > 0:
                             return JsonResponse({"ok": False, "error": f"Bloqueado! O Lote {lote} já avançou no fluxo e não pode ser editado."}, status=403)
                     
-                    # 🔒 Se estiver na Classificação (26), trava se já foi pro Comercial(13, 35, 37)
+                    # 🔒 Se estiver na Classificação (26), trava apenas se existe
+                    # vale TOP 13 (vendas TOP 35/37 NÃO bloqueiam — Mai/2026).
+                    # Operador zera negociação no Comercial pra liberar a edição.
                     elif top_atual == 26:
                         cur.execute("""
                             SELECT COUNT(1) FROM TGFCAB c JOIN TGFITE i ON c.NUNOTA = i.NUNOTA
-                            WHERE c.CODTIPOPER IN (13, 35, 37) AND i.CODAGREGACAO = :l AND NVL(c.STATUSNOTA, 'A') <> 'E'
+                            WHERE c.CODTIPOPER = 13 AND i.CODAGREGACAO = :l
                         """, l=lote)
                         if cur.fetchone()[0] > 0:
                             return JsonResponse({"ok": False, "error": f"Bloqueado! O Lote {lote} já foi negociado e não pode ser editado."}, status=403)
@@ -1234,15 +1236,17 @@ def api_excluir_itens_nota(request: HttpRequest) -> JsonResponse:
                         return JsonResponse({"ok": False, "error": f"Bloqueado! Verifique CLASSIFICAÇÃO ou COMERCIAL. Lote {lote} "}, status=403)
 
                 elif top_atual == 26:
+                    # Trava na exclusão: apenas vale TOP 13 bloqueia. Vendas
+                    # TOP 35/37 NÃO bloqueiam — pra destravar, Comercial zera
+                    # negociação (DELETE dos TGFITE TOP 13 do lote). Mai/2026.
                     cur.execute("""
-                        SELECT COUNT(1) 
-                        FROM TGFCAB c 
-                        JOIN TGFITE i ON c.NUNOTA = i.NUNOTA 
-                        WHERE c.CODTIPOPER IN (13, 35, 37) 
-                          AND i.CODAGREGACAO = :l 
-                          AND NVL(c.STATUSNOTA, 'A') <> 'E'
+                        SELECT COUNT(1)
+                        FROM TGFCAB c
+                        JOIN TGFITE i ON c.NUNOTA = i.NUNOTA
+                        WHERE c.CODTIPOPER = 13
+                          AND i.CODAGREGACAO = :l
                     """, l=lote)
-                    
+
                     if cur.fetchone()[0] > 0:
                         return JsonResponse({"ok": False, "error": f"Bloqueado! Lote {lote} já foi negociado pelo Comercial."}, status=403)
 
@@ -1586,7 +1590,6 @@ def api_consultar_lote(request: HttpRequest) -> JsonResponse:
     Busca dados detalhados da origem (TOP 11) e da classificação (TOP 26).
     """
     lote = request.GET.get('lote')
-    nunota_origem_req = request.GET.get('nunota_origem')
 
     if not lote or not ORACLE_DISPONIVEL:
         return JsonResponse({"ok": False, "error": "Lote não informado ou conexão Oracle inativa"}, status=400)
@@ -1595,27 +1598,44 @@ def api_consultar_lote(request: HttpRequest) -> JsonResponse:
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
             
-            # 1. Recupera o NUNOTA de origem caso o JS não tenha enviado no clique duplo
-            if not nunota_origem_req or nunota_origem_req in ("undefined", "null"):
-                cur.execute("SELECT MAX(NUNOTA) FROM TGFITE WHERE CODAGREGACAO = :l AND GERAPRODUCAO = 'S'", l=lote)
-                res = cur.fetchone()
-                if not res or not res[0]:
-                    return JsonResponse({"ok": False, "error": "Origem do lote não encontrada no Sankhya"}, status=404)
-                nunota_origem = int(res[0])
-            else:
-                nunota_origem = int(nunota_origem_req)
+            # 1. Recupera o NUNOTA de origem (TOP 11 — compra/fornecedor).
+            # Mesmo se o JS enviar, validamos que é TOP 11; senão recalculamos
+            # — TGFITE de outras TOPs (13/35/37) também tem GERAPRODUCAO='S'
+            # (campo copiado no INSERT), e MAX(NUNOTA) pega o mais recente
+            # (geralmente venda), trazendo CLIENTE em vez de FORNECEDOR.
+            cur.execute(
+                """
+                SELECT MAX(c.NUNOTA)
+                  FROM TGFITE i
+                  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                 WHERE i.CODAGREGACAO = :l
+                   AND c.CODTIPOPER = 11
+                   AND c.STATUSNOTA <> 'E'
+                """,
+                l=lote,
+            )
+            res = cur.fetchone()
+            if not res or not res[0]:
+                return JsonResponse({"ok": False, "error": "Origem do lote (TOP 11) não encontrada no Sankhya"}, status=404)
+            nunota_origem = int(res[0])
 
             # 2. Busca dados de massa e balanço (Reaproveitando sua regra de negócio homologada)
             dados_massa = obter_detalhes_lote_completo(nunota_origem, lote)
 
-            # 3. Busca metadados extras para o Cabeçalho do Modal (Parceiro, Data, Produto)
+            # 3. Metadados extras para o Cabeçalho do Modal (Fornecedor, Data, Produto).
+            # Força CODTIPOPER = 11 — garante que o NOMEPARC mostrado seja o
+            # FORNECEDOR de compra (ex: JOSE MARIA), nunca o CLIENTE da venda
+            # (ex: ASSAI ASA NORTE) caso o lote já tenha sido vendido.
             cur.execute("""
                 SELECT p.NOMEPARC, c.DTNEG, pr.DESCRPROD, c.CODPARC
                 FROM TGFCAB c
                 JOIN TGFPAR p ON c.CODPARC = p.CODPARC
                 JOIN TGFITE i ON c.NUNOTA = i.NUNOTA
                 JOIN TGFPRO pr ON i.CODPROD = pr.CODPROD
-                WHERE c.NUNOTA = :n AND i.CODAGREGACAO = :l AND ROWNUM = 1
+                WHERE c.NUNOTA = :n
+                  AND i.CODAGREGACAO = :l
+                  AND c.CODTIPOPER = 11
+                  AND ROWNUM = 1
             """, n=nunota_origem, l=lote)
             row_extra = cur.fetchone()
             
@@ -1636,11 +1656,15 @@ def api_consultar_lote(request: HttpRequest) -> JsonResponse:
             nunota_26 = row_26[0] if row_26 else None
             status_pendente = row_26[1] if row_26 else 'S'
 
-            # 👇 NOVO: CHECAGEM DO MÓDULO COMERCIAL 👇
+            # Checagem do módulo Comercial — bloqueia Classificação apenas se
+            # existe item do lote em vale TOP 13 (qualquer estado de TGFCAB).
+            # Vendas (TOP 35/37) NÃO bloqueiam. Pra destravar, Comercial usa
+            # `zerar_negociacao_banco` que DELETE os itens TGFITE do lote
+            # — então a contagem zera naturalmente.
             cur.execute("""
-                SELECT COUNT(1) FROM TGFCAB c 
-                JOIN TGFITE i ON c.NUNOTA = i.NUNOTA 
-                WHERE c.CODTIPOPER IN (13, 35, 37) AND i.CODAGREGACAO = :l AND c.STATUSNOTA <> 'E'
+                SELECT COUNT(1) FROM TGFCAB c
+                JOIN TGFITE i ON c.NUNOTA = i.NUNOTA
+                WHERE c.CODTIPOPER = 13 AND i.CODAGREGACAO = :l
             """, l=lote)
             bloqueado_comercial = cur.fetchone()[0] > 0
 
@@ -1746,18 +1770,26 @@ def api_update_descarte_lote(request):
 
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
-            
-            # 1. Busca o NUNOTA e o descarte atual direto no Oracle
+
+            # 1. Busca o NUNOTA e o descarte atual da TOP 11 (origem real do lote).
+            # CODTIPOPER=11 obrigatório — GERAPRODUCAO='S' é copiado pras TGFITE
+            # de TOPs filhas (13, 26, etc) no fluxo do lote; sem filtro de TOP,
+            # fetchone() pode trazer linha errada e AD_QTDAVARIA atualizado fica
+            # no lugar incorreto, mantendo o descarte da TOP 11 intacto. (Mai/2026)
             cur.execute("""
-                SELECT NUNOTA, NVL(AD_QTDAVARIA, 0) 
-                FROM TGFITE 
-                WHERE CODAGREGACAO = :l AND GERAPRODUCAO = 'S'
+                SELECT c.NUNOTA, NVL(i.AD_QTDAVARIA, 0)
+                  FROM TGFITE i
+                  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                 WHERE i.CODAGREGACAO = :l
+                   AND i.GERAPRODUCAO = 'S'
+                   AND c.CODTIPOPER   = 11
+                   AND c.STATUSNOTA  <> 'E'
             """, {'l': lote})
             res = cur.fetchone()
-            
+
             if not res:
-                return JsonResponse({"ok": False, "error": f"Lote {lote} não encontrado no Sankhya"}, status=404)
-            
+                return JsonResponse({"ok": False, "error": f"Lote {lote} não encontrado no Sankhya (TOP 11 origem)"}, status=404)
+
             nunota_origem = res[0]
             descarte_atual = float(res[1])
 
@@ -3921,6 +3953,44 @@ def api_rastreio_etiqueta_pdf(request: HttpRequest):
     response = HttpResponse(pdf_bytes, content_type='application/pdf')
     response['Content-Disposition'] = f'inline; filename="{fname}"'
     return response
+
+
+@require_http_methods(["POST"])
+@exige_grupo('rastreio')
+def api_rastreio_refresh_saldo(request: HttpRequest) -> JsonResponse:
+    """Força refresh manual do AD_SALDO_LOTE_CACHE — disparado pelo botão
+    Atualizar do Rastreio quando o operador precisa de dado fresco antes
+    do próximo ciclo do Windows Task Scheduler (5min).
+
+    Síncrono: bloqueia ~12s aguardando o INSERT-SELECT da view. Frontend
+    deve mostrar feedback visual (spinner/banner) durante a chamada.
+
+    Retorna o JSON do `refresh_saldo_lote_cache()`:
+        {ok: bool, rows: int, duracao_s: float, error?: str}
+    """
+    try:
+        from sankhya_integration.services.oracle_conn import refresh_saldo_lote_cache
+        resultado = refresh_saldo_lote_cache()
+        codusu = request.session.get('codusu')
+        nomeusu = request.session.get('nomeusu')
+        if resultado.get('ok'):
+            logger.info(
+                "[api_rastreio_refresh_saldo] manual OK rows=%d duracao=%.2fs (user=%s/%s)",
+                resultado.get('rows', 0), resultado.get('duracao_s', 0), codusu, nomeusu,
+            )
+            return JsonResponse(resultado)
+        else:
+            logger.warning(
+                "[api_rastreio_refresh_saldo] manual FALHOU (user=%s/%s): %s",
+                codusu, nomeusu, resultado.get('error'),
+            )
+            return JsonResponse(resultado, status=500)
+    except Exception as exc:
+        logger.exception("Falha em api_rastreio_refresh_saldo")
+        return JsonResponse(
+            {"ok": False, "error": "Não foi possível atualizar o saldo. Tente novamente."},
+            status=500,
+        )
 
 
 # ==============================================================================

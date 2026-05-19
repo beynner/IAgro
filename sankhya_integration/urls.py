@@ -170,6 +170,9 @@ urlpatterns = [
     # Resolução de peso (TOP 26) — frontend chama antes do PDF pra detectar
     # linhas com múltiplos pesos e abrir modal de escolha (Mai/2026)
     path('rastreio/api/resolver-peso/',                   views.api_rastreio_resolver_peso,                    name='api_rastreio_resolver_peso'),
+    # Refresh manual do AD_SALDO_LOTE_CACHE — disparado pelo botão Atualizar
+    # quando operador precisa de dado fresco antes do próximo ciclo do cron 5min
+    path('rastreio/api/refresh-saldo/',                   views.api_rastreio_refresh_saldo,                    name='api_rastreio_refresh_saldo'),
 
 # ==============================================================================
 # 📧 MÓDULO IMPORTAÇÃO POR E-MAIL (PEDIDOS COM PDF + LLM LOCAL)

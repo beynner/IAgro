@@ -52,8 +52,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const checksLotes       = new Set();
     const checksPorPedido   = new Map();
     let pedidoIsolado       = null;         // NUNOTA quando o usuário clica no header de um pedido específico
-    let agrupamentoAtual    = 'parceiro';   // 'parceiro' | 'produto' (header agrupador — pedidos)
-    let agrupamentoLotes    = 'parceiro';   // 'parceiro' | 'produto' (header agrupador — lotes, Mai/2026 B9)
+    let agrupamentoAtual    = 'produto';    // 'parceiro' | 'produto' (header agrupador — pedidos)
+    let agrupamentoLotes    = 'produto';    // 'parceiro' | 'produto' (header agrupador — lotes, Mai/2026 B9)
     let tipoLote            = 'todos';      // 'todos' | 'classificavel' | 'nao_classificavel'
     let textoFiltroLotes    = '';           // filtro LIKE de codagregacao
     let fabricanteAtivo     = '';           // filtro exato de FABRICANTE (vem do typeahead)
@@ -82,6 +82,10 @@ document.addEventListener('DOMContentLoaded', function () {
     // Set<chave_grupo_lote> — grupos de lotes colapsados (Mai/2026 — B9).
     // chave = NOMEPARC_ORIGEM ou DESCRPROD, conforme `agrupamentoLotes`.
     const gruposLotesColapsados = new Set();
+    // Set<chave_grupo_lote> — grupos de lotes já inicializados ao menos uma vez.
+    // Mesmo padrão de pedidosJaVistos: novos grupos vêm colapsados por padrão;
+    // estado escolhido pelo usuário se mantém após refresh/atribuição.
+    const gruposLotesJaVistos   = new Set();
     // Set<nomeProduto> — grupos de produto já inicializados ao menos uma vez.
     // Mesmo padrão de pedidosJaVistos: novos grupos vêm colapsados por
     // padrão; estado escolhido pelo usuário se mantém após scroll/refresh.
@@ -110,7 +114,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 dataIniLotes, dataFimLotes,
                 dataIniPedidos, dataFimPedidos,
                 mostrarPendentes,
-                mostrarFinalizados,
+                // mostrarFinalizados intencionalmente NÃO persistido — sempre
+                // arranca em false por performance (vide _carregarPrefs).
                 loteArmadoCodag: loteArmado ? loteArmado.codagregacao : null,
             }));
         } catch (_) {}
@@ -563,7 +568,7 @@ document.addEventListener('DOMContentLoaded', function () {
         switch (tipo) {
             case 'fabricante':
                 fabricanteAtivo = '';
-                if (inputFiltroLotes) inputFiltroLotes.value = '';
+                if (inputFiltroFabricante) inputFiltroFabricante.value = '';
                 carregarLotes(true);
                 carregarPedidos(true);   // cross filter: limpar fabricante reflete nos pedidos
                 break;
@@ -817,7 +822,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 <span class="tag-avaria-int" title="Avaria interna reservada — não disponível para vincular em pedido">AVARIA INT.</span>
             </span>
             <span class="col-parc" title="${escapeHtml(l.nomeparc_origem || '')}">
-                ${_avatarFornecedor(l.nomeparc_origem || '—')}
                 <span class="parc-name-text">${escapeHtml(l.nomeparc_origem || '—')}</span>
             </span>
             <span class="col-lote" title="Lote ${escapeHtml(l.codagregacao)}">
@@ -831,6 +835,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function renderLotes() {
         containerLotes.innerHTML = '';
+        // Sinaliza pro CSS qual dimensão (parceiro/produto) está no header
+        // do grupo — assim os cards escondem a coluna redundante.
+        containerLotes.dataset.agrupar = agrupamentoLotes;
 
         // Skeleton de carga inicial — quando carregando e ainda sem dados,
         // mostra placeholders cinzas em vez de tela vazia ou "Carregando..."
@@ -905,6 +912,17 @@ document.addEventListener('DOMContentLoaded', function () {
             _gruposLotes.get(chave).push(l);
         });
         const _chavesLotes = Array.from(_gruposLotes.keys()).sort((a, b) => a.localeCompare(b));
+
+        // Default colapsado — todo grupo NOVO entra como colapsado.
+        // gruposLotesJaVistos garante que isso só acontece na primeira
+        // aparição de cada chave (refresh/atribuição preserva o estado
+        // escolhido pelo usuário).
+        _chavesLotes.forEach(_ch => {
+            if (!gruposLotesJaVistos.has(_ch)) {
+                gruposLotesJaVistos.add(_ch);
+                gruposLotesColapsados.add(_ch);
+            }
+        });
 
         _chavesLotes.forEach(_chaveGrupoLote => {
             const _lotesDoGrupo = _gruposLotes.get(_chaveGrupoLote);
@@ -1010,7 +1028,6 @@ document.addEventListener('DOMContentLoaded', function () {
                     <strong>${escapeHtml(l.descrprod)}</strong>${tagStatus}
                 </span>
                 <span class="col-parc"  title="${escapeHtml(l.nomeparc_origem || '')}">
-                    ${_avatarFornecedor(l.nomeparc_origem || '—')}
                     <span class="parc-name-text">${escapeHtml(l.nomeparc_origem || '—')}</span>
                 </span>
                 <span class="col-lote"  title="Lote ${escapeHtml(l.codagregacao)}">
@@ -1654,7 +1671,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 <input type="checkbox" class="ras-row-check" ${checkAttr}>
                 <span class="ras-row-check-box"></span>
             </label>
-            ${_avatarFornecedor(pedido.nomeparc || '—')}
             <span class="lpc-parc" title="${escapeHtml(pedido.nomeparc || '—')}">
                 ${setaAlvo}${escapeHtml(pedido.nomeparc || '—')}
             </span>
@@ -2519,8 +2535,10 @@ document.addEventListener('DOMContentLoaded', function () {
         radio.addEventListener('change', (e) => {
             agrupamentoLotes = e.target.value;
             // Chaves de colapso mudam de natureza ao trocar agrupamento (nome
-            // de parceiro vs nome de produto). Limpa pra evitar estado fantasma.
+            // de parceiro vs nome de produto). Limpa pra evitar estado fantasma
+            // e força novo "default colapsado" no próximo render.
             gruposLotesColapsados.clear();
+            gruposLotesJaVistos.clear();
             renderLotes();
             _salvarPrefs();
         });
@@ -2628,13 +2646,9 @@ document.addEventListener('DOMContentLoaded', function () {
             const rL = document.getElementById(prefs.agrupamentoLotes === 'parceiro' ? 'grpLotesParceiro' : 'grpLotesProduto');
             if (rL) rL.checked = true;
         }
-        if (['todos', 'classificavel', 'nao_classificavel'].includes(prefs.tipoLote)) {
-            tipoLote = prefs.tipoLote;
-            const id = prefs.tipoLote === 'todos' ? 'tipoTodos'
-                     : prefs.tipoLote === 'classificavel' ? 'tipoClass' : 'tipoNclass';
-            const r = document.getElementById(id);
-            if (r) r.checked = true;
-        }
+        // tipoLote (Todos/Classific./Não-class.) — filtro removido da UI em
+        // Mai/2026. Mantemos sempre 'todos' independente do que veio do storage.
+        tipoLote = 'todos';
         // Datas: aplica só se string ISO válida (ou string vazia explícita)
         const isISO = (s) => s === '' || /^\d{4}-\d{2}-\d{2}$/.test(s);
         if (typeof prefs.dataIniLotes === 'string' && isISO(prefs.dataIniLotes)) {
@@ -2653,21 +2667,16 @@ document.addEventListener('DOMContentLoaded', function () {
             dataFimPedidos = prefs.dataFimPedidos;
             if (inputDataFimPedidos) inputDataFimPedidos.value = prefs.dataFimPedidos;
         }
-        // Toggle Pendente/Finalizado (Mai/2026 — B9). Retrocompat: lê
-        // mostrarFaturados antigo se mostrarFinalizados ainda não foi gravado.
-        // Garantia: pelo menos um ligado.
+        // Toggle Pendente/Finalizado (Mai/2026 — B9).
+        // Mostrar Pendente: persiste no localStorage (preferência do operador).
+        // Mostrar Finalizado: SEMPRE arranca em false (performance — Mai/2026).
+        //   Traz pedidos faturados que tipicamente são 70%+ do volume e dobra
+        //   o tempo de query do endpoint pedidos. Operador liga manualmente
+        //   quando precisa investigar histórico. Não persistido propositalmente.
         let prefPend = (typeof prefs.mostrarPendentes === 'boolean') ? prefs.mostrarPendentes : mostrarPendentes;
-        let prefFin;
-        if (typeof prefs.mostrarFinalizados === 'boolean') {
-            prefFin = prefs.mostrarFinalizados;
-        } else if (typeof prefs.mostrarFaturados === 'boolean') {
-            prefFin = prefs.mostrarFaturados;       // legado
-        } else {
-            prefFin = mostrarFinalizados;
-        }
-        if (!prefPend && !prefFin) { prefPend = true; prefFin = false; }
+        if (!prefPend) prefPend = true;   // garantia: Pendente sempre ligado por default
         mostrarPendentes   = prefPend;
-        mostrarFinalizados = prefFin;
+        mostrarFinalizados = false;
         const cp = document.getElementById('checkStatusPendente');
         const cf = document.getElementById('checkStatusFinalizado');
         if (cp) { cp.classList.toggle('is-on', mostrarPendentes);   cp.setAttribute('aria-pressed', mostrarPendentes); }
@@ -3150,10 +3159,10 @@ document.addEventListener('DOMContentLoaded', function () {
         const radioTodos = document.getElementById('tipoTodos');
         if (radioTodos) radioTodos.checked = true;
 
-        // Agrupamento → PARCEIRO
-        agrupamentoAtual = 'parceiro';
-        const radioParc = document.getElementById('grpParceiro');
-        if (radioParc) radioParc.checked = true;
+        // Agrupamento → PRODUTO (default desde Mai/2026)
+        agrupamentoAtual = 'produto';
+        const radioProd = document.getElementById('grpProduto');
+        if (radioProd) radioProd.checked = true;
 
         // Datas → defaults (hoje−7 → hoje)
         _inicializarPeriodos();
@@ -3164,12 +3173,14 @@ document.addEventListener('DOMContentLoaded', function () {
         _aplicarStatusBtn(checkStatusPendente,   true);
         _aplicarStatusBtn(checkStatusFinalizado, false);
 
-        // Reset do estado de colapso — todos os pedidos voltam a ser
+        // Reset do estado de colapso — todos os pedidos/grupos voltam a ser
         // tratados como "novos" e serão colapsados na próxima renderização.
         pedidosColapsados.clear();
         pedidosJaVistos.clear();
         gruposProdutoColapsados.clear();
+        gruposProdutoJaVistos.clear();
         gruposLotesColapsados.clear();
+        gruposLotesJaVistos.clear();
 
         // Persiste o reset (limpa preferências antigas)
         _salvarPrefs();
@@ -3178,7 +3189,53 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     if (btnLimparTudo) btnLimparTudo.addEventListener('click', limparTudo);
-    if (btnAtualizar)  btnAtualizar.addEventListener('click', recarregarTudo);
+
+    /** Atualiza manualmente o cache do saldo (AD_SALDO_LOTE_CACHE) e recarrega
+     *  lotes+pedidos. Demora ~12s pois força refresh sincronizado do snapshot
+     *  da view ANDRE_IAGRO_SALDO_LOTE. Útil quando operador acabou de atribuir/
+     *  desvincular lote e quer ver o reflexo imediato, sem esperar o ciclo do
+     *  cron de 5min. (Mai/2026)
+     */
+    async function refrescarSaldoEManter() {
+        if (!btnAtualizar) return;
+        // Feedback visual: desabilita botão + spinner CSS
+        const labelOriginal = btnAtualizar.textContent;
+        btnAtualizar.disabled = true;
+        btnAtualizar.classList.add('btn--loading');
+        btnAtualizar.textContent = 'Atualizando saldo…';
+        try {
+            const csrf = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || '';
+            const resp = await fetch('/sankhya/rastreio/api/refresh-saldo/', {
+                method: 'POST',
+                headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/json' },
+            });
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok || !data.ok) {
+                const msg = (data && data.error) || 'Falha ao atualizar saldo.';
+                if (window.IAgro && window.IAgro.showToast) {
+                    window.IAgro.showToast(msg, 'error');
+                }
+                // Mesmo em falha, recarrega — mostra dado em cache atual
+            } else if (window.IAgro && window.IAgro.showToast) {
+                window.IAgro.showToast(
+                    `Saldo atualizado: ${data.rows} lotes em ${data.duracao_s}s`,
+                    'success',
+                );
+            }
+        } catch (err) {
+            console.warn('[refresh-saldo] erro:', err);
+            if (window.IAgro && window.IAgro.showToast) {
+                window.IAgro.showToast('Erro ao atualizar saldo.', 'error');
+            }
+        } finally {
+            btnAtualizar.disabled = false;
+            btnAtualizar.classList.remove('btn--loading');
+            btnAtualizar.textContent = labelOriginal;
+            recarregarTudo();
+        }
+    }
+
+    if (btnAtualizar)  btnAtualizar.addEventListener('click', refrescarSaldoEManter);
 
     // Botões dentro do empty state — delegação nos containers das duas colunas.
     // Os botões são gerados dinamicamente em renderLotes/renderPedidos quando a
@@ -3223,6 +3280,31 @@ document.addEventListener('DOMContentLoaded', function () {
             ?.addEventListener('click', agruparTudoVisivel);
     document.getElementById('btnDesagruparTudo')
             ?.addEventListener('click', desagruparTudoVisivel);
+
+    // Botões "+" e "−" do painel de Lotes (espelham os de Pedidos).
+    // Operam sobre `gruposLotesColapsados` independente do agrupamento ativo
+    // — a chave já é o nome do grupo (parceiro ou produto), conforme
+    // `agrupamentoLotes`.
+    function agruparTudoLotesVisivel() {
+        const visiveis = lotesData
+            .filter(l => l.status_linha === 'CLASSIFICADO' || l.status_linha === 'NAO_CLASSIFICAVEL')
+            .filter(l => Number(l.qtd_disponivel) > 0);
+        visiveis.forEach(l => {
+            const chave = (agrupamentoLotes === 'produto')
+                ? (l.descrprod || '—')
+                : (l.nomeparc_origem || '—');
+            gruposLotesColapsados.add(chave);
+        });
+        renderLotes();
+    }
+    function desagruparTudoLotesVisivel() {
+        gruposLotesColapsados.clear();
+        renderLotes();
+    }
+    document.getElementById('btnLotesAgruparTudo')
+            ?.addEventListener('click', agruparTudoLotesVisivel);
+    document.getElementById('btnLotesDesagruparTudo')
+            ?.addEventListener('click', desagruparTudoLotesVisivel);
 
     // ==========================================================================
     // 14. BOOTSTRAP

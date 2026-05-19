@@ -33,6 +33,16 @@ window.ComercialFinanceiro = (function () {
         const isRefresh = modal.style.display === 'flex';
         modal.style.display = 'flex';
 
+        // (Mai/2026) Desabilita o FATURAR imediatamente — só será reabilitado após
+        // o loop processar todas as travas (preço + classificação). Evita o "flash"
+        // de botão clicável antes da avaliação terminar.
+        const btnEfetivarInit = document.getElementById('btnEfetivarFaturamento');
+        if (btnEfetivarInit) {
+            btnEfetivarInit.disabled = true;
+            btnEfetivarInit.style.cursor = 'wait';
+            btnEfetivarInit.title = 'Verificando travas...';
+        }
+
         const listClass = document.getElementById('listaFechamentoClass');
         const listDireto = document.getElementById('listaFechamentoDireto');
 
@@ -43,7 +53,9 @@ window.ComercialFinanceiro = (function () {
         }
 
         let totalBruto = 0;
-        let temPendente = false;
+        let temPendente = false;             // qualquer item bloqueando (preço OU classificação)
+        let temPendentePreco = false;        // algum item sem preço definido
+        let temPendenteClassificacao = false;// algum classificável sem TOP 26 finalizada (PENDENTE != 'N')
         let htmlClass = '';
         let htmlDireto = '';
 
@@ -106,7 +118,17 @@ window.ComercialFinanceiro = (function () {
             totalBruto += vlrTotal;
 
             if (isClassificavel) {
-                if (vlrTotal <= 0) temPendente = true;
+                // Trava 1 — sem preço no vale TOP 13 (já existia)
+                if (vlrTotal <= 0) {
+                    temPendente = true;
+                    temPendentePreco = true;
+                }
+                // Trava 2 (Mai/2026) — classificação não finalizada na TOP 26.
+                // PENDENTE='N' = não-pendente = FINALIZADA. 'S' ou NULL bloqueia.
+                if (item.pendente !== 'N') {
+                    temPendente = true;
+                    temPendenteClassificacao = true;
+                }
 
                 let kgFisicoTotal = 0;
                 try {
@@ -162,7 +184,10 @@ window.ComercialFinanceiro = (function () {
                 const campoEditavel = isFaturado ?
                     `<span>${vlrUnit.toFixed(2)}</span>` :
                     `<span class="editable" style="cursor:pointer;" onclick="window.ComercialFinanceiro.editarPreco(${item.nunota}, ${item.codprod}, ${nunota13Ativo}, this)">${vlrUnit.toFixed(2)}</span>`;
-                if (vlrUnit <= 0 || vlrTotal <= 0) temPendente = true;
+                if (vlrUnit <= 0 || vlrTotal <= 0) {
+                    temPendente = true;
+                    temPendentePreco = true;
+                }
 
                 let htmlQtde = '';
                 let htmlVlr = '';
@@ -246,7 +271,16 @@ window.ComercialFinanceiro = (function () {
             btnEfetivar.style.color = "";
             btnEfetivar.style.cursor = temPendente ? "not-allowed" : "pointer";
             btnEfetivar.disabled = temPendente;
-            btnEfetivar.title = temPendente ? "Existem produtos sem preço definido." : "";
+            // Tooltip discrimina os 2 bloqueios possíveis (Mai/2026):
+            // preço em branco e/ou classificação não finalizada (TOP 26 PENDENTE != 'N').
+            if (temPendente) {
+                const motivos = [];
+                if (temPendentePreco)         motivos.push("Existem produtos sem preço definido.");
+                if (temPendenteClassificacao) motivos.push("Há classificáveis com classificação ainda não finalizada (finalize a TOP 26 antes).");
+                btnEfetivar.title = motivos.join('\n');
+            } else {
+                btnEfetivar.title = "";
+            }
             btnEfetivar.onclick = () => window.ComercialFinanceiro.faturar();
         }
 
