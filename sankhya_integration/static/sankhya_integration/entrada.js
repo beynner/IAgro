@@ -1293,10 +1293,10 @@ console.debug('showItemsModal resolved nunota', resolved);
         let j=null; try{ j = window.__ITEMS_CACHE && window.__ITEMS_CACHE[String(resolved)]; }catch(e){ console.warn('Cache render failed', e); }
         if(j && j.ok){
           const rows = j.items || j.results || [];
-          itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="7" class="ia-padding ia-muted">Nenhum item.</td></tr>';
+          itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="8" class="ia-padding ia-muted">Nenhum item.</td></tr>';
           for(const it of rows){ addItemRowToList(it); }
         } else {
-          itemsListBody.innerHTML = '<tr><td colspan="7" class="ia-padding ia-muted">Carregando…</td></tr>';
+          itemsListBody.innerHTML = '<tr><td colspan="8" class="ia-padding ia-muted">Carregando…</td></tr>';
         }
       }catch(e){ console.warn('Cache render failed', e); }
       try{ console.debug('showItemsModal calling loadItems for', resolved); loadItems(resolved); }catch(e){ console.error('loadItems call failed', e); }
@@ -1681,7 +1681,7 @@ console.debug('showItemsModal resolved nunota', resolved);
     // normalize nunota to integer or null
     function normalizeNunota(n){ try{ if(n==null) return null; const s = String(n).trim(); if(!s) return null; const m = s.match(/(\d+)/); if(!m) return null; const v = parseInt(m[1],10); return Number.isFinite(v) ? v : null; }catch(e){ console.debug('normalizeNunota failed', e); return null; } }
 
-    function clearItemsList(){ if(!itemsListBody) return; itemsListBody.innerHTML = '<tr><td colspan="7" class="ia-padding ia-muted">Nenhum item carregado.</td></tr>'; }
+    function clearItemsList(){ if(!itemsListBody) return; itemsListBody.innerHTML = '<tr><td colspan="8" class="ia-padding ia-muted">Nenhum item carregado.</td></tr>'; }
     // Click-to-select for items modal rows (visual highlight and future actions)
     // Click-to-select for items modal rows (visual highlight and future actions)
     try{
@@ -1737,13 +1737,15 @@ console.debug('showItemsModal resolved nunota', resolved);
             try{ loadItems(nun); }catch(e){} 
             try{ panelLoadItems(nun); }catch(e){} 
           }
-          else { 
+          else {
             const errMsg = res.body?.error || 'Falha ao excluir item.';
             showToast(errMsg, 'error');
           }
           return;
         }
-        
+
+        // Handle avaria fornecedor save button (Mai/2026 — 2026-05-19)
+
         // Handle row selection
         const tr = e.target && e.target.closest ? e.target.closest('tr') : null;
         if(!tr) return;
@@ -1826,6 +1828,22 @@ console.debug('showItemsModal resolved nunota', resolved);
       const unitQtyHtml = unitQty ? `<span class="unit-suffix">${unitQty}</span>` : '';
       const totalWithUnit = totalFormatted ? `${totalFormatted} <span class="unit-suffix">kg</span>` : totalFormatted;
 
+      // Avaria forn.: editável em TUDO que NÃO seja explicitamente classificável (S).
+      // Cobre itens legados com GERAPRODUCAO = NULL (que existem em produção).
+      // O valor real chega depois via fetch /compras/api/avarias-fornecedor/.
+      let gpUpper = '';
+      if (it && it.geraproducao != null) {
+        gpUpper = String(it.geraproducao).toUpperCase();
+      } else if (it && typeof it.classifica !== 'undefined') {
+        gpUpper = it.classifica ? 'S' : 'N';
+      }
+      const isClassificavel = gpUpper === 'S';
+      const isNaoClass = !isClassificavel;
+      const avariaCellHtml = isNaoClass
+        ? `<input type="number" step="0.001" min="0" class="avaria-forn-input" data-seq="${it.sequencia || ''}" value="0"
+                  title="Avaria do fornecedor (kg). Salva automaticamente ao sair do campo." />`
+        : `<span class="ia-muted" title="Produto classificável — avaria gerenciada na Classificação">—</span>`;
+
       tr.innerHTML = `
         <td>${it.cod || ''} ${it.descr || ''}</td>
         <td>${it.lote || ''}</td>
@@ -1833,6 +1851,7 @@ console.debug('showItemsModal resolved nunota', resolved);
         <td class="text-right">${qtdFormatted} ${unitQtyHtml}</td>
         <td class="text-right">${pesoFormatted}</td>
         <td class="text-right">${totalWithUnit}</td>
+        <td class="text-right avaria-forn-col">${avariaCellHtml}</td>
         <td><button class="icon-btn item-del" data-seq="${it.sequencia || ''}" aria-label="Excluir">
           <i class="ph ph-trash icon" style="color:#dc2626;" aria-hidden="true"></i>
         </button></td>
@@ -1906,6 +1925,95 @@ console.debug('showItemsModal resolved nunota', resolved);
       });
     }
 
+    // Mai/2026 (2026-05-19) — Salva AD_QTDAVARIA de um item via POST.
+    // Disparado pelo auto-save no blur (change) ou Enter no input.
+    async function _salvarAvariaForncFromInput(inp){
+      if(!inp){ return; }
+      const seq = inp.dataset.seq;
+      const nunRaw = document.getElementById('items_nunota')?.value;
+      const nun = normalizeNunota(nunRaw);
+      if(!nun || !seq){ return; }
+
+      const raw = String(inp.value || '0').replace(',', '.');
+      const val = parseFloat(raw);
+      if(!Number.isFinite(val) || val < 0){
+        showToast('Avaria inválida — informe número >= 0.', 'error');
+        try{ inp.focus(); inp.select(); }catch(_){}
+        return;
+      }
+
+      // Skip se valor não mudou desde a última gravação (evita POST desnecessário no blur sem edição)
+      if(inp.dataset.lastSaved !== undefined && parseFloat(inp.dataset.lastSaved) === val){
+        return;
+      }
+
+      inp.classList.add('avaria-forn-saving');
+      try{
+        const res = await postJSON('/sankhya/compras/api/avaria-fornecedor/', {
+          nunota: parseInt(nun, 10),
+          sequencia: parseInt(seq, 10),
+          qtd_avaria: val,
+        });
+        if(res.ok && res.body?.ok){
+          inp.dataset.lastSaved = String(val);
+          inp.classList.add('avaria-forn-saved');
+          inp.classList.remove('avaria-forn-error');
+          setTimeout(() => inp.classList.remove('avaria-forn-saved'), 1500);
+          showToast(`Avaria do fornecedor salva (${val} kg).`, 'success');
+        } else {
+          inp.classList.add('avaria-forn-error');
+          const errMsg = res.body?.error || `Falha ao salvar (HTTP ${res.status}).`;
+          showToast(errMsg, 'error');
+        }
+      } catch(err){
+        console.error('avaria save failed', err);
+        inp.classList.add('avaria-forn-error');
+        showToast('Falha de conexão ao salvar avaria.', 'error');
+      } finally {
+        inp.classList.remove('avaria-forn-saving');
+      }
+    }
+
+    // Auto-save da avaria ao perder foco / Enter (change). Delegação no itemsListBody.
+    itemsListBody?.addEventListener('change', async function(e){
+      const inp = e.target;
+      if(!inp || !inp.classList?.contains('avaria-forn-input')) return;
+      await _salvarAvariaForncFromInput(inp);
+    });
+    itemsListBody?.addEventListener('keydown', function(e){
+      const inp = e.target;
+      if(!inp || !inp.classList?.contains('avaria-forn-input')) return;
+      if(e.key === 'Enter'){
+        e.preventDefault();
+        try{ inp.blur(); }catch(_){}
+      }
+    });
+
+    // Mai/2026 (2026-05-19) — busca AD_QTDAVARIA dos itens da nota e
+    // preenche os inputs editáveis da coluna 'Avaria forn.' (só
+    // produtos não-classificáveis têm input editável; ver addItemRowToList).
+    async function loadAvariasFornecedor(nunota){
+      try{
+        const url = '/sankhya/compras/api/avarias-fornecedor/?nunota=' + encodeURIComponent(nunota);
+        const r = await fetch(url, { credentials: 'same-origin' });
+        const j = await r.json();
+        if(!j || !j.ok || !j.avarias) return;
+        if(!itemsListBody) return;
+        const inputs = itemsListBody.querySelectorAll('input.avaria-forn-input');
+        inputs.forEach(inp => {
+          const seq = String(inp.dataset.seq || '');
+          if(!seq) return;
+          const val = j.avarias[seq];
+          if(val !== undefined && val !== null){
+            inp.value = Number(val).toFixed(3).replace(/\.?0+$/, '') || '0';
+            inp.dataset.lastSaved = String(val);
+          }
+        });
+      }catch(e){
+        console.warn('loadAvariasFornecedor failed', e);
+      }
+    }
+
     async function loadItems(nunota){
       // abort any previous request
       try{ if(itemsListController){ try{ itemsListController.abort(); }catch(e){ console.warn('Abort controller failed', e); } itemsListController = null; } }catch(e){ console.warn('Abort controller failed', e); }
@@ -1917,11 +2025,12 @@ console.debug('showItemsModal resolved nunota', resolved);
         let j = null; try{ const cache = window.__ITEMS_CACHE || {}; if (cache && cache[String(resolved)]) j = cache[String(resolved)]; }catch(e){ console.warn('Cache read failed', e); }
         if(j){
           const rows = j.items || j.results || [];
-          itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="7" class="ia-padding ia-muted">Nenhum item.</td></tr>';
+          itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="8" class="ia-padding ia-muted">Nenhum item.</td></tr>';
           for(const it of rows){ addItemRowToList(it); }
+          loadAvariasFornecedor(resolved);
         } else {
           // Status enquanto aguarda rede
-          itemsListBody.innerHTML = '<tr><td colspan="7" class="ia-padding ia-muted">Carregando…</td></tr>';
+          itemsListBody.innerHTML = '<tr><td colspan="8" class="ia-padding ia-muted">Carregando…</td></tr>';
           itemsListController = new AbortController();
           const opts = { credentials: 'same-origin', signal: itemsListController.signal };
           const url = API_URLS.ITEM_LIST + '?nunota=' + encodeURIComponent(resolved);
@@ -1939,10 +2048,11 @@ console.debug('showItemsModal resolved nunota', resolved);
           
           // Save to cache for next loads
           try{ if(j && j.ok){ window.__ITEMS_CACHE = window.__ITEMS_CACHE || {}; window.__ITEMS_CACHE[String(resolved)] = j; } }catch(e){ console.warn('Cache write failed', e); }
-          if(!j || !j.ok){ itemsListBody.innerHTML = `<tr><td colspan="7">Erro: ${(j&&j.error)||'falha'}</td></tr>`; return; }
+          if(!j || !j.ok){ itemsListBody.innerHTML = `<tr><td colspan="8">Erro: ${(j&&j.error)||'falha'}</td></tr>`; return; }
           const rows = j.items || j.results || [];
-          itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="7" class="ia-padding ia-muted">Nenhum item.</td></tr>';
+          itemsListBody.innerHTML = rows.length ? '' : '<tr><td colspan="8" class="ia-padding ia-muted">Nenhum item.</td></tr>';
           for(const it of rows){ addItemRowToList(it); }
+          loadAvariasFornecedor(resolved);
         }
       }catch(err){
         if(err && err.name === 'AbortError'){
@@ -1950,7 +2060,7 @@ console.debug('showItemsModal resolved nunota', resolved);
           return;
         }
         console.error('loadItems error', err);
-        itemsListBody.innerHTML = '<tr><td colspan="7">Erro ao carregar.</td></tr>'; }
+        itemsListBody.innerHTML = '<tr><td colspan="8">Erro ao carregar.</td></tr>'; }
     }
 
     // Item Produto typeahead — reutiliza attachTA para ter o mesmo comportamento do Parceiro (modal Cabeçalho)

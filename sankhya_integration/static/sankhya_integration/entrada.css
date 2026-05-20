@@ -558,3 +558,56 @@ table { width: 100%; border-collapse: collapse; table-layout: fixed; }
     #cabItemsCard .ia-selectable-table-wrap { overflow-x: auto; }
     #cabItemsCard .ia-selectable-table { min-width: 600px; }
 }
+
+/* ==========================================================================
+   Avaria do fornecedor — coluna da tabela de itens (Mai/2026 — 2026-05-19)
+   Auto-save no blur do input; sem botão dedicado de salvar.
+   Só produtos não-classificáveis ganham input editável; classificáveis veem "—".
+   ========================================================================== */
+.avaria-forn-col {
+    width: 110px;
+    text-align: right;
+}
+.avaria-forn-input {
+    width: 95px;
+    text-align: right;
+    padding: 3px 8px;
+    font-size: 13px;
+    border: 1px solid var(--cor-borda, #d4d4d8);
+    border-radius: 4px;
+    background: #fffaf0;       /* fundo levemente amarelado pra destacar atenção */
+    -moz-appearance: textfield; /* Firefox: remove spinners */
+}
+/* Webkit (Chrome/Edge/Safari): remove spinners */
+.avaria-forn-input::-webkit-outer-spin-button,
+.avaria-forn-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.avaria-forn-input:focus {
+    outline: none;
+    border-color: #d97706;     /* âmbar — convergente com paleta de avaria do projeto */
+    box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.2);
+}
+
+/* Feedback visual do auto-save no change/blur */
+.avaria-forn-input.avaria-forn-saving {
+    border-color: #d97706;
+    background: #fff7ed;
+}
+.avaria-forn-input.avaria-forn-saved {
+    border-color: #16a34a;
+    background: #f0fdf4;
+    box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.18);
+}
+.avaria-forn-input.avaria-forn-error {
+    border-color: #dc2626;
+    background: #fef2f2;
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15);
+}
+
+/* Lixeira de excluir item: sempre alinhada à direita da última coluna */
+#itemsListBody td:last-child {
+    text-align: right;
+    width: 44px;
+}

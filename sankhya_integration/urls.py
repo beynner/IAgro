@@ -68,6 +68,22 @@ urlpatterns = [
     path("item/save/", views.api_salvar_item_nota, name="item_save"),
     path("item/delete/", views.api_excluir_itens_nota, name="item_delete"),
 
+    # Avaria do fornecedor em item NÃO-classificável (Mai/2026 — 2026-05-19)
+    path("compras/api/avarias-fornecedor/",
+         views.api_listar_avarias_fornecedor,
+         name="api_listar_avarias_fornecedor"),
+    path("compras/api/avaria-fornecedor/",
+         views.api_avaria_fornecedor_naoclass,
+         name="api_avaria_fornecedor_naoclass"),
+    # Avarias do fornecedor por lote — leitura pelo modal Faturamento do Comercial
+    path("comercial/api/avarias-fornecedor-pedido/",
+         views.api_avarias_fornecedor_de_pedido,
+         name="api_avarias_fornecedor_de_pedido"),
+    # Alterna modo Absorver/Descontar do toggle (B12 — Mai/2026 — 2026-05-20)
+    path("comercial/api/avaria-modo-vale/",
+         views.api_alternar_modo_avaria_vale,
+         name="api_alternar_modo_avaria_vale"),
+
     # ==============================================================================
     # 🧪 MÓDULO CLASSIFICAÇÃO (ITENS IN NATURA -> PRODUTOS ACABADOS / TOP 26)
     # ==============================================================================

@@ -67,6 +67,12 @@ from .services.oracle_conn import (
     upsert_produto_caixa_banco,
     # [TEMPORÁRIO Mai/2026] backfill PESO — remover quando IAgro virar fluxo único
     popular_pesos_top34_35_37_via_moda_TEMP,
+    # Avaria fornecedor não-classificável (Mai/2026 — 2026-05-19)
+    atualizar_avaria_fornecedor_naoclass,
+    consultar_avarias_fornecedor_da_nota,
+    consultar_avarias_fornecedor_de_pedido,
+    # Toggle Absorver/Descontar do modal Faturamento (Mai/2026 — 2026-05-20)
+    alternar_modo_avaria_vale_lote,
 )
 from .services.etiqueta_lote import gerar_pdf_etiquetas
 
@@ -1315,6 +1321,154 @@ def api_excluir_itens_nota(request: HttpRequest) -> JsonResponse:
     except Exception as e:
         return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
+def api_alternar_modo_avaria_vale(request: HttpRequest) -> JsonResponse:
+    """Alterna modo Absorver/Descontar de um lote do vale TOP 13.
+
+    Recalcula QTDNEG e VLRTOT do TGFITE TOP 13 conforme a decisão atual,
+    sem precisar editar preço (lê o VLRUNIT já gravado no vale).
+
+    Payload:
+        {nunota_origem, codprod, codagregacao, absorver: true|false}
+
+    Mai/2026 (2026-05-20) — B12 do plano Avaria.
+    """
+    if request.method != 'POST':
+        return JsonResponse({"ok": False, "error": "Use POST"}, status=405)
+
+    payload = _get_json_payload(request)
+    if not payload:
+        return JsonResponse({"ok": False, "error": "JSON inválido"}, status=400)
+
+    nunota_origem = _converter_para_inteiro(payload.get('nunota_origem'))
+    codprod       = _converter_para_inteiro(payload.get('codprod'))
+    codagregacao  = (payload.get('codagregacao') or '').strip()
+    absorver      = bool(payload.get('absorver'))
+
+    if not (nunota_origem and codprod and codagregacao):
+        return JsonResponse(
+            {"ok": False, "error": "nunota_origem, codprod e codagregacao são obrigatórios"},
+            status=400,
+        )
+
+    try:
+        res = alternar_modo_avaria_vale_lote(
+            nunota_origem=nunota_origem,
+            codprod=codprod,
+            codagregacao=codagregacao,
+            absorver=absorver,
+            codusu=request.session.get('codusu'),
+            nomeusu=request.session.get('nomeusu') or 'desconhecido',
+        )
+    except Exception as exc:
+        logger.exception("Falha em api_alternar_modo_avaria_vale")
+        return JsonResponse(
+            {"ok": False, "error": humanizar_erro_oracle(exc)},
+            status=500,
+        )
+
+    return JsonResponse(res, status=200 if res.get('ok') else 400)
+
+
+def api_avarias_fornecedor_de_pedido(request: HttpRequest) -> JsonResponse:
+    """Retorna avarias do fornecedor por LOTE dos itens de um pedido.
+
+    Usado pelo modal Faturamento (Comercial) pra mostrar ⚠ ao lado de itens
+    cujo lote teve descarte do fornecedor registrado na TOP 11 origem.
+
+    Resposta:
+        {"ok": true, "avarias_por_lote": {codagregacao: {qtd_avaria,
+                                                         qtd_entrada,
+                                                         fornecedor,
+                                                         dtneg_entrada}}}
+
+    Mai/2026 (2026-05-19).
+    """
+    if request.method != 'GET':
+        return JsonResponse({"ok": False, "error": "Use GET"}, status=405)
+
+    nunota = _converter_para_inteiro(request.GET.get('nunota'))
+    if not nunota:
+        return JsonResponse({"ok": False, "error": "nunota inválido"}, status=400)
+
+    avarias = consultar_avarias_fornecedor_de_pedido(nunota) or {}
+    return JsonResponse({"ok": True, "avarias_por_lote": avarias})
+
+
+def api_listar_avarias_fornecedor(request: HttpRequest) -> JsonResponse:
+    """Retorna o AD_QTDAVARIA atual de cada item de uma nota.
+
+    Usado pelo frontend da Entrada pra preencher a coluna 'Avaria forn.'
+    do modal de itens — evita alterar a query existente
+    ``listar_itens_por_nota`` (Cat B) com SELECT extra.
+
+    Payload de resposta:
+        {"ok": true, "avarias": {sequencia: ad_qtdavaria, ...}}
+
+    Mai/2026 (2026-05-19).
+    """
+    if request.method != 'GET':
+        return JsonResponse({"ok": False, "error": "Use GET"}, status=405)
+
+    nunota = _converter_para_inteiro(request.GET.get('nunota'))
+    if not nunota:
+        return JsonResponse({"ok": False, "error": "nunota inválido"}, status=400)
+
+    avarias = consultar_avarias_fornecedor_da_nota(nunota) or {}
+    # JSON exige chaves string — converte sequencia (int) pra string
+    payload = {str(seq): float(val) for seq, val in avarias.items()}
+    return JsonResponse({"ok": True, "avarias": payload})
+
+
+def api_avaria_fornecedor_naoclass(request: HttpRequest) -> JsonResponse:
+    """Registra avaria do fornecedor em item NÃO-classificável da Entrada (TOP 11).
+
+    Endpoint dedicado pra escapar da trava de edição da TOP 11 (que bloqueia
+    qualquer UPDATE quando já existe TOP 13/26 com o lote). Avaria do
+    fornecedor pode ser registrada depois — operador descobre quando faturando.
+
+    Payload esperado:
+        {"nunota": int, "sequencia": int, "qtd_avaria": float}
+
+    Mai/2026 (2026-05-19).
+    """
+    if request.method != 'POST':
+        return JsonResponse({"ok": False, "error": "Use POST"}, status=405)
+
+    payload = _get_json_payload(request)
+    if not payload:
+        return JsonResponse({"ok": False, "error": "JSON inválido"}, status=400)
+
+    nunota = _converter_para_inteiro(payload.get('nunota'))
+    seq    = _converter_para_inteiro(payload.get('sequencia'))
+    qtd    = payload.get('qtd_avaria')
+
+    if not nunota or not seq:
+        return JsonResponse(
+            {"ok": False, "error": "nunota e sequencia são obrigatórios"},
+            status=400,
+        )
+
+    codusu  = request.session.get('codusu')
+    nomeusu = request.session.get('nomeusu') or 'desconhecido'
+
+    try:
+        res = atualizar_avaria_fornecedor_naoclass(
+            nunota=nunota,
+            sequencia=seq,
+            qtd_avaria=qtd,
+            codusu=codusu,
+            nomeusu=nomeusu,
+        )
+    except Exception as exc:
+        logger.exception("Falha em api_avaria_fornecedor_naoclass")
+        return JsonResponse(
+            {"ok": False, "error": humanizar_erro_oracle(exc)},
+            status=500,
+        )
+
+    return JsonResponse(res, status=200 if res.get('ok') else 400)
+
+
 def api_finalizar_nota_compra(request: HttpRequest) -> JsonResponse:
     """Carimba a nota como 'Finalizada' (Muda STATUSNOTA para 'L' e preenche a DTFATUR)."""
     if request.method != 'POST': return JsonResponse({"ok": False, "error": "Use POST"}, status=405)
@@ -2361,10 +2515,24 @@ def api_gerar_financeiro_banco(request: HttpRequest) -> JsonResponse:
         if vlr_forcar_liquido is not None: vlr_forcar_liquido = float(vlr_forcar_liquido)
         if vlr_forcar_bruto is not None: vlr_forcar_bruto = float(vlr_forcar_bruto)
 
-        logger.debug("Faturando NUNOTA %s | Líquido: %s | Bruto: %s", nunota_13, vlr_forcar_liquido, vlr_forcar_bruto)
+        # Mai/2026 (2026-05-20) — lotes que o operador marcou pra absorver avaria.
+        # Backend reconcilia TGFCAB TOP 30 (cria/remove conforme presença). Backward
+        # compat: se vier None ou ausente, backend não toca em TOP 30.
+        lotes_absorver_avaria = payload.get('lotes_absorver_avaria')
+        if lotes_absorver_avaria is not None and not isinstance(lotes_absorver_avaria, list):
+            lotes_absorver_avaria = None
+
+        logger.debug("Faturando NUNOTA %s | Líquido: %s | Bruto: %s | LotesAbsorver: %s",
+                     nunota_13, vlr_forcar_liquido, vlr_forcar_bruto, lotes_absorver_avaria)
 
         from sankhya_integration.services.oracle_conn import gerar_financeiro_banco
-        res = gerar_financeiro_banco(nunota_13, inss, historico, vlrinss, vlr_forcar_liquido, vlr_forcar_bruto)
+        res = gerar_financeiro_banco(
+            nunota_13, inss, historico, vlrinss,
+            vlr_forcar_liquido, vlr_forcar_bruto,
+            lotes_absorver_avaria=lotes_absorver_avaria,
+            codusu=request.session.get('codusu'),
+            nomeusu=request.session.get('nomeusu'),
+        )
 
         if res.get('ok'):
             registrar_auditoria(

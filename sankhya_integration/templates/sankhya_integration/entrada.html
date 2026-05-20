@@ -6,7 +6,7 @@
 
 {% block extra_css %}
   <meta name="app-version" content="{{ APP_VERSION }}">
-  <link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}?v=13">
 {% endblock %}
 
 {% block header_title %}ENTRADA IAGRO{% endblock %}
@@ -270,10 +270,11 @@
                   <th class="text-right">Qtd</th>
                   <th class="text-right">Peso</th>
                   <th class="text-right">Total kg</th>
+                  <th class="text-right" title="Avaria do fornecedor (descarte da carga que volta pro fornecedor — só em produtos não-classificáveis)">Avaria forn.</th>
                   <th></th>
                 </tr>
               </thead>
-              <tbody id="itemsListBody"><tr><td colspan="7" class="ia-muted">Nenhum item carregado.</td></tr></tbody>
+              <tbody id="itemsListBody"><tr><td colspan="8" class="ia-muted">Nenhum item carregado.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -327,5 +328,5 @@
 {% endblock %}
 
 {% block extra_js %}
-  <script src="{% static 'sankhya_integration/entrada.js' %}?v=5" defer></script>
+  <script src="{% static 'sankhya_integration/entrada.js' %}?v=9" defer></script>
 {% endblock %}

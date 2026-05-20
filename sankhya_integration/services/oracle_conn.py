@@ -1363,6 +1363,106 @@ def listar_notas_compra_paginado(limite: int = 50, offset: int = 0, **kwargs):
         cur.execute(sql_paginado, binds)
         return cur.fetchall()
 
+def consultar_avarias_fornecedor_de_pedido(nunota_pedido: int) -> dict:
+    """Retorna avarias do fornecedor por LOTE dos itens de um pedido de Venda.
+
+    Função aditiva (SELECT puro) — usada pelo modal Faturamento (Comercial)
+    pra exibir ⚠ ao lado de itens cujo lote teve descarte do fornecedor
+    registrado na TOP 11 origem.
+
+    Cruza CODAGREGACAO dos itens do pedido com TGFITE TOP 11 (entrada),
+    agrupando por lote e somando AD_QTDAVARIA. Retorna **apenas lotes com
+    avaria > 0** — frontend filtra silenciosamente nos demais.
+
+    Retorno:
+        {codagregacao: {
+            'qtd_avaria': float,
+            'qtd_entrada': float,
+            'fornecedor': str,
+            'dtneg_entrada': str ISO,
+        }, ...}
+
+    Mai/2026 (2026-05-19).
+    """
+    try:
+        nun = int(nunota_pedido)
+    except (TypeError, ValueError):
+        return {}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT i11.CODAGREGACAO,
+                       SUM(NVL(i11.AD_QTDAVARIA, 0)) AS qtd_avaria,
+                       SUM(NVL(i11.QTDNEG, 0))      AS qtd_entrada,
+                       MAX(p.NOMEPARC)              AS fornecedor,
+                       MAX(c11.DTNEG)               AS dtneg_entrada
+                  FROM TGFITE i11
+                  JOIN TGFCAB c11 ON c11.NUNOTA = i11.NUNOTA
+                  LEFT JOIN TGFPAR p ON p.CODPARC = c11.CODPARC
+                 WHERE c11.CODTIPOPER = 11
+                   AND c11.STATUSNOTA <> 'E'
+                   AND NVL(i11.AD_QTDAVARIA, 0) > 0
+                   AND i11.CODAGREGACAO IN (
+                       SELECT DISTINCT CODAGREGACAO
+                         FROM TGFITE
+                        WHERE NUNOTA = :nped
+                          AND CODAGREGACAO IS NOT NULL
+                   )
+                 GROUP BY i11.CODAGREGACAO
+                """,
+                nped=nun,
+            )
+            resultado = {}
+            for codag, qa, qe, forn, dt in cur.fetchall():
+                if not codag:
+                    continue
+                qa = float(qa or 0)
+                if qa <= 0:
+                    continue
+                resultado[str(codag)] = {
+                    'qtd_avaria': qa,
+                    'qtd_entrada': float(qe or 0),
+                    'fornecedor': forn or '',
+                    'dtneg_entrada': dt.isoformat() if dt else None,
+                }
+            return resultado
+    except Exception:
+        logger.exception(
+            "Falha consultar_avarias_fornecedor_de_pedido NUNOTA=%s", nunota_pedido,
+        )
+        return {}
+
+
+def consultar_avarias_fornecedor_da_nota(nunota: int) -> dict:
+    """Retorna ``{sequencia: AD_QTDAVARIA}`` dos itens da nota (Mai/2026 — 2026-05-19).
+
+    Função aditiva (SELECT puro) usada pelo frontend da Entrada pra preencher
+    a coluna 'Avaria forn.' dos itens NÃO-classificáveis (GERAPRODUCAO <> 'S').
+    A coluna AD_QTDAVARIA de itens classificáveis (S) também é retornada —
+    quem decide se mostra/edita é o frontend (depende do ``geraproducao``).
+
+    Retorna dict vazio se a nota não existe ou se houver falha de leitura.
+    """
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT SEQUENCIA, NVL(AD_QTDAVARIA, 0)
+                  FROM TGFITE
+                 WHERE NUNOTA = :n
+                """,
+                n=int(nunota),
+            )
+            return {int(seq): float(av or 0) for seq, av in cur.fetchall()}
+    except Exception:
+        logger.exception("Falha consultar_avarias_fornecedor_da_nota NUNOTA=%s", nunota)
+        return {}
+
+
 def listar_itens_por_nota(nunota: int):
 
     """Busca todos os itens de uma nota específica (Para exibir no grid)."""
@@ -1538,10 +1638,10 @@ def atualizar_descarte_origem(nunota_origem: int, codagregacao: str, qtd_descart
     """
     if not verificar_permissao_escrita():
         return False
-        
+
     sql = """
-        UPDATE TGFITE 
-        SET AD_QTDAVARIA = :qtd 
+        UPDATE TGFITE
+        SET AD_QTDAVARIA = :qtd
         WHERE NUNOTA = :nunota AND CODAGREGACAO = :lote AND GERAPRODUCAO = 'S'
     """
     with obter_conexao_oracle() as conn:
@@ -1549,6 +1649,159 @@ def atualizar_descarte_origem(nunota_origem: int, codagregacao: str, qtd_descart
         cur.execute(sql, qtd=qtd_descarte, nunota=nunota_origem, lote=codagregacao)
         conn.commit()
         return cur.rowcount > 0
+
+
+def atualizar_avaria_fornecedor_naoclass(
+    nunota: int,
+    sequencia: int,
+    qtd_avaria,
+    codusu: int,
+    nomeusu: str,
+) -> dict:
+    """
+    Registra avaria do fornecedor em item NÃO-classificável da Entrada (TOP 11).
+
+    Espelha o padrão de ``atualizar_descarte_origem`` (usado pela Classificação),
+    mas filtra ``GERAPRODUCAO <> 'S'`` — pra cobrir produtos in natura que
+    não passam pela tela de Classificação e portanto não tinham onde
+    registrar descarte do fornecedor (perna E da view ANDRE_IAGRO_SALDO_LOTE).
+
+    Pode ser chamado a qualquer momento (mesmo após TOP 13/26 existirem),
+    porque AD_QTDAVARIA é informativo — perna E fica fora da fórmula de
+    QTD_DISPONIVEL e não afeta saldo vendável.
+
+    Mai/2026 (2026-05-19).
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+
+    try:
+        qtd = float(qtd_avaria or 0)
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': 'Quantidade de avaria inválida'}
+
+    if qtd < 0:
+        return {'ok': False, 'error': 'Avaria não pode ser negativa'}
+
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                SELECT i.QTDNEG, NVL(i.AD_QTDAVARIA, 0), NVL(i.GERAPRODUCAO, 'N'),
+                       i.CODPROD, i.CODAGREGACAO, c.CODTIPOPER
+                  FROM TGFITE i
+                  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                 WHERE i.NUNOTA = :n AND i.SEQUENCIA = :s
+                """,
+                n=int(nunota), s=int(sequencia),
+            )
+            row = cur.fetchone()
+            if not row:
+                return {'ok': False, 'error': 'Item não encontrado'}
+
+            qtdneg = float(row[0] or 0)
+            avaria_antes = float(row[1] or 0)
+            gp = str(row[2] or 'N').strip().upper()
+            codprod = int(row[3]) if row[3] is not None else None
+            codagregacao = row[4]
+            top_atual = int(row[5]) if row[5] is not None else None
+
+            if top_atual != 11:
+                return {'ok': False, 'error': 'Item não pertence à Entrada (TOP 11)'}
+
+            if gp == 'S':
+                return {
+                    'ok': False,
+                    'error': 'Produto é classificável — use a tela de Classificação',
+                }
+
+            if qtd > qtdneg:
+                return {
+                    'ok': False,
+                    'error': f'Avaria ({qtd:.2f}) maior que a qtd do item ({qtdneg:.2f})',
+                }
+
+            # Mai/2026 (2026-05-20) — B10: trava se vale TOP 13 do pedido já foi
+            # faturado (tem TGFFIN gerado). Operador precisa desfaturar antes
+            # de alterar avaria, pra evitar inconsistência com a TOP 30 que
+            # foi criada automaticamente no faturamento.
+            cur.execute(
+                """
+                SELECT NVL(MAX(f.NUFIN), 0)
+                  FROM TGFCAB c13
+                  JOIN TGFFIN f ON f.NUNOTA = c13.NUNOTA
+                 WHERE c13.CODTIPOPER = 13
+                   AND c13.NUMNOTA = :n11
+                   AND c13.STATUSNOTA <> 'E'
+                """,
+                n11=int(nunota),
+            )
+            nufin_existente = int(cur.fetchone()[0] or 0)
+            if nufin_existente > 0:
+                return {
+                    'ok': False,
+                    'error': (
+                        f'Vale já faturado pra essa entrada (NUFIN={nufin_existente}). '
+                        'Desfature antes de alterar a avaria do fornecedor.'
+                    ),
+                }
+
+            cur.execute(
+                """
+                UPDATE TGFITE
+                   SET AD_QTDAVARIA = :qtd
+                 WHERE NUNOTA = :n AND SEQUENCIA = :s
+                   AND NVL(GERAPRODUCAO, 'N') <> 'S'
+                """,
+                qtd=qtd, n=int(nunota), s=int(sequencia),
+            )
+            if cur.rowcount == 0:
+                conn.rollback()
+                return {
+                    'ok': False,
+                    'error': 'Nenhuma linha atualizada (item pode ter mudado de tipo)',
+                }
+
+            conn.commit()
+        except Exception as exc:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            logger.exception("Falha atualizar_avaria_fornecedor_naoclass")
+            return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+    # Pós-commit: invalida cache Rastreio + audit (tolerantes a falha)
+    try:
+        invalidar_cache_rastreio()
+    except Exception:
+        logger.warning("Falha invalidar cache Rastreio após AVARIA_FORNECEDOR")
+
+    try:
+        registrar_auditoria(
+            modulo='entrada',
+            operacao='AVARIA_FORNECEDOR',
+            tabela_alvo='TGFITE',
+            registro_id=f'{nunota}:{sequencia}',
+            codusu=codusu,
+            nomeusu=nomeusu,
+            snapshot_antes={
+                'AD_QTDAVARIA': avaria_antes,
+                'CODPROD': codprod,
+                'CODAGREGACAO': codagregacao,
+            },
+            snapshot_depois={'AD_QTDAVARIA': qtd},
+            observacao=f'Avaria fornecedor não-classificável (lote {codagregacao})',
+        )
+    except Exception:
+        logger.warning(
+            "Audit AVARIA_FORNECEDOR falhou NUNOTA=%s SEQ=%s",
+            nunota, sequencia,
+        )
+
+    return {'ok': True, 'avaria_antes': avaria_antes, 'avaria_depois': qtd}
+
 
 def excluir_item_classificacao_com_cascata(nunota_26: int, sequencia: int):
     """
@@ -3457,8 +3710,27 @@ def atualizar_simulacao_item_banco(nunota: int, lote: str, sim_data: dict) -> di
     except Exception as e:
         return {'ok': False, 'error': str(e)}
 
-def gerar_financeiro_banco(nunota_13: int, descontar_inss: bool = False, historico: str = '', vlrinss: float = 0, vlr_forcar_liquido: float = None, vlr_forcar_bruto: float = None) -> dict:
-    """Gera o financeiro (TGFFIN) e marca a nota como confirmada usando os valores exatos da interface."""
+def gerar_financeiro_banco(
+    nunota_13: int,
+    descontar_inss: bool = False,
+    historico: str = '',
+    vlrinss: float = 0,
+    vlr_forcar_liquido: float = None,
+    vlr_forcar_bruto: float = None,
+    lotes_absorver_avaria: list = None,   # Mai/2026 (2026-05-20) — B9 reconcilia TOP 30
+    codusu: int = None,
+    nomeusu: str = None,
+) -> dict:
+    """Gera o financeiro (TGFFIN) e marca a nota como confirmada usando os valores exatos da interface.
+
+    Mai/2026 (2026-05-20) — quando ``lotes_absorver_avaria`` é fornecido,
+    chama ``reconciliar_avaria_top30_no_faturamento`` ANTES de gerar o
+    TGFFIN. Pra cada item TOP 11 não-classificável com avaria > 0 do pedido,
+    cria/remove TGFCAB TOP 30 conforme presença no array. Idempotente.
+
+    Backward compat: ``lotes_absorver_avaria=None`` mantém comportamento
+    antigo (não toca TOP 30) — outros consumers não-afetados.
+    """
     if not verificar_permissao_escrita(): return {'ok': False, 'error': 'Escrita desabilitada'}
 
     from decimal import Decimal, ROUND_HALF_UP
@@ -3507,6 +3779,35 @@ def gerar_financeiro_banco(nunota_13: int, descontar_inss: bool = False, histori
                         'Finalize a classificação antes de faturar.'
                     ),
                 }
+
+            # 1.6 Reconciliação automática de avaria TOP 30 (Mai/2026 — 2026-05-20).
+            # Quando o frontend envia `lotes_absorver_avaria`, pra cada item TOP 11
+            # não-classificável com avaria > 0 do pedido: cria TGFCAB TOP 30 se o lote
+            # está no array, ou remove se NÃO está. Idempotente — múltiplas execuções
+            # produzem o mesmo resultado (cobre refaturamento sem duplicar).
+            if lotes_absorver_avaria is not None:
+                cur.execute(
+                    """SELECT NUMNOTA FROM TGFCAB WHERE NUNOTA = :n AND CODTIPOPER = 13""",
+                    n=int(nunota_13),
+                )
+                row_num = cur.fetchone()
+                if row_num and row_num[0]:
+                    nunota_origem_11 = int(row_num[0])
+                    res_recon = reconciliar_avaria_top30_no_faturamento(
+                        nunota_origem=nunota_origem_11,
+                        lotes_absorver=lotes_absorver_avaria,
+                        codusu=codusu,
+                        nomeusu=nomeusu,
+                    )
+                    if not res_recon.get('ok'):
+                        return {
+                            'ok': False,
+                            'error': (
+                                'Falha na reconciliação da avaria interna (TOP 30) — '
+                                'financeiro não foi gerado. Detalhe: '
+                                + str(res_recon.get('error', '?'))
+                            ),
+                        }
 
             # 2. Busca dados do Cabeçalho
             cur.execute("""
@@ -3577,14 +3878,37 @@ def gerar_financeiro_banco(nunota_13: int, descontar_inss: bool = False, histori
         return {'ok': False, 'error': str(e)}
 
 
-def upsert_preco_in_natura_modalFaturamento(nunota_origem: int, nunota_13: int, codprod: int, novo_preco: float) -> dict:
+def upsert_preco_in_natura_modalFaturamento(
+    nunota_origem: int,
+    nunota_13: int,
+    codprod: int,
+    novo_preco: float,
+    absorver_avaria_no_vale: bool = True,   # B11 Mai/2026 (2026-05-20)
+) -> dict:
+    """Cria/atualiza item TGFITE TOP 13 com preço editado pelo Comercial.
+
+    Mai/2026 (2026-05-20) — Param ``absorver_avaria_no_vale`` (default ``True``):
+
+    - ``True`` (📌 Absorver): vale TOP 13 recebe qtd CHEIA do TGFITE TOP 11
+      origem. Estoque desconta posteriormente via TGFCAB TOP 30 gerada na
+      reconciliação do faturamento (B8/B9). Comportamento original.
+    - ``False`` (📉 Descontar): vale TOP 13 recebe qtd LÍQUIDA
+      (``qtd_cx - avaria_unidade``). Sem TOP 30. Estoque coerente porque o
+      próprio vale já registra só o aproveitável.
+
+    TGFITE TOP 11 (Entrada) NUNCA é modificado — preserva documento original
+    do recebimento do fornecedor.
+
+    Backward compat: outros consumers não passam o param → default ``True``
+    mantém comportamento anterior intacto.
+    """
     if not verificar_permissao_escrita(): return {'ok': False}
-    
+
     try:
         from datetime import date as _date
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
-            
+
             # 1. 🚀 VERIFICA/CRIA O VALE (TOP 13)
             # Independentemente do que o frontend mandar, consultamos a realidade do banco
             cur.execute("SELECT MAX(NUNOTA) FROM TGFCAB WHERE CODTIPOPER = 13 AND NUMNOTA = :n", n=nunota_origem)
@@ -3600,7 +3924,7 @@ def upsert_preco_in_natura_modalFaturamento(nunota_origem: int, nunota_13: int, 
 
                 dados_novo_cab = {
                     #'CODEMP': cab_origem[0], # seleciona a empresa do pedido de compra
-                    'CODEMP': 10, 
+                    'CODEMP': 10,
                     'CODPARC': cab_origem[1],
                     'CODNAT': cab_origem[2] or 20010100, 'CODCENCUS': cab_origem[3] or 10100,
                     'DTNEG': cab_origem[4].strftime('%d/%m/%Y') if cab_origem[4] else _date.today().strftime('%d/%m/%Y'),
@@ -3615,27 +3939,36 @@ def upsert_preco_in_natura_modalFaturamento(nunota_origem: int, nunota_13: int, 
 
             # 2. Busca os dados físicos do item na origem (TOP 11)
             cur.execute("""
-                SELECT NVL(QTDCONFERIDA, QTDNEG), CODVOL, PESO, CODAGREGACAO, GERAPRODUCAO
-                FROM TGFITE 
+                SELECT NVL(QTDCONFERIDA, QTDNEG), CODVOL, PESO, CODAGREGACAO, GERAPRODUCAO,
+                       NVL(AD_QTDAVARIA, 0)
+                FROM TGFITE
                 WHERE NUNOTA = :origem AND CODPROD = :prod AND ROWNUM = 1
             """, origem=nunota_origem, prod=codprod)
             item_origem = cur.fetchone()
-            
+
             if not item_origem:
                 return {'ok': False, 'error': 'Produto físico não encontrado na nota de origem.'}
-                
-            qtd_cx, vol_origem, peso_origem, lote_origem, geraprod_origem = item_origem
+
+            qtd_cx, vol_origem, peso_origem, lote_origem, geraprod_origem, ad_qtdavaria_kg = item_origem
             if qtd_cx <= 0:
                 return {'ok': False, 'error': 'A quantidade deste produto está zerada.'}
-                
+
             # 🚀 MATEMÁTICA CIRÚRGICA PARA O SANKHYA:
             # 1. Descobre o peso total (Ex: 8 cx * 17 kg = 136 kg)
             peso_real = float(peso_origem) if float(peso_origem) > 0 else 1.0
-            qtd_kg = float(qtd_cx * peso_real)
-            
+
+            # B11 Mai/2026 (2026-05-20): em modo Descontar, qtd do vale fica LÍQUIDA.
+            # Avaria está em kg na TGFITE TOP 11 — converte pra unidade do produto.
+            qtd_cx_efetiva = float(qtd_cx)
+            if not absorver_avaria_no_vale:
+                qtd_avaria_unidade = (float(ad_qtdavaria_kg) / peso_real) if peso_real > 0 else float(ad_qtdavaria_kg)
+                qtd_cx_efetiva = max(0.0, float(qtd_cx) - qtd_avaria_unidade)
+
+            qtd_kg = float(qtd_cx_efetiva * peso_real)
+
             # 2. Descobre o Valor Total (Ex: 8 cx * 80,00 = 640,00)
-            vlr_tot = round(qtd_cx * novo_preco, 2)
-            
+            vlr_tot = round(qtd_cx_efetiva * float(novo_preco), 2)
+
             # 3. Calcula um Valor Unitário infinito para o Sankhya bater a conta exata!
             # Ex: 640 / 136 = 4.7058823...
             vlr_unit_kg = round(vlr_tot / qtd_kg, 7) if qtd_kg > 0 else 0
@@ -3716,6 +4049,544 @@ def upsert_preco_in_natura_modalFaturamento(nunota_origem: int, nunota_13: int, 
             
     except Exception as e:
         return {'ok': False, 'error': str(e)}
+
+
+# ============================================================================
+# Avaria automática TOP 30 ao faturar (Mai/2026 — 2026-05-20)
+# ============================================================================
+# Quando o operador da Comercial fatura o vale TOP 13 com toggle "📌 Absorver",
+# o sistema gera automaticamente TGFCAB TOP 30 + TGFITE pra cada lote/produto
+# não-classificável com avaria. AD_NUMPEDIDOORIG aponta pro NUNOTA da TOP 11
+# (entrada origem). Reusa o padrão do `upsert_preco_in_natura_modalFaturamento`.
+# Funções idempotentes — múltiplas execuções produzem o mesmo resultado final.
+# ============================================================================
+
+def upsert_avaria_top30_lote(
+    nunota_origem: int,
+    codprod: int,
+    codagregacao: str,
+    qtd_avaria_unidade: float,
+    codusu: int,
+    nomeusu: str,
+) -> dict:
+    """Cria ou atualiza item TGFITE TOP 30 documentando avaria absorvida.
+
+    - Verifica se TGFCAB TOP 30 com `AD_NUMPEDIDOORIG = nunota_origem` existe.
+      Não existe → cria via `inserir_cabecalho_nota_banco`.
+    - `DELETE` qualquer item TGFITE com mesmo lote/produto na TGFCAB TOP 30
+      (anti-duplicação).
+    - `INSERT` item novo (QTDNEG = qtd_avaria_unidade, VLRUNIT=0, VLRTOT=0).
+    - Recalcula totais. Audit `ABSORVER_AVARIA_AUTO`.
+
+    Idempotente — chamada várias vezes com mesma qtd produz mesmo resultado.
+
+    Trava de vale faturado **NÃO** acontece aqui — esta função é chamada
+    DURANTE o faturamento (`gerar_financeiro_banco`). A trava fica em
+    `atualizar_avaria_fornecedor_naoclass` (B10).
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+
+    try:
+        qtd = float(qtd_avaria_unidade or 0)
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': 'Quantidade de avaria inválida'}
+    if qtd <= 0:
+        return {'ok': False, 'error': 'Quantidade de avaria deve ser > 0'}
+
+    from datetime import date as _date
+
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        try:
+            # 1. Lê dados de origem (TOP 11) pra herdar CODEMP/CODPARC/CODTIPVENDA/etc
+            cur.execute(
+                """
+                SELECT c.CODEMP, c.CODPARC, c.CODCENCUS, c.DTNEG, c.CODTIPVENDA,
+                       i.CODVOL, NVL(i.PESO, 1)
+                  FROM TGFCAB c
+                  JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+                 WHERE c.NUNOTA = :n11 AND c.CODTIPOPER = 11
+                   AND c.STATUSNOTA <> 'E'
+                   AND i.CODPROD = :prod AND i.CODAGREGACAO = :lote
+                   AND ROWNUM = 1
+                """,
+                n11=int(nunota_origem), prod=int(codprod), lote=codagregacao,
+            )
+            row = cur.fetchone()
+            if not row:
+                return {'ok': False, 'error': 'Item TOP 11 origem não encontrado pra esse lote/produto'}
+            codemp, codparc, codcencus, dtneg, codtipvenda_origem, codvol, _peso = row
+
+            # 2. Verifica TGFCAB TOP 30 existente pelo pedido
+            cur.execute(
+                """
+                SELECT MAX(NUNOTA) FROM TGFCAB
+                 WHERE CODTIPOPER = 30
+                   AND AD_NUMPEDIDOORIG = :orig
+                   AND STATUSNOTA <> 'E'
+                """,
+                orig=int(nunota_origem),
+            )
+            nunota_30 = cur.fetchone()[0]
+
+            # 3. Não existe → cria cabeçalho TOP 30
+            if not nunota_30:
+                # CODTIPVENDA é obrigatório pelo trigger SANKHYA.TRG_INC_TGFCAB.
+                # Herda da TOP 11 origem; se vier NULL, fallback pra 11 (mesma regra
+                # da função `criar_avaria_top30_banco` do módulo Venda).
+                codtipvenda_efetiva = int(codtipvenda_origem) if codtipvenda_origem else 11
+                dados_cab_30 = {
+                    'CODEMP': codemp,
+                    'CODPARC': codparc,
+                    'CODNAT': CODNAT_POR_TOP[30],
+                    'CODCENCUS': codcencus or 10100,
+                    'DTNEG': dtneg.strftime('%d/%m/%Y') if dtneg else _date.today().strftime('%d/%m/%Y'),
+                    'CODTIPOPER': 30,
+                    'CODTIPVENDA': codtipvenda_efetiva,
+                    'STATUSNOTA': 'L',
+                    'PENDENTE': 'N',
+                    'AD_NUMPEDIDOORIG': int(nunota_origem),
+                    'OBSERVACAO': f'Avaria interna automática (absorção pedido {nunota_origem})',
+                }
+                res_cab = inserir_cabecalho_nota_banco(
+                    dados_cab_30, conexao_existente=conn,
+                )
+                if not res_cab.get('ok'):
+                    conn.rollback()
+                    return {'ok': False, 'error': f'Falha ao criar TGFCAB TOP 30: {res_cab.get("error")}'}
+                nunota_30 = int(res_cab['nunota'])
+
+            # 4. DELETE item existente com mesmo lote/codprod (anti-duplicação)
+            cur.execute(
+                """
+                DELETE FROM TGFITE
+                 WHERE NUNOTA = :n30
+                   AND CODAGREGACAO = :lote
+                   AND CODPROD = :prod
+                """,
+                n30=int(nunota_30), lote=codagregacao, prod=int(codprod),
+            )
+
+            # 5. Lê preço do vale TOP 13 do mesmo lote/produto pra documentar
+            # o custo da perda absorvida na TGFITE TOP 30 (audit contábil).
+            # VLRUNIT no TGFITE TOP 13 está em R$/kg (Sankhya); aqui guardamos
+            # o equivalente em R$/unidade-do-produto (alinha com QTDNEG da TOP 30
+            # que também está em unidade do produto).
+            cur.execute(
+                """
+                SELECT NVL(i13.VLRUNIT, 0)
+                  FROM TGFITE i13
+                  JOIN TGFCAB c13 ON c13.NUNOTA = i13.NUNOTA
+                                 AND c13.CODTIPOPER = 13
+                                 AND c13.STATUSNOTA <> 'E'
+                                 AND c13.NUMNOTA = :n11
+                 WHERE i13.CODPROD = :prod AND i13.CODAGREGACAO = :lote
+                   AND ROWNUM = 1
+                """,
+                n11=int(nunota_origem), prod=int(codprod), lote=codagregacao,
+            )
+            row_preco = cur.fetchone()
+            vlrunit_kg_vale = float(row_preco[0]) if row_preco and row_preco[0] else 0.0
+            peso_real = float(_peso) if _peso and float(_peso) > 0 else 1.0
+            vlrunit_top30 = round(vlrunit_kg_vale * peso_real, 7)
+            vlrtot_top30 = round(qtd * vlrunit_top30, 2)
+
+            # 6. INSERT novo item
+            dados_item = {
+                'NUNOTA': int(nunota_30),
+                'CODPROD': int(codprod),
+                'CODAGREGACAO': codagregacao,
+                'QTDNEG': qtd,
+                'CODVOL': codvol or 'KG',
+                'VLRUNIT': vlrunit_top30,
+                'VLRTOT': vlrtot_top30,
+                'AD_NUMPEDIDOORIG': int(nunota_origem),
+            }
+            res_item = inserir_item_nota_banco(
+                dados_item, gerar_lote_auto=False, conexao_existente=conn,
+            )
+            if not res_item.get('ok'):
+                conn.rollback()
+                return {'ok': False, 'error': f'Falha ao criar TGFITE TOP 30: {res_item.get("error")}'}
+
+            # 6. Recalcula totais (não vai apagar cabeçalho porque INSERT acabou de rodar)
+            recalcular_totais_nota_banco(int(nunota_30), conexao_existente=conn)
+
+            conn.commit()
+        except Exception as exc:
+            try: conn.rollback()
+            except Exception: pass
+            logger.exception("Falha upsert_avaria_top30_lote")
+            return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+    # Pós-commit (tolerante a falha)
+    try:
+        invalidar_cache_rastreio()
+    except Exception:
+        logger.warning("Cache Rastreio não invalidado pós upsert TOP 30 NUNOTA_30=%s", nunota_30)
+
+    try:
+        registrar_auditoria(
+            modulo='comercial',
+            operacao='ABSORVER_AVARIA_AUTO',
+            tabela_alvo='TGFCAB',
+            registro_id=f'TOP30:{nunota_30}:{codagregacao}:{codprod}',
+            codusu=codusu,
+            nomeusu=nomeusu,
+            snapshot_depois={
+                'nunota_30': int(nunota_30),
+                'nunota_origem': int(nunota_origem),
+                'codprod': int(codprod),
+                'codagregacao': codagregacao,
+                'qtd_avaria_unidade': qtd,
+            },
+            observacao=f'Avaria absorvida automaticamente ao faturar (pedido {nunota_origem})',
+        )
+    except Exception:
+        logger.warning("Audit ABSORVER_AVARIA_AUTO falhou nunota_30=%s lote=%s", nunota_30, codagregacao)
+
+    return {'ok': True, 'nunota_30': int(nunota_30)}
+
+
+def remover_avaria_top30_lote(
+    nunota_origem: int,
+    codprod: int,
+    codagregacao: str,
+    codusu: int,
+    nomeusu: str,
+) -> dict:
+    """Remove item TGFITE TOP 30 de um lote/produto específico de um pedido.
+
+    Idempotente — se não existe TOP 30 do pedido ou se o item já não está
+    lá, retorna ok=True sem fazer nada.
+
+    Após DELETE, chama `recalcular_totais_nota_banco` que apaga o cabeçalho
+    automaticamente quando fica sem itens.
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        try:
+            # 1. Acha TGFCAB TOP 30 pelo AD_NUMPEDIDOORIG
+            cur.execute(
+                """
+                SELECT MAX(NUNOTA) FROM TGFCAB
+                 WHERE CODTIPOPER = 30
+                   AND AD_NUMPEDIDOORIG = :orig
+                   AND STATUSNOTA <> 'E'
+                """,
+                orig=int(nunota_origem),
+            )
+            nunota_30 = cur.fetchone()[0]
+            if not nunota_30:
+                return {'ok': True, 'removidos': 0, 'cabecalho_apagado': False}
+
+            # 2. DELETE item (lote + codprod)
+            cur.execute(
+                """
+                DELETE FROM TGFITE
+                 WHERE NUNOTA = :n30
+                   AND CODAGREGACAO = :lote
+                   AND CODPROD = :prod
+                """,
+                n30=int(nunota_30), lote=codagregacao, prod=int(codprod),
+            )
+            removidos = cur.rowcount or 0
+
+            # 3. Recalcula totais (apaga TGFCAB se ficou sem itens)
+            cabecalho_apagado = False
+            if removidos > 0:
+                cur.execute("SELECT COUNT(1) FROM TGFITE WHERE NUNOTA = :n", n=int(nunota_30))
+                if (cur.fetchone()[0] or 0) == 0:
+                    cur.execute("DELETE FROM TGFCAB WHERE NUNOTA = :n", n=int(nunota_30))
+                    cabecalho_apagado = True
+                else:
+                    recalcular_totais_nota_banco(int(nunota_30), conexao_existente=conn)
+
+            conn.commit()
+        except Exception as exc:
+            try: conn.rollback()
+            except Exception: pass
+            logger.exception("Falha remover_avaria_top30_lote")
+            return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+    try: invalidar_cache_rastreio()
+    except Exception: pass
+
+    if removidos > 0:
+        try:
+            registrar_auditoria(
+                modulo='comercial',
+                operacao='DESABSORVER_AVARIA_AUTO',
+                tabela_alvo='TGFCAB',
+                registro_id=f'TOP30:{nunota_30}:{codagregacao}:{codprod}',
+                codusu=codusu,
+                nomeusu=nomeusu,
+                snapshot_antes={
+                    'nunota_30': int(nunota_30),
+                    'codprod': int(codprod),
+                    'codagregacao': codagregacao,
+                },
+                observacao=(
+                    'Avaria removida (operador escolheu Descontar ao refaturar). '
+                    f'Cabeçalho TOP 30 apagado={cabecalho_apagado}.'
+                ),
+            )
+        except Exception:
+            logger.warning("Audit DESABSORVER_AVARIA_AUTO falhou nunota_30=%s lote=%s", nunota_30, codagregacao)
+
+    return {'ok': True, 'removidos': removidos, 'cabecalho_apagado': cabecalho_apagado}
+
+
+def alternar_modo_avaria_vale_lote(
+    nunota_origem: int,
+    codprod: int,
+    codagregacao: str,
+    absorver: bool,
+    codusu: int,
+    nomeusu: str,
+) -> dict:
+    """Alterna o modo do toggle Absorver/Descontar de um lote do vale TOP 13.
+
+    Sem precisar re-editar o preço, recalcula `QTDNEG` e `VLRTOT` do TGFITE
+    TOP 13 conforme a decisão atual:
+      - ``absorver=True``  → vale com qtd cheia (qtd_cx × peso)
+      - ``absorver=False`` → vale com qtd líquida (qtd_cx − avaria) × peso
+
+    Lê o preço unitário atual já gravado no vale e reaplica via
+    `upsert_preco_in_natura_modalFaturamento`. Trava se vale faturado.
+
+    Mai/2026 (2026-05-20) — B12 do plano Avaria.
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+
+        # Trava — vale já faturado?
+        cur.execute(
+            """
+            SELECT NVL(MAX(f.NUFIN), 0)
+              FROM TGFCAB c13
+              JOIN TGFFIN f ON f.NUNOTA = c13.NUNOTA
+             WHERE c13.CODTIPOPER = 13
+               AND c13.NUMNOTA = :n11
+               AND c13.STATUSNOTA <> 'E'
+            """,
+            n11=int(nunota_origem),
+        )
+        if (cur.fetchone()[0] or 0) > 0:
+            return {
+                'ok': False,
+                'error': 'Vale já faturado. Desfature antes de alterar a decisão de avaria.',
+            }
+
+        # Localiza vale TOP 13 + preço atual do produto
+        cur.execute(
+            """
+            SELECT i13.VLRUNIT, NVL(i11.PESO, 1)
+              FROM TGFITE i13
+              JOIN TGFCAB c13 ON c13.NUNOTA = i13.NUNOTA AND c13.CODTIPOPER = 13
+                                AND c13.NUMNOTA = :n11 AND c13.STATUSNOTA <> 'E'
+              JOIN TGFITE i11 ON i11.CODAGREGACAO = :lote AND i11.CODPROD = :prod
+              JOIN TGFCAB c11 ON c11.NUNOTA = i11.NUNOTA AND c11.CODTIPOPER = 11
+                                AND c11.STATUSNOTA <> 'E'
+             WHERE i13.CODPROD = :prod AND i13.CODAGREGACAO = :lote
+               AND ROWNUM = 1
+            """,
+            n11=int(nunota_origem), prod=int(codprod), lote=codagregacao,
+        )
+        row = cur.fetchone()
+        if not row:
+            return {
+                'ok': False,
+                'error': 'Item do vale ainda não tem preço — edite o preço primeiro.',
+            }
+        vlrunit_kg, peso = row
+        peso_real = float(peso) if peso and float(peso) > 0 else 1.0
+        # `vlrunit_kg` está em R$/kg na TGFITE TOP 13 (Sankhya). Reconverte
+        # pra preço/unidade do produto que o operador editou (R$/mç, R$/cx, etc).
+        novo_preco_unidade = float(vlrunit_kg or 0) * peso_real
+
+        if novo_preco_unidade <= 0:
+            return {
+                'ok': False,
+                'error': 'Preço unitário do vale está zerado — edite o preço antes de alternar a decisão.',
+            }
+
+    # Reaplica upsert com a flag (a função abre sua própria conexão)
+    res = upsert_preco_in_natura_modalFaturamento(
+        nunota_origem=int(nunota_origem),
+        nunota_13=0,
+        codprod=int(codprod),
+        novo_preco=novo_preco_unidade,
+        absorver_avaria_no_vale=bool(absorver),
+    )
+    if not res.get('ok'):
+        return res
+
+    try:
+        registrar_auditoria(
+            modulo='comercial',
+            operacao='MUDAR_MODO_AVARIA_VALE',
+            tabela_alvo='TGFITE',
+            registro_id=f'TOP13:{res.get("nunota_13")}:{codagregacao}:{codprod}',
+            codusu=codusu, nomeusu=nomeusu,
+            snapshot_depois={
+                'absorver_avaria': bool(absorver),
+                'nunota_origem': int(nunota_origem),
+                'codprod': int(codprod),
+                'codagregacao': codagregacao,
+            },
+            observacao=(
+                f'Operador alternou modo da avaria pra '
+                + ('Absorver' if absorver else 'Descontar')
+                + ' (vale recalculado).'
+            ),
+        )
+    except Exception:
+        pass
+
+    return res
+
+
+def reconciliar_avaria_top30_no_faturamento(
+    nunota_origem: int,
+    lotes_absorver: list,
+    codusu: int,
+    nomeusu: str,
+) -> dict:
+    """Orquestrador chamado DURANTE o faturamento.
+
+    Pra cada item TGFITE TOP 11 não-classificável com avaria > 0 do pedido:
+      - lote ∈ lotes_absorver → upsert_avaria_top30_lote
+      - lote ∉ lotes_absorver → remover_avaria_top30_lote
+    Idempotente.
+
+    Retorna ``{ok, reconciliados, criados, removidos, erros: [...]}``.
+    """
+    lotes_set = {str(l) for l in (lotes_absorver or [])}
+
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                SELECT i.CODPROD, i.CODAGREGACAO,
+                       NVL(i.AD_QTDAVARIA, 0), NVL(i.PESO, 1)
+                  FROM TGFITE i
+                  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                 WHERE c.NUNOTA = :n11 AND c.CODTIPOPER = 11
+                   AND c.STATUSNOTA <> 'E'
+                   AND NVL(i.GERAPRODUCAO, 'N') <> 'S'
+                   AND NVL(i.AD_QTDAVARIA, 0) > 0
+                   AND i.CODAGREGACAO IS NOT NULL
+                """,
+                n11=int(nunota_origem),
+            )
+            itens = cur.fetchall()
+        except Exception as exc:
+            logger.exception("Falha SELECT em reconciliar_avaria_top30_no_faturamento")
+            return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+    criados = 0
+    removidos = 0
+    erros = []
+
+    # Lê VLRUNIT + PESO do vale TOP 13 de cada item — necessário pra reaplicar
+    # upsert_preco_in_natura_modalFaturamento com a flag correta (sincroniza
+    # qtd do vale com a decisão final do toggle no momento do faturar).
+    precos_vale = {}
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT i13.CODPROD, i13.CODAGREGACAO, NVL(i13.VLRUNIT, 0), NVL(i11.PESO, 1)
+                  FROM TGFITE i13
+                  JOIN TGFCAB c13 ON c13.NUNOTA = i13.NUNOTA
+                                 AND c13.CODTIPOPER = 13
+                                 AND c13.STATUSNOTA <> 'E'
+                                 AND c13.NUMNOTA = :n11
+                  JOIN TGFITE i11 ON i11.CODAGREGACAO = i13.CODAGREGACAO
+                                 AND i11.CODPROD = i13.CODPROD
+                  JOIN TGFCAB c11 ON c11.NUNOTA = i11.NUNOTA
+                                 AND c11.CODTIPOPER = 11
+                                 AND c11.STATUSNOTA <> 'E'
+                """,
+                n11=int(nunota_origem),
+            )
+            for cprod, codag, vlrunit_kg, peso13 in cur.fetchall():
+                precos_vale[(int(cprod), str(codag))] = (float(vlrunit_kg or 0), float(peso13 or 1))
+    except Exception:
+        logger.exception("Falha SELECT precos_vale em reconciliar_avaria_top30")
+
+    for codprod, codagregacao, avaria_kg, peso in itens:
+        peso_f = float(peso) if peso and float(peso) > 0 else 1.0
+        qtd_unidade = float(avaria_kg) / peso_f if peso_f > 0 else float(avaria_kg)
+        decisao_absorver = str(codagregacao) in lotes_set
+
+        # Sincroniza vale TOP 13 com a decisão (reaplica upsert se houver preço).
+        # Mai/2026 (2026-05-20) — garante que qtd do vale fica coerente com o toggle,
+        # mesmo se o operador não tiver alternado explicitamente (default Descontar).
+        chave = (int(codprod), str(codagregacao))
+        if chave in precos_vale:
+            vlrunit_kg, peso13 = precos_vale[chave]
+            if vlrunit_kg > 0:
+                novo_preco_unidade = vlrunit_kg * peso13
+                res_vale = upsert_preco_in_natura_modalFaturamento(
+                    nunota_origem=int(nunota_origem),
+                    nunota_13=0,
+                    codprod=int(codprod),
+                    novo_preco=novo_preco_unidade,
+                    absorver_avaria_no_vale=decisao_absorver,
+                )
+                if not res_vale.get('ok'):
+                    erros.append(f'{codagregacao}: ajuste vale falhou — {res_vale.get("error")}')
+                    continue
+
+        if decisao_absorver:
+            res = upsert_avaria_top30_lote(
+                nunota_origem=int(nunota_origem),
+                codprod=int(codprod),
+                codagregacao=codagregacao,
+                qtd_avaria_unidade=qtd_unidade,
+                codusu=codusu, nomeusu=nomeusu,
+            )
+            if res.get('ok'):
+                criados += 1
+            else:
+                erros.append(f'{codagregacao}: upsert falhou — {res.get("error")}')
+        else:
+            res = remover_avaria_top30_lote(
+                nunota_origem=int(nunota_origem),
+                codprod=int(codprod),
+                codagregacao=codagregacao,
+                codusu=codusu, nomeusu=nomeusu,
+            )
+            if res.get('ok'):
+                if (res.get('removidos') or 0) > 0:
+                    removidos += 1
+            else:
+                erros.append(f'{codagregacao}: remove falhou — {res.get("error")}')
+
+    if erros:
+        return {
+            'ok': False,
+            'reconciliados': criados + removidos,
+            'criados': criados, 'removidos': removidos,
+            'error': 'Falhas: ' + '; '.join(erros),
+        }
+    return {
+        'ok': True,
+        'reconciliados': criados + removidos,
+        'criados': criados, 'removidos': removidos,
+    }
+
 
 def atualizar_desconto_inss_vale(nunota_13: int, valor_desconto: float) -> dict:
     """

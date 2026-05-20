@@ -7,7 +7,7 @@
 {% block header_title %}COMERCIAL{% endblock %}
 
 {% block extra_css %}
-    <link rel="stylesheet" href="{% static 'sankhya_integration/comercial.css' %}?v=9">
+    <link rel="stylesheet" href="{% static 'sankhya_integration/comercial.css' %}?v=15">
 {% endblock %}
 
 {% block content %}
@@ -365,9 +365,12 @@
                 </div>
             </div>
         </div>
-        <div class="modal-footer" style="padding: 15px 20px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 10px; background: #fff;">
-            <button class="btn-print-outline" onclick="window.ComercialImpressao.abrir()" title="Imprimir"><i class="ph ph-printer" style="font-size: 18px; color: #475569;" aria-hidden="true"></i></button>
-            <button id="btnEfetivarFaturamento" class="btn-faturar-final" onclick="window.ComercialFinanceiro.faturar()" disabled title="Verificando travas...">FATURAR</button>
+        <div class="modal-footer" style="padding: 15px 20px; border-top: 1px solid #eee; background: #fff; display: flex; flex-direction: column; gap: 8px; align-items: stretch;">
+            <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                <button class="btn-print-outline" onclick="window.ComercialImpressao.abrir()" title="Imprimir"><i class="ph ph-printer" style="font-size: 18px; color: #475569;" aria-hidden="true"></i></button>
+                <button id="btnEfetivarFaturamento" class="btn-faturar-final" onclick="window.ComercialFinanceiro.faturar()" disabled title="Verificando travas...">FATURAR</button>
+            </div>
+            <ul id="cfFaturarMotivos" class="cf-faturar-motivos" hidden></ul>
         </div>
     </div>
 </div>
@@ -434,7 +437,7 @@
 
 {% block extra_js %}
     <script src="{% static 'sankhya_integration/comercialImpressao.js' %}" defer></script>
-    <script src="{% static 'sankhya_integration/comercialFinanceiro.js' %}?v=3" defer></script>
+    <script src="{% static 'sankhya_integration/comercialFinanceiro.js' %}?v=16" defer></script>
     <script src="{% static 'sankhya_integration/comercialDistribuicao.js' %}?v=5" defer></script>
     <script src="{% static 'sankhya_integration/comercial.js' %}?v=2" defer></script>
 {% endblock %}
