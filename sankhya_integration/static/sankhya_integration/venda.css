@@ -1137,6 +1137,126 @@ input:focus {
     opacity: 0.5;
     background: #fafafa;
 }
+.dev-lotes-multi {
+    display: inline-block;
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fde68a;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: help;
+    white-space: nowrap;
+}
+.dev-qtd-resumo {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    justify-content: flex-end;
+    padding: 4px 0;
+}
+.dev-qtd-total {
+    font-size: 13px;
+    color: #166534;
+}
+.dev-qtd-total--excede {
+    color: #dc2626;
+}
+.dev-qtd-tag {
+    font-size: 11px;
+    color: #64748b;
+}
+.dev-split-row > td {
+    background: #fffbeb;
+    padding: 0 !important;
+}
+.dev-split-wrap {
+    padding: 8px 12px;
+    border-left: 3px solid #f59e0b;
+}
+.dev-split-titulo {
+    font-size: 11px;
+    font-weight: 600;
+    color: #92400e;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 4px;
+}
+.dev-split-tabela {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border: 1px solid #fde68a;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.dev-split-tabela th,
+.dev-split-tabela td {
+    padding: 4px 8px;
+    border-bottom: 1px solid #fef3c7;
+    font-size: 12px;
+}
+.dev-split-tabela tr:last-child td {
+    border-bottom: none;
+}
+.dev-split-tabela th {
+    background: #fef3c7;
+    color: #92400e;
+    font-weight: 600;
+    text-align: left;
+}
+.dev-split-lote {
+    font-family: monospace;
+    font-size: 11.5px;
+    color: #475569;
+}
+.dev-split-qtd {
+    width: 100px;
+    text-align: right;
+    padding: 3px 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 3px;
+}
+.av-modo-toggle {
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 8px 12px;
+    gap: 16px !important;
+}
+.av-modo-opt {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #334155;
+    flex: 1;
+}
+.av-modo-opt input[type="radio"] {
+    width: auto;
+    margin: 0;
+}
+.av-modo-opt:hover { color: #0f172a; }
+.avn-lote-qtd {
+    width: 100px;
+    text-align: right;
+    padding: 3px 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 3px;
+}
+.avn-qtd-total {
+    font-size: 13px;
+    color: #166534;
+}
+/* Tabela de itens (devolução + avaria a partir de nota) — larguras
+   priorizam coluna Produto. Mai/2026 — 2026-05-21 */
+.dev-itens-tabela .dev-col-chk  { width: 36px; }
+.dev-itens-tabela .dev-col-prod { width: auto; }         /* flex — pega o resto */
+.dev-itens-tabela .dev-col-lote { width: 110px; }        /* lote tipo "111900S01D260507" */
+.dev-itens-tabela .dev-col-num  { width: 62px; }         /* numéricos compactos */
+.dev-itens-tabela .dev-col-qtd  { width: 100px; }
 .dev-itens-wrap label {
     display: block;
     font-size: 12px;

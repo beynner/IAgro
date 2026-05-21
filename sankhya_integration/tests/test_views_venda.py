@@ -1192,6 +1192,57 @@ class ObterNotaParaDevolucaoEndpointTest(TestCase):
         self.assertEqual(body['itens'][0]['qtd_devolvivel'], 8.0)
 
 
+class ApiLotesDeItemNotaEndpointTest(TestCase):
+    """Endpoint /sankhya/venda/api/lotes-de-item-nota/?nunota=X&sequencia=Y
+
+    Navegação inversa TGFVAR — usada pelos modais de Devolução (já) e
+    Avaria a partir de nota (Fase 3). Fase 1: só leitura.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        _login_session(self.client, grupos=['10'])
+        self.url = reverse('api_lotes_de_item_nota')
+
+    def test_sem_params_400(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 400)
+
+    def test_so_nunota_sem_sequencia_400(self):
+        response = self.client.get(self.url, {'nunota': 111971})
+        self.assertEqual(response.status_code, 400)
+
+    @patch('sankhya_integration.views.consultar_lotes_origem_de_seq_nota',
+           return_value={'ok': True,
+                         'lotes': [
+                             {'seq_pedido': 5, 'codagregacao': 'LOTE_A',
+                              'qtdneg_pedido': 500.0, 'qtd_atendida': 500.0,
+                              'nunota_pedido': 111900},
+                             {'seq_pedido': 6, 'codagregacao': 'LOTE_B',
+                              'qtdneg_pedido': 500.0, 'qtd_atendida': 500.0,
+                              'nunota_pedido': 111900},
+                         ],
+                         'total_atendido': 1000.0})
+    def test_sucesso_split_2_lotes(self, _mock):
+        response = self.client.get(self.url, {'nunota': 111971, 'sequencia': 1})
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.content)
+        self.assertTrue(body['ok'])
+        self.assertEqual(len(body['lotes']), 2)
+        self.assertEqual(body['lotes'][0]['codagregacao'], 'LOTE_A')
+        self.assertEqual(body['total_atendido'], 1000.0)
+
+    @patch('sankhya_integration.views.consultar_lotes_origem_de_seq_nota',
+           return_value={'ok': True, 'lotes': [], 'total_atendido': 0.0})
+    def test_sem_tgfvar_par_retorna_vazio(self, _mock):
+        """Nota órfã ou erro de fluxo — endpoint responde 200 com lista vazia."""
+        response = self.client.get(self.url, {'nunota': 111971, 'sequencia': 1})
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.content)
+        self.assertTrue(body['ok'])
+        self.assertEqual(body['lotes'], [])
+
+
 class CriarDevolucaoEndpointTest(TestCase):
     """Endpoint /sankhya/venda/api/devolucao/criar/"""
 
@@ -1336,6 +1387,197 @@ class CriarAvariaServiceTest(TestCase):
         self.assertIn('maior que zero', res['error'].lower())
 
 
+class CriarAvariaSplitLotesServiceTest(TestCase):
+    """B2 (Mai/2026) — modo "a partir de nota" no criar_avaria_top30_banco.
+
+    Cenário: produto avariado veio de SPLIT no pedido (2 lotes diferentes).
+    Operador escolhe 1 item da nota e divide a qtd avariada entre os lotes
+    reais via navegação inversa TGFVAR. Backend cria 1 TGFCAB TOP 30 + N
+    TGFITE (1 por lote). Sem TGFVAR (política da avaria preservada).
+    """
+
+    LOTES_SPLIT = {
+        'ok': True,
+        'lotes': [
+            {'seq_pedido': 5, 'codagregacao': 'LOTE_A',
+             'qtdneg_pedido': 500.0, 'qtd_atendida': 500.0,
+             'nunota_pedido': 111900},
+            {'seq_pedido': 6, 'codagregacao': 'LOTE_B',
+             'qtdneg_pedido': 500.0, 'qtd_atendida': 500.0,
+             'nunota_pedido': 111900},
+        ],
+        'total_atendido': 1000.0,
+    }
+
+    def _montar_mocks(self, _conn_mock, seq_inicial=10):
+        seq_counter = {'v': seq_inicial - 1}
+
+        def _ins_ite(_payload, **_kwargs):
+            seq_counter['v'] += 1
+            return {'ok': True, 'sequencia': seq_counter['v']}
+
+        return _ins_ite
+
+    def _mock_cursor_saldo(self, conn_obj, saldo=1000.0):
+        """Configura o cursor pra responder SELECT de saldo da view."""
+        cur_mock = MagicMock()
+        cur_mock.fetchone.return_value = (saldo,)
+        conn_obj.cursor.return_value = cur_mock
+        return cur_mock
+
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco',
+           return_value={'ok': True, 'vlrnota': 400.0})
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco',
+           return_value={'ok': True, 'nunota': 300000})
+    @patch('sankhya_integration.services.oracle_conn.consultar_lotes_origem_de_seq_nota',
+           return_value=LOTES_SPLIT)
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_split_2_lotes_cria_n_tgfite_e_um_tgfcab(
+            self, _mp, mock_conn, _ml, _mcab, mock_ite, _mr):
+        from sankhya_integration.services.oracle_conn import criar_avaria_top30_banco
+
+        conn_obj = MagicMock()
+        cur_mock = self._mock_cursor_saldo(conn_obj, saldo=1000.0)
+        mock_conn.return_value.__enter__.return_value = conn_obj
+        mock_ite.side_effect = self._montar_mocks(conn_obj)
+
+        res = criar_avaria_top30_banco({
+            'codemp': 10, 'codparc': 244, 'codprod': 21,
+            'codvol': 'KG', 'vlrunit': 5.0,
+            'nunota_origem_nota': 111971, 'sequencia_nota': 1,
+            'lotes_avaria': [
+                {'codagregacao': 'LOTE_A', 'qtd': 50.0},
+                {'codagregacao': 'LOTE_B', 'qtd': 30.0},
+            ],
+        })
+
+        self.assertTrue(res['ok'], msg=res.get('error'))
+        self.assertEqual(res['nunota'], 300000)
+        # 2 TGFITE criados, 1 TGFCAB
+        self.assertEqual(mock_ite.call_count, 2)
+        self.assertEqual(_mcab.call_count, 1)
+        codagregs = [c.args[0]['CODAGREGACAO'] for c in mock_ite.call_args_list]
+        self.assertEqual(set(codagregs), {'LOTE_A', 'LOTE_B'})
+        # Sem TGFVAR — confirma política preservada (avaria não tem rastro Sankhya)
+        chamadas_tgfvar = [
+            call for call in cur_mock.execute.call_args_list
+            if 'INSERT INTO TGFVAR' in (call.args[0] if call.args else '')
+        ]
+        self.assertEqual(len(chamadas_tgfvar), 0)
+
+    @patch('sankhya_integration.services.oracle_conn.consultar_lotes_origem_de_seq_nota',
+           return_value=LOTES_SPLIT)
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_lote_fora_do_tgfvar_bloqueia(self, _mp, mock_conn, _ml):
+        from sankhya_integration.services.oracle_conn import criar_avaria_top30_banco
+        conn_obj = MagicMock()
+        self._mock_cursor_saldo(conn_obj)
+        mock_conn.return_value.__enter__.return_value = conn_obj
+
+        res = criar_avaria_top30_banco({
+            'codemp': 10, 'codparc': 244, 'codprod': 21,
+            'codvol': 'KG',
+            'nunota_origem_nota': 111971, 'sequencia_nota': 1,
+            'lotes_avaria': [{'codagregacao': 'LOTE_FANTASMA', 'qtd': 50.0}],
+        })
+        self.assertFalse(res['ok'])
+        self.assertIn('LOTE_FANTASMA', res['error'])
+        self.assertIn('não pertence', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.consultar_lotes_origem_de_seq_nota',
+           return_value={'ok': True, 'lotes': [], 'total_atendido': 0.0})
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_sem_tgfvar_origem_bloqueia_modo_nota(self, _mp, _ml):
+        """Nota órfã (sem TGFVAR) não pode usar modo "a partir de nota"."""
+        from sankhya_integration.services.oracle_conn import criar_avaria_top30_banco
+        res = criar_avaria_top30_banco({
+            'codemp': 10, 'codparc': 244, 'codprod': 21, 'codvol': 'KG',
+            'nunota_origem_nota': 111971, 'sequencia_nota': 1,
+            'lotes_avaria': [{'codagregacao': 'X', 'qtd': 10.0}],
+        })
+        self.assertFalse(res['ok'])
+        self.assertIn('não tem lotes rastreáveis', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.consultar_lotes_origem_de_seq_nota',
+           return_value=LOTES_SPLIT)
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_modo_nota_sem_nunota_ou_sequencia_bloqueia(self, _mp, _ml):
+        from sankhya_integration.services.oracle_conn import criar_avaria_top30_banco
+        # sem nunota_origem_nota
+        res = criar_avaria_top30_banco({
+            'codemp': 10, 'codparc': 244, 'codprod': 21, 'codvol': 'KG',
+            'sequencia_nota': 1,
+            'lotes_avaria': [{'codagregacao': 'LOTE_A', 'qtd': 50.0}],
+        })
+        self.assertFalse(res['ok'])
+        self.assertIn('nunota_origem_nota', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco',
+           return_value={'ok': True, 'nunota': 300000})
+    @patch('sankhya_integration.services.oracle_conn.consultar_lotes_origem_de_seq_nota',
+           return_value=LOTES_SPLIT)
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_saldo_insuficiente_em_um_dos_lotes_bloqueia(
+            self, _mp, mock_conn, _ml, _mcab):
+        """Se 1 lote não tem saldo, falha tudo (atomicidade)."""
+        from sankhya_integration.services.oracle_conn import criar_avaria_top30_banco
+        conn_obj = MagicMock()
+        cur_mock = MagicMock()
+        # Primeira query retorna saldo OK (100), segunda retorna 0
+        cur_mock.fetchone.side_effect = [(100.0,), (0.0,)]
+        conn_obj.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn_obj
+
+        res = criar_avaria_top30_banco({
+            'codemp': 10, 'codparc': 244, 'codprod': 21, 'codvol': 'KG',
+            'nunota_origem_nota': 111971, 'sequencia_nota': 1,
+            'lotes_avaria': [
+                {'codagregacao': 'LOTE_A', 'qtd': 50.0},  # OK
+                {'codagregacao': 'LOTE_B', 'qtd': 30.0},  # sem saldo
+            ],
+        })
+        self.assertFalse(res['ok'])
+        self.assertIn('sem saldo', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco',
+           return_value={'ok': True, 'vlrnota': 250.0})
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco',
+           return_value={'ok': True, 'nunota': 300000})
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_modo_antigo_continua_funcionando_regressao(
+            self, _mp, mock_conn, _mcab, mock_ite, _mr):
+        """Backward-compat: payload antigo (codagregacao + qtdneg, sem
+        lotes_avaria) cria 1 TGFITE como antes."""
+        from sankhya_integration.services.oracle_conn import criar_avaria_top30_banco
+
+        conn_obj = MagicMock()
+        self._mock_cursor_saldo(conn_obj, saldo=200.0)
+        mock_conn.return_value.__enter__.return_value = conn_obj
+        mock_ite.side_effect = self._montar_mocks(conn_obj)
+
+        res = criar_avaria_top30_banco({
+            'codemp': 10, 'codparc': 244, 'codprod': 21,
+            'codagregacao': 'LOTE_X', 'qtdneg': 50.0,
+            'codvol': 'KG', 'vlrunit': 5.0,
+        })
+        self.assertTrue(res['ok'], msg=res.get('error'))
+        self.assertEqual(mock_ite.call_count, 1)
+        self.assertEqual(mock_ite.call_args_list[0].args[0]['CODAGREGACAO'], 'LOTE_X')
+        self.assertEqual(mock_ite.call_args_list[0].args[0]['QTDNEG'], 50.0)
+
+
 class CriarDevolucaoServiceTest(TestCase):
     """Testa direto a função criar_devolucao_top36_banco."""
 
@@ -1399,6 +1641,421 @@ class CriarDevolucaoServiceTest(TestCase):
         self.assertFalse(res['ok'])
         self.assertIn('excessiva', res['error'].lower())
         self.assertIn('2.', res['error'])  # devolvível formatado
+
+
+class CriarDevolucaoSplitLotesServiceTest(TestCase):
+    """B1 (Mai/2026) — formato novo `lotes_devolver` no payload.
+
+    Cobre os cenários onde 1 SEQ da nota TOP 35/37 veio de N SEQs do pedido
+    com lotes diferentes (SPLIT). O backend recebe a divisão pronta do
+    frontend, valida via navegação inversa TGFVAR e cria N TGFITE TOP 36 +
+    N TGFVAR (todas apontando pro SEQ da nota — semântica Sankhya).
+    """
+
+    # Helper compartilhado pelos tests de sucesso — mocka todo o pipeline de
+    # escrita pra capturar o INSERT TGFVAR.
+    NOTA_PADRAO = {
+        'ok': True,
+        'cabecalho': {'nunota': 111971, 'numnota': 6266,
+                      'codemp': 10, 'codparc': 244,
+                      'codtipoper': 35, 'statusnota': 'L',
+                      'vlrnota': 5000.0, 'codtipvenda': 2,
+                      'dtneg': '2026-05-09', 'nomeparc': 'CLIENTE X'},
+        # Item consolidado: 1000kg de TOMATE
+        'itens': [{'sequencia': 1, 'codprod': 21, 'descrprod': 'TOMATE',
+                   'codagregacao': '', 'codvol': 'KG',
+                   'qtdneg': 1000.0, 'vlrunit': 5.0, 'vlrtot': 5000.0,
+                   'qtd_ja_devolvida': 0.0, 'qtd_devolvivel': 1000.0}],
+    }
+    LOTES_SPLIT_PADRAO = {
+        'ok': True,
+        'lotes': [
+            {'seq_pedido': 5, 'codagregacao': 'LOTE_A',
+             'qtdneg_pedido': 500.0, 'qtd_atendida': 500.0,
+             'nunota_pedido': 111900},
+            {'seq_pedido': 6, 'codagregacao': 'LOTE_B',
+             'qtdneg_pedido': 500.0, 'qtd_atendida': 500.0,
+             'nunota_pedido': 111900},
+        ],
+        'total_atendido': 1000.0,
+    }
+
+    def _montar_mocks(self, _conn_mock, seq_inicial=10):
+        """Devolve side_effect pra inserir_item_nota_banco — incrementa
+        SEQUENCIA a cada chamada simulando o INSERT real."""
+        seq_counter = {'v': seq_inicial - 1}
+
+        def _ins_ite(_payload, **_kwargs):
+            seq_counter['v'] += 1
+            return {'ok': True, 'sequencia': seq_counter['v']}
+
+        return _ins_ite
+
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco',
+           return_value={'ok': True, 'vlrnota': 1500.0})
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco',
+           return_value={'ok': True, 'nunota': 200000})
+    @patch('sankhya_integration.services.oracle_conn.consultar_lotes_origem_de_seq_nota',
+           return_value=LOTES_SPLIT_PADRAO)
+    @patch('sankhya_integration.services.oracle_conn.consultar_nota_para_devolucao',
+           return_value=NOTA_PADRAO)
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_split_2_lotes_cria_n_tgfite_com_codagregacao_certo(
+            self, _mp, mock_conn, _mn, _ml, _mc, mock_ite, _mr):
+        """Operador divide 300kg entre LOTE_A (150) e LOTE_B (150)."""
+        from sankhya_integration.services.oracle_conn import criar_devolucao_top36_banco
+
+        cur_mock = MagicMock()
+        conn_obj = MagicMock()
+        conn_obj.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn_obj
+
+        mock_ite.side_effect = self._montar_mocks(conn_obj)
+
+        res = criar_devolucao_top36_banco({
+            'nunota_origem': 111971,
+            'itens': [{
+                'sequencia_origem': 1,
+                'lotes_devolver': [
+                    {'codagregacao': 'LOTE_A', 'qtd': 150.0},
+                    {'codagregacao': 'LOTE_B', 'qtd': 150.0},
+                ],
+            }],
+        })
+
+        self.assertTrue(res['ok'], msg=res.get('error'))
+        self.assertEqual(res['nunota'], 200000)
+        # 2 TGFITE criados (1 por lote)
+        self.assertEqual(mock_ite.call_count, 2)
+        # CODAGREGACAO de cada TGFITE bate com o lote escolhido
+        codagregs_inseridos = [
+            call.args[0]['CODAGREGACAO']
+            for call in mock_ite.call_args_list
+        ]
+        self.assertEqual(set(codagregs_inseridos), {'LOTE_A', 'LOTE_B'})
+        # Qtds batem
+        qtds_inseridas = [
+            call.args[0]['QTDNEG']
+            for call in mock_ite.call_args_list
+        ]
+        self.assertEqual(sum(qtds_inseridas), 300.0)
+
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco',
+           return_value={'ok': True, 'vlrnota': 1500.0})
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco',
+           return_value={'ok': True, 'nunota': 200000})
+    @patch('sankhya_integration.services.oracle_conn.consultar_lotes_origem_de_seq_nota',
+           return_value=LOTES_SPLIT_PADRAO)
+    @patch('sankhya_integration.services.oracle_conn.consultar_nota_para_devolucao',
+           return_value=NOTA_PADRAO)
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_tgfvar_sequenciaorig_aponta_pra_seq_da_nota_nao_do_pedido(
+            self, _mp, mock_conn, _mn, _ml, _mc, mock_ite, _mr):
+        """Semântica TGFVAR: SEQUENCIAORIG = SEQ da nota (não SEQ_pedido).
+
+        Crítico: a trava `consultar_devolucoes_anteriores_de_nota` agrupa
+        por SEQUENCIAORIG esperando o SEQ da nota — se aqui apontasse pro
+        SEQ do pedido, a trava de devolução excessiva quebraria.
+        """
+        from sankhya_integration.services.oracle_conn import criar_devolucao_top36_banco
+
+        cur_mock = MagicMock()
+        conn_obj = MagicMock()
+        conn_obj.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn_obj
+        mock_ite.side_effect = self._montar_mocks(conn_obj)
+
+        res = criar_devolucao_top36_banco({
+            'nunota_origem': 111971,
+            'itens': [{
+                'sequencia_origem': 1,
+                'lotes_devolver': [
+                    {'codagregacao': 'LOTE_A', 'qtd': 100.0},
+                    {'codagregacao': 'LOTE_B', 'qtd': 200.0},
+                ],
+            }],
+        })
+        self.assertTrue(res['ok'], msg=res.get('error'))
+
+        # Inspeciona as chamadas execute (INSERT TGFVAR)
+        chamadas_tgfvar = [
+            call for call in cur_mock.execute.call_args_list
+            if 'INSERT INTO TGFVAR' in (call.args[0] if call.args else '')
+        ]
+        self.assertEqual(len(chamadas_tgfvar), 2)
+        for chamada in chamadas_tgfvar:
+            params = chamada.args[1]
+            # SEQUENCIAORIG (`so`) = 1 (SEQ da nota), NUNCA 5 ou 6 (SEQs do pedido)
+            self.assertEqual(params['so'], 1,
+                f'TGFVAR.SEQUENCIAORIG deve ser SEQ da nota (1), recebeu {params["so"]}')
+            self.assertEqual(params['no'], 111971,
+                'TGFVAR.NUNOTAORIG deve ser NUNOTA da nota TOP 35')
+
+    @patch('sankhya_integration.services.oracle_conn.consultar_lotes_origem_de_seq_nota',
+           return_value=LOTES_SPLIT_PADRAO)
+    @patch('sankhya_integration.services.oracle_conn.consultar_nota_para_devolucao',
+           return_value=NOTA_PADRAO)
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_lote_inexistente_no_pedido_bloqueia(self, _mp, _mn, _ml):
+        """Operador informou CODAGREGACAO que não pertence ao pedido origem."""
+        from sankhya_integration.services.oracle_conn import criar_devolucao_top36_banco
+        res = criar_devolucao_top36_banco({
+            'nunota_origem': 111971,
+            'itens': [{
+                'sequencia_origem': 1,
+                'lotes_devolver': [
+                    {'codagregacao': 'LOTE_FANTASMA', 'qtd': 100.0},
+                ],
+            }],
+        })
+        self.assertFalse(res['ok'])
+        self.assertIn('LOTE_FANTASMA', res['error'])
+        self.assertIn('não pertence', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.consultar_lotes_origem_de_seq_nota',
+           return_value=LOTES_SPLIT_PADRAO)
+    @patch('sankhya_integration.services.oracle_conn.consultar_nota_para_devolucao',
+           return_value=NOTA_PADRAO)
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_soma_lotes_excede_devolvivel_bloqueia(self, _mp, _mn, _ml):
+        """Soma das qtds informadas > saldo devolvível do item (1000kg)."""
+        from sankhya_integration.services.oracle_conn import criar_devolucao_top36_banco
+        res = criar_devolucao_top36_banco({
+            'nunota_origem': 111971,
+            'itens': [{
+                'sequencia_origem': 1,
+                'lotes_devolver': [
+                    {'codagregacao': 'LOTE_A', 'qtd': 700.0},
+                    {'codagregacao': 'LOTE_B', 'qtd': 500.0},  # soma 1200 > 1000
+                ],
+            }],
+        })
+        self.assertFalse(res['ok'])
+        self.assertIn('excede saldo devolvível', res['error'].lower())
+        self.assertIn('1200', res['error'].replace('.', '').replace(',', ''))
+
+    @patch('sankhya_integration.services.oracle_conn.consultar_lotes_origem_de_seq_nota',
+           return_value=LOTES_SPLIT_PADRAO)
+    @patch('sankhya_integration.services.oracle_conn.consultar_nota_para_devolucao',
+           return_value=NOTA_PADRAO)
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_codagregacao_vazio_bloqueia(self, _mp, _mn, _ml):
+        from sankhya_integration.services.oracle_conn import criar_devolucao_top36_banco
+        res = criar_devolucao_top36_banco({
+            'nunota_origem': 111971,
+            'itens': [{
+                'sequencia_origem': 1,
+                'lotes_devolver': [
+                    {'codagregacao': '', 'qtd': 100.0},
+                ],
+            }],
+        })
+        self.assertFalse(res['ok'])
+        self.assertIn('CODAGREGACAO', res['error'])
+
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco',
+           return_value={'ok': True, 'vlrnota': 500.0})
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco',
+           return_value={'ok': True, 'nunota': 200000})
+    @patch('sankhya_integration.services.oracle_conn.consultar_nota_para_devolucao',
+           return_value=NOTA_PADRAO)
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_formato_antigo_continua_funcionando_regressao(
+            self, _mp, mock_conn, _mn, _mcab, mock_ite, _mr):
+        """Backward-compat: payload antigo (`qtd_devolver` simples, sem
+        `lotes_devolver`) deve criar 1 TGFITE como antes."""
+        from sankhya_integration.services.oracle_conn import criar_devolucao_top36_banco
+
+        cur_mock = MagicMock()
+        conn_obj = MagicMock()
+        conn_obj.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn_obj
+        mock_ite.side_effect = self._montar_mocks(conn_obj)
+
+        res = criar_devolucao_top36_banco({
+            'nunota_origem': 111971,
+            'itens': [{'sequencia_origem': 1, 'qtd_devolver': 100.0}],
+        })
+        self.assertTrue(res['ok'], msg=res.get('error'))
+        self.assertEqual(mock_ite.call_count, 1)
+        chamadas_tgfvar = [
+            call for call in cur_mock.execute.call_args_list
+            if 'INSERT INTO TGFVAR' in (call.args[0] if call.args else '')
+        ]
+        self.assertEqual(len(chamadas_tgfvar), 1)
+        # SEQUENCIAORIG continua igual ao SEQ da nota (compatível com a trava)
+        self.assertEqual(chamadas_tgfvar[0].args[1]['so'], 1)
+
+
+class ConsultarLotesOrigemDeSeqNotaServiceTest(TestCase):
+    """Navegação inversa TGFVAR — Fase 1 (leitura pura).
+
+    Cenário central: nota TOP 35 consolidou 2 SEQs do pedido com lotes
+    diferentes (SPLIT). A função deve devolver os 2 lotes na ordem do
+    SEQUENCIAORIG.
+    """
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_split_2_lotes(self, mock_conn):
+        from sankhya_integration.services.oracle_conn import (
+            consultar_lotes_origem_de_seq_nota,
+        )
+        cur_mock = MagicMock()
+        # (SEQUENCIAORIG, CODAGREGACAO, QTDNEG_PEDIDO, QTDATENDIDA, NUNOTAORIG)
+        cur_mock.fetchall.return_value = [
+            (5, 'LOTE_A', 500.0, 500.0, 111900),
+            (6, 'LOTE_B', 500.0, 500.0, 111900),
+        ]
+        conn_mock = MagicMock()
+        conn_mock.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn_mock
+
+        res = consultar_lotes_origem_de_seq_nota(111971, 1)
+        self.assertTrue(res['ok'])
+        self.assertEqual(len(res['lotes']), 2)
+        self.assertEqual(res['lotes'][0]['seq_pedido'], 5)
+        self.assertEqual(res['lotes'][0]['codagregacao'], 'LOTE_A')
+        self.assertEqual(res['lotes'][0]['qtd_atendida'], 500.0)
+        self.assertEqual(res['lotes'][1]['codagregacao'], 'LOTE_B')
+        self.assertEqual(res['total_atendido'], 1000.0)
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_sem_tgfvar_par_retorna_vazio(self, mock_conn):
+        """Nota órfã (sem TGFVAR ligando a pedido) → lista vazia, ok=True."""
+        from sankhya_integration.services.oracle_conn import (
+            consultar_lotes_origem_de_seq_nota,
+        )
+        cur_mock = MagicMock()
+        cur_mock.fetchall.return_value = []
+        conn_mock = MagicMock()
+        conn_mock.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn_mock
+
+        res = consultar_lotes_origem_de_seq_nota(111971, 1)
+        self.assertTrue(res['ok'])
+        self.assertEqual(res['lotes'], [])
+        self.assertEqual(res['total_atendido'], 0.0)
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_codagregacao_null_no_pedido(self, mock_conn):
+        """SEQ do pedido sem CODAGREGACAO (item ainda não vinculado quando
+        faturou? cenário raro mas possível) — entra com string vazia."""
+        from sankhya_integration.services.oracle_conn import (
+            consultar_lotes_origem_de_seq_nota,
+        )
+        cur_mock = MagicMock()
+        cur_mock.fetchall.return_value = [
+            (5, None, 500.0, 500.0, 111900),
+        ]
+        conn_mock = MagicMock()
+        conn_mock.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn_mock
+
+        res = consultar_lotes_origem_de_seq_nota(111971, 1)
+        self.assertTrue(res['ok'])
+        self.assertEqual(res['lotes'][0]['codagregacao'], '')
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle',
+           side_effect=Exception('ORA-12345 boom'))
+    def test_falha_oracle_retorna_lista_vazia(self, _mp):
+        from sankhya_integration.services.oracle_conn import (
+            consultar_lotes_origem_de_seq_nota,
+        )
+        res = consultar_lotes_origem_de_seq_nota(111971, 1)
+        self.assertFalse(res['ok'])
+        self.assertEqual(res['lotes'], [])
+        self.assertEqual(res['total_atendido'], 0.0)
+
+
+class ConsultarNotaParaDevolucaoComLotesOrigemTest(TestCase):
+    """Confirma que consultar_nota_para_devolucao agora propaga lotes_origem
+    no payload de cada item — Fase 1 da navegação inversa TGFVAR."""
+
+    @patch('sankhya_integration.services.oracle_conn.consultar_lotes_origem_de_seq_nota',
+           return_value={'ok': True,
+                         'lotes': [
+                             {'seq_pedido': 5, 'codagregacao': 'LOTE_A',
+                              'qtdneg_pedido': 500.0, 'qtd_atendida': 500.0,
+                              'nunota_pedido': 111900},
+                             {'seq_pedido': 6, 'codagregacao': 'LOTE_B',
+                              'qtdneg_pedido': 500.0, 'qtd_atendida': 500.0,
+                              'nunota_pedido': 111900},
+                         ],
+                         'total_atendido': 1000.0})
+    @patch('sankhya_integration.services.oracle_conn.consultar_devolucoes_anteriores_de_nota',
+           return_value={'ok': True, 'por_sequencia': {}})
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_item_recebe_lotes_origem(self, mock_conn, _mdev, _mlotes):
+        from sankhya_integration.services.oracle_conn import (
+            consultar_nota_para_devolucao,
+        )
+        cur_mock = MagicMock()
+        # 1) Cabeçalho
+        # 2) Itens (1 item de TOMATE 1000 kg consolidando 2 lotes do pedido)
+        cur_mock.fetchone.return_value = (
+            111971, 6266, 10, 244,
+            35, 'L', 5000.0, 2,
+            '2026-05-09',
+            'CLIENTE X',
+        )
+        cur_mock.fetchall.return_value = [
+            # SEQUENCIA, CODPROD, DESCRPROD, CODAGREGACAO, CODVOL,
+            # QTDNEG, VLRUNIT, VLRTOT
+            (1, 21, 'TOMATE', '', 'KG', 1000.0, 5.0, 5000.0),
+        ]
+        conn_mock = MagicMock()
+        conn_mock.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn_mock
+
+        res = consultar_nota_para_devolucao(111971)
+        self.assertTrue(res['ok'])
+        self.assertEqual(len(res['itens']), 1)
+        item = res['itens'][0]
+        self.assertIn('lotes_origem', item)
+        self.assertEqual(len(item['lotes_origem']), 2)
+        self.assertEqual(item['lotes_origem'][0]['codagregacao'], 'LOTE_A')
+        self.assertEqual(item['lotes_origem'][1]['codagregacao'], 'LOTE_B')
+
+    @patch('sankhya_integration.services.oracle_conn.consultar_lotes_origem_de_seq_nota',
+           side_effect=Exception('falha inesperada'))
+    @patch('sankhya_integration.services.oracle_conn.consultar_devolucoes_anteriores_de_nota',
+           return_value={'ok': True, 'por_sequencia': {}})
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_tolerante_a_falha_em_lotes_origem(self, mock_conn, _mdev, _mlotes):
+        """Falha em consultar_lotes_origem_de_seq_nota não derruba a leitura
+        principal — item segue com lotes_origem=[] como fallback."""
+        from sankhya_integration.services.oracle_conn import (
+            consultar_nota_para_devolucao,
+        )
+        cur_mock = MagicMock()
+        cur_mock.fetchone.return_value = (
+            111971, 6266, 10, 244, 35, 'L', 5000.0, 2,
+            '2026-05-09', 'CLIENTE X',
+        )
+        cur_mock.fetchall.return_value = [
+            (1, 21, 'TOMATE', 'L_X', 'KG', 1000.0, 5.0, 5000.0),
+        ]
+        conn_mock = MagicMock()
+        conn_mock.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn_mock
+
+        res = consultar_nota_para_devolucao(111971)
+        self.assertTrue(res['ok'])
+        # Fallback: lotes_origem fica vazio, mas o item continua acessível
+        self.assertEqual(res['itens'][0]['lotes_origem'], [])
+        self.assertEqual(res['itens'][0]['codagregacao'], 'L_X')
 
 
 class HistoricoLoteServiceTest(TestCase):

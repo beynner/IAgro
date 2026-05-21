@@ -177,6 +177,8 @@ urlpatterns = [
     path("venda/api/avaria/criar/",          views.api_criar_avaria,              name="api_criar_avaria"),
     path("venda/api/devolucao/preparar/",    views.api_obter_nota_para_devolucao, name="api_obter_nota_para_devolucao"),
     path("venda/api/devolucao/criar/",       views.api_criar_devolucao,           name="api_criar_devolucao"),
+    # Navegação inversa TGFVAR (nota → pedido → lotes). Compartilhada por Devolução e Avaria.
+    path("venda/api/lotes-de-item-nota/",    views.api_lotes_de_item_nota,        name="api_lotes_de_item_nota"),
     path("venda/api/lote/historico/",        views.api_historico_lote,            name="api_historico_lote"),
 
 # ==============================================================================

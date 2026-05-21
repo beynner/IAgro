@@ -1259,49 +1259,313 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btnAvaria')?.addEventListener('click', abrirModalAvaria);
     document.getElementById('avariaCancelBtn')?.addEventListener('click', () => _fecharModal('avariaModal'));
 
+    // --------------------------------------------------------------------------
+    // B2 Mai/2026 — Avaria "a partir de nota" (TGFVAR inverso)
+    // --------------------------------------------------------------------------
+    let _avnNotaCarregada = null;
+    let _avnSeqSelecionada = null;
+
+    // Toggle entre modo AVULSO e modo NOTA
+    document.querySelectorAll('input[name="av_modo"]').forEach(radio => {
+        radio.addEventListener('change', (ev) => {
+            const modo = ev.target.value;
+            const ehNota = modo === 'NOTA';
+            document.getElementById('avariaModoAvulso')?.classList.toggle('hidden', ehNota);
+            document.getElementById('avariaModoNota')?.classList.toggle('hidden', !ehNota);
+            // Quantidade única só faz sentido no modo AVULSO (no modo NOTA
+            // a qtd vem das sub-linhas de lote)
+            document.getElementById('avaria_qtd_wrap')?.classList.toggle('hidden', ehNota);
+        });
+    });
+
+    // Carregar itens da nota — reusa endpoint da devolução
+    document.getElementById('avn_btnCarregar')?.addEventListener('click', async () => {
+        const nunota = parseInt(document.getElementById('avn_nunota_nota').value, 10);
+        if (!nunota) { phToast('Informe o NUNOTA da nota', 'error'); return; }
+
+        const btn = document.getElementById('avn_btnCarregar');
+        btn.disabled = true; btn.textContent = 'Carregando...';
+        try {
+            const r = await fetch(`/sankhya/venda/api/devolucao/preparar/?nunota=${nunota}`);
+            const d = await r.json();
+            if (!r.ok || !d.ok) {
+                phToast(d.error || 'Falha ao carregar nota', 'error');
+                document.getElementById('avn_nota_info').classList.add('hidden');
+                document.getElementById('avn_itens_wrap').classList.add('hidden');
+                return;
+            }
+
+            _avnNotaCarregada = d;
+            _avnSeqSelecionada = null;
+            const cab = d.cabecalho;
+            document.getElementById('avn_nota_cliente').textContent = cab.nomeparc || `CODPARC ${cab.codparc}`;
+            document.getElementById('avn_nota_data').textContent = cab.dtneg || '—';
+            document.getElementById('avn_nota_numnota').textContent = cab.numnota || '—';
+            document.getElementById('avn_nota_info').classList.remove('hidden');
+
+            // Auto-popula codemp + codparc do header (não precisa o operador refazer)
+            document.getElementById('avaria_codemp').value = cab.codemp;
+            document.getElementById('avaria_codparc').value = cab.codparc;
+            const parcInp = document.getElementById('avaria_parcSearch');
+            if (parcInp && cab.nomeparc) {
+                parcInp.value = `${cab.codparc} — ${cab.nomeparc}`;
+            }
+
+            const body = document.getElementById('avn_itens_body');
+            if (!d.itens.length) {
+                body.innerHTML = '<tr><td colspan="5" class="ia-placeholder">Nota sem itens.</td></tr>';
+            } else {
+                body.innerHTML = d.itens.map(it => {
+                    const lotesOrigem = Array.isArray(it.lotes_origem) ? it.lotes_origem : [];
+                    const ehSplit = lotesOrigem.length >= 2;
+                    let celulaLote;
+                    if (ehSplit) {
+                        const resumo = lotesOrigem
+                            .map(l => `${l.codagregacao || '(sem lote)'} · ${_fmtNum(l.qtd_atendida, 2)} ${it.codvol}`)
+                            .join('\n');
+                        celulaLote = `<span class="dev-lotes-multi" title="Pedido origem dividido em ${lotesOrigem.length} lotes (SPLIT):\n${resumo}">${lotesOrigem.length} lotes ⚡</span>`;
+                    } else if (lotesOrigem.length === 1 && lotesOrigem[0].codagregacao) {
+                        celulaLote = lotesOrigem[0].codagregacao;
+                    } else {
+                        celulaLote = it.codagregacao || '—';
+                    }
+
+                    // Sub-linha com tabela editável (sempre — modo NOTA sempre
+                    // divide por lote, mesmo com 1 lote único)
+                    const linhasLote = (lotesOrigem.length ? lotesOrigem : [{
+                        codagregacao: it.codagregacao || '',
+                        qtd_atendida: it.qtdneg,
+                    }]).map(l => {
+                        const cod = l.codagregacao || '';
+                        const atend = l.qtd_atendida || 0;
+                        return `
+                            <tr data-cod="${cod}">
+                                <td class="dev-split-lote">${cod || '(sem lote)'}</td>
+                                <td class="text-right">${_fmtNum(atend, 2)} ${it.codvol}</td>
+                                <td>
+                                    <input type="number" step="0.01" min="0" max="${atend}"
+                                           class="avn-lote-qtd"
+                                           data-cod="${cod}"
+                                           data-atendido="${atend}"
+                                           placeholder="0,00">
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
+
+                    return `
+                        <tr data-seq="${it.sequencia}"
+                            data-codprod="${it.codprod}"
+                            data-codvol="${it.codvol}"
+                            data-max="${it.qtdneg}">
+                            <td class="text-center">
+                                <input type="radio" name="avn_item_sel" class="avn-radio" value="${it.sequencia}">
+                            </td>
+                            <td>${it.codprod} · ${(it.descrprod || '').substring(0, 35)}</td>
+                            <td>${celulaLote}</td>
+                            <td class="text-right">${_fmtNum(it.qtdneg, 2)}</td>
+                            <td>
+                                <div class="dev-qtd-resumo">
+                                    <strong class="avn-qtd-total" data-max="${it.qtdneg}">0,00</strong>
+                                    <span class="dev-qtd-tag">de ${_fmtNum(it.qtdneg, 2)}</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr class="dev-split-row hidden" data-parent-seq="${it.sequencia}">
+                            <td colspan="5">
+                                <div class="dev-split-wrap">
+                                    <div class="dev-split-titulo">Dividir entre lotes do pedido origem</div>
+                                    <table class="dev-split-tabela">
+                                        <thead>
+                                            <tr>
+                                                <th>Lote</th>
+                                                <th class="text-right">Atendido</th>
+                                                <th>Qtd avariada</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>${linhasLote}</tbody>
+                                    </table>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+            document.getElementById('avn_itens_wrap').classList.remove('hidden');
+        } catch (e) {
+            phToast('Erro de comunicação ao carregar nota', 'error');
+        } finally {
+            btn.disabled = false; btn.textContent = 'Carregar Itens';
+        }
+    });
+
+    // Quando o operador escolhe 1 item (radio), revela sub-tabela do lote
+    document.getElementById('avn_itens_body')?.addEventListener('change', (ev) => {
+        if (!ev.target.classList.contains('avn-radio')) return;
+        const seqEscolhida = ev.target.value;
+        _avnSeqSelecionada = parseInt(seqEscolhida, 10);
+
+        // Esconde todas as sub-linhas e mostra só a do item escolhido
+        document.querySelectorAll('#avn_itens_body tr.dev-split-row').forEach(tr => {
+            const parentSeq = tr.dataset.parentSeq;
+            const ehEscolhido = parentSeq === seqEscolhida;
+            tr.classList.toggle('hidden', !ehEscolhido);
+            if (!ehEscolhido) {
+                // Limpa inputs das sub-linhas não-selecionadas
+                tr.querySelectorAll('.avn-lote-qtd').forEach(inp => { inp.value = ''; });
+            }
+        });
+        _avnRecalcularTotal(_avnSeqSelecionada);
+    });
+
+    function _avnRecalcularTotal(seq) {
+        if (!seq) return;
+        const body = document.getElementById('avn_itens_body');
+        const parent = body?.querySelector(`tr[data-seq="${seq}"]`);
+        const splitRow = body?.querySelector(`tr.dev-split-row[data-parent-seq="${seq}"]`);
+        if (!parent || !splitRow) return;
+        const inputs = splitRow.querySelectorAll('.avn-lote-qtd');
+        let soma = 0;
+        inputs.forEach(inp => {
+            const v = parseFloat(inp.value);
+            if (!isNaN(v) && v > 0) soma += v;
+        });
+        const totalEl = parent.querySelector('.avn-qtd-total');
+        if (totalEl) {
+            totalEl.textContent = _fmtNum(soma, 2);
+            const max = parseFloat(parent.dataset.max);
+            totalEl.classList.toggle('dev-qtd-total--excede', soma > max + 1e-6);
+        }
+    }
+
+    document.getElementById('avn_itens_body')?.addEventListener('input', (ev) => {
+        if (!ev.target.classList.contains('avn-lote-qtd')) return;
+        const splitRow = ev.target.closest('tr.dev-split-row');
+        const parentSeq = splitRow?.dataset.parentSeq;
+        if (parentSeq) _avnRecalcularTotal(parentSeq);
+    });
+
+    // Clamp automático no blur (avaria modo NOTA) — espelha a regra da devolução
+    document.getElementById('avn_itens_body')?.addEventListener('blur', (ev) => {
+        const t = ev.target;
+        if (!t.classList?.contains('avn-lote-qtd')) return;
+        const max = parseFloat(t.dataset.atendido);
+        const v = parseFloat(t.value);
+        if (!isNaN(max) && !isNaN(v) && v > max + 1e-6) {
+            t.value = max.toFixed(2);
+            phToast(`Ajustado pro máximo do lote: ${_fmtNum(max, 2)}`, 'info');
+            t.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+    }, true);
+
+    // Reset state ao reabrir o modal de avaria
+    document.getElementById('btnAvaria')?.addEventListener('click', () => {
+        _avnNotaCarregada = null;
+        _avnSeqSelecionada = null;
+        document.querySelector('input[name="av_modo"][value="AVULSO"]').checked = true;
+        document.getElementById('avariaModoAvulso')?.classList.remove('hidden');
+        document.getElementById('avariaModoNota')?.classList.add('hidden');
+        document.getElementById('avaria_qtd_wrap')?.classList.remove('hidden');
+        document.getElementById('avn_nota_info')?.classList.add('hidden');
+        document.getElementById('avn_itens_wrap')?.classList.add('hidden');
+        const nunInp = document.getElementById('avn_nunota_nota'); if (nunInp) nunInp.value = '';
+    });
+
     document.getElementById('avariaConfirmBtn')?.addEventListener('click', async () => {
-        const codagregacao = document.getElementById('avaria_codagregacao').value.trim();
-        const codprod      = parseInt(document.getElementById('avaria_codprod').value, 10);
+        const modo = document.querySelector('input[name="av_modo"]:checked')?.value || 'AVULSO';
         const codemp       = parseInt(document.getElementById('avaria_codemp').value, 10);
         const codparc      = parseInt(document.getElementById('avaria_codparc').value, 10);
-        const qtdneg       = parseFloat(document.getElementById('avaria_qtdneg').value);
         const codvol       = document.getElementById('avaria_codvol').value || 'KG';
         const vlrunitRaw   = document.getElementById('avaria_vlrunit').value;
         const vlrunit      = vlrunitRaw ? parseFloat(vlrunitRaw) : 0;
         const numnota_ref  = document.getElementById('avaria_numnota_ref').value.trim();
         const observacao   = document.getElementById('avaria_observacao').value.trim() || 'AVARIA';
         const dtnegISO     = document.getElementById('avaria_dtneg').value;
+        const dtneg = dtnegISO ? dtnegISO.split('-').reverse().join('/') : null;
 
-        // Validações cliente
+        // Validações comuns
         const erros = [];
-        if (!codagregacao) erros.push('Selecione um lote');
-        if (!codprod)      erros.push('Lote sem produto associado');
-        if (!codemp)       erros.push('Empresa não detectada');
-        if (!codparc)      erros.push('Selecione o cliente/parceiro');
-        if (!qtdneg || qtdneg <= 0) erros.push('Quantidade obrigatória');
-        if (erros.length) { phToast(erros.join(' · '), 'error'); return; }
+        if (!codemp)  erros.push('Empresa não detectada');
+        if (!codparc) erros.push('Selecione o cliente/parceiro');
+
+        let payload;
+        if (modo === 'AVULSO') {
+            const codagregacao = document.getElementById('avaria_codagregacao').value.trim();
+            const codprod      = parseInt(document.getElementById('avaria_codprod').value, 10);
+            const qtdneg       = parseFloat(document.getElementById('avaria_qtdneg').value);
+            if (!codagregacao) erros.push('Selecione um lote');
+            if (!codprod)      erros.push('Lote sem produto associado');
+            if (!qtdneg || qtdneg <= 0) erros.push('Quantidade obrigatória');
+            if (erros.length) { phToast(erros.join(' · '), 'error'); return; }
+
+            payload = {
+                codemp, codparc, codagregacao, codprod, qtdneg,
+                codvol, vlrunit, numnota_ref, observacao, dtneg,
+            };
+        } else {
+            // Modo NOTA — coleta lotes da sub-linha selecionada
+            if (!_avnNotaCarregada) erros.push('Carregue a nota primeiro');
+            if (!_avnSeqSelecionada) erros.push('Marque o item da nota');
+            if (erros.length) { phToast(erros.join(' · '), 'error'); return; }
+
+            const parent = document.querySelector(`#avn_itens_body tr[data-seq="${_avnSeqSelecionada}"]`);
+            const splitRow = document.querySelector(`#avn_itens_body tr.dev-split-row[data-parent-seq="${_avnSeqSelecionada}"]`);
+            const codprod = parseInt(parent?.dataset.codprod, 10);
+            const codvolItem = parent?.dataset.codvol || codvol;
+            const maxItem = parseFloat(parent?.dataset.max);
+
+            const inputs = Array.from(splitRow?.querySelectorAll('.avn-lote-qtd') || []);
+            const lotes = [];
+            let soma = 0;
+            for (const inp of inputs) {
+                const qtd = parseFloat(inp.value);
+                if (!qtd || qtd <= 0) continue;
+                const cod = inp.dataset.cod;
+                const atend = parseFloat(inp.dataset.atendido) || 0;
+                if (!cod) { phToast('Item sem CODAGREGACAO rastreável — use modo avulso', 'error'); return; }
+                if (qtd > atend + 1e-6) {
+                    phToast(`Lote ${cod}: qtd ${_fmtNum(qtd, 2)} excede atendido ${_fmtNum(atend, 2)}`, 'error');
+                    return;
+                }
+                soma += qtd;
+                lotes.push({ codagregacao: cod, qtd });
+            }
+            if (!lotes.length) { phToast('Informe quantidade em pelo menos 1 lote', 'error'); return; }
+            if (soma > maxItem + 1e-6) {
+                phToast(`Soma dos lotes (${_fmtNum(soma, 2)}) excede vendido (${_fmtNum(maxItem, 2)})`, 'error');
+                return;
+            }
+
+            payload = {
+                codemp, codparc, codprod,
+                codvol: codvolItem, vlrunit, numnota_ref, observacao, dtneg,
+                nunota_origem_nota: _avnNotaCarregada.cabecalho.nunota,
+                sequencia_nota: _avnSeqSelecionada,
+                lotes_avaria: lotes,
+            };
+        }
 
         const ok = await phConfirmar({
             titulo: 'Registrar avaria interna?',
-            mensagem: `Lote ${codagregacao} · ${_fmtNum(qtdneg)} ${codvol}. Saldo do lote será descontado.`,
+            mensagem: modo === 'AVULSO'
+                ? `Lote ${payload.codagregacao} · ${_fmtNum(payload.qtdneg)} ${payload.codvol}. Saldo do lote será descontado.`
+                : `${payload.lotes_avaria.length} lote(s) da nota ${payload.nunota_origem_nota}. Saldo de cada lote será descontado.`,
             tipo: 'aviso',
         });
         if (!ok) return;
 
-        const dtneg = dtnegISO ? dtnegISO.split('-').reverse().join('/') : null;
-
         const btn = document.getElementById('avariaConfirmBtn');
         btn.disabled = true; btn.classList.add('btn--loading');
         try {
-            const res = await phPostJSON('/sankhya/venda/api/avaria/criar/', {
-                codemp, codparc, codagregacao, codprod, qtdneg,
-                codvol, vlrunit, numnota_ref, observacao, dtneg,
-            });
+            const res = await phPostJSON('/sankhya/venda/api/avaria/criar/', payload);
             if (!res.ok || !res.body?.ok) {
                 phToast(res.body?.error || 'Falha ao registrar avaria', 'error');
                 return;
             }
-            phToast(`Avaria registrada · NUNOTA ${res.body.nunota} · ${_fmtNum(qtdneg)} ${codvol}`, 'success');
+            const resumo = modo === 'AVULSO'
+                ? `${_fmtNum(payload.qtdneg)} ${payload.codvol}`
+                : `${payload.lotes_avaria.length} lote(s)`;
+            phToast(`Avaria registrada · NUNOTA ${res.body.nunota} · ${resumo}`, 'success');
             _fecharModal('avariaModal');
             carregarVendas(false);
         } catch (e) {
@@ -1369,26 +1633,103 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const body = document.getElementById('dev_itens_body');
             if (!d.itens.length) {
-                body.innerHTML = '<tr><td colspan="8" class="ia-placeholder">Nota sem itens.</td></tr>';
+                body.innerHTML = '<tr><td colspan="7" class="ia-placeholder">Nota sem itens.</td></tr>';
             } else {
                 body.innerHTML = d.itens.map(it => {
                     const sem_saldo = it.qtd_devolvivel <= 0;
+                    const lotesOrigem = Array.isArray(it.lotes_origem) ? it.lotes_origem : [];
+                    // Mai/2026 — Fase 2: navegação inversa TGFVAR + divisão editável
+                    // 1 lote (ou nenhum): coluna mostra o lote da nota e input simples de qtd
+                    // 2+ lotes: badge `N lotes ⚡` + sub-tabela editável com sugestão proporcional
+                    const ehSplit = lotesOrigem.length >= 2;
+                    let celulaLote;
+                    if (ehSplit) {
+                        const resumo = lotesOrigem
+                            .map(l => `${l.codagregacao || '(sem lote)'} · ${_fmtNum(l.qtd_atendida, 2)} ${it.codvol}`)
+                            .join('\n');
+                        celulaLote = `<span class="dev-lotes-multi" title="Pedido origem dividido em ${lotesOrigem.length} lotes (SPLIT):\n${resumo}">${lotesOrigem.length} lotes ⚡</span>`;
+                    } else if (lotesOrigem.length === 1 && lotesOrigem[0].codagregacao) {
+                        celulaLote = lotesOrigem[0].codagregacao;
+                    } else {
+                        celulaLote = it.codagregacao || '—';
+                    }
+
+                    const colVol = it.codvol;
+                    const colDevolvivel = it.qtd_devolvivel;
+
+                    let celulaQtd;
+                    if (ehSplit) {
+                        celulaQtd = `
+                            <div class="dev-qtd-resumo">
+                                <strong class="dev-qtd-total" data-max="${colDevolvivel}">0,00</strong>
+                                <span class="dev-qtd-tag">de ${_fmtNum(colDevolvivel, 2)}</span>
+                            </div>
+                        `;
+                    } else {
+                        celulaQtd = `
+                            <input type="number" step="0.01" min="0" max="${colDevolvivel}"
+                                   class="dev-qtd full-width" placeholder="0,00"
+                                   ${sem_saldo ? 'disabled' : ''}>
+                        `;
+                    }
+
+                    // Sub-linha com sub-tabela editável (só pra split)
+                    let linhaSplit = '';
+                    if (ehSplit) {
+                        const linhasLote = lotesOrigem.map(l => {
+                            const cod = l.codagregacao || '';
+                            const atend = l.qtd_atendida || 0;
+                            return `
+                                <tr data-cod="${cod}">
+                                    <td class="dev-split-lote">${cod}</td>
+                                    <td class="text-right">${_fmtNum(atend, 2)} ${colVol}</td>
+                                    <td>
+                                        <input type="number" step="0.01" min="0" max="${atend}"
+                                               class="dev-split-qtd"
+                                               data-cod="${cod}"
+                                               data-atendido="${atend}"
+                                               placeholder="0,00"
+                                               ${sem_saldo ? 'disabled' : ''}>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('');
+                        linhaSplit = `
+                            <tr class="dev-split-row hidden" data-parent-seq="${it.sequencia}">
+                                <td colspan="7">
+                                    <div class="dev-split-wrap">
+                                        <div class="dev-split-titulo">Dividir entre lotes do pedido origem (SPLIT)</div>
+                                        <table class="dev-split-tabela">
+                                            <thead>
+                                                <tr>
+                                                    <th>Lote</th>
+                                                    <th class="text-right">Atendido</th>
+                                                    <th>Qtd devolver</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>${linhasLote}</tbody>
+                                        </table>
+                                    </div>
+                                </td>
+                            </tr>
+                        `;
+                    }
+
                     return `
-                        <tr data-seq="${it.sequencia}" data-max="${it.qtd_devolvivel}" class="${sem_saldo ? 'dev-item-zerado' : ''}">
+                        <tr data-seq="${it.sequencia}" data-max="${colDevolvivel}"
+                            data-split="${ehSplit ? '1' : '0'}"
+                            class="${sem_saldo ? 'dev-item-zerado' : ''}">
                             <td class="text-center">
                                 <input type="checkbox" class="dev-chk" ${sem_saldo ? 'disabled' : ''}>
                             </td>
                             <td>${it.codprod} · ${(it.descrprod || '').substring(0, 35)}</td>
-                            <td>${it.codagregacao || '—'}</td>
-                            <td class="text-right">${_fmtNum(it.qtdneg)} ${it.codvol}</td>
-                            <td class="text-right">${_fmtNum(it.qtd_ja_devolvida)}</td>
-                            <td class="text-right"><strong>${_fmtNum(it.qtd_devolvivel)}</strong></td>
-                            <td>
-                                <input type="number" step="0.001" min="0" max="${it.qtd_devolvivel}"
-                                       class="dev-qtd full-width" placeholder="0,000"
-                                       ${sem_saldo ? 'disabled' : ''}>
-                            </td>
+                            <td>${celulaLote}</td>
+                            <td class="text-right">${_fmtNum(it.qtdneg, 2)}</td>
+                            <td class="text-right">${_fmtNum(it.qtd_ja_devolvida, 2)}</td>
+                            <td class="text-right"><strong>${_fmtNum(colDevolvivel, 2)}</strong></td>
+                            <td>${celulaQtd}</td>
                         </tr>
+                        ${linhaSplit}
                     `;
                 }).join('');
             }
@@ -1400,17 +1741,107 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Quando o checkbox marca, pré-preenche qtd_devolver com o max disponível
+    // Helper: recalcula o total da linha-pai a partir das sub-linhas de split
+    function _devRecalcularTotalSplit(parentSeq) {
+        const body = document.getElementById('dev_itens_body');
+        if (!body) return;
+        const parent = body.querySelector(`tr[data-seq="${parentSeq}"]`);
+        const splitRow = body.querySelector(`tr.dev-split-row[data-parent-seq="${parentSeq}"]`);
+        if (!parent || !splitRow) return;
+        const inputs = splitRow.querySelectorAll('.dev-split-qtd');
+        let soma = 0;
+        inputs.forEach(inp => {
+            const v = parseFloat(inp.value);
+            if (!isNaN(v) && v > 0) soma += v;
+        });
+        const totalEl = parent.querySelector('.dev-qtd-total');
+        if (totalEl) totalEl.textContent = _fmtNum(soma, 2);
+        const max = parseFloat(parent.dataset.max);
+        if (totalEl) {
+            totalEl.classList.toggle('dev-qtd-total--excede', soma > max + 1e-6);
+        }
+    }
+
+    // Sugestão proporcional ao marcar checkbox em item com split (lotes_origem >= 2)
+    function _devSugerirProporcional(parentSeq) {
+        const body = document.getElementById('dev_itens_body');
+        if (!body) return;
+        const parent = body.querySelector(`tr[data-seq="${parentSeq}"]`);
+        const splitRow = body.querySelector(`tr.dev-split-row[data-parent-seq="${parentSeq}"]`);
+        if (!parent || !splitRow) return;
+        const max = parseFloat(parent.dataset.max);  // qtd_devolvivel total
+        const inputs = Array.from(splitRow.querySelectorAll('.dev-split-qtd'));
+        const totalAtendido = inputs.reduce((acc, inp) => {
+            return acc + (parseFloat(inp.dataset.atendido) || 0);
+        }, 0);
+        if (totalAtendido <= 0) {
+            inputs.forEach(inp => { inp.value = ''; });
+            return;
+        }
+        // Distribui proporcional a qtd_atendida de cada lote
+        inputs.forEach(inp => {
+            const atend = parseFloat(inp.dataset.atendido) || 0;
+            const sugestao = max * (atend / totalAtendido);
+            inp.value = sugestao.toFixed(2);
+        });
+        _devRecalcularTotalSplit(parentSeq);
+    }
+
+    // Quando o checkbox marca/desmarca, pré-preenche qtd_devolver
     document.getElementById('dev_itens_body')?.addEventListener('change', (ev) => {
         if (!ev.target.classList.contains('dev-chk')) return;
         const tr = ev.target.closest('tr');
-        const inp = tr.querySelector('.dev-qtd');
-        if (ev.target.checked && !inp.value) {
-            inp.value = tr.dataset.max;
-        } else if (!ev.target.checked) {
-            inp.value = '';
+        const seq = tr.dataset.seq;
+        const ehSplit = tr.dataset.split === '1';
+
+        if (ehSplit) {
+            const splitRow = document.querySelector(`#dev_itens_body tr.dev-split-row[data-parent-seq="${seq}"]`);
+            if (ev.target.checked) {
+                splitRow?.classList.remove('hidden');
+                _devSugerirProporcional(seq);
+            } else {
+                splitRow?.classList.add('hidden');
+                splitRow?.querySelectorAll('.dev-split-qtd').forEach(inp => { inp.value = ''; });
+                _devRecalcularTotalSplit(seq);
+            }
+        } else {
+            const inp = tr.querySelector('.dev-qtd');
+            if (ev.target.checked && !inp.value) {
+                inp.value = tr.dataset.max;
+            } else if (!ev.target.checked) {
+                inp.value = '';
+            }
         }
     });
+
+    // Recalcula resumo do split conforme o operador edita as qtds por lote
+    document.getElementById('dev_itens_body')?.addEventListener('input', (ev) => {
+        if (!ev.target.classList.contains('dev-split-qtd')) return;
+        const splitRow = ev.target.closest('tr.dev-split-row');
+        const parentSeq = splitRow?.dataset.parentSeq;
+        if (parentSeq) _devRecalcularTotalSplit(parentSeq);
+    });
+
+    // Clamp automático no blur: se operador digitar valor maior que o máximo
+    // (qtd_devolvivel pra .dev-qtd / qtd_atendida do lote pra .dev-split-qtd),
+    // ajusta automaticamente pro teto e mostra toast informativo. Backend e
+    // submit já validam, mas isso elimina erro silencioso na UX.
+    document.getElementById('dev_itens_body')?.addEventListener('blur', (ev) => {
+        const t = ev.target;
+        const ehSimples = t.classList?.contains('dev-qtd');
+        const ehSplit   = t.classList?.contains('dev-split-qtd');
+        if (!ehSimples && !ehSplit) return;
+        const max = parseFloat(ehSimples
+            ? (t.closest('tr')?.dataset.max)
+            : (t.dataset.atendido));
+        const v = parseFloat(t.value);
+        if (!isNaN(max) && !isNaN(v) && v > max + 1e-6) {
+            t.value = max.toFixed(2);
+            phToast(`Ajustado pro máximo disponível: ${_fmtNum(max, 2)}`, 'info');
+            // Re-dispara input pra reflexar no total
+            t.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+    }, true);   // capture=true porque blur não bubbles
 
     document.getElementById('devConfirmBtn')?.addEventListener('click', async () => {
         if (!_devNotaCarregada) { phToast('Carregue a nota antes', 'error'); return; }
@@ -1422,16 +1853,47 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!chk || !chk.checked) continue;
             const seq = parseInt(tr.dataset.seq, 10);
             const max = parseFloat(tr.dataset.max);
-            const qtd = parseFloat(tr.querySelector('.dev-qtd').value);
-            if (!qtd || qtd <= 0) {
-                phToast(`SEQ ${seq}: informe a quantidade a devolver`, 'error');
-                return;
+            const ehSplit = tr.dataset.split === '1';
+
+            if (ehSplit) {
+                // Formato NOVO: divisão por lote
+                const splitRow = document.querySelector(`#dev_itens_body tr.dev-split-row[data-parent-seq="${seq}"]`);
+                const inputs = Array.from(splitRow?.querySelectorAll('.dev-split-qtd') || []);
+                const lotes = [];
+                let soma = 0;
+                for (const inp of inputs) {
+                    const qtd = parseFloat(inp.value);
+                    if (!qtd || qtd <= 0) continue;
+                    const atend = parseFloat(inp.dataset.atendido) || 0;
+                    if (qtd > atend + 1e-6) {
+                        phToast(`SEQ ${seq} · lote ${inp.dataset.cod}: qtd ${_fmtNum(qtd, 2)} excede atendido ${_fmtNum(atend, 2)}`, 'error');
+                        return;
+                    }
+                    soma += qtd;
+                    lotes.push({ codagregacao: inp.dataset.cod, qtd });
+                }
+                if (!lotes.length) {
+                    phToast(`SEQ ${seq}: informe a quantidade em pelo menos 1 lote`, 'error');
+                    return;
+                }
+                if (soma > max + 1e-6) {
+                    phToast(`SEQ ${seq}: soma dos lotes (${_fmtNum(soma, 2)}) excede saldo devolvível ${_fmtNum(max, 2)}`, 'error');
+                    return;
+                }
+                itens.push({ sequencia_origem: seq, lotes_devolver: lotes });
+            } else {
+                // Formato ANTIGO: 1 qtd por item
+                const qtd = parseFloat(tr.querySelector('.dev-qtd').value);
+                if (!qtd || qtd <= 0) {
+                    phToast(`SEQ ${seq}: informe a quantidade a devolver`, 'error');
+                    return;
+                }
+                if (qtd > max + 1e-6) {
+                    phToast(`SEQ ${seq}: quantidade ${_fmtNum(qtd, 2)} excede saldo devolvível ${_fmtNum(max, 2)}`, 'error');
+                    return;
+                }
+                itens.push({ sequencia_origem: seq, qtd_devolver: qtd });
             }
-            if (qtd > max + 1e-6) {
-                phToast(`SEQ ${seq}: quantidade ${_fmtNum(qtd)} excede saldo devolvível ${_fmtNum(max)}`, 'error');
-                return;
-            }
-            itens.push({ sequencia_origem: seq, qtd_devolver: qtd });
         }
 
         if (!itens.length) {
@@ -1444,9 +1906,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const dtneg = dtnegISO ? dtnegISO.split('-').reverse().join('/') : null;
 
         const ok = await phConfirmar({
-            titulo: 'Criar devolução em aberto?',
+            titulo: 'Criar devolução pendente de confirmação?',
             mensagem: `${itens.length} item(ns) da nota ${_devNotaCarregada.cabecalho.nunota}. ` +
-                      `Operador confirma no Sankhya pra disparar financeiro + NFe.`,
+                      `A devolução fica AGUARDANDO no Sankhya — abra o documento lá ` +
+                      `e clique Confirmar pra liberar o financeiro reverso e a NFe de devolução.`,
             tipo: 'aviso',
         });
         if (!ok) return;
@@ -1462,7 +1925,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 phToast(res.body?.error || 'Falha ao criar devolução', 'error');
                 return;
             }
-            phToast(`Devolução criada em aberto · NUNOTA ${res.body.nunota} · ${_fmtBRL(res.body.vlrnota)}. Confirme no Sankhya.`, 'success');
+            phToast(`Devolução criada · NUNOTA ${res.body.nunota} · ${_fmtBRL(res.body.vlrnota)}. Confirme no Sankhya pra finalizar.`, 'success');
             _fecharModal('devolucaoModal');
             carregarVendas(false);
         } catch (e) {

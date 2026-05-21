@@ -315,6 +315,54 @@ Diagnóstico via comparação direta TGFITE NUNOTA=113083 (1 item IAgro vs 1 ite
 
 **Escopo do fix**: só pedidos novos criados após 2026-05-20. Pedidos antigos pré-fix continuam com `RESERVA='N'` — operador faz UPDATE manual no Sankhya quando encontrar. Como Agromil está começando a usar IAgro pra vendas agora, volume é pequeno. Detalhes em [`gotchas.md`](.claude/gotchas.md), [`modules/venda.md`](.claude/modules/venda.md) e [`dependencias_sankhya.md`](.claude/dependencias_sankhya.md) §2.2.5.
 
+### 🔄 Navegação inversa TGFVAR — divisão por lote em Devolução + Avaria (Mai/2026 — 2026-05-21)
+
+Quando o Sankhya fatura via "atender pedido", **consolida** múltiplas linhas TGFITE do pedido (cada uma com seu CODAGREGACAO) em 1 linha da nota. Ex.: pedido TOP 34 SEQ 5 com 500kg lote A + SEQ 6 com 500kg lote B vira nota TOP 35 SEQ 1 com 1000kg consolidado. Antes desta entrega, qualquer **devolução (TOP 36) ou avaria (TOP 30) a partir de uma nota faturada com SPLIT** colapsava no lote único da nota — saldo do outro lote nunca recuperava (devolução) nem descontava (avaria), perdendo coerência com a realidade física.
+
+**Solução**: navegar TGFVAR no sentido inverso (`NUNOTA → NUNOTAORIG, SEQUENCIA → SEQUENCIAORIG`) pra recuperar todos os lotes do pedido origem que viraram aquela 1 linha da nota. UX permite dividir a qtd devolvida/avariada entre os lotes reais.
+
+#### Fase 1 — Leitura pura (Cat A)
+
+| Componente | Função |
+|---|---|
+| `consultar_lotes_origem_de_seq_nota(nunota_nota, sequencia_nota)` | Nova em [oracle_conn.py](sankhya_integration/services/oracle_conn.py). JOIN TGFVAR ← TGFITE do pedido. Retorna `[{seq_pedido, codagregacao, qtdneg_pedido, qtd_atendida, nunota_pedido}]` ordenado por SEQUENCIAORIG. Lista vazia = nota órfã |
+| `consultar_nota_para_devolucao` | Refatorado: cada item ganha campo `lotes_origem: [...]`. Tolerante a falha (log + lista vazia) |
+| `GET /sankhya/venda/api/lotes-de-item-nota/?nunota=X&sequencia=Y` | Endpoint REST compartilhado por Devolução + Avaria |
+| Modal Devolução | Coluna Lote exibe badge âmbar `N lotes ⚡` com tooltip listando cada lote quando há 2+ lotes |
+
+#### Fase 2 (Item B1, Cat B) — Devolução TOP 36 multi-lote
+
+`criar_devolucao_top36_banco` aceita 2 formatos por item:
+- **Antigo**: `{sequencia_origem, qtd_devolver, vlrunit?}` → 1 TGFITE TOP 36 (preservado)
+- **Novo**: `{sequencia_origem, lotes_devolver: [{codagregacao, qtd, vlrunit?}]}` → N TGFITE TOP 36
+
+**Semântica TGFVAR preservada (crítico)**: em AMBOS os formatos, `SEQUENCIAORIG = SEQ da nota TOP 35/37` (não do pedido). Espelha o que o Sankhya faz no faturamento de SPLIT inverso (N TGFVAR convergindo pra 1 SEQ na nota). A trava `consultar_devolucoes_anteriores_de_nota` que agrupa por SEQ da nota continua intacta.
+
+**Frontend**: modal renderiza sub-tabela editável amarelada quando `lotes_origem.length >= 2`. Ao marcar checkbox: expande sub-linha + sugestão proporcional automática (`max × atendido_lote / total_atendido`). Resumo `0,00 de 1.000,00` reativo na linha-pai com cor vermelha se soma excede saldo.
+
+#### Fase 3 (Item B2, Cat B) — Avaria TOP 30 multi-lote
+
+`criar_avaria_top30_banco` aceita modo "a partir de nota" (detecção via presença de `lotes_avaria` no payload):
+
+| Modo | Payload | Resultado |
+|---|---|---|
+| Avulso (preservado) | `codagregacao` + `qtdneg` únicos | 1 TGFCAB TOP 30 + 1 TGFITE |
+| A partir de nota | `nunota_origem_nota` + `sequencia_nota` + `lotes_avaria: [{codagregacao, qtd}]` | 1 TGFCAB TOP 30 + N TGFITE (1 por lote) |
+
+Saldo validado individualmente por lote — falha em 1 reverte tudo (atomicidade). **Sem TGFVAR criado** (política da avaria preservada — diferente da Devolução). Frontend ganha toggle no topo do modal (Avulsa vs A partir de nota) + radio button por item da nota + sub-tabela editável idêntica à devolução.
+
+#### UX polish (Mai/2026 — 2026-05-21)
+
+- **Clamp automático no blur**: input que recebe valor > saldo é ajustado pro teto + toast info `"Ajustado pro máximo disponível: X,XX"`. 3 camadas de defesa (HTML max + JS submit + backend) reforçadas com clamp visual.
+- **Larguras das colunas** com `<colgroup>` priorizam Produto (flex 1); Dev. 36px; Lote 110px; numéricas 62px; Qtd 100px.
+- **2 casas decimais** em todas as quantidades dos 2 modais (Devolução + Avaria) — operador Agromil trabalha sempre em kg com 2 decimais (3 casas era ruído visual).
+- **Coluna Vendido sem unidade** — `1.500,00` em vez de `1.500,00 KG` (unidade já visível no input "Qtd devolver" + no toggle de Volume do modal de avaria).
+- **Microcopy melhorada**: `"em aberto"` (jargão Sankhya) → `"pendente de confirmação"` + instrução explícita de abrir no Sankhya pra disparar financeiro reverso + NFe.
+
+**Tests novos**: 22 tests cobrindo (a) função de navegação inversa pura, (b) propagação de `lotes_origem` em `consultar_nota_para_devolucao`, (c) endpoint REST, (d) B1 — TGFVAR.SEQUENCIAORIG aponta pro SEQ da nota, (e) B1 — N TGFITE com CODAGREGACAO correto + backward-compat, (f) B2 — 1 TGFCAB + N TGFITE + zero TGFVAR + atomicidade. Suíte de venda 141 tests, zero regressão.
+
+Detalhes técnicos em [`modules/venda.md`](.claude/modules/venda.md).
+
 ### Backlog planejado
 
 - **Módulo Relatórios — MVP entregue em 2026-05-17** com 5 relatórios funcionando. Restam **20 relatórios** mapeados no backlog (6 eixos: Financeiro / Vendas / Compras-Estoque / Rastreio-WMS / Combustível-Frota / Auditoria-Produtividade) aguardando feedback operacional pra priorizar próximas iterações. Export Excel/PDF intencionalmente fora do MVP. Detalhes em [`roadmap.md`](.claude/roadmap.md) → "Módulo Relatórios — Backlog planejado" e em [`modules/relatorios.md`](.claude/modules/relatorios.md).

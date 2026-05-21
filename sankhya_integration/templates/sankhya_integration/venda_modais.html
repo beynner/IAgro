@@ -216,7 +216,7 @@
      STATUSNOTA='L' direto. Sem TGFVAR, sem financeiro. Rastreia por lote.
 ====================================================================== -->
 <div id="avariaModal" class="modal-overlay hidden">
-  <div class="modal-card" style="width: 540px;">
+  <div class="modal-card" style="width: 720px;">
     <div class="modal-header">
       <strong>Registrar Avaria Interna</strong>
       <span class="modal-header-sub">TOP 30 · Perda no estoque por lote</span>
@@ -227,24 +227,85 @@
         é descontado automaticamente.
       </div>
 
-      <div class="form-row">
-        <div style="flex:1">
-          <label>Lote (CODAGREGACAO) <span class="required-mark">*</span></label>
-          <div class="pos-rel">
-            <input type="text" id="avaria_lote_search" placeholder="Buscar lote por código ou produto" autocomplete="off" class="full-width" />
-            <input type="hidden" id="avaria_codagregacao" />
-            <input type="hidden" id="avaria_codprod" />
-            <input type="hidden" id="avaria_codemp" />
-            <div id="avaria_lote_dropdown" class="dropdown-abs"></div>
+      <!-- B2 Mai/2026 — toggle de modo -->
+      <div class="form-row av-modo-toggle">
+        <label class="av-modo-opt">
+          <input type="radio" name="av_modo" value="AVULSO" checked />
+          <span><strong>Avulsa</strong> — escolha o lote diretamente</span>
+        </label>
+        <label class="av-modo-opt">
+          <input type="radio" name="av_modo" value="NOTA" />
+          <span><strong>A partir de nota</strong> — divide entre os lotes da venda</span>
+        </label>
+      </div>
+
+      <!-- ============ MODO AVULSO (default) ============ -->
+      <div id="avariaModoAvulso">
+        <div class="form-row">
+          <div style="flex:1">
+            <label>Lote (CODAGREGACAO) <span class="required-mark">*</span></label>
+            <div class="pos-rel">
+              <input type="text" id="avaria_lote_search" placeholder="Buscar lote por código ou produto" autocomplete="off" class="full-width" />
+              <input type="hidden" id="avaria_codagregacao" />
+              <input type="hidden" id="avaria_codprod" />
+              <input type="hidden" id="avaria_codemp" />
+              <div id="avaria_lote_dropdown" class="dropdown-abs"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row avaria-lote-info hidden" id="avaria_lote_info">
+          <div style="flex:1">
+            <small class="info-line"><strong>Produto:</strong> <span id="avaria_lote_produto">—</span></small>
+            <small class="info-line"><strong>Fornecedor:</strong> <span id="avaria_lote_fornecedor">—</span></small>
+            <small class="info-line"><strong>Saldo disponível:</strong> <span id="avaria_lote_saldo">—</span></small>
           </div>
         </div>
       </div>
 
-      <div class="form-row avaria-lote-info hidden" id="avaria_lote_info">
-        <div style="flex:1">
-          <small class="info-line"><strong>Produto:</strong> <span id="avaria_lote_produto">—</span></small>
-          <small class="info-line"><strong>Fornecedor:</strong> <span id="avaria_lote_fornecedor">—</span></small>
-          <small class="info-line"><strong>Saldo disponível:</strong> <span id="avaria_lote_saldo">—</span></small>
+      <!-- ============ MODO A PARTIR DE NOTA ============ -->
+      <div id="avariaModoNota" class="hidden">
+        <div class="form-row">
+          <div style="flex:1">
+            <label>NUNOTA da nota faturada (TOP 35/37) <span class="required-mark">*</span></label>
+            <input type="number" id="avn_nunota_nota" placeholder="ex: 111971" class="full-width" />
+          </div>
+          <button class="btn btn-primary" type="button" id="avn_btnCarregar"
+                  style="align-self: flex-end;">Carregar Itens</button>
+        </div>
+
+        <div class="form-row avn-nota-info hidden" id="avn_nota_info">
+          <div style="flex:1">
+            <small class="info-line"><strong>Cliente:</strong> <span id="avn_nota_cliente">—</span></small>
+            <small class="info-line"><strong>Data:</strong> <span id="avn_nota_data">—</span> · <strong>NUMNOTA:</strong> <span id="avn_nota_numnota">—</span></small>
+          </div>
+        </div>
+
+        <div class="avn-itens-wrap hidden" id="avn_itens_wrap">
+          <label>Selecione o item da nota e a quantidade avariada</label>
+          <div class="scroll-panel" style="max-height: 280px;">
+            <table class="ia-selectable-table dev-itens-tabela">
+              <colgroup>
+                <col class="dev-col-chk">
+                <col class="dev-col-prod">
+                <col class="dev-col-lote">
+                <col class="dev-col-num">
+                <col class="dev-col-qtd">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th class="text-center">Av.</th>
+                  <th>Produto</th>
+                  <th>Lote(s)</th>
+                  <th class="text-right">Vendido</th>
+                  <th>Qtd avariada</th>
+                </tr>
+              </thead>
+              <tbody id="avn_itens_body">
+                <tr><td colspan="5" class="ia-placeholder">Carregue a nota acima.</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -264,7 +325,7 @@
       </div>
 
       <div class="form-row">
-        <div style="flex:1">
+        <div style="flex:1" id="avaria_qtd_wrap">
           <label>Quantidade <span class="required-mark">*</span></label>
           <input type="number" id="avaria_qtdneg" step="0.001" min="0.001" placeholder="ex: 50.000" class="full-width" />
         </div>
@@ -340,15 +401,24 @@
         <label>Itens disponíveis para devolução</label>
         <div class="scroll-panel" style="max-height: 280px;">
           <table class="ia-selectable-table dev-itens-tabela">
+            <colgroup>
+              <col class="dev-col-chk">
+              <col class="dev-col-prod">
+              <col class="dev-col-lote">
+              <col class="dev-col-num">
+              <col class="dev-col-num">
+              <col class="dev-col-num">
+              <col class="dev-col-qtd">
+            </colgroup>
             <thead>
               <tr>
-                <th class="col-w-30 text-center">Dev.</th>
+                <th class="text-center">Dev.</th>
                 <th>Produto</th>
-                <th class="col-w-90">Lote</th>
-                <th class="text-right col-w-70">Vendido</th>
-                <th class="text-right col-w-70">Já dev.</th>
-                <th class="text-right col-w-70">Saldo</th>
-                <th class="col-w-90">Qtd devolver</th>
+                <th>Lote</th>
+                <th class="text-right">Vendido</th>
+                <th class="text-right">Já dev.</th>
+                <th class="text-right">Saldo</th>
+                <th>Qtd devolver</th>
               </tr>
             </thead>
             <tbody id="dev_itens_body">

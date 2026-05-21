@@ -7471,6 +7471,71 @@ def consultar_devolucoes_anteriores_de_nota(nunota_origem: int) -> dict:
         return {'ok': False, 'error': str(exc), 'por_sequencia': {}}
 
 
+def consultar_lotes_origem_de_seq_nota(nunota_nota: int, sequencia_nota: int) -> dict:
+    """Navegação inversa TGFVAR: nota TOP 35/37 → pedido TOP 34 → lotes.
+
+    Quando o Sankhya fatura via "atender pedido", consolida múltiplas linhas
+    de TGFITE do pedido (cada uma com seu CODAGREGACAO) em 1 linha da nota.
+    O vínculo fica gravado em TGFVAR(NUNOTA=nota, SEQUENCIA=seq_nota,
+    NUNOTAORIG=pedido, SEQUENCIAORIG=seq_pedido).
+
+    Esta função navega no sentido inverso pra recuperar TODOS os lotes do
+    pedido origem que viraram aquela 1 linha da nota — necessário pra:
+        - Devolução TOP 36: dividir qtd devolvida entre os lotes reais
+        - Avaria TOP 30 a partir de nota: idem
+
+    Retorno: {ok: True, lotes: [{seq_pedido, codagregacao, qtdneg_pedido,
+                                  qtd_atendida, nunota_pedido}], total_atendido: float}
+        - lotes ordenado por SEQUENCIAORIG ASC
+        - Linhas com CODAGREGACAO NULL/vazio são incluídas mesmo assim
+          (operador pode escolher atribuir ou não na UX)
+        - Lista vazia = sem TGFVAR par (nota órfã ou erro de fluxo)
+    """
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT
+                    v.SEQUENCIAORIG,
+                    i_ped.CODAGREGACAO,
+                    NVL(i_ped.QTDNEG, 0) AS QTDNEG_PEDIDO,
+                    NVL(v.QTDATENDIDA, 0) AS QTD_ATENDIDA,
+                    v.NUNOTAORIG
+                FROM TGFVAR v
+                JOIN TGFITE i_ped ON i_ped.NUNOTA = v.NUNOTAORIG
+                                  AND i_ped.SEQUENCIA = v.SEQUENCIAORIG
+                JOIN TGFCAB c_ped ON c_ped.NUNOTA = v.NUNOTAORIG
+                WHERE v.NUNOTA = :n
+                  AND v.SEQUENCIA = :s
+                  AND c_ped.CODTIPOPER = 34
+                  AND c_ped.STATUSNOTA <> 'E'
+                ORDER BY v.SEQUENCIAORIG ASC
+            """, n=int(nunota_nota), s=int(sequencia_nota))
+            rows = cur.fetchall()
+
+        lotes = []
+        total_atendido = 0.0
+        for r in rows:
+            qtd_atendida = float(r[3] or 0)
+            total_atendido += qtd_atendida
+            lotes.append({
+                'seq_pedido': int(r[0]),
+                'codagregacao': (r[1] or '').strip() if r[1] else '',
+                'qtdneg_pedido': float(r[2] or 0),
+                'qtd_atendida': qtd_atendida,
+                'nunota_pedido': int(r[4]),
+            })
+
+        return {
+            'ok': True,
+            'lotes': lotes,
+            'total_atendido': total_atendido,
+        }
+    except Exception as exc:
+        logger.exception("Erro em consultar_lotes_origem_de_seq_nota")
+        return {'ok': False, 'error': str(exc), 'lotes': [], 'total_atendido': 0.0}
+
+
 def consultar_nota_para_devolucao(nunota_origem: int) -> dict:
     """Lê cabeçalho + itens de uma TOP 35/37 STATUSNOTA='L', incluindo a
     quantidade já devolvida por SEQUENCIA (somatório de TGFVAR).
@@ -7546,6 +7611,22 @@ def consultar_nota_para_devolucao(nunota_origem: int) -> dict:
             seq = int(r[0])
             qtdneg = float(r[5])
             ja = float(por_seq.get(seq, 0))
+
+            # Navegação inversa TGFVAR pra trazer lotes do pedido origem
+            # (Sankhya consolida no faturamento: 1 SEQ na nota pode vir de N
+            # SEQs no pedido com lotes diferentes — caso de SPLIT).
+            lotes_origem = []
+            try:
+                ret_lotes = consultar_lotes_origem_de_seq_nota(nunota_origem, seq)
+                lotes_origem = ret_lotes.get('lotes') or []
+            except Exception:
+                # Tolerante a falha — item segue sem lotes_origem (cliente
+                # frontend trata lista vazia como "1 lote só" via fallback)
+                logger.exception(
+                    "Falha ao buscar lotes_origem em consultar_nota_para_devolucao "
+                    "(nunota=%s, seq=%s)", nunota_origem, seq,
+                )
+
             itens.append({
                 'sequencia': seq,
                 'codprod': int(r[1]),
@@ -7557,6 +7638,7 @@ def consultar_nota_para_devolucao(nunota_origem: int) -> dict:
                 'vlrtot': float(r[7]),
                 'qtd_ja_devolvida': ja,
                 'qtd_devolvivel': max(qtdneg - ja, 0),
+                'lotes_origem': lotes_origem,
             })
 
         return {'ok': True, 'cabecalho': cabecalho, 'itens': itens}
@@ -7566,20 +7648,29 @@ def consultar_nota_para_devolucao(nunota_origem: int) -> dict:
 
 
 def criar_avaria_top30_banco(dados: dict, codusu_logado: int | None = None) -> dict:
-    """Cria TGFCAB TOP 30 (avaria) + TGFITE com CODAGREGACAO obrigatório.
+    """Cria TGFCAB TOP 30 (avaria) + N TGFITE com CODAGREGACAO obrigatório.
 
     STATUSNOTA='L' direto — avaria não tem financeiro, não tem NFe, não tem
     TGFVAR. View ANDRE_IAGRO_SALDO_LOTE perna `baixas_avaria` já desconta
     automaticamente do saldo.
 
-    dados esperado:
-        codemp: int
-        codparc: int
-        codagregacao: str (lote — obrigatório, é a chave da rastreabilidade)
-        codprod: int
-        qtdneg: float
-        codvol: str (default 'KG')
-        vlrunit: float (opcional, default 0)
+    Suporta 2 modos (Mai/2026 — B2):
+
+    Modo ANTIGO (lote único — preservado):
+        codemp, codparc, codprod, qtdneg, codagregacao (obrigatório)
+        codvol (default 'KG'), vlrunit (opcional)
+        → 1 TGFCAB TOP 30 + 1 TGFITE
+
+    Modo NOVO (a partir de nota faturada, com SPLIT):
+        codemp, codparc, codprod, codvol, vlrunit
+        nunota_origem_nota: int (TOP 35/37 origem)
+        sequencia_nota: int (SEQ do item na nota)
+        lotes_avaria: [{codagregacao, qtd}, ...]
+        → 1 TGFCAB TOP 30 + N TGFITE (1 por lote)
+
+    O modo é detectado pela presença de `lotes_avaria` no payload (≥1 item).
+
+    Comuns (ambos modos):
         numnota_ref: str|int (opcional — número da venda original, livre)
         observacao: str (opcional — default 'AVARIA')
         codtipvenda: int (opcional — default 11)
@@ -7593,8 +7684,14 @@ def criar_avaria_top30_banco(dados: dict, codusu_logado: int | None = None) -> d
         resultado['error'] = 'Escrita desabilitada'
         return resultado
 
-    # Validações de payload
-    obrigatorios = ['codemp', 'codparc', 'codagregacao', 'codprod', 'qtdneg']
+    # Detecta modo
+    lotes_avaria_payload = dados.get('lotes_avaria') or []
+    modo_split = len(lotes_avaria_payload) > 0
+
+    # Validações comuns
+    obrigatorios = ['codemp', 'codparc', 'codprod']
+    if not modo_split:
+        obrigatorios.extend(['codagregacao', 'qtdneg'])
     faltando = [c for c in obrigatorios if not dados.get(c)]
     if faltando:
         resultado['error'] = f'Campos obrigatórios faltando: {", ".join(faltando)}'
@@ -7603,12 +7700,7 @@ def criar_avaria_top30_banco(dados: dict, codusu_logado: int | None = None) -> d
     try:
         codemp = int(dados['codemp'])
         codparc = int(dados['codparc'])
-        codagregacao = str(dados['codagregacao']).strip().upper()
         codprod = int(dados['codprod'])
-        qtdneg = float(dados['qtdneg'])
-        if qtdneg <= 0:
-            resultado['error'] = 'Quantidade deve ser maior que zero'
-            return resultado
     except (ValueError, TypeError):
         resultado['error'] = 'Tipos inválidos no payload'
         return resultado
@@ -7620,31 +7712,111 @@ def criar_avaria_top30_banco(dados: dict, codusu_logado: int | None = None) -> d
     codtipvenda = int(dados.get('codtipvenda') or 11)
     dtneg = dados.get('dtneg') or datetime.now().strftime('%d/%m/%Y')
 
+    # Monta lista de itens a inserir conforme o modo
+    itens_para_inserir = []  # [{codagregacao, qtdneg}]
+
+    if modo_split:
+        # ============================================================
+        # Modo NOVO: a partir de nota faturada (TGFVAR inverso)
+        # ============================================================
+        nunota_origem_nota = dados.get('nunota_origem_nota')
+        sequencia_nota = dados.get('sequencia_nota')
+        if not nunota_origem_nota or not sequencia_nota:
+            resultado['error'] = (
+                'Modo "a partir de nota" exige nunota_origem_nota e sequencia_nota'
+            )
+            return resultado
+
+        try:
+            nunota_nota = int(nunota_origem_nota)
+            seq_nota = int(sequencia_nota)
+        except (ValueError, TypeError):
+            resultado['error'] = 'nunota_origem_nota / sequencia_nota inválidos'
+            return resultado
+
+        # Navega TGFVAR inverso pra validar lotes
+        ret_lotes = consultar_lotes_origem_de_seq_nota(nunota_nota, seq_nota)
+        lotes_validos = {
+            (l['codagregacao'] or '').strip().upper()
+            for l in (ret_lotes.get('lotes') or [])
+            if l.get('codagregacao')
+        }
+
+        if not lotes_validos:
+            resultado['error'] = (
+                f'Nota {nunota_nota} SEQ {seq_nota} não tem lotes rastreáveis '
+                f'via TGFVAR. Use o modo de avaria avulsa (escolha o lote).'
+            )
+            return resultado
+
+        for lote_item in lotes_avaria_payload:
+            try:
+                cod = str(lote_item.get('codagregacao') or '').strip().upper()
+                qtd = float(lote_item.get('qtd') or 0)
+            except (ValueError, TypeError):
+                resultado['error'] = f'Lote inválido: {lote_item}'
+                return resultado
+
+            if qtd <= 0:
+                continue  # ignora linhas em branco
+            if not cod:
+                resultado['error'] = 'CODAGREGACAO obrigatório em cada lote'
+                return resultado
+            if cod not in lotes_validos:
+                resultado['error'] = (
+                    f'Lote {cod} não pertence ao pedido origem da nota '
+                    f'{nunota_nota} SEQ {seq_nota}. Lotes válidos: '
+                    f'{", ".join(sorted(lotes_validos))}'
+                )
+                return resultado
+            itens_para_inserir.append({'codagregacao': cod, 'qtdneg': qtd})
+
+        if not itens_para_inserir:
+            resultado['error'] = 'Nenhum lote com quantidade > 0'
+            return resultado
+    else:
+        # ============================================================
+        # Modo ANTIGO: lote único (preservado)
+        # ============================================================
+        try:
+            codagregacao = str(dados['codagregacao']).strip().upper()
+            qtdneg = float(dados['qtdneg'])
+            if qtdneg <= 0:
+                resultado['error'] = 'Quantidade deve ser maior que zero'
+                return resultado
+        except (ValueError, TypeError):
+            resultado['error'] = 'Tipos inválidos no payload'
+            return resultado
+
+        itens_para_inserir.append({'codagregacao': codagregacao, 'qtdneg': qtdneg})
+
     try:
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
             try:
-                # Valida lote existe e tem saldo
-                cur.execute("""
-                    SELECT NVL(SUM(QTD_DISPONIVEL), 0)
-                    FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE
-                    WHERE CODAGREGACAO = :l AND CODPROD = :p
-                """, l=codagregacao, p=codprod)
-                row = cur.fetchone()
-                saldo = float(row[0] or 0) if row else 0
-                if saldo <= 0:
-                    resultado['error'] = (
-                        f'Lote {codagregacao} sem saldo disponível para o produto {codprod}.'
-                    )
-                    return resultado
-                if qtdneg > saldo:
-                    resultado['error'] = (
-                        f'Saldo insuficiente no lote {codagregacao}. '
-                        f'Disponível: {saldo:.3f} · Solicitado: {qtdneg:.3f}.'
-                    )
-                    return resultado
+                # 1) Valida saldo individual por lote (1 query por lote)
+                for item in itens_para_inserir:
+                    cur.execute("""
+                        SELECT NVL(SUM(QTD_DISPONIVEL), 0)
+                        FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE
+                        WHERE CODAGREGACAO = :l AND CODPROD = :p
+                    """, l=item['codagregacao'], p=codprod)
+                    row = cur.fetchone()
+                    saldo = float(row[0] or 0) if row else 0
+                    if saldo <= 0:
+                        resultado['error'] = (
+                            f'Lote {item["codagregacao"]} sem saldo disponível '
+                            f'para o produto {codprod}.'
+                        )
+                        return resultado
+                    if item['qtdneg'] > saldo + 1e-6:
+                        resultado['error'] = (
+                            f'Saldo insuficiente no lote {item["codagregacao"]}. '
+                            f'Disponível: {saldo:.3f} · Solicitado: {item["qtdneg"]:.3f}.'
+                        )
+                        return resultado
 
-                # 1) Cabeçalho TGFCAB
+                # 2) Cabeçalho TGFCAB (único)
                 cab_payload = {
                     'CODEMP': codemp,
                     'CODPARC': codparc,
@@ -7664,32 +7836,38 @@ def criar_avaria_top30_banco(dados: dict, codusu_logado: int | None = None) -> d
                     return resultado
                 novo_nunota = int(ret_cab['nunota'])
 
-                # 2) Item TGFITE com CODAGREGACAO obrigatório
-                ite_payload = {
-                    'NUNOTA': novo_nunota,
-                    'CODPROD': codprod,
-                    'QTDNEG': qtdneg,
-                    'VLRUNIT': vlrunit,
-                    'CODVOL': codvol,
-                    'CODLOCALORIG': 101,
-                    'CODAGREGACAO': codagregacao,
-                    'OBSERVACAO': observacao,
-                }
-                ret_ite = inserir_item_nota_banco(
-                    ite_payload,
-                    conexao_existente=conn,
-                    codusu_logado=codusu_logado,
-                    gerar_lote_auto=False,
-                )
-                if not ret_ite.get('ok'):
-                    resultado['error'] = ret_ite.get('error') or 'Falha ao criar item TOP 30'
-                    return resultado
+                # 3) TGFITE — N linhas (1 por lote)
+                qtd_total = 0.0
+                for item in itens_para_inserir:
+                    ite_payload = {
+                        'NUNOTA': novo_nunota,
+                        'CODPROD': codprod,
+                        'QTDNEG': item['qtdneg'],
+                        'VLRUNIT': vlrunit,
+                        'CODVOL': codvol,
+                        'CODLOCALORIG': 101,
+                        'CODAGREGACAO': item['codagregacao'],
+                        'OBSERVACAO': observacao,
+                    }
+                    ret_ite = inserir_item_nota_banco(
+                        ite_payload,
+                        conexao_existente=conn,
+                        codusu_logado=codusu_logado,
+                        gerar_lote_auto=False,
+                    )
+                    if not ret_ite.get('ok'):
+                        resultado['error'] = (
+                            ret_ite.get('error')
+                            or f'Falha ao criar item TOP 30 do lote {item["codagregacao"]}'
+                        )
+                        return resultado
+                    qtd_total += item['qtdneg']
 
-                # 3) Recalcular totais (define VLRNOTA)
+                # 4) Recalcular totais (define VLRNOTA)
                 ret_rec = recalcular_totais_nota_banco(novo_nunota, conexao_existente=conn)
-                vlrnota = float(ret_rec.get('vlrnota') or (qtdneg * vlrunit))
+                vlrnota = float(ret_rec.get('vlrnota') or (qtd_total * vlrunit))
 
-                # 4) Confirma direto STATUSNOTA='L' (avaria não tem fluxo de aprovação)
+                # 5) Confirma direto STATUSNOTA='L' (avaria não tem aprovação)
                 cur.execute("""
                     UPDATE TGFCAB SET STATUSNOTA = 'L'
                     WHERE NUNOTA = :n
@@ -7759,18 +7937,30 @@ def criar_devolucao_top36_banco(dados: dict, codusu_logado: int | None = None) -
     cab_origem = info['cabecalho']
     itens_origem_por_seq = {it['sequencia']: it for it in info['itens']}
 
-    # Valida cada item pedido contra o saldo devolvível
+    # Valida cada item pedido contra o saldo devolvível.
+    # Suporta 2 formatos no payload (Mai/2026 — B1):
+    #   ANTIGO: {sequencia_origem, qtd_devolver, vlrunit?}
+    #           → 1 TGFITE TOP 36 (CODAGREGACAO único da nota)
+    #   NOVO  : {sequencia_origem, lotes_devolver: [{codagregacao, qtd, vlrunit?}, ...]}
+    #           → N TGFITE TOP 36 (1 por CODAGREGACAO informado)
+    # Backward-compat: itens sem `lotes_devolver` caem no fluxo antigo.
+    #
+    # Importante (semântica TGFVAR): em AMBOS formatos, SEQUENCIAORIG aponta
+    # pro SEQ da NOTA TOP 35/37 (não do pedido). TGFVAR liga "nota gerada →
+    # nota origem direta" (TOP 36 → TOP 35), espelhando exatamente o que o
+    # Sankhya faz no faturamento de SPLIT inverso (1 SEQ na nota = N TGFVAR
+    # apontando pro mesmo SEQ). A navegação inversa entra só pra:
+    #   (a) validar que cada CODAGREGACAO informado existe no pedido origem
+    #   (b) propagar pro frontend a lista de lotes disponíveis
+    # A trava `consultar_devolucoes_anteriores_de_nota` (agrupa por SEQ da
+    # nota) continua funcionando intacta.
     itens_para_inserir = []
     for it_req in itens_pedidos:
         try:
             seq_orig = int(it_req.get('sequencia_origem'))
-            qtd_dev = float(it_req.get('qtd_devolver') or 0)
         except (ValueError, TypeError):
             resultado['error'] = f'Item inválido: {it_req}'
             return resultado
-
-        if qtd_dev <= 0:
-            continue  # ignora linhas em branco
 
         if seq_orig not in itens_origem_por_seq:
             resultado['error'] = (
@@ -7780,27 +7970,110 @@ def criar_devolucao_top36_banco(dados: dict, codusu_logado: int | None = None) -
 
         it_orig = itens_origem_por_seq[seq_orig]
         devolvivel = it_orig['qtd_devolvivel']
-        if qtd_dev > devolvivel + 1e-6:
-            resultado['error'] = (
-                f'Quantidade excessiva no item SEQ={seq_orig} ({it_orig["descrprod"]}). '
-                f'Já devolvido: {it_orig["qtd_ja_devolvida"]:.3f} · '
-                f'Saldo devolvível: {devolvivel:.3f} · '
-                f'Solicitado: {qtd_dev:.3f}.'
+        lotes_dev_payload = it_req.get('lotes_devolver') or []
+
+        if lotes_dev_payload:
+            # ============================================================
+            # Formato NOVO: divisão por lote via navegação inversa TGFVAR
+            # ============================================================
+            ret_lotes = consultar_lotes_origem_de_seq_nota(nunota_origem, seq_orig)
+            lotes_validos = {
+                (l['codagregacao'] or '').strip().upper()
+                for l in (ret_lotes.get('lotes') or [])
+                if l.get('codagregacao')
+            }
+
+            soma_lotes = 0.0
+            linhas_novas = []
+            for lote_item in lotes_dev_payload:
+                try:
+                    cod = str(lote_item.get('codagregacao') or '').strip().upper()
+                    qtd = float(lote_item.get('qtd') or 0)
+                except (ValueError, TypeError):
+                    resultado['error'] = (
+                        f'Lote inválido no item SEQ={seq_orig}: {lote_item}'
+                    )
+                    return resultado
+
+                if qtd <= 0:
+                    continue  # ignora linhas em branco
+                if not cod:
+                    resultado['error'] = (
+                        f'CODAGREGACAO obrigatório no formato lotes_devolver '
+                        f'(item SEQ={seq_orig})'
+                    )
+                    return resultado
+                if cod not in lotes_validos:
+                    resultado['error'] = (
+                        f'Lote {cod} não pertence ao pedido origem do item '
+                        f'SEQ={seq_orig} ({it_orig["descrprod"]}). '
+                        f'Lotes válidos: {", ".join(sorted(lotes_validos)) or "(nenhum)"}'
+                    )
+                    return resultado
+
+                soma_lotes += qtd
+                vlrunit_req = lote_item.get('vlrunit')
+                vlrunit = (
+                    float(vlrunit_req) if vlrunit_req is not None
+                    else it_orig['vlrunit']
+                )
+                linhas_novas.append({
+                    'sequencia_origem_nota': seq_orig,
+                    'codprod': it_orig['codprod'],
+                    'qtdneg': qtd,
+                    'vlrunit': vlrunit,
+                    'codvol': it_orig['codvol'],
+                    'codagregacao': cod,
+                })
+
+            if not linhas_novas:
+                continue  # item todo em branco — ignora
+
+            if soma_lotes > devolvivel + 1e-6:
+                resultado['error'] = (
+                    f'Soma dos lotes ({soma_lotes:.3f}) excede saldo devolvível '
+                    f'({devolvivel:.3f}) no item SEQ={seq_orig} ({it_orig["descrprod"]}). '
+                    f'Já devolvido: {it_orig["qtd_ja_devolvida"]:.3f}.'
+                )
+                return resultado
+
+            itens_para_inserir.extend(linhas_novas)
+        else:
+            # ============================================================
+            # Formato ANTIGO: 1 linha por item (preservado)
+            # ============================================================
+            try:
+                qtd_dev = float(it_req.get('qtd_devolver') or 0)
+            except (ValueError, TypeError):
+                resultado['error'] = f'qtd_devolver inválido no item SEQ={seq_orig}'
+                return resultado
+
+            if qtd_dev <= 0:
+                continue  # ignora linhas em branco
+
+            if qtd_dev > devolvivel + 1e-6:
+                resultado['error'] = (
+                    f'Quantidade excessiva no item SEQ={seq_orig} ({it_orig["descrprod"]}). '
+                    f'Já devolvido: {it_orig["qtd_ja_devolvida"]:.3f} · '
+                    f'Saldo devolvível: {devolvivel:.3f} · '
+                    f'Solicitado: {qtd_dev:.3f}.'
+                )
+                return resultado
+
+            vlrunit_req = it_req.get('vlrunit')
+            vlrunit = (
+                float(vlrunit_req) if vlrunit_req is not None
+                else it_orig['vlrunit']
             )
-            return resultado
 
-        # Preço: usa o do payload se vier, senão preserva o original
-        vlrunit_req = it_req.get('vlrunit')
-        vlrunit = float(vlrunit_req) if vlrunit_req is not None else it_orig['vlrunit']
-
-        itens_para_inserir.append({
-            'sequencia_origem': seq_orig,
-            'codprod': it_orig['codprod'],
-            'qtdneg': qtd_dev,
-            'vlrunit': vlrunit,
-            'codvol': it_orig['codvol'],
-            'codagregacao': it_orig['codagregacao'] or None,
-        })
+            itens_para_inserir.append({
+                'sequencia_origem_nota': seq_orig,
+                'codprod': it_orig['codprod'],
+                'qtdneg': qtd_dev,
+                'vlrunit': vlrunit,
+                'codvol': it_orig['codvol'],
+                'codagregacao': it_orig['codagregacao'] or None,
+            })
 
     if not itens_para_inserir:
         resultado['error'] = 'Nenhum item com quantidade > 0 para devolver'
@@ -7855,7 +8128,12 @@ def criar_devolucao_top36_banco(dados: dict, codusu_logado: int | None = None) -
 
                     seq_nova = int(ret_ite['sequencia'])
 
-                    # TGFVAR — replica fielmente Sankhya nativo
+                    # TGFVAR — replica fielmente Sankhya nativo.
+                    # SEQUENCIAORIG aponta pro SEQ da NOTA TOP 35/37 origem
+                    # (o item consolidado). No formato com SPLIT, várias
+                    # TGFVAR podem apontar pro mesmo SEQ — espelha o que o
+                    # Sankhya faz no faturamento inverso (N TGFVAR convergindo
+                    # pra 1 SEQ na nota).
                     cur.execute("""
                         INSERT INTO TGFVAR (
                             NUNOTA, SEQUENCIA, NUNOTAORIG, SEQUENCIAORIG,
@@ -7865,7 +8143,7 @@ def criar_devolucao_top36_banco(dados: dict, codusu_logado: int | None = None) -
                         'n': novo_nunota,
                         's': seq_nova,
                         'no': nunota_origem,
-                        'so': item['sequencia_origem'],
+                        'so': item['sequencia_origem_nota'],
                         'q': item['qtdneg'],
                     })
 

@@ -176,6 +176,7 @@ try:
         criar_avaria_top30_banco,
         criar_devolucao_top36_banco,
         consultar_nota_para_devolucao,
+        consultar_lotes_origem_de_seq_nota,
         obter_historico_lote,
     )
     ORACLE_DISPONIVEL = True
@@ -218,6 +219,7 @@ except Exception as exc:
     criar_avaria_top30_banco = _ausente('criar_avaria_top30_banco')
     criar_devolucao_top36_banco = _ausente('criar_devolucao_top36_banco')
     consultar_nota_para_devolucao = _ausente('consultar_nota_para_devolucao')
+    consultar_lotes_origem_de_seq_nota = _ausente('consultar_lotes_origem_de_seq_nota')
     obter_historico_lote = _ausente('obter_historico_lote')
 
 # ==============================================================================
@@ -3685,12 +3687,22 @@ def api_faturar_pedido_venda(request: HttpRequest) -> JsonResponse:
 @require_http_methods(["POST"])
 @exige_grupo('venda')
 def api_criar_avaria(request: HttpRequest) -> JsonResponse:
-    """Cria TGFCAB TOP 30 (avaria interna) + TGFITE com lote obrigatório.
+    """Cria TGFCAB TOP 30 (avaria interna) + N TGFITE com lote obrigatório.
 
-    Payload JSON:
-        codemp, codparc, codagregacao, codprod, qtdneg, codvol,
-        vlrunit (opcional), numnota_ref (opcional), observacao (opcional),
-        codtipvenda (opcional), dtneg (opcional 'DD/MM/YYYY')
+    Payload JSON — 2 modos suportados (Mai/2026 — B2):
+
+    Modo AVULSO (lote único, default):
+        codemp, codparc, codprod, codvol, qtdneg, codagregacao, vlrunit?
+        → 1 TGFITE com o lote informado
+
+    Modo "A PARTIR DE NOTA" (com SPLIT via TGFVAR inverso):
+        codemp, codparc, codprod, codvol, vlrunit
+        nunota_origem_nota, sequencia_nota
+        lotes_avaria: [{codagregacao, qtd}, ...]
+        → N TGFITE (1 por lote) validados contra os lotes do pedido origem
+
+    Comuns: numnota_ref?, observacao?, codtipvenda? (default 11),
+            dtneg? ('DD/MM/YYYY', default hoje)
 
     STATUSNOTA='L' direto — avaria não tem TGFVAR nem financeiro.
     Saldo do lote desconta automaticamente via view ANDRE_IAGRO_SALDO_LOTE.
@@ -3727,12 +3739,16 @@ def api_criar_avaria(request: HttpRequest) -> JsonResponse:
             'CODTIPOPER':   30,
             'CODEMP':       payload.get('codemp'),
             'CODPARC':      payload.get('codparc'),
-            'CODAGREGACAO': payload.get('codagregacao'),
+            'CODAGREGACAO': payload.get('codagregacao'),  # modo avulso
             'CODPROD':      payload.get('codprod'),
-            'QTDNEG':       payload.get('qtdneg'),
+            'QTDNEG':       payload.get('qtdneg'),        # modo avulso
             'CODVOL':       payload.get('codvol'),
             'VLRUNIT':      payload.get('vlrunit'),
             'NUMNOTA_REF':  payload.get('numnota_ref'),
+            # Modo "a partir de nota" (Mai/2026 — B2)
+            'NUNOTA_ORIGEM_NOTA': payload.get('nunota_origem_nota'),
+            'SEQUENCIA_NOTA':     payload.get('sequencia_nota'),
+            'LOTES_AVARIA':       payload.get('lotes_avaria'),
         },
         observacao=payload.get('observacao') or 'Avaria interna',
     )
@@ -3759,6 +3775,38 @@ def api_obter_nota_para_devolucao(request: HttpRequest) -> JsonResponse:
 
     if not res.get('ok'):
         res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao carregar nota')
+        return JsonResponse(res, status=400)
+    return JsonResponse(res, status=200)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('venda')
+def api_lotes_de_item_nota(request: HttpRequest) -> JsonResponse:
+    """Navegação inversa TGFVAR: nota TOP 35/37 → pedido TOP 34 → lotes.
+
+    Querystring: ?nunota=X&sequencia=Y
+
+    Resposta:
+        {ok: True, lotes: [{seq_pedido, codagregacao, qtdneg_pedido,
+                             qtd_atendida, nunota_pedido}], total_atendido}
+        Lista vazia = sem TGFVAR par (nota órfã ou erro de fluxo).
+    """
+    nunota = _converter_para_inteiro(request.GET.get('nunota'))
+    sequencia = _converter_para_inteiro(request.GET.get('sequencia'))
+    if not nunota or not sequencia:
+        return JsonResponse(
+            {"ok": False, "error": "nunota e sequencia obrigatórios"},
+            status=400,
+        )
+
+    try:
+        res = consultar_lotes_origem_de_seq_nota(nunota, sequencia)
+    except Exception as e:
+        logger.exception("Erro em api_lotes_de_item_nota")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+    if not res.get('ok'):
+        res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao consultar lotes origem')
         return JsonResponse(res, status=400)
     return JsonResponse(res, status=200)
 
