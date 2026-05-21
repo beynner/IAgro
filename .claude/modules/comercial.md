@@ -321,150 +321,119 @@ Click fora do mini-modal ou no × fecha. Cor âmbar `#d97706` consistente com o 
 
 ### Toggle Descontar/Absorver com avaria interna automática (Mai/2026 — 2026-05-20)
 
-**Decisão final**: o modal Faturamento mostra a avaria do fornecedor como **decisão por lote** via chip toggle:
-
-- **📌 Absorver (default)**: Agromil banca a perda. Ao **FATURAR**, backend gera automaticamente TGFCAB TOP 30 (Avaria Interna) com `AD_NUMPEDIDOORIG = NUNOTA da TOP 11`. TGFITE TOP 30 desconta o estoque via perna D da view `ANDRE_IAGRO_SALDO_LOTE`.
-- **📉 Descontar**: Comercial cobra do fornecedor (sem TOP 30; ajuste fica fora do escopo do IAgro).
-
-Quando há vários itens não-classificáveis com avaria no mesmo pedido, **cada item tem seu próprio toggle**. Backend reconcilia tudo ao faturar (cria N TGFITE dentro de 1 TGFCAB TOP 30).
-
-#### Reconciliação idempotente (cobre refaturamento)
-
-Sequências cobertas sem duplicação ou inconsistência:
-
-| Cenário | Comportamento |
-|---|---|
-| Faturar com Absorver pela 1ª vez | Cria TGFCAB TOP 30 + TGFITE |
-| Desfaturar | TOP 30 permanece (não é mexida) |
-| Refaturar mesma decisão | `upsert_avaria_top30_lote` faz DELETE+INSERT idempotente — sem duplicação |
-| Faturar Absorver → desfaturar → mudar pra Descontar → refaturar | Reconciliação remove TGFITE TOP 30 do lote; apaga TGFCAB se ficou sem itens |
-| Faturar Descontar → desfaturar → mudar pra Absorver → refaturar | Reconciliação cria TGFITE TOP 30 do lote |
-
-#### Trava de faturado
-
-- Frontend: toggle aparece como `🔒 Absorver` ou `🔒 Descontar` (readonly, cursor not-allowed) quando vale tem TGFFIN
-- Backend `atualizar_avaria_fornecedor_naoclass` (B10): se vale TOP 13 do pedido tem TGFFIN, rejeita UPDATE em AD_QTDAVARIA com mensagem `"Vale já faturado pra essa entrada (NUFIN=X). Desfature antes de alterar a avaria do fornecedor."`
-
-#### Funções backend (oracle_conn.py)
-
-| Função | Responsabilidade |
-|---|---|
-| **B6** `upsert_avaria_top30_lote(nunota_origem, codprod, codagregacao, qtd_avaria_unidade, codusu, nomeusu)` | Cria TGFCAB TOP 30 se não existir (herda CODTIPVENDA da TOP 11 origem — exigência do trigger `TRG_INC_TGFCAB`); DELETE+INSERT TGFITE com mesmo lote/produto (idempotente). Reusa `inserir_cabecalho_nota_banco` + `inserir_item_nota_banco` |
-| **B7** `remover_avaria_top30_lote(nunota_origem, codprod, codagregacao, codusu, nomeusu)` | DELETE TGFITE; apaga TGFCAB se ficou sem itens. Idempotente — sem erro se já removido |
-| **B8** `reconciliar_avaria_top30_no_faturamento(nunota_origem, lotes_absorver, codusu, nomeusu)` | Orquestrador: SELECT itens TOP 11 não-classif. com avaria > 0; pra cada um → upsert ou remove conforme presença em `lotes_absorver` |
-| **B9** `gerar_financeiro_banco(... lotes_absorver_avaria=None, codusu=None, nomeusu=None)` | Quando `lotes_absorver_avaria` vier preenchido, chama reconciliação ANTES do INSERT TGFFIN. Backward compat: None ignora |
-| **B10** `atualizar_avaria_fornecedor_naoclass` | Trava de vale faturado |
-| **B11** `upsert_preco_in_natura_modalFaturamento(... absorver_avaria_no_vale=True)` | Param novo: quando `False` (Descontar), vale TOP 13 recebe qtd LÍQUIDA (`qtd_cx - avaria_unidade`) + vlrTotal recalculado. Default `True` mantém comportamento original |
-| **B12** `alternar_modo_avaria_vale_lote(nunota_origem, codprod, codagregacao, absorver, codusu, nomeusu)` | Alterna modo do toggle sem editar preço. Lê VLRUNIT atual do vale e reaplica `upsert_preco_in_natura_modalFaturamento` com a flag. Trava se vale faturado |
-
-#### Visual do toggle
-
-Segmented control sem ícones — só texto. Lado ativo destacado em verde:
+**Decisão por lote** via segmented control sem ícones (só texto):
 
 ```
 [ Absorver │ Descontar ]
 ```
 
-Default = Absorver (Agromil paga). Click em cada lado define explicitamente a decisão (não inverte).
+- **Descontar (default quando há `AD_QTDAVARIA > 0` na TOP 11)**: Comercial cobra do fornecedor. Vale TOP 13 fica com qtd **LÍQUIDA** (`qtd_cx − avaria_unidade × peso`) + vlrTotal recalculado. **Sem TOP 30**. Estoque coerente naturalmente.
+- **Absorver**: Agromil banca a perda. Vale TOP 13 fica com qtd **CHEIA** + vlrTotal cheio. Ao FATURAR, backend gera automaticamente TGFCAB TOP 30 (Avaria Interna) com `AD_NUMPEDIDOORIG = NUNOTA da TOP 11`. TGFITE TOP 30 desconta estoque via perna D da view `ANDRE_IAGRO_SALDO_LOTE` e carrega `VLRUNIT/VLRTOT` documentando o custo da perda.
 
-#### Motivos da trava do FATURAR
+Quando há vários itens não-classificáveis com avaria no mesmo pedido, **cada item tem seu próprio toggle**. Backend reconcilia tudo ao faturar (cria 1 TGFCAB TOP 30 por pedido com N itens TGFITE — 1 por lote/produto absorvido).
 
-Quando o botão FATURAR está desabilitado, os motivos aparecem **abaixo do botão** numa lista amarela com ícones ⚠ (além do tooltip):
+#### Reconciliação idempotente (cobre refaturamento)
+
+Ao FATURAR, `reconciliar_avaria_top30_no_faturamento` sincroniza tanto vale TOP 13 (via B11) quanto TGFCAB TOP 30 (B6/B7) com a decisão final do toggle:
+
+| Cenário | Comportamento |
+|---|---|
+| Faturar com Absorver pela 1ª vez | Reconciliação: vale fica com qtd cheia + cria TGFCAB TOP 30 |
+| Faturar com Descontar pela 1ª vez | Vale com qtd líquida + sem TOP 30 |
+| Desfaturar | TOP 30 permanece (não é mexida) |
+| Refaturar mesma decisão | DELETE+INSERT idempotente — sem duplicação |
+| Faturar Absorver → desfaturar → mudar Descontar → refaturar | Vale vira líquido + TOP 30 removida |
+| Faturar Descontar → desfaturar → mudar Absorver → refaturar | Vale vira cheio + TOP 30 criada |
+
+#### Trava de faturado
+
+- Frontend: ambas opções do segmented control aparecem com `disabled` + ícone 🔒 quando vale tem TGFFIN
+- Backend `atualizar_avaria_fornecedor_naoclass` (B10): se vale TOP 13 tem TGFFIN, rejeita UPDATE em AD_QTDAVARIA com mensagem `"Vale já faturado pra essa entrada (NUFIN=X). Desfature antes de alterar a avaria do fornecedor."`
+- Backend `alternar_modo_avaria_vale_lote` (B12): mesma trava — operador não pode alternar se vale faturado
+
+#### Funções backend (oracle_conn.py)
+
+| # | Função | Responsabilidade |
+|---|---|---|
+| **B6** | `upsert_avaria_top30_lote(nunota_origem, codprod, codagregacao, qtd_avaria_unidade, codusu, nomeusu)` | Cria TGFCAB TOP 30 se não existir herdando `CODTIPVENDA` da TOP 11 origem (exigência do trigger `TRG_INC_TGFCAB`); DELETE+INSERT TGFITE com mesmo lote/produto (idempotente). Lê VLRUNIT do vale TOP 13 pra preencher VLRUNIT/VLRTOT da TOP 30 — documenta custo da perda |
+| **B7** | `remover_avaria_top30_lote` | DELETE TGFITE; apaga TGFCAB se ficou sem itens. Idempotente — sem erro se já removido |
+| **B8** | `reconciliar_avaria_top30_no_faturamento(nunota_origem, lotes_absorver, codusu, nomeusu)` | Orquestrador: SELECT itens TOP 11 não-classif. com avaria > 0; pra cada um **sincroniza vale TOP 13** (chama B11 com flag conforme decisão) + upsert/remove TOP 30 |
+| **B9** | `gerar_financeiro_banco(... lotes_absorver_avaria=None, codusu=None, nomeusu=None)` | Quando `lotes_absorver_avaria` vier preenchido, chama B8 ANTES do INSERT TGFFIN. Backward compat: None ignora |
+| **B10** | `atualizar_avaria_fornecedor_naoclass` | Trava de vale faturado (impede UPDATE em AD_QTDAVARIA quando vale tem TGFFIN) |
+| **B11** | `upsert_preco_in_natura_modalFaturamento(... absorver_avaria_no_vale=True)` | Param novo: quando `False` (Descontar), vale TOP 13 recebe qtd LÍQUIDA + vlrTotal recalculado. Default `True` mantém comportamento original (backward compat com outros consumers) |
+| **B12** | `alternar_modo_avaria_vale_lote(nunota_origem, codprod, codagregacao, absorver, codusu, nomeusu)` | Endpoint dedicado pra alternar toggle sem editar preço. Lê VLRUNIT atual do vale e reaplica B11 com a flag. Trava se vale faturado |
+
+#### TGFITE TOP 11 (Entrada) NUNCA modificada
+
+Preserva o documento original do recebimento do fornecedor (10 mç recebidos com 3 mç avariados). Toda variação vai pro vale TOP 13 ou pro TGFCAB/TGFITE TOP 30. Auditoria contábil intacta.
+
+#### Motivos da trava do FATURAR (abaixo do botão)
+
+Quando FATURAR está desabilitado, os motivos aparecem **explicitamente** numa lista amarela com ⚠ Phosphor abaixo do botão (além do tooltip nativo):
 
 - *"Vale ainda não foi salvo. Lance o preço de pelo menos um produto pra criar o vale."*
 - *"Há produto(s) sem preço definido."*
 - *"Há lote(s) classificável(eis) com a classificação ainda não finalizada (finalize a TOP 26 antes)."*
 
-Some quando o vale fatura ou quando todas as travas são resolvidas.
+A lista some quando o vale fatura ou quando todas as travas são resolvidas. Avaria **não bloqueia mais** — é decisão informada do Comercial via toggle.
 
-#### Endpoint REST (B12)
+#### Endpoints REST
 
-`POST /sankhya/comercial/api/avaria-modo-vale/`
-Payload: `{nunota_origem, codprod, codagregacao, absorver: true|false}`
-
-Disparado pelo frontend ao clicar em qualquer opção do segmented control quando o vale já existe (preço lançado). Reabre o modal automaticamente após sucesso pra refletir QTDNEG/VLRTOT atualizados.
+| Endpoint | Função service | Payload |
+|---|---|---|
+| `POST /sankhya/comercial/api/efetivar-faturamento/` | `gerar_financeiro_banco` (com `lotes_absorver_avaria`) | `{nunota_13, vlr_forcar_bruto, vlr_forcar_liquido, lotes_absorver_avaria: [...]}` |
+| `POST /sankhya/comercial/api/avaria-modo-vale/` (Mai/2026 — 2026-05-20) | `alternar_modo_avaria_vale_lote` (B12) | `{nunota_origem, codprod, codagregacao, absorver: bool}` |
+| `GET /sankhya/comercial/api/avarias-fornecedor-pedido/?nunota=X` | `consultar_avarias_fornecedor_de_pedido` | Retorna `{lote: {qtd_avaria, fornecedor, ...}}` |
 
 #### Fluxo do operador
 
 ```
 1. Doca: registra Entrada com AD_QTDAVARIA = 3 mç (não-classificável)
 2. Comercial: abre Modal Faturamento
-   • Modal mostra qtd bruta (10), ⚠ ícone, chip "📌 Absorver" (default)
-3. Comercial: digita preço → vale TOP 13 com QTDNEG=10, VLRTOT=300
-4. (opcional) Comercial: alterna chip pra "📉 Descontar" no lote
+   • Modal mostra qtd bruta (10), ⚠ ícone no nome, chip "Descontar" (default)
+3. Comercial: digita preço → vale TOP 13 criado com qtd 10 (default absorver=True
+   ainda no banco até reconciliação ajustar)
+4. (opcional) Comercial: clica "Absorver" no chip
+   → B12 dispara, reaplica B11 com flag=True → vale fica com qtd cheia
+   → Modal reabre refletindo o novo estado
 5. Comercial: clica FATURAR
-   • Frontend envia lotes_absorver_avaria = [lotes ainda marcados Absorver]
-   • Backend reconcilia: cria/remove TGFCAB TOP 30 conforme presença
-   • Backend gera TGFFIN normalmente
+   • Frontend envia lotes_absorver_avaria = [lotes onde operador clicou Absorver]
+   • B9 → B8 reconcilia: sincroniza vale TOP 13 + TGFCAB TOP 30 conforme decisão
+   • B9 INSERT TGFFIN normalmente
 6. (se precisa corrigir) Comercial: clica DESFATURAR
-   • TGFFIN apagado; TOP 30 permanece
+   • TGFFIN apagado; TOP 30 permanece (não é mexida)
 7. Comercial reabre modal, ajusta chip se quiser, refatura
-   • Reconciliação idempotente: sincroniza TOP 30 conforme nova decisão
+   • B8 sincroniza idempotentemente: vale e TOP 30 batem com nova decisão
 ```
 
-#### Não confundir com Opção B descartada
+#### Refator do `abrir` (separação fetch × render + performance)
 
-Versão anterior (descartada): mostrava qtd líquida no modal e bloqueava FATURAR forçando refazer o vale. A regra atual reverteu: **vale TOP 13 fica sempre intocado** com qtd bruta — a perda vira TGFCAB TOP 30 separada. Documento de compra reflete o que veio do fornecedor; TOP 30 documenta a perda interna; estoque desconta via perna D.
+- `abrir(nunota)` faz fetches uma vez e popula `STATE.itensCalculados`
+- Função pura `_renderListasFaturamento()` (sem fetch) usa STATE pra construir HTML, resumo e estado do botão
+- Toggle dispara `setAbsorverAvaria()` → atualiza STATE + B12 backend → reabre modal pra refletir vale atualizado
+- **Performance (Mai/2026 — 2026-05-20):**
+  - Fetches em paralelo: avarias + cabeçalho do vale via `Promise.all`
+  - Loop de itens (detalhes-vale + balanço de classificáveis) também `Promise.all` com `map`
+  - Cache local `cacheVale` evita re-fetch quando 2 itens compartilham o mesmo lote
+  - Ao faturar/desfaturar: helper `_aplicarEstadoFaturado(faturou)` atualiza botão+carimbo **imediatamente** após API responder. Refresh do modal vira fire-and-forget (não bloqueia feedback visual)
+  - Tempo típico de abertura: ~1s (antes era ~4s sequencial)
 
-#### Refator do `abrir` (separação fetch × render)
+#### Conversão de unidade (kg ↔ unidade do produto)
 
-- `abrir(nunota)` agora faz fetches uma vez e popula `STATE.itensCalculados`
-- Função `_renderListasFaturamento()` é pura (sem fetch) — usa STATE pra construir HTML, resumo e estado do botão
-- Toggle dispara `_renderListasFaturamento()` + `recalcularLiquido()` — re-render instantâneo sem network
+Avaria é registrada em kg na `AD_QTDAVARIA` da TOP 11. Pra descontar da quantidade da venda (mç, cx, kg, etc), conversão via PESO do TGFITE TOP 11:
 
-#### Visual do toggle
-
-Cada item com `avariaLote.qtd_avaria > 0` ganha chip clicável na coluna Qtde:
-
-| Estado | Aparência | Significado |
-|---|---|---|
-| **Off** (default) | `📌 Pagar total` em cinza | Agromil absorve a avaria; linha mostra qtd e total originais; fundo amarelo sutil |
-| **On** | `📉 Descontar` em verde | Repassa avaria ao fornecedor; qtd e total originais aparecem riscados + líquidos em verde; fundo amarelo mais saturado |
-
-Estado armazenado em `STATE.descontoAvariaPorLote = {codagregacao: bool}`, reset ao trocar de pedido.
-
-#### Conversão de unidade
-
-Avaria é registrada em kg (sempre). Pra descontar da quantidade da venda (mç, cx, kg, etc), o frontend converte:
-
-```js
-const qtdAvariaUnidade = pesoIn > 0 ? (qtdAvariaKg / pesoIn) : qtdAvariaKg;
-const qtdLiquidaUnidade = Math.max(0, qtd - qtdAvariaUnidade);
+```python
+qtd_avaria_unidade = qtd_avaria_kg / peso  if peso > 0  else qtd_avaria_kg
+qtd_liquida       = qtd_cx − qtd_avaria_unidade
 ```
 
-Exemplo: CHEIRO VERDE 10mç com peso 1kg/mç + avaria 3kg → 3mç de avaria → 7mç líquido. Toggle "Descontar" mostra `<s>10mç</s> 7mç`.
-
-#### Resumo financeiro
-
-- `STATE.bruto` = soma dos vlrTotal originais (do vale)
-- `STATE.brutoLiquido` = bruto − descontos aplicados (apenas dos lotes com toggle "Descontar")
-- Quando há desconto: campo `vlrBrutoFechamento` mostra original riscado + líquido em verde
-- `recalcularLiquido` parte de `STATE.brutoLiquido` (que cai em `STATE.bruto` quando todos os toggles estão "Pagar total")
-
-#### Trava FATURAR (revisada)
-
-Removida a trava por avaria. Botão FATURAR continua disabled apenas por:
-- Preço em branco (`temPendentePreco`)
-- Classificação não finalizada na TOP 26 (`temPendenteClassificacao`)
-
-Avaria não bloqueia — é decisão informada do Comercial.
-
-#### Trade-off conhecido
-
-Quando o operador clicar FATURAR com algum toggle "Descontar":
-- O TGFFIN será gerado com base em `STATE.bruto` (valor cheio) — **não usa o líquido** atualmente
-- O vale TGFITE TOP 13 também não é atualizado
-
-Pra desconto real refletir no financeiro/vale, fica como pendência futura (Cat B): hook em `gerar_financeiro_banco` que aplica o desconto OU UPDATE no TGFITE TOP 13 ao toggle ON.
-
-Por ora, o toggle serve como **visualização decisória** pro operador antes de:
-- Refazer o vale manualmente fora do modal, ou
-- Renegociar preço com o fornecedor, ou
-- Lançar TGFFIN separado de cobrança
+Exemplo: CHEIRO VERDE 10mç com peso 1kg/mç + avaria 3kg → 3mç de avaria → 7mç líquido.
 
 ### Sem alteração de query existente
 
-A função `consultar_avarias_fornecedor_de_pedido` é **aditiva** (Cat A pura) — evita refator de funções existentes que alimentam `__COM_LIST_ROWS`. Frontend só ganha 1 fetch extra ao abrir o modal (sem impacto perceptível).
+As funções aditivas `consultar_avarias_fornecedor_da_nota`, `consultar_avarias_fornecedor_de_pedido` e `consultar_lotes_com_top30_de_pedido` são Cat A pura (SELECT só). Não tocam queries pesadas existentes.
+
+A modificação de `gerar_financeiro_banco` (B9) e `upsert_preco_in_natura_modalFaturamento` (B11) são Cat B porque alteram queries de escrita existentes — mas com backward compat por default arguments (`lotes_absorver_avaria=None`, `absorver_avaria_no_vale=True`).
 
 ---
 

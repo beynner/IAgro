@@ -52,7 +52,7 @@ Recebimento e conferência de notas de compra com pesagem e controle de itens.
 
 ---
 
-## Avaria do fornecedor em item NÃO-classificável (Mai/2026 — 2026-05-19)
+## Avaria do fornecedor em item NÃO-classificável (Mai/2026 — 2026-05-19, refinado 2026-05-20)
 
 Itens com `GERAPRODUCAO <> 'S'` (in natura direto pra TOP 13, sem passar pela Classificação) agora têm onde registrar descarte do fornecedor — antes não tinha tela e o histórico era perdido (operador só conseguia reduzir QTDNEG no vale Comercial).
 
@@ -62,8 +62,10 @@ Tabela "Produtos inseridos" do `cabItemsCard` ganhou coluna entre `Total kg` e a
 
 | `GERAPRODUCAO` | Comportamento da célula |
 |---|---|
-| `S` (classificável) | Mostra `—` cinza. Avaria continua sendo gerenciada na Classificação (campo `AD_QTDAVARIA` via `atualizar_descarte_origem`). |
-| `N` (não-classificável) | Input numérico amarelado + botão 💾. Operador digita kg de avaria, click salva. |
+| `S` (classificável) | Mostra `—` cinza. Avaria continua sendo gerenciada na Classificação (campo `AD_QTDAVARIA` via `atualizar_descarte_origem`) |
+| `N` ou NULL (não-classificável) | Input numérico amarelado **com auto-save no `blur`/Enter** — sem botão dedicado. Feedback: borda âmbar durante salvamento, verde 1.5s no sucesso, vermelha em falha |
+
+Inputs `<input type="number">` sem spinners (CSS hide). Largura 95px pra exibir números com casa decimal sem cortar.
 
 ### Backend — endpoint dedicado (escapa da trava de edição)
 
@@ -80,12 +82,20 @@ A trava de TOP 13/26 (em `api_salvar_item_nota` de [views.py](../../sankhya_inte
 - `qtd <= QTDNEG` do item
 - Filtra `c.CODTIPOPER = 11` (só TOP 11)
 - Filtra `GERAPRODUCAO <> 'S'` (defesa em profundidade contra UPDATE em item classificável)
+- **Trava B10** (Mai/2026 — 2026-05-20): se vale TOP 13 do pedido tem TGFFIN gerado, REJEITA com mensagem humanizada `"Vale já faturado pra essa entrada (NUFIN=X). Desfature antes de alterar a avaria do fornecedor."` — evita inconsistência com TGFCAB TOP 30 gerada no faturamento
 - Invalida cache Rastreio (`invalidar_cache_rastreio()`) pra perna E refletir na próxima leitura
 - Audit `AVARIA_FORNECEDOR` em `AD_AUDITORIA_GERAL` (snapshot antes/depois)
 
 ### Impacto no saldo
 
-Perna E (`AVARIA_FORNECEDOR`) da view `ANDRE_IAGRO_SALDO_LOTE` reflete o novo valor. **Saldo vendável NÃO muda** — perna E é informativa, fora da fórmula de `QTD_DISPONIVEL`. Modal Faturamento do Comercial usa essa info pra orientar precificação/cobrança (ver [`comercial.md`](comercial.md) → "Avaria do fornecedor no modal Faturamento").
+Perna E (`AVARIA_FORNECEDOR`) da view `ANDRE_IAGRO_SALDO_LOTE` reflete o novo valor. **Saldo vendável NÃO muda diretamente pela perna E** — ela é informativa, fora da fórmula de `QTD_DISPONIVEL`.
+
+O desconto efetivo no estoque acontece via Comercial (modal Faturamento):
+
+- **📌 Absorver** → backend gera TGFCAB TOP 30 (avaria interna) ao FATURAR, que desconta via **perna D** da view (`AVARIA_INTERNA`)
+- **📉 Descontar** → vale TOP 13 fica com qtd LÍQUIDA (Comercial cobra fornecedor por fora; estoque coerente pela qtd reduzida no próprio vale)
+
+Detalhes em [`comercial.md`](comercial.md) → "Toggle Descontar/Absorver com avaria interna automática".
 
 ### Espelhamento (Mai/2026, intocado)
 

@@ -108,14 +108,14 @@
             <div id="item_prod_sugg" class="dropdown-abs fs-13"></div>
           </div>
           <div class="w-120">
-            <label>Lote (Agregação)</label>
+            <label>Lote</label>
             <input type="text" id="item_lote" placeholder="Opcional" class="full-width" />
           </div>
           <div class="w-88">
             <label>Volume</label>
             <select id="item_codvol" class="full-width">
-              <option value="CX" selected>CX</option>
-              <option value="KG">KG</option>
+              <option value="KG" selected>KG</option>
+              <option value="CX">CX</option>
               <option value="UN">UN</option>
               <option value="MC">MC</option>
               <option value="SC">SC</option>
@@ -145,19 +145,29 @@
       <div style="margin-top: 15px;">
         <label>Produtos no Pedido</label>
         <div class="scroll-panel" style="height: 300px;">
-          <table class="ia-selectable-table">
+          <table class="ia-selectable-table vda-items-table">
+            <colgroup>
+              <col class="vda-col-prod" />
+              <col class="vda-col-lote" />
+              <col class="vda-col-vol" />
+              <col class="vda-col-qtd" />
+              <col class="vda-col-preco" />
+              <col class="vda-col-total" />
+              <col class="vda-col-acoes" />
+            </colgroup>
             <thead>
               <tr>
                 <th>Produto</th>
                 <th>Lote</th>
+                <th class="text-center">Vol</th>
                 <th class="text-right">Qtd</th>
                 <th class="text-right">Preço</th>
                 <th class="text-right">Total</th>
-                <th class="col-w-80 text-center">Ações</th>
+                <th class="text-center">Ações</th>
               </tr>
             </thead>
             <tbody id="itemsListBody">
-              <tr><td colspan="6" class="ia-placeholder">Nenhum item inserido.</td></tr>
+              <tr><td colspan="7" class="ia-placeholder">Nenhum item inserido.</td></tr>
             </tbody>
           </table>
         </div>

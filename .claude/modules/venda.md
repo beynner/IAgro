@@ -84,6 +84,73 @@ Detalhes em `gotchas.md`.
 
 ---
 
+## Preço automático da Tabela do cliente (Mai/2026 — 2026-05-20)
+
+Ao selecionar produto no modal de inserção de item, o IAgro **puxa preço automático** da tabela de preços configurada pro cliente. Operador continua livre pra sobrescrever.
+
+### Regra de resolução (validada via smoke contra Oracle real)
+
+```
+TGFPAR.CODTAB do cliente
+    → TGFTAB com MAX(NUTAB) KEEP DENSE_RANK FIRST ORDER BY DTVIGOR DESC
+        WHERE CODTAB = :ct AND DTVIGOR <= TO_DATE(:dtneg, 'DD/MM/YYYY')
+    → TGFEXC.VLRVENDA WHERE NUTAB = :n AND CODPROD = :p AND TIPO = 'V'
+```
+
+Cliente sem `TGFPAR.CODTAB` (NULL): cai em CODTAB=0 → NUTAB=77 (fallback geral, com apenas 1 produto cadastrado). Operador digita preço manual.
+
+Tipo de venda (`TGFTPV.CODTAB`) e cadastro de produto (`TGFPRO.CODTAB`) são NULL em todos os registros — não participam da regra na Agromil.
+
+### Componentes
+
+| Camada | Componente | Cat |
+|---|---|---|
+| Service | `consultar_preco_tabela(codparc, codprod, dtneg=None)` em [oracle_conn.py](../../sankhya_integration/services/oracle_conn.py) — SELECT puro com `TO_DATE(:d, 'DD/MM/YYYY' \| 'YYYY-MM-DD')` explícito (evita conversão implícita errada via NLS_DATE_FORMAT) | A |
+| Endpoint | `GET /sankhya/venda/api/preco-tabela/?codparc=X&codprod=Y[&dtneg=DD/MM/AAAA]` → `{ok, preco, nutab, codtab, origem}` | A |
+| Frontend | [venda.js](../../sankhya_integration/static/sankhya_integration/venda.js) `puxarPrecoTabela()` no `onChange` do typeahead `item_prod_vis` | A |
+
+### UX
+
+- **Sucesso** (preço encontrado) → toast verde `Preço R$ 8,50 (Tabela 131)`
+- **Sem preço cadastrado** (cliente tem tabela mas produto não está nela) → toast info `Produto não tabelado (Tabela X) — digite o preço.`
+- **Sem tabela** (cliente sem CODTAB ou CODTAB sem vigência) → toast info `Cliente sem tabela de preço configurada — digite o preço.`
+- **Erro de rede/backend** → toast vermelho
+
+### Regras de não-sobrescrita
+
+A função `puxarPrecoTabela` **só popula** quando:
+1. Não está em modo edição (`itemEditandoSeq <= 0`) — preserva preço da nota carregada
+2. Cabeçalho tem CODPARC selecionado E typeahead populou `item_prod_hidden`
+3. Campo `item_preco` está vazio ou 0 — respeita preço digitado manual
+
+### Pendência conhecida — TGFITE.NUTAB ainda NULL (Cat B)
+
+O INSERT/UPDATE do IAgro **não popula `TGFITE.NUTAB`** com a NUTAB resolvida (Sankhya nativo popula). Não causa erro fiscal mas perde paridade. Implementar como parte do payload em `inserir_item_nota_banco` quando `CODTIPOPER ∈ (34, 35, 37)`. Detalhes em [`.claude/tabela_precos_sankhya.md`](../tabela_precos_sankhya.md) §8.
+
+---
+
+## Fix `TRG_UPT_TGFITE` — RESERVA/ATUALESTOQUE/USOPROD em TOP de venda (Mai/2026 — 2026-05-20)
+
+Pedido criado pelo IAgro (TOP 34) salva, mas ao imprimir/abrir no Sankhya o `STP_CONFIRMANOTA2` disparava UPDATE em TGFITE e o trigger rejeitava com `ORA-20101: Reserva diferente da definicao na TOP`.
+
+Diagnóstico via comparação direta TGFITE NUNOTA=113083 (1 item IAgro vs 1 item Sankhya nativo) identificou 3 campos divergindo:
+
+| Campo | IAgro (antigo) | Sankhya nativo | Solução |
+|---|---|---|---|
+| `RESERVA` | `'N'` | `'S'` | Grava `'S'` no INSERT — causa direta do trigger |
+| `ATUALESTOQUE` | `-1` | `1` | Grava `1` no INSERT (atualiza estoque ao faturar) |
+| `USOPROD` | `'V'` (chute) | de `TGFPRO.USOPROD` | Lê do cadastro do produto (fallback `'R'`) |
+
+[`inserir_item_nota_banco`](../../sankhya_integration/services/oracle_conn.py) agora preenche os 3 campos quando `CODTIPOPER IN (34, 35, 37)`. Schema-resilient via `if 'COL' in colunas_tabela`.
+
+**Escopo do fix**: só pedidos novos criados após 2026-05-20. Pedidos antigos pré-fix continuam com `RESERVA='N'` — qualquer impressão/faturamento dispara o erro. Backfill não foi feito porque Agromil está começando a usar IAgro pra vendas agora (Mai/2026) e o volume é pequeno; operador faz UPDATE manual no Sankhya quando encontrar.
+
+Outras divergências menores (NULL no IAgro vs `0.0` no Sankhya — `NUTAB`, `CODTRIB`, `ALIQICMS`, `CUSTO`, etc) não disparam o trigger — Sankhya preenche internamente ao confirmar/faturar.
+
+Detalhes em [`gotchas.md`](../gotchas.md) → "Trigger TRG_UPT_TGFITE exige RESERVA/ATUALESTOQUE/USOPROD em TOP de venda".
+
+---
+
 ## Faturamento — `faturar_pedido_venda_banco`
 
 Operação atômica com `SELECT FOR UPDATE` na TGFCAB. Validações:

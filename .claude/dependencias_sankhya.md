@@ -77,6 +77,9 @@
 - `AD_QTDCONFERIDA` — Quantidade conferida (Entrada)
 - `GERAPRODUCAO` — Flag `S`/`N` para gerar TOP 26 (Entrada)
 - `QTDENTREGUE` — Quantidade entregue (populada por trigger TGFVAR)
+- `RESERVA` — Flag `S`/`N` de reserva de estoque. **Mai/2026 (2026-05-20)**: IAgro grava `'S'` em TOP 34/35/37 pra bater com a definição da TOP — trigger `TRG_UPT_TGFITE` rejeita UPDATE quando NEW.RESERVA diverge
+- `ATUALESTOQUE` — Flag de atualização de estoque. **Mai/2026 (2026-05-20)**: IAgro grava `1` em TOP 34/35/37 (era default `-1` que aciona o trigger)
+- `USOPROD` — Tipo de uso do produto (`'V'`=Venda, `'R'`=Revenda, `'C'`=Consumo, etc). **Mai/2026 (2026-05-20)**: IAgro lê de `TGFPRO.USOPROD` em TOP 34/35/37 (era chute fixo `'V'`)
 
 **Funções que manipulam:**
 - `inserir_item_nota_banco` — INSERT (gera lote auto ou manual; grava PESO em TOP 11/26/13)
@@ -102,9 +105,11 @@
 - `RAZAOSOCIAL` — Razão social oficial
 - `CGC_CPF` — CNPJ/CPF
 - `ATIVO` — Flag `S`/`N`
+- `CODTAB` — **Seletor da tabela de preço** (Mai/2026 — 2026-05-20). NULL = sem tabela (fallback CODTAB=0 → NUTAB=77). Apontado pra base de versão em TGFTAB. Detalhes em `.claude/tabela_precos_sankhya.md`.
 
 **Funções:**
 - `consultar_parceiros_oracle` — Typeahead (busca por código ou nome)
+- `consultar_preco_tabela` (Mai/2026 — 2026-05-20) — Lê `CODTAB` pra resolver preço de venda do produto
 
 ---
 
@@ -128,6 +133,52 @@
 - `consultar_prazo_tipvenda` — Lê BASEPRAZO + regex em DESCRTIPVENDA
 
 **Trigger dependência:** `TRG_INC_TGFCAB` exige tupla `(CODTIPVENDA, DHTIPVENDA)` coerente. Erro: `ORA-20101: Verifique se o TIPO DE NEGOCIAÇÃO X está ativo...`
+
+**Coluna `CODTAB`:** Existe mas é **NULL em todos os 20 tipos ativos** na Agromil (validado Mai/2026 — 2026-05-20). Tipo de venda NÃO participa da resolução de preço.
+
+---
+
+### 1.4.5 TGFTAB — Cadastro de Tabelas de Preço (Mai/2026 — 2026-05-20)
+
+**Propósito:** Histórico de versões das tabelas de preço — cada combinação `(CODTAB, DTVIGOR)` é uma versão.
+
+**Operações do IAgro:**
+- **SELECT**: Resolve NUTAB ativa por CODTAB + data
+
+**Colunas usadas:**
+- `NUTAB` — PK (ID único da versão)
+- `CODTAB` — Código da tabela base (a Agromil usa 0, 2, 4, 5, 6, 10, 15, 17, 18)
+- `DTVIGOR` — Data inicial de vigência
+- `DTALTER` — Data limite (não validado)
+- `CODTABORIG` — NUTAB de origem (versionamento)
+
+**Função:**
+- `consultar_preco_tabela` — Resolve `MAX(NUTAB) KEEP DENSE_RANK FIRST ORDER BY DTVIGOR DESC WHERE CODTAB=:ct AND DTVIGOR <= TO_DATE(:d, 'DD/MM/YYYY')`
+
+**Volume na Agromil:** 16 linhas. Mapa CODTAB → NUTAB ativa: 0→77 (fallback geral), 5→131 (Assaí), 17→159, 18→158, etc.
+
+---
+
+### 1.4.6 TGFEXC — Preços por Produto e Tabela (Mai/2026 — 2026-05-20)
+
+**Propósito:** Tabela operacional de preços. Apesar do nome "exceções", é a fonte principal na Agromil.
+
+**Operações do IAgro:**
+- **SELECT**: Resolve VLRVENDA por `(NUTAB, CODPROD)`
+
+**Colunas usadas:**
+- `NUTAB` — FK lógica → TGFTAB
+- `CODPROD` — FK lógica → TGFPRO
+- `VLRVENDA` — Preço de venda
+- `TIPO` — `'V'` (venda); pode haver `'C'` (compra) mas não confirmado
+- `CODLOCAL` — 0 em todos os casos amostrados (não usado)
+- `CONTROLE` — vazio em todos os casos (não usado)
+- `DHALTREG` — Data da última alteração
+
+**Função:**
+- `consultar_preco_tabela` — `SELECT VLRVENDA FROM TGFEXC WHERE NUTAB=:n AND CODPROD=:p AND TIPO='V'`
+
+**Volume na Agromil:** 709 linhas. Cobertura por NUTAB varia (NUTAB 77 fallback = 1 produto; NUTAB 131 Assaí = 30; NUTAB 129 = 109 produtos).
 
 ---
 
@@ -419,6 +470,7 @@
 | Trigger | Evento | Erro Conhecido | Causa | Solução IAgro |
 |---|---|---|---|---|
 | `TRG_INC_TGFCAB` | BEFORE INSERT | ORA-20101 | `(CODTIPVENDA, DHTIPVENDA)` inconsistente | Busca DHALTER mais recente de TGFTPV antes do INSERT |
+| `TRG_INC_TGFCAB` (Mai/2026 — 2026-05-20) | BEFORE INSERT | ORA-20101: "Campo Tipo de negociação obrigatório" | INSERT em **qualquer TOP** sem `CODTIPVENDA` — inclusive TOP 30 (avaria interna que conceitualmente não tem negociação) | Sempre passar `CODTIPVENDA` no payload. Em TGFCAB TOP 30 automática (`upsert_avaria_top30_lote`), herda de `c.CODTIPVENDA` da TOP 11 origem; fallback `11` (mesma estratégia da `criar_avaria_top30_banco` do módulo Venda) |
 | `TRG_UPD_TGFCAB` | BEFORE UPDATE | ORA-20101 | Tenta `UPDATE STATUSNOTA='E'` — trigger bloqueia, só permite → 'L' | Use DELETE físico pra "excluir" (Combustível B6) |
 
 ### 2.2 Triggers em TGFFIN
@@ -428,6 +480,12 @@
 | `TRG_INC_TGFFIN` | BEFORE INSERT | ORA-20101 | `NUNOTA` preenchido mas `ORIGEM <> 'E'` | Sempre `ORIGEM='E'` quando há NUNOTA |
 | `TRG_UPT_TGFFIN_NUBCO` | BEFORE UPDATE | ORA-20101: "Baixa sem ligação com TGFMBC" | Tenta baixa (`DHBAIXA NOT NULL`) sem TGFMBC | Deixar TGFFIN em aberto (DHBAIXA=NULL, VLRBAIXA=0) |
 | `TRG_UPT_TGFFIN` | BEFORE UPDATE | ORA-20101: "Informe valor e TOP da baixa simultaneamente" | `VLRBAIXA > 0` mas `CODTIPOPERBAIXA` faltando (ou vice-versa) | Ou ambos zerados ou ambos preenchidos |
+
+### 2.2.5 Triggers em TGFITE
+
+| Trigger | Evento | Erro Conhecido | Causa | Solução IAgro |
+|---|---|---|---|---|
+| `TRG_UPT_TGFITE` (Mai/2026 — 2026-05-20) | BEFORE UPDATE (via `STP_CONFIRMANOTA2` em impressão/faturamento) | ORA-20101: "Reserva diferente da definicao na TOP" | INSERT do IAgro deixava `RESERVA='N'`/`ATUALESTOQUE=-1`/`USOPROD='V'` em TOP de venda. Quando Sankhya tenta UPDATE pra valor da TOP, trigger compara NEW vs definição da TOP e rejeita | `inserir_item_nota_banco` agora popula `RESERVA='S'`, `ATUALESTOQUE=1`, `USOPROD=<TGFPRO.USOPROD>` quando `CODTIPOPER IN (34, 35, 37)`. Schema-resilient via `if 'COL' in colunas_tabela`. **Pedidos antigos pré-fix continuam quebrados** (UPDATE retroativo é Cat B, não aplicado porque volume é pequeno) |
 
 ### 2.3 Triggers em TGFVAR
 

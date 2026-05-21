@@ -293,21 +293,6 @@ window.ComercialFinanceiro = (function () {
         STATE.dadosNota = itensDaNota[0];
         document.getElementById('fechamentoParceiro').textContent = STATE.dadosNota.parceiro || '---';
 
-        // Mai/2026 (2026-05-19) — busca avarias do fornecedor pra exibir ⚠ na linha
-        // do item cujo lote teve descarte registrado na TOP 11. Não bloqueia render.
-        STATE.avariasPorLote = {};
-        try {
-            const resAv = await fetch(
-                `/sankhya/comercial/api/avarias-fornecedor-pedido/?nunota=${encodeURIComponent(nunota)}`
-            );
-            const dataAv = await resAv.json();
-            if (dataAv && dataAv.ok && dataAv.avarias_por_lote) {
-                STATE.avariasPorLote = dataAv.avarias_por_lote;
-            }
-        } catch (e) {
-            console.warn('Falha ao buscar avarias do fornecedor', e);
-        }
-
         // Monta o subtítulo inicial com os dados da memória
         const memVale = window.ComercialUtils.toNumber(STATE.dadosNota.nunota_13);
         const memFin = window.ComercialUtils.toNumber(STATE.dadosNota.nufin);
@@ -339,28 +324,52 @@ window.ComercialFinanceiro = (function () {
             listDireto.innerHTML = '';
         }
 
-        let totalBruto = 0;
-        let totalDescontoAvaria = 0;         // soma dos descontos de avaria fornecedor (Opção B — Mai/2026)
-        let temPendente = false;             // qualquer item bloqueando (preço OU classificação OU avaria)
-        let temPendentePreco = false;        // algum item sem preço definido
-        let temPendenteClassificacao = false;// algum classificável sem TOP 26 finalizada (PENDENTE != 'N')
-        let temPendenteAvaria = false;       // algum lote tem avaria do fornecedor não refletida (Opção B)
-        let htmlClass = '';
-        let htmlDireto = '';
+        // Variáveis de cálculo do render moveram-se pra `_renderListasFaturamento`
+        // (Mai/2026 — 2026-05-20). `abrir` só pré-carrega dados e chama o render.
 
-        // Pega o número do Vale (Se houver)
+        // Pega o número do Vale (Se houver) — em memória, sem fetch
         const notaRef = itensDaNota.find(r => window.ComercialUtils.toNumber(r.nunota_13) > 0);
         const nunota13Ativo = notaRef ? window.ComercialUtils.toNumber(notaRef.nunota_13) : 0;
 
+        // Mai/2026 (2026-05-20) — Paraleliza avarias + cabeçalho do vale (eram sequenciais).
+        // Ganho perceptível especialmente quando rede tem latência ou Oracle responde lento.
+        //
+        // OTIMIZAÇÃO Mai/2026 (2026-05-20, 2ª rodada): a promessa de detalhes-vale
+        // do lote do cabeçalho é pré-populada no `cacheVale` — antes era refeita
+        // dentro do loop de itens (cache miss porque o Map só nascia depois da
+        // fase 1). Elimina 1 fetch duplicado no caso típico onde STATE.dadosNota
+        // bate com o primeiro item da nota.
+        STATE.avariasPorLote = {};
         let vlroutrosInicial = 0;
         let nufinAtivo = 0;
-        if (nunota13Ativo > 0) {
-            try {
-                const resCab = await fetch(`/sankhya/comercial/api/detalhes-vale/?nunota_13=${nunota13Ativo}&lote=${STATE.dadosNota.codagregacao || ''}`);
-                const dataCab = await resCab.json();
+
+        // Caches locais por execução do `abrir` (Mai/2026 — 2026-05-20).
+        // Vivos só durante 1 abertura — sem invalidação complicada.
+        const cacheVale = new Map();   // chave: lote (str)
+        const cacheBal  = new Map();   // chave: `${lote}|${nunota_origem}`
+
+        const cabLote = String(STATE.dadosNota.codagregacao || '');
+        const promCab = (nunota13Ativo > 0 && cabLote)
+            ? fetch(`/sankhya/comercial/api/detalhes-vale/?nunota_13=${nunota13Ativo}&lote=${cabLote}`)
+                .then(r => r.json()).catch(() => null)
+            : Promise.resolve(null);
+        // Pré-popula o cache com a promessa da fase 1 — fase 2 reusa.
+        if (cabLote) cacheVale.set(cabLote, promCab);
+
+        try {
+            const promAvarias = fetch(
+                `/sankhya/comercial/api/avarias-fornecedor-pedido/?nunota=${encodeURIComponent(nunota)}`
+            ).then(r => r.json()).catch(() => null);
+            const [dataAv, dataCab] = await Promise.all([promAvarias, promCab]);
+            if (dataAv && dataAv.ok && dataAv.avarias_por_lote) {
+                STATE.avariasPorLote = dataAv.avarias_por_lote;
+            }
+            if (dataCab) {
                 vlroutrosInicial = window.ComercialUtils.toNumber(dataCab.vlroutros || 0);
                 nufinAtivo = window.ComercialUtils.toNumber(dataCab.nufin || 0);
-            } catch (e) { console.error("Erro ao carregar estado", e); }
+            }
+        } catch (e) {
+            console.warn('Falha ao carregar estado inicial do modal', e);
         }
         STATE.dadosNota.nufin = nufinAtivo; // Guarda na memória se faturou
 
@@ -374,53 +383,68 @@ window.ComercialFinanceiro = (function () {
             document.body.classList.add('vale-faturado');
         }
 
-        // 2. PRÉ-CARREGA dados de cada item (fetches por lote no vale TOP 13 + balanço da classificação).
-        // Resultado salvo em STATE.itensCalculados — re-usado pelo toggle Descontar/Pagar Total
-        // (Mai/2026 — 2026-05-20) sem precisar refetch.
+        // 2. PRÉ-CARREGA dados de cada item EM PARALELO (Mai/2026 — 2026-05-20).
+        // Antes: ~2N fetches sequenciais (detalhes-vale + lote/consultar por item).
+        // Agora: todos disparam juntos via Promise.all — ganho linear no N.
+        // Cache de detalhes-vale por lote evita re-fetch quando 2 itens compartilham
+        // o mesmo lote (ex: SPLIT de classificação).
         STATE.itensCalculados = [];
         STATE.nunota13Ativo = nunota13Ativo;
         STATE.nufinAtivo = nufinAtivo;
         STATE.vlroutrosInicial = vlroutrosInicial;
-        for (const item of itensDaNota) {
+
+        const fetchValePorLote = (lote) => {
+            const key = String(lote || '');
+            if (cacheVale.has(key)) return cacheVale.get(key);
+            const p = (nunota13Ativo > 0)
+                ? fetch(`/sankhya/comercial/api/detalhes-vale/?nunota_13=${nunota13Ativo}&lote=${key}`)
+                    .then(r => r.json()).catch(() => null)
+                : Promise.resolve(null);
+            cacheVale.set(key, p);
+            return p;
+        };
+        const fetchBalancoLote = (item) => {
+            const lote = String(item.codagregacao || '');
+            const key  = `${lote}|${item.nunota}`;
+            if (cacheBal.has(key)) return cacheBal.get(key);
+            const p = fetch(`/sankhya/lote/consultar/?lote=${lote}&nunota_origem=${item.nunota}`)
+                .then(r => r.json()).catch(() => null);
+            cacheBal.set(key, p);
+            return p;
+        };
+
+        const promessasItens = itensDaNota.map(async (item) => {
             const isClassificavel = item.geraproducao === 'S';
+            const lote = item.codagregacao || '';
+            const [dataVale, dataBal] = await Promise.all([
+                fetchValePorLote(lote),
+                isClassificavel ? fetchBalancoLote(item) : Promise.resolve(null),
+            ]);
+            return { item, isClassificavel, lote, dataVale, dataBal };
+        });
+        const itensComDados = await Promise.all(promessasItens);
+
+        for (const { item, isClassificavel, lote, dataVale, dataBal } of itensComDados) {
             const fabricante = item.fabricante || item.produto || 'PRODUTO';
             const pesoCx = window.ComercialUtils.toNumber(item.qtdfixada) || 20;
-            const lote = item.codagregacao || '';
 
             let vlrTotal = 0;
             let vlrUnitDireto = 0;
-
-            // Busca na TOP 13 filtrando pelo lote
-            if (nunota13Ativo > 0) {
-                try {
-                    const resVale = await fetch(`/sankhya/comercial/api/detalhes-vale/?nunota_13=${nunota13Ativo}&lote=${lote}`);
-                    const dataVale = await resVale.json();
-
-                    if (dataVale.ok && dataVale.itens) {
-                        for (const it of dataVale.itens) {
-                            if (!isClassificavel && String(it.codprod) !== String(item.codprod)) {
-                                continue;
-                            }
-                            vlrTotal += window.ComercialUtils.toNumber(it.vlrtot) || 0;
-                            if (!isClassificavel) {
-                                vlrUnitDireto = window.ComercialUtils.toNumber(it.vlrunit) || 0;
-                            }
-                        }
+            if (dataVale && dataVale.ok && dataVale.itens) {
+                for (const it of dataVale.itens) {
+                    if (!isClassificavel && String(it.codprod) !== String(item.codprod)) continue;
+                    vlrTotal += window.ComercialUtils.toNumber(it.vlrtot) || 0;
+                    if (!isClassificavel) {
+                        vlrUnitDireto = window.ComercialUtils.toNumber(it.vlrunit) || 0;
                     }
-                } catch (e) { console.warn(`Erro ao buscar lote ${lote} na TOP 13`, e); }
+                }
             }
 
             let kgFisicoTotal = 0;
-            if (isClassificavel) {
-                try {
-                    const resBal = await fetch(`/sankhya/lote/consultar/?lote=${lote}&nunota_origem=${item.nunota}`);
-                    const dataBal = await resBal.json();
-                    if (dataBal.ok && dataBal.classificacoes) {
-                        kgFisicoTotal = dataBal.classificacoes
-                            .filter(c => window.ComercialUtils.toNumber(c.selecionado) !== 0)
-                            .reduce((acc, curr) => acc + window.ComercialUtils.toNumber(curr.qtd), 0);
-                    }
-                } catch (e) { console.warn("Erro ao buscar balanço", e); }
+            if (isClassificavel && dataBal && dataBal.ok && dataBal.classificacoes) {
+                kgFisicoTotal = dataBal.classificacoes
+                    .filter(c => window.ComercialUtils.toNumber(c.selecionado) !== 0)
+                    .reduce((acc, curr) => acc + window.ComercialUtils.toNumber(curr.qtd), 0);
             }
 
             STATE.itensCalculados.push({
@@ -608,6 +632,39 @@ window.ComercialFinanceiro = (function () {
         document.getElementById('vlrLiquidoFechamento').textContent = `R$ ${STATE.liquido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     };
 
+    // Aplica estado visual imediato pós-sucesso da API (Mai/2026 — 2026-05-20).
+    // Evita esperar o `abrir(...)` que refaz N fetches sequenciais. Atualiza
+    // botão FATURAR/DESFATURAR + carimbo + body class na hora; o refetch
+    // dos itens segue depois sem bloquear o feedback visual.
+    const _aplicarEstadoFaturado = (faturou) => {
+        const btnEfetivar = document.getElementById('btnEfetivarFaturamento');
+        const carimbo = document.getElementById('carimboFaturado');
+        if (carimbo) carimbo.style.display = faturou ? 'block' : 'none';
+        if (faturou) {
+            document.body.classList.add('vale-faturado');
+            if (btnEfetivar) {
+                btnEfetivar.textContent = 'DESFATURAR';
+                btnEfetivar.style.backgroundColor = '#ef4444';
+                btnEfetivar.style.color = '#ffffff';
+                btnEfetivar.style.cursor = 'pointer';
+                btnEfetivar.disabled = false;
+                btnEfetivar.title = '';
+                btnEfetivar.onclick = () => window.ComercialFinanceiro.desfaturar(STATE.dadosNota?.nunota_13 || STATE.nunota13Ativo);
+            }
+        } else {
+            document.body.classList.remove('vale-faturado');
+            if (btnEfetivar) {
+                btnEfetivar.textContent = 'FATURAR';
+                btnEfetivar.style.backgroundColor = '';
+                btnEfetivar.style.color = '';
+                btnEfetivar.style.cursor = 'pointer';
+                btnEfetivar.disabled = false;
+                btnEfetivar.title = '';
+                btnEfetivar.onclick = () => window.ComercialFinanceiro.faturar();
+            }
+        }
+    };
+
     const faturar = async () => {
         const nunota13 = STATE.dadosNota.nunota_13;
         if (!nunota13) return window.ComercialUtils.mostrarToast("Erro: Vale não gerado.", "erro");
@@ -659,22 +716,25 @@ window.ComercialFinanceiro = (function () {
             window.ComercialUtils.mostrarToast("Financeiro gerado com sucesso!", "sucesso");
 
             STATE.dadosNota.nufin = data.nufin || 1; // Atualiza a memória
+            STATE.nufinAtivo = data.nufin || 1;
 
-            // 1. Recarrega o modal (usando await para não atropelar)
-            await abrir(STATE.dadosNota.nunota);
+            // Otimização (Mai/2026 — 2026-05-20): aplica estado visual NA HORA
+            // (botão vira DESFATURAR + carimbo aparece) — não espera o refetch
+            // dos itens, que pode demorar pela reconciliação backend.
+            _aplicarEstadoFaturado(true);
 
-            // 2. Atualiza TODOS os painéis do fundo para aplicar as travas
+            // Atualiza painéis do fundo + lista em paralelo (fire-and-forget).
+            // Refetch do modal também em paralelo — o operador já vê estado novo.
             if (window.ComercialEntrada) window.ComercialEntrada.preencher(STATE.dadosNota);
             if (window.ComercialClassificacao) {
                 window.ComercialClassificacao.preencher(STATE.dadosNota).then(pesos => {
                     if (window.ComercialDistribuicao) window.ComercialDistribuicao.preencher(STATE.dadosNota, pesos);
                 });
             }
-
-            // 3. Atualiza a lista lateral
             if (window.ComercialFiltros && window.ComercialFiltros.atualizar) {
                 window.ComercialFiltros.atualizar();
             }
+            abrir(STATE.dadosNota.nunota);  // sem await — refresh em background
 
         } catch (e) {
             window.ComercialUtils.mostrarToast("Falha ao faturar: " + e.message, "erro");
@@ -704,17 +764,20 @@ window.ComercialFinanceiro = (function () {
 
             STATE.dadosNota.nufin = 0; // Limpa a memória
             STATE.dadosNota.qtd_baixados = 0; // Garante destravamento completo
+            STATE.nufinAtivo = 0;
 
-            // 1. Recarrega o modal (usando await para não atropelar)
-            await abrir(STATE.dadosNota.nunota);
+            // Otimização (Mai/2026 — 2026-05-20): aplica estado visual NA HORA
+            // (botão volta a FATURAR + carimbo some) — não espera o refetch.
+            _aplicarEstadoFaturado(false);
 
-            // 2. Atualiza TODOS os painéis do fundo para remover as travas e o carimbo
+            // Refetch + painéis do fundo em paralelo (fire-and-forget)
             if (window.ComercialEntrada) window.ComercialEntrada.preencher(STATE.dadosNota);
             if (window.ComercialClassificacao) {
                 window.ComercialClassificacao.preencher(STATE.dadosNota).then(pesos => {
                     if (window.ComercialDistribuicao) window.ComercialDistribuicao.preencher(STATE.dadosNota, pesos);
                 });
             }
+            abrir(STATE.dadosNota.nunota);  // sem await — refresh em background
 
             // 3. Atualiza a lista lateral
             if (window.ComercialFiltros && window.ComercialFiltros.atualizar) {

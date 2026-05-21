@@ -517,6 +517,27 @@
    MÓDULO 7: BOTÕES DE AÇÃO POR LINHA NOS ITENS DO MODAL (edit/remove)
    ========================================================================== */
 .col-w-80 { width: 80px; }
+
+/* Tabela de itens do modal — table-layout fixo + colgroup pra evitar
+   transbordo horizontal (scroll-panel pai só rola vertical).
+   Mai/2026 (2026-05-20) — Vol entrou entre Lote e Qtd. */
+.vda-items-table {
+    width: 100%;
+    table-layout: fixed;
+}
+.vda-items-table .vda-col-prod  { width: auto; }   /* absorve o restante */
+.vda-items-table .vda-col-lote  { width: 110px; }
+.vda-items-table .vda-col-vol   { width: 44px; }
+.vda-items-table .vda-col-qtd   { width: 72px; }
+.vda-items-table .vda-col-preco { width: 78px; }
+.vda-items-table .vda-col-total { width: 84px; }
+.vda-items-table .vda-col-acoes { width: 64px; }
+.vda-items-table td,
+.vda-items-table th {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .icon-btn-mini {
     background: transparent;
     border: 1px solid transparent;

@@ -104,6 +104,60 @@ INSERT em TGFCAB **rejeita** se `(CODTIPVENDA, DHTIPVENDA)` não estiverem coere
 
 **Solução aplicada:** `inserir_cabecalho_nota_banco` consulta a `DHALTER` mais recente da TGFTPV antes do INSERT e grava em `DHTIPVENDA`.
 
+### Trigger `TRG_UPT_TGFITE` exige `RESERVA`/`ATUALESTOQUE`/`USOPROD` em TOP de venda (Mai/2026 — 2026-05-20)
+
+Pedido criado pelo IAgro (TOP 34) salva normalmente, mas ao abrir/imprimir no Sankhya o `STP_CONFIRMANOTA2` dispara UPDATE em TGFITE e o trigger rejeita:
+
+```
+ORA-20101: Reserva diferente da definicao na TOP.
+ORA-06512: em "SANKHYA.TRG_UPT_TGFITE", line 734
+ORA-06512: em "SANKHYA.STP_CONFIRMANOTA2", line 413
+```
+
+**Causa**: o trigger compara `NEW.RESERVA` com a definição de reserva da TOP. INSERT do IAgro deixava `RESERVA='N'` (default), mas TOP 34 espera `'S'`. INSERT em si passa (BEFORE INSERT mais permissivo), mas qualquer UPDATE posterior (impressão, faturamento, recálculo) bate na validação BEFORE UPDATE.
+
+**Diagnóstico** (Mai/2026 — 2026-05-20): comparação direta TGFITE NUNOTA=113083 com 1 item IAgro vs 1 item Sankhya nativo identificou 3 campos divergindo de forma que aciona o trigger:
+
+| Campo | IAgro (antigo) | Sankhya nativo | Significado |
+|---|---|---|---|
+| `RESERVA` | `'N'` | `'S'` | Causa direta do erro |
+| `ATUALESTOQUE` | `-1` | `1` | -1 = "ignora estoque", 1 = "atualiza ao faturar" |
+| `USOPROD` | `'V'` (chute) | `'R'` ou outro | Vem de `TGFPRO.USOPROD` no nativo |
+
+**Fix aplicado** em [`inserir_item_nota_banco`](../sankhya_integration/services/oracle_conn.py): SELECT da TGFCAB ganhou `CODTIPOPER`; quando TOP ∈ (34, 35, 37), INSERT em TGFITE preenche `RESERVA='S'`, `ATUALESTOQUE=1`, `USOPROD=<TGFPRO.USOPROD>` (fallback `'R'`). Schema-resilient (`if 'COL' in colunas_tabela`).
+
+**Escopo do fix**: só pedidos novos criados após 2026-05-20. Pedidos antigos criados antes do fix continuam com `RESERVA='N'` — qualquer impressão/faturamento dispara o erro. Solução pontual: operador pode UPDATE manual no Sankhya, ou criar script de backfill (Cat B). Como Agromil está começando a usar IAgro pra vendas agora (Mai/2026), o volume de pedidos antigos quebrados é pequeno — backfill não foi feito.
+
+**Outras divergências menores** (NULL no IAgro vs `0.0`/valor no Sankhya): `NUTAB`, `CODTRIB`, `ALIQICMS`, `ALIQIPI`, `CUSTO`, `M3`, vários `VLR*MOE`, `BASEST*`, `INDREPDES`, `CODSIT08EFD`. Não disparam o trigger porque são opcionais/recalculáveis. Sankhya os preenche internamente quando precisa (ao confirmar, faturar, calcular impostos).
+
+---
+
+### Variante: TGFCAB TOP 30 (avaria) exige CODTIPVENDA mesmo sem operação de venda (Mai/2026 — 2026-05-20)
+
+Manifestação real: ao implementar `upsert_avaria_top30_lote` (geração automática de avaria interna no faturamento do Comercial), a primeira versão omitia `CODTIPVENDA` no dict do cabeçalho — TGFCAB TOP 30 é avaria interna, não tem negociação. Resultado: `ORA-20101: Campo Tipo de negociação obrigatório para a nota de Nro Único:NNNNN`.
+
+Mesmo o cabeçalho sendo de avaria interna (CODNAT=20010200, STATUSNOTA='L' direto, sem TGFFIN/TGFVAR), o trigger continua exigindo CODTIPVENDA.
+
+**Solução aplicada**: herdar `CODTIPVENDA` do TGFCAB TOP 11 origem (vem do recebimento original). Fallback pra 11 (mesma estratégia da função `criar_avaria_top30_banco` manual do módulo Venda):
+
+```python
+cur.execute("""
+    SELECT c.CODEMP, c.CODPARC, c.CODCENCUS, c.DTNEG, c.CODTIPVENDA, i.CODVOL, NVL(i.PESO, 1)
+      FROM TGFCAB c JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+     WHERE c.NUNOTA = :n11 AND c.CODTIPOPER = 11 AND c.STATUSNOTA <> 'E'
+       AND i.CODPROD = :prod AND i.CODAGREGACAO = :lote
+""", ...)
+codemp, codparc, codcencus, dtneg, codtipvenda_origem, codvol, peso = row
+
+dados_cab_30 = {
+    ...
+    'CODTIPVENDA': int(codtipvenda_origem) if codtipvenda_origem else 11,
+    ...
+}
+```
+
+**Regra geral**: qualquer INSERT em TGFCAB (qualquer TOP) precisa de CODTIPVENDA válido. Avarias internas, devoluções, requisições — todos sujeitos à mesma trigger.
+
 ---
 
 ## Paginação Oracle — usar `ROW_NUMBER`, não `OFFSET FETCH`

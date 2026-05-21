@@ -59,6 +59,9 @@ Cada linha vinculada a um `NUNOTA` da `TGFCAB`.
 | `AD_QTDAVARIA` | NUMBER | Quantidade de avaria (descarte) — usado em Classificação e perna E do WMS |
 | `AD_PESO` | NUMBER | Peso registrado na pesagem da Entrada |
 | `AD_QTDCONFERIDA` | NUMBER | Quantidade conferida na entrada |
+| `RESERVA` | VARCHAR2(1) | Flag de reserva de estoque. **Mai/2026 (2026-05-20)**: IAgro grava `'S'` em TOP 34/35/37 — sem isso o trigger `TRG_UPT_TGFITE` rejeita UPDATE com `ORA-20101: Reserva diferente da definicao na TOP` quando Sankhya recálcula/imprime |
+| `ATUALESTOQUE` | NUMBER | Flag de atualização de estoque (`1`=atualiza ao faturar; `-1`=ignora). IAgro grava `1` em TOP 34/35/37 desde Mai/2026 (2026-05-20) — antes era `-1` por default, que aciona o mesmo trigger |
+| `USOPROD` | VARCHAR2(1) | Tipo de uso (`V`=Venda, `R`=Revenda, `C`=Consumo). IAgro lê de `TGFPRO.USOPROD` em TOP 34/35/37 desde Mai/2026 (2026-05-20) — antes chutava `'V'` |
 
 ### TGFPAR — Parceiros (Clientes/Fornecedores)
 
@@ -315,7 +318,14 @@ Existe em **TGFCAB e TGFITE**. Convenção da Agromil para rastreabilidade da "n
 
 | Função | Operação |
 |---|---|
-| `criar_avaria_top30_banco(dados, codusu)` | TGFCAB TOP 30 STATUSNOTA='L' direto + TGFITE com `CODAGREGACAO` obrigatório. Valida saldo via view. Reusa `inserir_cabecalho_nota_banco` + `inserir_item_nota_banco` |
+| `criar_avaria_top30_banco(dados, codusu)` | **Manual** (toolbar Venda). TGFCAB TOP 30 STATUSNOTA='L' direto + TGFITE com `CODAGREGACAO` obrigatório. Valida saldo via view. Reusa `inserir_cabecalho_nota_banco` + `inserir_item_nota_banco` |
+| `upsert_avaria_top30_lote(nunota_origem, codprod, codagregacao, qtd_avaria_unidade, codusu, nomeusu)` **(Mai/2026 — 2026-05-20)** | **Automática** ao faturar Comercial com toggle Absorver. Herda `CODTIPVENDA` da TOP 11 origem (trigger `TRG_INC_TGFCAB` exige); DELETE+INSERT idempotente; VLRUNIT/VLRTOT da TOP 30 = `qtd_avaria × (VLRUNIT_kg_vale × peso)` documentando custo |
+| `remover_avaria_top30_lote(nunota_origem, codprod, codagregacao, codusu, nomeusu)` **(Mai/2026 — 2026-05-20)** | Idempotente. DELETE TGFITE; apaga TGFCAB se ficou sem itens |
+| `reconciliar_avaria_top30_no_faturamento(nunota_origem, lotes_absorver, codusu, nomeusu)` **(Mai/2026 — 2026-05-20)** | Orquestrador. Pra cada item TOP 11 não-classif. com avaria > 0: sincroniza vale TOP 13 via B11 (qtd cheia se Absorver, líquida se Descontar) + cria/remove TOP 30 |
+| `atualizar_avaria_fornecedor_naoclass(nunota, sequencia, qtd, codusu, nomeusu)` **(Mai/2026)** | UPDATE em `TGFITE.AD_QTDAVARIA` da TOP 11 filtrando `GERAPRODUCAO <> 'S'`. **B10**: trava se vale TOP 13 tem TGFFIN |
+| `alternar_modo_avaria_vale_lote(nunota_origem, codprod, codagregacao, absorver, codusu, nomeusu)` **(Mai/2026 — 2026-05-20)** | B12. Endpoint dedicado pro toggle do modal. Lê VLRUNIT atual do vale e reaplica `upsert_preco_in_natura_modalFaturamento` com flag — recalcula QTDNEG/VLRTOT do vale TOP 13 sem precisar editar preço |
+| `consultar_avarias_fornecedor_da_nota(nunota)` | Aditiva leitura — `{sequencia: AD_QTDAVARIA}` da nota |
+| `consultar_avarias_fornecedor_de_pedido(nunota)` | Aditiva leitura — `{codagregacao: {qtd_avaria, fornecedor, ...}}` pro modal Comercial |
 | `criar_devolucao_top36_banco(dados, codusu)` | TGFCAB TOP 36 STATUSNOTA='A' + TGFITE par-a-par preservando CODAGREGACAO + **INSERT em TGFVAR** replicando Sankhya nativo. Operador confirma no Sankhya |
 | `consultar_nota_para_devolucao(nunota_origem)` | Lê cabeçalho + itens da TOP 35/37 origem com `qtd_ja_devolvida` somada de TGFVAR. Usada pelo modal de devolução |
 | `consultar_devolucoes_anteriores_de_nota(nunota_origem)` | Soma TGFVAR.QTDATENDIDA por SEQUENCIAORIG (TOP 36 STATUSNOTA <> 'E'). Trava anti-devolução-excessiva |

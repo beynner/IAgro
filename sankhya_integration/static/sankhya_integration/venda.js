@@ -540,10 +540,19 @@ document.addEventListener('DOMContentLoaded', function() {
     function travarInputsCabecalho() {
         if (!cabCard) return;
         cabCard.querySelectorAll('input, textarea, select, button').forEach(el => {
+            const id = el.id || '';
+            // `cabSave` fica fora da varredura: o próprio handler dele faz
+            // disabled=true durante o salvamento e libera no `finally`. Se
+            // entrasse aqui, o `dataset.wasDisabled='1'` (gravado enquanto
+            // o handler ainda estava com disabled=true) faria o
+            // `restaurarInputsCabecalho()` posterior travar o botão de
+            // novo — fica latente até o próximo "Novo Pedido" abrir com
+            // Salvar desativado. (Mai/2026 — 2026-05-20)
+            if (id === 'cabSave') return;
             if (el.dataset.wasDisabled === undefined) {
                 el.dataset.wasDisabled = el.disabled ? '1' : '0';
             }
-            const preservar = (el.id || '') === 'cabCancel';
+            const preservar = id === 'cabCancel';
             if (!preservar) el.disabled = true;
         });
     }
@@ -645,7 +654,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('items_nunota').value = nunota;
         document.getElementById('items_nunota_display').textContent = nunota;
         document.getElementById('itemsListBody').innerHTML =
-            '<tr><td colspan="6" class="ia-placeholder">Carregando itens...</td></tr>';
+            '<tr><td colspan="7" class="ia-placeholder">Carregando itens...</td></tr>';
         abrirItensAoLado();
         setTimeout(() => document.getElementById('item_prod_vis')?.focus(), 160);
 
@@ -667,20 +676,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 qtd:   parseFloat(it.qtd) || 0,
                 vlu:   parseFloat(it.vlu) || 0,
                 vlt:   parseFloat(it.vlt) || 0,
-                codvol: it.codvol || 'CX',
+                codvol: it.codvol || 'KG',
             }));
             renderItensModal();
             atualizarResumoModal();
         } catch (e) {
             const tbody = document.getElementById('itemsListBody');
-            tbody.innerHTML = `<tr><td colspan="6" class="ia-placeholder" style="color:#ef4444">Erro: ${e.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" class="ia-placeholder" style="color:#ef4444">Erro: ${e.message}</td></tr>`;
         }
     }
 
     function renderItensModal() {
         const tbody = document.getElementById('itemsListBody');
         if (itensAtuais.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="ia-placeholder">Nenhum item inserido.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="ia-placeholder">Nenhum item inserido.</td></tr>';
             return;
         }
         tbody.innerHTML = '';
@@ -688,12 +697,14 @@ document.addEventListener('DOMContentLoaded', function() {
             const qtd   = item.qtd.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
             const preco = item.vlu.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
             const total = item.vlt.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+            const vol   = (item.codvol || '—').toString().toUpperCase();
             const tr = document.createElement('tr');
             tr.dataset.seq = item.seq;
             if (itemEditandoSeq === item.seq) tr.classList.add('selected');
             tr.innerHTML = `
                 <td class="ia-truncate" title="${item.descr}">${item.descr}</td>
                 <td>${item.lote || '—'}</td>
+                <td class="text-center">${vol}</td>
                 <td class="text-right">${qtd}</td>
                 <td class="text-right">${preco}</td>
                 <td class="text-right">${total}</td>
@@ -750,7 +761,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('item_prod_hidden').value = item.cod;
         document.getElementById('item_prod_vis').value    = item.descr;
         document.getElementById('item_lote').value        = item.lote || '';
-        document.getElementById('item_codvol').value      = item.codvol || 'CX';
+        document.getElementById('item_codvol').value      = item.codvol || 'KG';
         document.getElementById('item_qtd').value         = item.qtd;
         document.getElementById('item_preco').value       = item.vlu;
         atualizarTotalItem();
@@ -864,8 +875,56 @@ document.addEventListener('DOMContentLoaded', function() {
     // CODNAT dropdown (Fase 2.6) — substituiu o label readonly
     attachTA('cab_natSearch', 'cab_codnat', 'cab_natDropdown', '/sankhya/natureza/search/',
              { limit: 15, onChange: noop });
+    // Mai/2026 (2026-05-20) — Ao selecionar produto, puxa preço da tabela
+    // do cliente (TGFPAR.CODTAB → TGFTAB.NUTAB ativa → TGFEXC.VLRVENDA).
+    // Regra completa documentada em `.claude/tabela_precos_sankhya.md`.
+    // Não sobrescreve se operador já digitou preço; silencioso se sem preço.
+    async function puxarPrecoTabela() {
+        // Em modo edição, não pisa em preço já carregado da nota
+        if (itemEditandoSeq > 0) return;
+
+        const codparc = parseInt(document.getElementById('cab_codparc').value, 10);
+        const codprod = parseInt(document.getElementById('item_prod_hidden').value, 10);
+        if (!codparc || !codprod) return;
+
+        const inputPreco = document.getElementById('item_preco');
+        if (!inputPreco) return;
+        // Respeita preço já preenchido pelo operador
+        if (parseFloat(inputPreco.value) > 0) return;
+
+        const dtnegRaw = document.getElementById('cab_dtneg')?.value || '';
+        let qsDtneg = '';
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dtnegRaw)) {
+            const [y, m, d] = dtnegRaw.split('-');
+            qsDtneg = `&dtneg=${d}/${m}/${y}`;
+        }
+
+        try {
+            const url = `/sankhya/venda/api/preco-tabela/?codparc=${codparc}&codprod=${codprod}${qsDtneg}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            if (!data || data.ok === false) {
+                phToast(data?.error || 'Falha ao consultar tabela de preços.', 'warning');
+                return;
+            }
+            if (data.preco != null && data.preco > 0) {
+                inputPreco.value = Number(data.preco).toFixed(2);
+                atualizarTotalItem();
+                const sufx = data.nutab ? ` (Tabela ${data.nutab})` : '';
+                phToast(`Preço R$ ${Number(data.preco).toFixed(2)}${sufx}`, 'success');
+            } else if (data.origem === 'SEM_TABELA') {
+                phToast('Cliente sem tabela de preço configurada — digite o preço.', 'info');
+            } else {
+                phToast(`Produto não tabelado (Tabela ${data.nutab || '—'}) — digite o preço.`, 'info');
+            }
+        } catch (e) {
+            console.error('puxarPrecoTabela falhou', e);
+            phToast('Erro ao consultar tabela de preços (rede/back).', 'error');
+        }
+    }
+
     attachTA('item_prod_vis', 'item_prod_hidden', 'item_prod_sugg', '/sankhya/produtos/search/',
-             { limit: 15, extraQuery: 'grupo_inicia_com=1', onChange: noop });
+             { limit: 15, extraQuery: 'grupo_inicia_com=1', onChange: puxarPrecoTabela });
 
     // --- Labels de codigo fixo (Centro de Resultado: hardcoded como antes) ---
     async function carregarLabelFixo(codigo, url, inputId) {
@@ -1539,7 +1598,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const codprod = parseInt(document.getElementById('item_prod_hidden').value, 10);
         const qtdneg  = parseFloat(document.getElementById('item_qtd').value);
         const vlrunit = parseFloat(document.getElementById('item_preco').value) || 0;
-        const codvol  = document.getElementById('item_codvol').value || 'CX';
+        const codvol  = document.getElementById('item_codvol').value || 'KG';
         const lote    = document.getElementById('item_lote').value.trim() || null;
 
         if (!nunota)            { phToast('Pedido não identificado.', 'error'); return; }

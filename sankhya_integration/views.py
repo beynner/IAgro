@@ -40,6 +40,7 @@ from .services.oracle_conn import (
     excluir_entrada_combustivel_banco,
     obter_entrada_combustivel,
     consultar_prazo_tipvenda,
+    consultar_preco_tabela,
     consultar_ultimo_preco_combustivel,
     criar_abastecimento_externo_banco,
     # Dashboard executivo (Mai/2026)
@@ -2721,6 +2722,43 @@ def api_listar_vendas(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
 
+@require_http_methods(["GET"])
+@exige_grupo('venda')
+def api_preco_tabela(request: HttpRequest) -> JsonResponse:
+    """Resolve preço de venda da tabela de preços do Sankhya
+    (Mai/2026 — 2026-05-20).
+
+    Regra: TGFPAR.CODTAB → TGFTAB.NUTAB ativa (MAX DTVIGOR ≤ dtneg) →
+    TGFEXC.VLRVENDA. Detalhes em `.claude/tabela_precos_sankhya.md`.
+
+    Query string:
+        codparc (obrigatório) — int
+        codprod (obrigatório) — int
+        dtneg   (opcional)    — DD/MM/AAAA (default SYSDATE)
+
+    Response:
+        { ok: True, preco: float|null, nutab: int|null,
+          codtab: int, origem: 'TABELA_CLIENTE'|'FALLBACK'|'SEM_PRECO'|'SEM_TABELA' }
+    """
+    try:
+        codparc = _converter_para_inteiro(request.GET.get('codparc'))
+        codprod = _converter_para_inteiro(request.GET.get('codprod'))
+        if not codparc or not codprod:
+            return JsonResponse({'ok': False, 'error': 'codparc e codprod obrigatórios.'}, status=400)
+
+        dtneg_raw = request.GET.get('dtneg')
+        dtneg = _data_br_para_iso(dtneg_raw) if dtneg_raw else None
+
+        dados = consultar_preco_tabela(codparc, codprod, dtneg=dtneg)
+        return JsonResponse(dados, status=200)
+    except Exception as exc:
+        logger.exception("Falha em api_preco_tabela")
+        return JsonResponse(
+            {'ok': False, 'error': humanizar_erro_oracle(exc), 'preco': None},
+            status=500,
+        )
+
+
 @require_http_methods(["POST"])
 @exige_grupo('venda')
 def api_criar_cabecalho_venda(request: HttpRequest) -> JsonResponse:
@@ -3139,11 +3177,13 @@ def api_atualizar_item_venda(request: HttpRequest) -> JsonResponse:
             {"ok": False, "error": f"Edição permitida apenas para TOP 34 (esta é {int(row[0])})"},
             status=403,
         )
-    if row[1] == 'L':
-        return JsonResponse(
-            {"ok": False, "error": "Pedido já foi faturado — não é mais editável"},
-            status=403,
-        )
+    # Mai/2026 (2026-05-20) — STATUSNOTA='L' em TOP 34 NÃO trava edição.
+    # Sankhya nativo permite editar pedido confirmado pra impressão
+    # (mostra modal "Documento já confirmado, o que deseja fazer?" e segue).
+    # IAgro estava mais rígido sem justificativa — paridade restaurada.
+    # NFe real (TOP 35/37) continua bloqueada pela trava de TOP acima.
+    # STATUSNOTA='E' (excluída) continua bloqueada implicitamente porque
+    # `recalcular_totais_nota_banco` não atualiza notas marcadas pra exclusão.
 
     # Monta payload aceitando só os campos editáveis pela tela
     payload = {'NUNOTA': nunota, 'SEQUENCIA': sequencia}
@@ -3167,6 +3207,14 @@ def api_atualizar_item_venda(request: HttpRequest) -> JsonResponse:
     # CODVOLPARC sempre acompanha CODVOL quando informado
     if 'CODVOL' in payload and 'CODVOLPARC' not in payload:
         payload['CODVOLPARC'] = payload['CODVOL']
+    # Mai/2026 (2026-05-20) — espelha QTDCONFERIDA = QTDNEG no UPDATE,
+    # mesmo padrão do INSERT (inserir_item_nota_banco linha 1137 default
+    # `qtdconferida or qtdneg`). Sem isso, QTDNEG é atualizado mas
+    # AD_QTDCONFERIDA fica com valor antigo — `api_listar_itens_nota`
+    # retorna `qtd = qtdconferida` (col r[11]) e a tabela do modal mostra
+    # qtd antiga + total atualizado, parecendo bug visual.
+    if 'QTDNEG' in payload:
+        payload['QTDCONFERIDA'] = payload['QTDNEG']
 
     # Snapshot ANTES do UPDATE (best effort — se falhar, audit segue sem ele)
     snapshot_antes = None
@@ -3278,11 +3326,9 @@ def api_remover_item_venda(request: HttpRequest) -> JsonResponse:
                         {"ok": False, "error": f"Remoção permitida apenas para TOP 34 (esta é {int(row[0])})"},
                         status=403,
                     )
-                if row[1] == 'L':
-                    return JsonResponse(
-                        {"ok": False, "error": "Pedido já foi faturado — não é mais editável"},
-                        status=403,
-                    )
+                # Mai/2026 (2026-05-20) — STATUSNOTA='L' em TOP 34 NÃO trava remoção.
+                # Paridade com Sankhya nativo (que permite editar pedido confirmado).
+                # NFe real (TOP 35/37) continua bloqueada pela trava de TOP acima.
                 # Snapshot do item ANTES do DELETE (rastreabilidade do que sumiu)
                 cur.execute("""
                     SELECT CODPROD, QTDNEG, VLRUNIT, CODVOL, CODAGREGACAO, OBSERVACAO

@@ -1066,13 +1066,14 @@ def inserir_item_nota_banco(dados: dict, simulacao: bool = False, conexao_existe
         cur = conn.cursor()
         colunas_tabela = _obter_colunas_da_tabela(conn, 'TGFITE')
 
-        cur.execute("SELECT CODEMP, DTNEG, CODPARC, AD_NUMPEDIDOORIG FROM TGFCAB WHERE NUNOTA=:n", n=nunota)
+        cur.execute("SELECT CODEMP, DTNEG, CODPARC, AD_NUMPEDIDOORIG, CODTIPOPER FROM TGFCAB WHERE NUNOTA=:n", n=nunota)
         cab = cur.fetchone()
         if not cab:
             resultado['error'] = 'Cabeçalho NUNOTA não encontrado'
             return resultado
-            
-        codemp, dtneg, codparc, ad_numpedidoorig = cab
+
+        codemp, dtneg, codparc, ad_numpedidoorig, codtipoper = cab
+        codtipoper = int(codtipoper) if codtipoper is not None else 0
         # Mai/2026 (2026-05-13): passa a conexão atual pra `gerar_proxima_sequencia_item`
         # — necessário em fluxos transacionais onde múltiplos INSERTs precedem commit
         # (ex: edição de entrada B14). Sem isso, função abre nova conexão que não
@@ -1173,6 +1174,34 @@ def inserir_item_nota_banco(dados: dict, simulacao: bool = False, conexao_existe
             colunas_sql.append('QTDFIXADA')
             valores_sql.append(':QTDFIXADA')
             binds['QTDFIXADA'] = float(peso)
+
+        # ─────────────────────────────────────────────────────────────────────
+        # FIX TRG_UPT_TGFITE / STP_CONFIRMANOTA2 (Mai/2026 — 2026-05-20)
+        # Sankhya nativo grava RESERVA='S', ATUALESTOQUE=1 e USOPROD=<TGFPRO>
+        # quando o item é de TOP de venda (34/35/37). Sem isso o trigger
+        # rejeita qualquer UPDATE feito pelo Sankhya (impressão, faturamento)
+        # com ORA-20101: Reserva diferente da definicao na TOP.
+        # Diagnóstico via comparação direta TGFITE NUNOTA=113083 (1 item
+        # IAgro vs 1 item Sankhya nativo) — só esses 3 campos divergem em
+        # forma que aciona o trigger; os outros são opcionais/recalculáveis.
+        # ─────────────────────────────────────────────────────────────────────
+        if codtipoper in (34, 35, 37):
+            if 'RESERVA' in colunas_tabela:
+                colunas_sql.append('RESERVA'); valores_sql.append(':RESERVA'); binds['RESERVA'] = 'S'
+            if 'ATUALESTOQUE' in colunas_tabela:
+                colunas_sql.append('ATUALESTOQUE'); valores_sql.append(':ATUALESTOQUE'); binds['ATUALESTOQUE'] = 1
+            if 'USOPROD' in colunas_tabela:
+                # Lê USOPROD do cadastro do produto (TGFPRO). Sankhya nativo
+                # propaga esse valor pra TGFITE. Fallback 'R' (Revenda) é o
+                # uso mais comum em produtos vendíveis caso TGFPRO esteja
+                # com NULL no campo.
+                try:
+                    cur.execute("SELECT USOPROD FROM TGFPRO WHERE CODPROD=:p", p=codprod)
+                    row_uso = cur.fetchone()
+                    usoprod_valor = (row_uso[0] if row_uso and row_uso[0] else 'R')
+                except Exception:
+                    usoprod_valor = 'R'
+                colunas_sql.append('USOPROD'); valores_sql.append(':USOPROD'); binds['USOPROD'] = str(usoprod_valor).strip().upper()
 
         sql = f"INSERT INTO TGFITE ({', '.join(colunas_sql)}) VALUES ({', '.join(valores_sql)})"
         cur.execute(sql, binds)
@@ -10222,7 +10251,122 @@ def consultar_prazo_tipvenda(codtipvenda: int):
         return {
             'codtipvenda': int(row[0]),
             'descrtipvenda': descr,
-            'prazo_dias': prazo,
+            'baseprazo': prazo,
+        }
+
+
+def consultar_preco_tabela(codparc: int, codprod: int, dtneg=None) -> dict:
+    """Resolve preço de venda da tabela de preços do Sankhya (Mai/2026 — 2026-05-20).
+
+    Regra completa (3 níveis), validada contra pedido 113098 da Agromil:
+
+      1. `TGFPAR.CODTAB` do cliente
+         (NULL → fallback CODTAB=0)
+      2. `TGFTAB` com `MAX(NUTAB) KEEP (DENSE_RANK FIRST ORDER BY DTVIGOR DESC)`
+         filtrando `DTVIGOR <= :dtneg` → NUTAB ativa
+      3. `TGFEXC` com `(NUTAB, CODPROD, TIPO='V')` → VLRVENDA
+
+    Tipo de venda (TGFTPV.CODTAB) e produto (TGFPRO.CODTAB) **não participam**
+    na Agromil — `CODTAB=NULL` em todos. Validado via smoke em 2026-05-20.
+    Por isso a função recebe só (codparc, codprod, dtneg).
+
+    Args:
+        codparc: cliente (TGFPAR.CODPARC)
+        codprod: produto (TGFPRO.CODPROD)
+        dtneg: data da negociação (default SYSDATE)
+
+    Returns:
+        {
+            'ok': bool,
+            'preco': float | None,      # None se sem preço tabelado
+            'nutab': int | None,        # NUTAB resolvida (None se cliente sem CODTAB vigente)
+            'codtab': int,              # CODTAB do cliente (0 = fallback)
+            'origem': 'TABELA_CLIENTE' | 'FALLBACK' | 'SEM_PRECO' | 'SEM_TABELA',
+        }
+
+    Detalhes em `.claude/tabela_precos_sankhya.md`.
+    """
+    if not codparc or not codprod:
+        return {'ok': False, 'error': 'CODPARC e CODPROD obrigatórios', 'preco': None}
+
+    codparc = int(codparc)
+    codprod = int(codprod)
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 1. CODTAB do cliente
+            cur.execute("SELECT CODTAB FROM TGFPAR WHERE CODPARC = :c", c=codparc)
+            row = cur.fetchone()
+            codtab = int(row[0]) if row and row[0] is not None else 0
+
+            # 2. NUTAB ativa (mais recente com DTVIGOR <= dtneg ou SYSDATE).
+            # TO_DATE explícito evita conversão implícita errada (Oracle pode
+            # interpretar '21/05/2026' como MM/DD ou ano 26→1926 conforme
+            # NLS_DATE_FORMAT). Aceita formato BR (DD/MM/YYYY) ou ISO (YYYY-MM-DD).
+            if dtneg is not None:
+                s = str(dtneg).strip()
+                if len(s) == 10 and s[2] == '/' and s[5] == '/':
+                    fmt = 'DD/MM/YYYY'
+                elif len(s) == 10 and s[4] == '-' and s[7] == '-':
+                    fmt = 'YYYY-MM-DD'
+                else:
+                    s = None  # formato desconhecido, cai em SYSDATE
+            else:
+                s = None
+
+            if s:
+                cur.execute(f"""
+                    SELECT MAX(NUTAB) KEEP (DENSE_RANK FIRST ORDER BY DTVIGOR DESC)
+                      FROM TGFTAB
+                     WHERE CODTAB = :ct AND DTVIGOR <= TO_DATE(:d, '{fmt}')
+                """, ct=codtab, d=s)
+            else:
+                cur.execute("""
+                    SELECT MAX(NUTAB) KEEP (DENSE_RANK FIRST ORDER BY DTVIGOR DESC)
+                      FROM TGFTAB
+                     WHERE CODTAB = :ct AND DTVIGOR <= SYSDATE
+                """, ct=codtab)
+            row = cur.fetchone()
+            nutab = int(row[0]) if row and row[0] is not None else None
+
+            if nutab is None:
+                return {
+                    'ok': True,
+                    'preco': None,
+                    'nutab': None,
+                    'codtab': codtab,
+                    'origem': 'SEM_TABELA',
+                }
+
+            # 3. Preço em TGFEXC
+            cur.execute("""
+                SELECT VLRVENDA FROM TGFEXC
+                 WHERE NUTAB = :n AND CODPROD = :p AND TIPO = 'V'
+                   AND ROWNUM = 1
+            """, n=nutab, p=codprod)
+            row = cur.fetchone()
+            preco = float(row[0]) if row and row[0] is not None else None
+
+            return {
+                'ok': True,
+                'preco': preco,
+                'nutab': nutab,
+                'codtab': codtab,
+                'origem': ('TABELA_CLIENTE' if codtab > 0 and preco is not None
+                           else 'FALLBACK' if codtab == 0 and preco is not None
+                           else 'SEM_PRECO'),
+            }
+    except Exception as e:
+        logger.exception(f"Falha ao resolver preço de tabela (codparc={codparc}, codprod={codprod})")
+        return {
+            'ok': False,
+            'error': humanizar_erro_oracle(e),
+            'preco': None,
+            'nutab': None,
+            'codtab': None,
+            'origem': 'ERRO',
         }
 
 

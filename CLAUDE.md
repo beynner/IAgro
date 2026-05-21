@@ -122,6 +122,92 @@ Detalhes em [`modules/comercial.md`](.claude/modules/comercial.md) → "Travas d
 - **Filtro fornecedor não limpava** ao remover chip. Case `'fabricante'` em `removerFiltro` (rastreio.js:566) limpava `inputFiltroLotes` em vez de `inputFiltroFabricante` — resquício do split de Mai/2026 quando os 2 inputs eram um só.
 - **Aplicar simulação Comercial não distribuía Médio** quando Médio em branco. `ratio_medio = vMd / vEx = 0` zerava o lado do Médio. Fix: `if (vEx > 0 && vMd > 0)` mantém proporção, senão usa default `0.5`.
 
+### ♻ Avaria do fornecedor — Absorver/Descontar com TOP 30 automática (Mai/2026 — 2026-05-20)
+
+Produtos **não-classificáveis** (in natura direto pra TOP 13, sem passar pela Classificação) não tinham onde registrar avaria recebida do fornecedor — histórico era perdido. Agora há fluxo completo da Entrada ao Comercial.
+
+**Entrada (TOP 11):**
+- Modal de itens ganhou coluna **"Avaria forn."** entre Total kg e ações. Aparece **apenas em produtos não-classificáveis** (`GERAPRODUCAO ≠ 'S'`); classificáveis veem `—` (continuam usando a tela de Classificação).
+- Auto-save no `blur`/Enter — sem botão dedicado. Feedback visual: borda âmbar enquanto salva, verde 1.5s ao confirmar, vermelha em erro.
+- Endpoint dedicado `/sankhya/compras/api/avaria-fornecedor/` (POST) escapa da trava de edição de TOP 13/26. `atualizar_avaria_fornecedor_naoclass` (B10) trava se vale TOP 13 do pedido já tem TGFFIN — operador precisa desfaturar antes.
+- Audit `AVARIA_FORNECEDOR` em `AD_AUDITORIA_GERAL` + invalida cache Rastreio.
+
+**Comercial (modal Faturamento):**
+- Ícone ⚠ âmbar no nome do produto com avaria + mini-modal explicativo (qtd entrada, fornecedor, data) ao clicar.
+- **Segmented control** "Absorver | Descontar" (sem ícones — só texto) no item.
+- **Default = Descontar** quando há avaria registrada na TOP 11 — premissa: operador da Doca já registrou, então provavelmente Comercial vai cobrar do fornecedor. Absorver é decisão explícita.
+- **📌 Absorver**: Agromil banca. Ao FATURAR, backend reconciliação cria automaticamente **TGFCAB TOP 30** (Avaria Interna, CODNAT=20010200, STATUSNOTA='L') com `AD_NUMPEDIDOORIG = NUNOTA da TOP 11`. CODTIPVENDA herdada da TOP 11 (exigência do trigger `TRG_INC_TGFCAB`). TGFITE TOP 30 com VLRUNIT/VLRTOT documentando o custo da perda. Estoque desconta via perna D da view `ANDRE_IAGRO_SALDO_LOTE`.
+- **📉 Descontar** (default): Comercial cobra do fornecedor. Vale TOP 13 fica com qtd LÍQUIDA (`qtd_cx − avaria_unidade × peso`) + vlrTotal recalculado. Sem TOP 30. Estoque coerente naturalmente.
+- **Motivos da trava do FATURAR explícitos abaixo do botão** (lista amarela com ⚠): vale não salvo, sem preço, classificação não finalizada.
+
+**Coerência idempotente (cobre refaturar):** ao FATURAR, `reconciliar_avaria_top30_no_faturamento` (B8) sincroniza tanto o vale TOP 13 quanto a TOP 30 com a decisão final do toggle. Múltiplas execuções (desfaturar→refaturar) não duplicam nem deixam órfãos.
+
+**Backend (Cat B):**
+| # | Função | Resumo |
+|---|---|---|
+| B6 | `upsert_avaria_top30_lote` | Cria TGFCAB TOP 30 se não existir (CODTIPVENDA herdada); DELETE+INSERT TGFITE idempotente |
+| B7 | `remover_avaria_top30_lote` | DELETE TGFITE; apaga TGFCAB se ficou sem itens. Idempotente |
+| B8 | `reconciliar_avaria_top30_no_faturamento` | Orquestrador. Sincroniza vale TOP 13 (via B11) + TOP 30 com decisão atual do toggle |
+| B9 | `gerar_financeiro_banco(... lotes_absorver_avaria, codusu, nomeusu)` | Chama B8 ANTES do INSERT TGFFIN. Backward compat (None ignora) |
+| B10 | `atualizar_avaria_fornecedor_naoclass` | Trava se vale tem TGFFIN |
+| B11 | `upsert_preco_in_natura_modalFaturamento(... absorver_avaria_no_vale=True)` | Quando False, vale TOP 13 grava qtd líquida |
+| B12 | `alternar_modo_avaria_vale_lote` | Endpoint dedicado pra alternar toggle sem editar preço — reaplica upsert com flag |
+
+**TGFITE TOP 11 (Entrada) NUNCA modificada** — preserva documento original do recebimento do fornecedor. Toda diferença vai pro TGFITE TOP 13 (vale) ou pro TGFCAB/TGFITE TOP 30 (avaria interna).
+
+**Performance do modal Faturamento (otimização Mai/2026 — 2026-05-20):**
+- Antes do refactor: ~4s pra abrir modal (N fetches sequenciais).
+- Agora: avarias + cabeçalho disparados em paralelo, loop de itens via `Promise.all`, cache local `cacheVale` evita re-fetch de lote repetido. ~1s típico.
+- Ao faturar/desfaturar: estado visual do botão (FATURAR ↔ DESFATURAR + carimbo) aplicado **imediatamente** após a API responder. Refresh do modal vira fire-and-forget — não bloqueia feedback.
+
+Detalhes técnicos em [`modules/comercial.md`](.claude/modules/comercial.md) → "Toggle Descontar/Absorver com avaria interna automática" e [`modules/entrada.md`](.claude/modules/entrada.md) → "Avaria do fornecedor em item NÃO-classificável".
+
+### 💰 Preço automático da tabela do cliente na Venda (Mai/2026 — 2026-05-20)
+
+Ao selecionar produto no modal de inserção/edição de item da Venda, IAgro **puxa preço automático** da tabela de preços do cliente. Operador continua livre pra sobrescrever.
+
+**Regra resolvida via 3 tabelas Sankhya:**
+
+```
+TGFPAR.CODTAB do cliente
+    → TGFTAB[CODTAB, MAX(DTVIGOR <= dtneg)] = NUTAB ativa
+        → TGFEXC[NUTAB, CODPROD, TIPO='V'].VLRVENDA
+```
+
+Tipo de venda (`TGFTPV.CODTAB`) e cadastro de produto (`TGFPRO.CODTAB`) NÃO participam — todos NULL na Agromil. Validado via smoke real contra Oracle:
+
+- Assaí Asa Norte + Tomate Salada Extra → R$ 8,50 ✅
+- André Patrocinio (sem CODTAB) → silêncio + toast info ✅
+- 4 formatos de `dtneg` (BR, ISO, inválido, omitido) → todos consistentes ✅
+
+**Componentes (Cat A puro)**:
+
+| Camada | Componente |
+|---|---|
+| Service | `consultar_preco_tabela(codparc, codprod, dtneg=None)` em [oracle_conn.py](sankhya_integration/services/oracle_conn.py) |
+| Endpoint | `GET /sankhya/venda/api/preco-tabela/` |
+| Frontend | `puxarPrecoTabela()` no `onChange` do typeahead `item_prod_vis` em [venda.js](sankhya_integration/static/sankhya_integration/venda.js) |
+
+**Bug corrigido durante implementação**: conversão implícita de data Oracle. SQL inicial usava `WHERE DTVIGOR <= :d` com `:d` string `'21/05/2026'`. Oracle interpretava errado via `NLS_DATE_FORMAT` da sessão → WHERE inválido → NUTAB=NULL → cliente com tabela caía em SEM_PRECO silencioso. Fix: `TO_DATE(:d, 'DD/MM/YYYY' | 'YYYY-MM-DD')` explícito por detecção do separador.
+
+**Pendência conhecida (Cat B futuro)**: IAgro não popula `TGFITE.NUTAB` no INSERT — perde paridade com Sankhya nativo. Não causa erro fiscal mas será adicionado no payload de `inserir_item_nota_banco` em sessão futura. Detalhes em [`.claude/tabela_precos_sankhya.md`](.claude/tabela_precos_sankhya.md) §8.
+
+### 🛠 Fix TRG_UPT_TGFITE — RESERVA/ATUALESTOQUE/USOPROD em pedido de venda (Mai/2026 — 2026-05-20)
+
+Pedido criado pelo IAgro (TOP 34) salvava normalmente, mas ao **abrir/imprimir no Sankhya** o `STP_CONFIRMANOTA2` disparava UPDATE em TGFITE e o trigger `TRG_UPT_TGFITE` rejeitava com `ORA-20101: Reserva diferente da definicao na TOP`. Operador não conseguia imprimir nem faturar pelo Sankhya.
+
+Diagnóstico via comparação direta TGFITE NUNOTA=113083 (1 item IAgro vs 1 item Sankhya nativo) identificou 3 campos que o IAgro deixava com default ≠ do que a TOP 34 espera:
+
+| Campo | IAgro (antes) | Sankhya nativo | Fix |
+|---|---|---|---|
+| `RESERVA` | `'N'` | `'S'` | Causa direta do trigger — grava `'S'` |
+| `ATUALESTOQUE` | `-1` | `1` | Grava `1` (atualiza estoque ao faturar) |
+| `USOPROD` | `'V'` (chute) | de `TGFPRO.USOPROD` | Lê do cadastro do produto (fallback `'R'`) |
+
+[`inserir_item_nota_banco`](sankhya_integration/services/oracle_conn.py) ganhou `CODTIPOPER` no SELECT da TGFCAB e preenche os 3 campos quando `CODTIPOPER IN (34, 35, 37)`. Schema-resilient (`if 'COL' in colunas_tabela`). Outras divergências menores (NULL no IAgro vs `0.0` em `NUTAB/CODTRIB/ALIQICMS/CUSTO/M3` etc) **não** disparam o trigger — Sankhya recálcula internamente quando precisa.
+
+**Escopo do fix**: só pedidos novos criados após 2026-05-20. Pedidos antigos pré-fix continuam com `RESERVA='N'` — operador faz UPDATE manual no Sankhya quando encontrar. Como Agromil está começando a usar IAgro pra vendas agora, volume é pequeno. Detalhes em [`gotchas.md`](.claude/gotchas.md), [`modules/venda.md`](.claude/modules/venda.md) e [`dependencias_sankhya.md`](.claude/dependencias_sankhya.md) §2.2.5.
+
 ### Backlog planejado
 
 - **Módulo Relatórios — MVP entregue em 2026-05-17** com 5 relatórios funcionando. Restam **20 relatórios** mapeados no backlog (6 eixos: Financeiro / Vendas / Compras-Estoque / Rastreio-WMS / Combustível-Frota / Auditoria-Produtividade) aguardando feedback operacional pra priorizar próximas iterações. Export Excel/PDF intencionalmente fora do MVP. Detalhes em [`roadmap.md`](.claude/roadmap.md) → "Módulo Relatórios — Backlog planejado" e em [`modules/relatorios.md`](.claude/modules/relatorios.md).

@@ -839,16 +839,26 @@ class AtualizarItemVendaTest(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertIn('TOP 34', json.loads(response.content)['error'])
 
+    @patch('sankhya_integration.views.recalcular_totais_nota_banco',
+           return_value={'ok': True, 'vlrnota': 100.0, 'qtdvol': 5.0})
+    @patch('sankhya_integration.views.atualizar_item_nota_banco',
+           return_value={'ok': True, 'executed': True})
     @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=True)
     @patch('sankhya_integration.views.obter_conexao_oracle')
-    def test_pedido_faturado_403(self, mock_ctx, _mp):
+    def test_pedido_confirmado_l_aceita_edicao(self, mock_ctx, _mp, mock_upd, mock_recalc):
+        """Mai/2026 (2026-05-20) — STATUSNOTA='L' em TOP 34 NÃO bloqueia edição.
+        Paridade com Sankhya nativo (que permite editar pedido confirmado pra
+        impressão). NFe real (TOP 35/37) continua bloqueada pela trava de TOP.
+        """
         mock_conn = _mock_oracle_conn(mock_ctx)
         cursor = MagicMock()
-        cursor.fetchone.return_value = (34, 'L')   # TOP 34 mas STATUSNOTA L
+        # TOP 34 + STATUSNOTA='L' (confirmado pra impressão) — DEVE aceitar
+        cursor.fetchone.return_value = (34, 'L')
         mock_conn.cursor.return_value = cursor
         response = self._post({'nunota': 1, 'sequencia': 1, 'qtdneg': 5})
-        self.assertEqual(response.status_code, 403)
-        self.assertIn('faturado', json.loads(response.content)['error'].lower())
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.content)
+        self.assertTrue(data['ok'])
 
     @patch('sankhya_integration.views.recalcular_totais_nota_banco',
            return_value={'ok': True, 'vlrnota': 200.0, 'qtdvol': 8.0})

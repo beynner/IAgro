@@ -153,6 +153,8 @@ urlpatterns = [
     path("venda/api/cabecalho/obter/", views.api_obter_cabecalho_pedido, name="api_obter_cabecalho_pedido"),
     path("venda/api/cabecalho/editar/", views.api_atualizar_cabecalho_venda, name="api_atualizar_cabecalho_venda"),
     path("venda/api/faturar/", views.api_faturar_pedido_venda, name="api_faturar_pedido_venda"),
+    # Mai/2026 (2026-05-20) — Resolve preço da tabela do Sankhya
+    path("venda/api/preco-tabela/", views.api_preco_tabela, name="api_preco_tabela"),
 
     # Mai/2026 — Avaria (TOP 30) + Devolução (TOP 36) + Histórico de Lote
     path("venda/api/avaria/criar/",          views.api_criar_avaria,              name="api_criar_avaria"),
