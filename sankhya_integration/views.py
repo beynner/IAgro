@@ -41,6 +41,15 @@ from .services.oracle_conn import (
     obter_entrada_combustivel,
     consultar_prazo_tipvenda,
     consultar_preco_tabela,
+    consultar_promocoes_vigentes,
+    listar_promocoes_cadastradas,
+    listar_tabelas_grupos,
+    listar_precos_da_tabela,
+    consultar_origem_preco_item,
+    criar_promocao_banco,
+    editar_promocao_banco,
+    excluir_promocao_banco,
+    registrar_origem_preco_item,
     consultar_ultimo_preco_combustivel,
     criar_abastecimento_externo_banco,
     # Dashboard executivo (Mai/2026)
@@ -2759,6 +2768,190 @@ def api_preco_tabela(request: HttpRequest) -> JsonResponse:
         )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PROMOÇÕES (Mai/2026 — 2026-05-20)
+# Cadastro por (parceiro × produto) + registro de origem do preço.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@exige_grupo('venda')
+@ensure_csrf_cookie
+def view_tabela_precos(request: HttpRequest) -> HttpResponse:
+    """Renderiza a tela de Tabela de Preços (visualização leitura — Mai/2026 — 2026-05-21)."""
+    return render(request, 'sankhya_integration/tabela_precos.html', {
+        'nome_usuario': request.session.get('nomeusu', 'Usuário'),
+    })
+
+
+@require_http_methods(["GET"])
+@exige_grupo('venda')
+def api_tabela_precos(request: HttpRequest) -> JsonResponse:
+    """Lista preços vigentes de um CODTAB (TGFEXC.VLRVENDA + flag de promoção).
+
+    Query string:
+        codtab (obrigatório) — int
+        q      (opcional)    — busca em DESCRPROD
+    """
+    try:
+        codtab = _converter_para_inteiro(request.GET.get('codtab'))
+        if not codtab:
+            return JsonResponse({'ok': False, 'error': 'codtab obrigatório.'}, status=400)
+        filtros = {'q': request.GET.get('q') or None}
+        return JsonResponse(listar_precos_da_tabela(codtab, filtros), status=200)
+    except Exception as exc:
+        logger.exception("Falha em api_tabela_precos")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc), 'precos': []}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('venda')
+def api_promocoes_vigentes(request: HttpRequest) -> JsonResponse:
+    """Lista promoções vigentes pro par (codparc, codprod)."""
+    try:
+        codparc = _converter_para_inteiro(request.GET.get('codparc'))
+        codprod = _converter_para_inteiro(request.GET.get('codprod'))
+        if not codparc or not codprod:
+            return JsonResponse({'ok': False, 'error': 'codparc e codprod obrigatórios.'}, status=400)
+
+        dtneg_raw = request.GET.get('dtneg')
+        dtneg = _data_br_para_iso(dtneg_raw) if dtneg_raw else None
+
+        dados = consultar_promocoes_vigentes(codparc, codprod, dtneg=dtneg)
+        return JsonResponse(dados, status=200)
+    except Exception as exc:
+        logger.exception("Falha em api_promocoes_vigentes")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc), 'promocoes': []}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('venda')
+def api_promocoes_listar(request: HttpRequest) -> JsonResponse:
+    """Lista promoções pra tela de cadastro (com paginação + filtros)."""
+    try:
+        filtros = {
+            'codtab':  _converter_para_inteiro(request.GET.get('codtab')),
+            'codparc': _converter_para_inteiro(request.GET.get('codparc')),
+            'codprod': _converter_para_inteiro(request.GET.get('codprod')),
+            'ativo':   request.GET.get('ativo') or None,
+            'escopo':  request.GET.get('escopo') or None,
+            'q':       request.GET.get('q') or None,
+            'dt_referencia': request.GET.get('dt_referencia') or None,
+        }
+        limite = max(1, min(int(request.GET.get('limit', 100)), 500))
+        offset = max(0, int(request.GET.get('offset', 0)))
+        return JsonResponse(listar_promocoes_cadastradas(filtros, limite, offset), status=200)
+    except Exception as exc:
+        logger.exception("Falha em api_promocoes_listar")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc), 'promocoes': []}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('venda')
+def api_tabelas_grupos(request: HttpRequest) -> JsonResponse:
+    """Lista CODTABs do TGFTAB + contagem de TGFPAR + amostra de nomes (Mai/2026 — 2026-05-21).
+
+    Usado no select da tela de promoção pra escolher grupo (Assaí DF / Palmas /
+    Araguaína / Economart / Exal / etc). Grupo é definido pelo `TGFPAR.CODTAB`
+    — clientes que compartilham CODTAB formam um grupo automático.
+    """
+    try:
+        incluir_inativas = (request.GET.get('incluir_inativas') or 'false').lower() == 'true'
+        return JsonResponse(listar_tabelas_grupos(incluir_inativas), status=200)
+    except Exception as exc:
+        logger.exception("Falha em api_tabelas_grupos")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc), 'tabelas': []}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('venda')
+def api_origem_preco_item(request: HttpRequest) -> JsonResponse:
+    """Lê origem registrada do preço de um item (NUNOTA, SEQUENCIA)."""
+    try:
+        nunota    = _converter_para_inteiro(request.GET.get('nunota'))
+        sequencia = _converter_para_inteiro(request.GET.get('sequencia'))
+        if not nunota or not sequencia:
+            return JsonResponse({'ok': False, 'error': 'nunota e sequencia obrigatórios.'}, status=400)
+        return JsonResponse(consultar_origem_preco_item(nunota, sequencia), status=200)
+    except Exception as exc:
+        logger.exception("Falha em api_origem_preco_item")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_promocao_criar(request: HttpRequest) -> JsonResponse:
+    """Cria uma nova promoção (Cat B)."""
+    dados_json = _get_json_payload(request)
+    if not dados_json:
+        return JsonResponse({'ok': False, 'error': 'JSON inválido'}, status=400)
+    if not verificar_permissao_escrita():
+        return JsonResponse({'ok': False, 'error': 'Escrita desabilitada'}, status=403)
+
+    res = criar_promocao_banco(
+        dados_json,
+        codusu=request.session.get('codusu'),
+        nomeusu=request.session.get('nomeusu') or '',
+    )
+    return JsonResponse(res, status=200 if res.get('ok') else 400)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_promocao_editar(request: HttpRequest) -> JsonResponse:
+    """Edita uma promoção existente (Cat B)."""
+    dados_json = _get_json_payload(request)
+    if not dados_json:
+        return JsonResponse({'ok': False, 'error': 'JSON inválido'}, status=400)
+    if not verificar_permissao_escrita():
+        return JsonResponse({'ok': False, 'error': 'Escrita desabilitada'}, status=403)
+
+    promocao_id = _converter_para_inteiro(dados_json.get('id'))
+    if not promocao_id:
+        return JsonResponse({'ok': False, 'error': 'ID obrigatório'}, status=400)
+
+    res = editar_promocao_banco(
+        promocao_id, dados_json,
+        codusu=request.session.get('codusu'),
+        nomeusu=request.session.get('nomeusu') or '',
+    )
+    return JsonResponse(res, status=200 if res.get('ok') else 400)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_promocao_excluir(request: HttpRequest) -> JsonResponse:
+    """Exclui uma promoção (Cat B, DELETE físico)."""
+    dados_json = _get_json_payload(request)
+    if not dados_json:
+        return JsonResponse({'ok': False, 'error': 'JSON inválido'}, status=400)
+    if not verificar_permissao_escrita():
+        return JsonResponse({'ok': False, 'error': 'Escrita desabilitada'}, status=403)
+
+    promocao_id = _converter_para_inteiro(dados_json.get('id'))
+    if not promocao_id:
+        return JsonResponse({'ok': False, 'error': 'ID obrigatório'}, status=400)
+
+    res = excluir_promocao_banco(
+        promocao_id,
+        codusu=request.session.get('codusu'),
+        nomeusu=request.session.get('nomeusu') or '',
+    )
+    return JsonResponse(res, status=200 if res.get('ok') else 400)
+
+
+@exige_grupo('venda')
+@ensure_csrf_cookie
+def view_promocoes(request: HttpRequest) -> HttpResponse:
+    """Renderiza a tela de cadastro de promoções."""
+    contexto = {
+        'nome_usuario': request.session.get('nomeusu', 'Usuário'),
+        'write_enabled': verificar_permissao_escrita(),
+    }
+    return render(request, 'sankhya_integration/promocoes.html', contexto)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 @require_http_methods(["POST"])
 @exige_grupo('venda')
 def api_criar_cabecalho_venda(request: HttpRequest) -> JsonResponse:
@@ -2915,6 +3108,22 @@ def api_salvar_item_venda(request: HttpRequest) -> JsonResponse:
             'CODAGREGACAO': payload.get('CODAGREGACAO'),
         },
     )
+
+    # Mai/2026 (2026-05-20) — registra origem do preço (TABELA/PROMOCAO/MANUAL)
+    # Backward compat: payload sem `preco_origem` não registra (silencioso).
+    preco_origem = (dados_json.get('preco_origem') or '').strip().upper() or None
+    if preco_origem:
+        try:
+            registrar_origem_preco_item(
+                nunota=nunota, sequencia=sequencia_nova,
+                origem=preco_origem,
+                nutab=dados_json.get('nutab'),
+                promocao_id=dados_json.get('promocao_id'),
+                observacao=dados_json.get('observacao_preco'),
+                codusu=codusu,
+            )
+        except Exception:
+            logger.exception('Falha ao registrar origem do preço')
 
     resposta = {"ok": True, "sequencia": sequencia_nova}
     if 'vlrnota' in recalculo: resposta['vlrnota'] = recalculo['vlrnota']
@@ -3280,6 +3489,21 @@ def api_atualizar_item_venda(request: HttpRequest) -> JsonResponse:
         snapshot_antes=snapshot_antes,
         snapshot_depois=snapshot_depois,
     )
+
+    # Mai/2026 (2026-05-20) — atualiza origem do preço se enviada
+    preco_origem = (dados_json.get('preco_origem') or '').strip().upper() or None
+    if preco_origem:
+        try:
+            registrar_origem_preco_item(
+                nunota=nunota, sequencia=sequencia,
+                origem=preco_origem,
+                nutab=dados_json.get('nutab'),
+                promocao_id=dados_json.get('promocao_id'),
+                observacao=dados_json.get('observacao_preco'),
+                codusu=request.session.get('codusu'),
+            )
+        except Exception:
+            logger.exception('Falha ao registrar origem do preço (edit)')
 
     resposta = {"ok": True, "sequencia": sequencia}
     if 'vlrnota' in recalculo: resposta['vlrnota'] = recalculo['vlrnota']

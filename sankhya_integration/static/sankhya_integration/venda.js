@@ -879,18 +879,78 @@ document.addEventListener('DOMContentLoaded', function() {
     // do cliente (TGFPAR.CODTAB → TGFTAB.NUTAB ativa → TGFEXC.VLRVENDA).
     // Regra completa documentada em `.claude/tabela_precos_sankhya.md`.
     // Não sobrescreve se operador já digitou preço; silencioso se sem preço.
+    // Estado da origem do preço do item em construção (Mai/2026 — 2026-05-20)
+    const precoOrigemEstado = {
+        origem: null,        // 'TABELA' | 'PROMOCAO' | 'MANUAL' | null
+        nutab: null,
+        promocaoId: null,
+        promocoes: [],       // todas vigentes pro par (codparc, codprod)
+        tabelaPreco: null,   // preço da tabela
+    };
+
+    function resetarPrecoOrigem() {
+        precoOrigemEstado.origem = null;
+        precoOrigemEstado.nutab = null;
+        precoOrigemEstado.promocaoId = null;
+        precoOrigemEstado.promocoes = [];
+        precoOrigemEstado.tabelaPreco = null;
+        const bar = document.getElementById('precoOrigemBar');
+        if (bar) bar.classList.add('hidden');
+        const obsWrap = document.getElementById('precoOrigemObsWrap');
+        if (obsWrap) obsWrap.classList.add('hidden');
+        const obs = document.getElementById('precoOrigemObs');
+        if (obs) obs.value = '';
+        document.querySelectorAll('.po-chip').forEach(c => c.classList.remove('is-active'));
+    }
+
+    function _fmtBRL(n) {
+        return Number(n || 0).toFixed(2).replace('.', ',');
+    }
+
+    function aplicarChipOrigem(origem) {
+        const inputPreco = document.getElementById('item_preco');
+        if (!inputPreco) return;
+
+        if (origem === 'TABELA' && precoOrigemEstado.tabelaPreco) {
+            inputPreco.value = Number(precoOrigemEstado.tabelaPreco).toFixed(2);
+            precoOrigemEstado.origem = 'TABELA';
+            precoOrigemEstado.promocaoId = null;
+        } else if (origem === 'PROMOCAO' && precoOrigemEstado.promocoes.length) {
+            const promo = precoOrigemEstado.promocoes[0];  // mais recente
+            inputPreco.value = Number(promo.vlrpromo).toFixed(2);
+            precoOrigemEstado.origem = 'PROMOCAO';
+            precoOrigemEstado.promocaoId = promo.id;
+        } else if (origem === 'MANUAL') {
+            precoOrigemEstado.origem = 'MANUAL';
+            precoOrigemEstado.promocaoId = null;
+            // input fica como está; operador edita ou mantém
+        }
+        atualizarTotalItem();
+
+        // Atualiza visual dos chips
+        document.querySelectorAll('.po-chip').forEach(c => {
+            c.classList.toggle('is-active', c.dataset.origem === precoOrigemEstado.origem);
+        });
+
+        // Mostra/esconde campo de observação (obrigatório em MANUAL)
+        const obsWrap = document.getElementById('precoOrigemObsWrap');
+        if (obsWrap) obsWrap.classList.toggle('hidden', precoOrigemEstado.origem !== 'MANUAL');
+        if (precoOrigemEstado.origem === 'MANUAL') {
+            const obs = document.getElementById('precoOrigemObs');
+            if (obs) setTimeout(() => obs.focus(), 80);
+        }
+    }
+
     async function puxarPrecoTabela() {
         // Em modo edição, não pisa em preço já carregado da nota
         if (itemEditandoSeq > 0) return;
 
         const codparc = parseInt(document.getElementById('cab_codparc').value, 10);
         const codprod = parseInt(document.getElementById('item_prod_hidden').value, 10);
-        if (!codparc || !codprod) return;
-
-        const inputPreco = document.getElementById('item_preco');
-        if (!inputPreco) return;
-        // Respeita preço já preenchido pelo operador
-        if (parseFloat(inputPreco.value) > 0) return;
+        if (!codparc || !codprod) {
+            resetarPrecoOrigem();
+            return;
+        }
 
         const dtnegRaw = document.getElementById('cab_dtneg')?.value || '';
         let qsDtneg = '';
@@ -899,29 +959,102 @@ document.addEventListener('DOMContentLoaded', function() {
             qsDtneg = `&dtneg=${d}/${m}/${y}`;
         }
 
+        // Reset estado antes da nova busca
+        resetarPrecoOrigem();
+
         try {
-            const url = `/sankhya/venda/api/preco-tabela/?codparc=${codparc}&codprod=${codprod}${qsDtneg}`;
-            const res = await fetch(url);
-            const data = await res.json();
-            if (!data || data.ok === false) {
-                phToast(data?.error || 'Falha ao consultar tabela de preços.', 'warning');
-                return;
+            const [resTab, resPromo] = await Promise.all([
+                fetch(`/sankhya/venda/api/preco-tabela/?codparc=${codparc}&codprod=${codprod}${qsDtneg}`).then(r => r.json()),
+                fetch(`/sankhya/venda/api/promocoes/vigentes/?codparc=${codparc}&codprod=${codprod}${qsDtneg}`).then(r => r.json()),
+            ]);
+
+            // Tabela
+            if (resTab && resTab.ok && resTab.preco != null && resTab.preco > 0) {
+                precoOrigemEstado.tabelaPreco = Number(resTab.preco);
+                precoOrigemEstado.nutab = resTab.nutab || null;
             }
-            if (data.preco != null && data.preco > 0) {
-                inputPreco.value = Number(data.preco).toFixed(2);
-                atualizarTotalItem();
-                const sufx = data.nutab ? ` (Tabela ${data.nutab})` : '';
-                phToast(`Preço R$ ${Number(data.preco).toFixed(2)}${sufx}`, 'success');
-            } else if (data.origem === 'SEM_TABELA') {
-                phToast('Cliente sem tabela de preço configurada — digite o preço.', 'info');
+            // Promoções
+            if (resPromo && resPromo.ok && Array.isArray(resPromo.promocoes)) {
+                precoOrigemEstado.promocoes = resPromo.promocoes;
+            }
+
+            // Atualiza chips
+            const bar = document.getElementById('precoOrigemBar');
+            const chipTab = document.querySelector('.po-chip[data-origem="TABELA"]');
+            const chipPromo = document.querySelector('.po-chip[data-origem="PROMOCAO"]');
+            const valTab = document.getElementById('poChipTabelaValor');
+            const valPromo = document.getElementById('poChipPromoValor');
+            const extraPromo = document.getElementById('poChipPromoExtra');
+
+            if (precoOrigemEstado.tabelaPreco) {
+                if (valTab) valTab.textContent = `R$ ${_fmtBRL(precoOrigemEstado.tabelaPreco)}`;
+                if (chipTab) chipTab.disabled = false;
             } else {
-                phToast(`Produto não tabelado (Tabela ${data.nutab || '—'}) — digite o preço.`, 'info');
+                if (valTab) valTab.textContent = '—';
+                if (chipTab) chipTab.disabled = true;
+            }
+            if (precoOrigemEstado.promocoes.length) {
+                const p = precoOrigemEstado.promocoes[0];
+                if (valPromo) valPromo.textContent = `R$ ${_fmtBRL(p.vlrpromo)}`;
+                if (extraPromo) {
+                    const escopoTxt = p.escopo === 'TABELA' ? `Tabela ${p.codtab}` : 'só este cliente';
+                    const dt = (p.dt_fim || '').split('-').reverse().join('/');
+                    extraPromo.textContent = `(${escopoTxt} · até ${dt})`;
+                }
+                if (chipPromo) chipPromo.disabled = false;
+            } else {
+                if (valPromo) valPromo.textContent = '—';
+                if (extraPromo) extraPromo.textContent = '';
+                if (chipPromo) chipPromo.disabled = true;
+            }
+            if (bar) bar.classList.remove('hidden');
+
+            // Aplica automaticamente o melhor preço (promoção tem prioridade visual,
+            // tabela como fallback). MANUAL fica disponível mas não auto.
+            const inputPreco = document.getElementById('item_preco');
+            if (inputPreco && !(parseFloat(inputPreco.value) > 0)) {
+                if (precoOrigemEstado.promocoes.length) {
+                    aplicarChipOrigem('PROMOCAO');
+                    const p = precoOrigemEstado.promocoes[0];
+                    phToast(`🎁 Promoção R$ ${_fmtBRL(p.vlrpromo)} aplicada`, 'success');
+                } else if (precoOrigemEstado.tabelaPreco) {
+                    aplicarChipOrigem('TABELA');
+                    const sufx = precoOrigemEstado.nutab ? ` (Tabela ${precoOrigemEstado.nutab})` : '';
+                    phToast(`Preço R$ ${_fmtBRL(precoOrigemEstado.tabelaPreco)}${sufx}`, 'success');
+                } else {
+                    phToast('Sem preço cadastrado — digite manual (com motivo)', 'info');
+                    aplicarChipOrigem('MANUAL');
+                }
             }
         } catch (e) {
             console.error('puxarPrecoTabela falhou', e);
             phToast('Erro ao consultar tabela de preços (rede/back).', 'error');
         }
     }
+
+    // Listeners dos chips
+    document.querySelectorAll('.po-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            if (chip.disabled) return;
+            aplicarChipOrigem(chip.dataset.origem);
+        });
+    });
+
+    // Edição manual do preço marca origem como MANUAL automaticamente
+    document.getElementById('item_preco')?.addEventListener('input', () => {
+        // Só ativa MANUAL se já havia escolha (não estraga o autopopular inicial)
+        if (precoOrigemEstado.origem && precoOrigemEstado.origem !== 'MANUAL') {
+            const inputPreco = document.getElementById('item_preco');
+            const precoAtual = parseFloat(inputPreco.value);
+            const ehTabela   = precoOrigemEstado.tabelaPreco
+                && Math.abs(precoAtual - precoOrigemEstado.tabelaPreco) < 0.001;
+            const ehPromocao = precoOrigemEstado.promocoes[0]
+                && Math.abs(precoAtual - Number(precoOrigemEstado.promocoes[0].vlrpromo)) < 0.001;
+            if (!ehTabela && !ehPromocao) {
+                aplicarChipOrigem('MANUAL');
+            }
+        }
+    });
 
     attachTA('item_prod_vis', 'item_prod_hidden', 'item_prod_sugg', '/sankhya/produtos/search/',
              { limit: 15, extraQuery: 'grupo_inicia_com=1', onChange: puxarPrecoTabela });
@@ -1591,6 +1724,26 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('item_qtd').value         = '';
         document.getElementById('item_preco').value       = '';
         document.getElementById('item_total_venda').value = '';
+        // Mai/2026 (2026-05-20) — reset estado de origem do preço
+        if (typeof resetarPrecoOrigem === 'function') resetarPrecoOrigem();
+    }
+
+    /** Monta payload de origem do preço pra incluir no POST do item. */
+    function _coletarPrecoOrigemPayload() {
+        const out = {};
+        if (!precoOrigemEstado.origem) return out;
+        out.preco_origem = precoOrigemEstado.origem;
+        if (precoOrigemEstado.origem === 'TABELA' && precoOrigemEstado.nutab) {
+            out.nutab = precoOrigemEstado.nutab;
+        }
+        if (precoOrigemEstado.origem === 'PROMOCAO' && precoOrigemEstado.promocaoId) {
+            out.promocao_id = precoOrigemEstado.promocaoId;
+        }
+        if (precoOrigemEstado.origem === 'MANUAL') {
+            const obs = (document.getElementById('precoOrigemObs')?.value || '').trim();
+            out.observacao_preco = obs;
+        }
+        return out;
     }
 
     document.getElementById('itemAddBtn')?.addEventListener('click', async () => {
@@ -1605,6 +1758,18 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!codprod)           { phToast('Selecione um produto.', 'warning'); return; }
         if (!qtdneg || qtdneg <= 0) { phToast('Informe uma quantidade válida.', 'warning'); return; }
 
+        // Mai/2026 (2026-05-20) — origem do preço + validação de MANUAL
+        const precoOrigemPayload = _coletarPrecoOrigemPayload();
+        if (precoOrigemEstado.origem === 'MANUAL') {
+            const obs = precoOrigemPayload.observacao_preco || '';
+            if (!obs) {
+                phToast('Preço manual exige motivo (preencha o campo "Motivo do preço manual").', 'warning');
+                const inpObs = document.getElementById('precoOrigemObs');
+                if (inpObs) { inpObs.focus(); inpObs.classList.add('ia-field-invalid'); }
+                return;
+            }
+        }
+
         const btn = document.getElementById('itemAddBtn');
         btn.disabled = true;
         try {
@@ -1613,6 +1778,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const res = await phPostJSON('/sankhya/venda/api/item/editar/', {
                     nunota, sequencia: itemEditandoSeq,
                     codprod, qtdneg, vlrunit, codvol, codagregacao: lote,
+                    ...precoOrigemPayload,
                 });
                 if (!res.ok || !res.body?.ok) {
                     phToast(res.body?.error || 'Falha ao atualizar item.', 'error');
@@ -1645,6 +1811,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         codprod, qtdneg: novaQtd,
                         vlrunit: (vlrunit || dupl.vlu || 0),
                         codvol, codagregacao: lote,
+                        ...precoOrigemPayload,
                     });
                     if (!res2.ok || !res2.body?.ok) {
                         phToast(res2.body?.error || 'Falha ao somar quantidades.', 'error');
@@ -1661,6 +1828,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const res = await phPostJSON('/sankhya/venda/api/item/', {
                 nunota, codprod, qtdneg, vlrunit, codvol, codagregacao: lote,
+                ...precoOrigemPayload,
             });
             if (!res.ok || !res.body?.ok) {
                 phToast(res.body?.error || 'Falha ao adicionar item.', 'error');

@@ -84,6 +84,95 @@ Detalhes em `gotchas.md`.
 
 ---
 
+## Promoções com escopo flexível (Grupo / Parceiro) + Origem do preço (Mai/2026 — 2026-05-20, escopo Mai/2026 — 2026-05-21)
+
+Operador cadastra promoções em `/sankhya/venda/promocoes/` (sidebar: section **"Tabela de Preços"**). Modal de item da Venda exibe **3 chips** (Tabela / Promoção / Manual) — ao selecionar produto, sistema puxa automaticamente o melhor preço com prioridade **Promoção > Tabela**. Origem registrada em `AD_ITEM_PRECO_ORIGEM`.
+
+### Modelo (escopo flexível desde 2026-05-21)
+
+Promoção tem 2 modos de escopo (XOR — exatamente 1):
+
+| Escopo | Campo | Resultado |
+|---|---|---|
+| **Grupo (tabela)** | `AD_PROMOCAO.CODTAB` | Afeta TODOS os TGFPAR com esse CODTAB no Sankhya (ex: CODTAB=5 = "Assaí DF" = 7 lojas) |
+| **Parceiro específico** | `AD_PROMOCAO.CODPARC` | Afeta só 1 cliente |
+
+**Por que isso resolve a operação real**: na Agromil, lojas que compartilham tabela de preço (TGFPAR.CODTAB) **já estão agrupadas pelo Sankhya**. Cadastrar 1 promoção pra "Assaí DF" via CODTAB=5 afeta as 7 lojas Assaí DF — sem precisar criar tabela auxiliar de grupos.
+
+**Mapa CODTAB → grupos reais da Agromil** (Mai/2026):
+
+| CODTAB | Grupo | Lojas |
+|---|---|---|
+| 5 | Assaí DF | 7 (Asa Norte, Ceilândia, Park Shopping, SIA, Taguatinga, Tag. Shopping, Valparaíso) |
+| 17 | Assaí Araguaína | 1 |
+| 18 | Assaí Palmas | 2 (Cesamar, Teotônio) |
+| 6 | Economart Bahia | 2 ativas (Barreiras, LEM) |
+| 15 | Exal GO | 2 (Aura Serra Grande, Lundin) |
+| 4, 10, 15, 2 | Outros (JC, Verdi, etc) | — |
+
+CHECK constraint `CK_AD_PROMO_ESCOPO`: exatamente 1 dos 2 (`CODTAB` ou `CODPARC`).
+
+- Vigência por `(DT_INICIO, DT_FIM)`. ATIVO='N' pausa sem perder histórico.
+- Sobreposição permitida (várias promoções vigentes pro mesmo par): ordenadas por `VLRPROMO ASC` — mais barata ganha visualmente.
+
+### Tabelas
+
+| Tabela | Função |
+|---|---|
+| `AD_PROMOCAO` | Cadastro: ID, CODPROD, **CODTAB nullable + CODPARC nullable (XOR)**, VLRPROMO, DT_INICIO, DT_FIM, ATIVO, OBSERVACAO + audit |
+| `AD_ITEM_PRECO_ORIGEM` | Origem por item: (NUNOTA, SEQUENCIA, ORIGEM, NUTAB, PROMOCAO_ID, OBSERVACAO) |
+
+`ORIGEM='MANUAL'` exige `OBSERVACAO` preenchida (validado no service `registrar_origem_preco_item`).
+
+### Backend
+
+| Função | Cat | Operação |
+|---|---|---|
+| `consultar_promocoes_vigentes(codparc, codprod, dtneg)` | A | Lista vigentes: busca por CODPARC direto OR pelo CODTAB do parceiro |
+| `listar_promocoes_cadastradas(filtros, limite, offset)` | A | Tela de cadastro (paginado), retorna escopo TABELA/PARCEIRO + qtd_clientes_grupo |
+| `listar_tabelas_grupos(incluir_inativas)` | A | Lista TODAS as TGFNTA (ativas+inativas) com `NOMETAB` + NUTAB ativa + clientes. Ordena por nome. LEFT JOIN com TGFPAR — traz tabelas sem clientes vinculados |
+| `listar_precos_da_tabela(codtab, filtros)` | A | LEITURA TGFEXC[NUTAB ativa, CODPROD] + JOIN TGFPRO + flag de promoção vigente. Usado pela tela "Tabela" |
+| `consultar_origem_preco_item(nunota, sequencia)` | A | Leitura |
+| `criar_promocao_banco` | B | INSERT |
+| `editar_promocao_banco` | B | UPDATE |
+| `excluir_promocao_banco` | B | DELETE físico |
+| `registrar_origem_preco_item` | B | MERGE em AD_ITEM_PRECO_ORIGEM |
+| `api_salvar_item_venda` e `api_atualizar_item_venda` | B | Aceitam `preco_origem`, `nutab`, `promocao_id`, `observacao_preco`. Pós-INSERT/UPDATE chamam `registrar_origem_preco_item` |
+
+### Endpoints
+
+- `GET  /sankhya/venda/promocoes/` — tela HTML
+- `GET  /sankhya/venda/api/promocoes/vigentes/?codparc=X&codprod=Y[&dtneg=DD/MM/AAAA]`
+- `GET  /sankhya/venda/api/promocoes/listar/?codparc=X&codprod=Y&ativo=S&q=...&dt_referencia=...`
+- `GET  /sankhya/venda/api/origem-preco-item/?nunota=X&sequencia=Y`
+- `POST /sankhya/venda/api/promocao/criar/`
+- `POST /sankhya/venda/api/promocao/editar/`
+- `POST /sankhya/venda/api/promocao/excluir/`
+
+### Frontend — modal de item
+
+Bar `#precoOrigemBar` aparece ao selecionar produto. 3 chips com valores reais (Tabela R$ X,XX · Promoção R$ Y,YY até DD/MM · Manual). Ao clicar, popula `item_preco` e marca origem. Edição manual do `item_preco` muda automaticamente pra MANUAL (com hint do campo "Motivo"). POST inclui `preco_origem`, `nutab|promocao_id|observacao_preco` conforme escolha.
+
+### Frontend — tela de cadastro de Promoções
+
+`/sankhya/venda/promocoes/`: filtro lateral (busca livre + parceiro + produto + status + escopo + data ref) + tabela paginada + modal de criação/edição. Modal tem radio escopo Grupo (tabela) vs Parceiro específico — radio "Grupo" mostra select carregado de `listar_tabelas_grupos` ("Tabela 5 — ASSAI · 9 clientes"). Acesso `@exige_grupo('venda')` (grupos 1, 6, 10).
+
+### Frontend — tela "Tabela" (visualização — Mai/2026 — 2026-05-21)
+
+`/sankhya/venda/tabela-precos/`: LEITURA dos preços vigentes do Sankhya (TGFEXC). Sidebar com **todas** as `TGFNTA.ATIVO='S'` ordenadas por nome (toggle "Mostrar inativas" libera o resto). Conteúdo principal mostra chips dos clientes do grupo + tabela com `CodProd | Produto | Preço Tabela | Promoção (badge âmbar quando vigente) | Atualizado`. Linha inteira amarela em produtos com promoção. Filtro client-side por nome do produto.
+
+Tabelas sem NUTAB vigente (ex: GUARAPARI, CRECHE) aparecem com info "Sem vigência" — operador vê que foram criadas mas não têm versão ativa em TGFTAB.
+
+### Descoberta TGFNTA (Mai/2026 — 2026-05-21)
+
+Sankhya armazena o **nome humano** da tabela em `TGFNTA.NOMETAB` (não em `TGFTAB`, que só tem versionamento). View `VGFTAB = TGFNTA INNER JOIN TGFTAB MAX(DTVIGOR)` combina ambas. IAgro lê **direto de TGFNTA** pra evitar dependência da view.
+
+Estrutura `TGFNTA` (parcial): `CODTAB` (PK) · `NOMETAB` · `OBS` · `DECVENDA` · `CODTIPPARC` · `CODREG` · `CODMOEDA` · `ATIVO`.
+
+Verificado via `ALL_VIEWS.TEXT WHERE VIEW_NAME='VGFTAB'`. Detalhes em [`.claude/tabela_precos_sankhya.md`](../tabela_precos_sankhya.md).
+
+---
+
 ## Preço automático da Tabela do cliente (Mai/2026 — 2026-05-20)
 
 Ao selecionar produto no modal de inserção de item, o IAgro **puxa preço automático** da tabela de preços configurada pro cliente. Operador continua livre pra sobrescrever.

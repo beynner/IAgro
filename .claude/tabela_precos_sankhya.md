@@ -29,6 +29,23 @@ Coluna `CODTAB` existe mas é **NULL em todos os 20 tipos ativos**. Tipo de vend
 
 Coluna `CODTAB` existe mas é **NULL em todos os produtos amostrados** (3 testados: 21, 26, 358). Produto não define tabela próprio. Também **não tem `PRECOBASE`** (coluna inexistente).
 
+### TGFNTA (mestre — 1 linha por tabela, descoberta Mai/2026 — 2026-05-21)
+
+Cadastro **nominal** das tabelas. Visível na tela Sankhya "Tabelas de Preços".
+
+| Coluna | Função |
+|---|---|
+| `CODTAB` | PK |
+| **`NOMETAB`** | **Nome humano** (ex: `ASSAI`, `ECONOMART`, `EXAL`, `JC`, `VERDI`...) |
+| `OBS` | Observação |
+| `DECVENDA` | Casas decimais |
+| `CODTIPPARC` | Tipo de parceiro |
+| `CODREG` | Região (FK TSIREG) |
+| `CODMOEDA` | Moeda |
+| `ATIVO` | S/N |
+
+A view `VGFTAB` faz `INNER JOIN TGFNTA n ON n.CODTAB = t.CODTAB` + filtra a versão mais recente em `TGFTAB`. IAgro lê **direto de `TGFNTA`** pra pegar nomes (mais leve que a view).
+
 ### TGFTAB (cadastro de tabelas — versões por DTVIGOR)
 
 16 linhas. Estrutura:

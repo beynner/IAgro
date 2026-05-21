@@ -156,6 +156,18 @@ urlpatterns = [
     # Mai/2026 (2026-05-20) — Resolve preço da tabela do Sankhya
     path("venda/api/preco-tabela/", views.api_preco_tabela, name="api_preco_tabela"),
 
+    # Mai/2026 (2026-05-20) — Promoções por (parceiro × produto) + origem do preço
+    path("venda/promocoes/",                views.view_promocoes,         name="venda_promocoes"),
+    path("venda/tabela-precos/",            views.view_tabela_precos,     name="venda_tabela_precos"),
+    path("venda/api/tabela-precos/",        views.api_tabela_precos,      name="api_tabela_precos"),
+    path("venda/api/promocoes/vigentes/",   views.api_promocoes_vigentes, name="api_promocoes_vigentes"),
+    path("venda/api/promocoes/listar/",     views.api_promocoes_listar,   name="api_promocoes_listar"),
+    path("venda/api/tabelas-grupos/",       views.api_tabelas_grupos,     name="api_tabelas_grupos"),
+    path("venda/api/promocao/criar/",       views.api_promocao_criar,     name="api_promocao_criar"),
+    path("venda/api/promocao/editar/",      views.api_promocao_editar,    name="api_promocao_editar"),
+    path("venda/api/promocao/excluir/",     views.api_promocao_excluir,   name="api_promocao_excluir"),
+    path("venda/api/origem-preco-item/",    views.api_origem_preco_item,  name="api_origem_preco_item"),
+
     # Mai/2026 — Avaria (TOP 30) + Devolução (TOP 36) + Histórico de Lote
     path("venda/api/avaria/criar/",          views.api_criar_avaria,              name="api_criar_avaria"),
     path("venda/api/devolucao/preparar/",    views.api_obter_nota_para_devolucao, name="api_obter_nota_para_devolucao"),

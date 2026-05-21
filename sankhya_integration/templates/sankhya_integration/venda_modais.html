@@ -140,6 +140,33 @@
             <i class="ph ph-x icon" aria-hidden="true"></i>
           </button>
         </div>
+
+        <!-- Mai/2026 (2026-05-20) — Origem do preço (TABELA / PROMOÇÃO / MANUAL) -->
+        <div id="precoOrigemBar" class="preco-origem-bar hidden">
+          <div class="preco-origem-chips">
+            <button type="button" class="po-chip" data-origem="TABELA" title="Aplicar preço da tabela do cliente">
+              <i class="ph ph-table" aria-hidden="true"></i>
+              <span class="po-chip-label">Tabela</span>
+              <span class="po-chip-valor" id="poChipTabelaValor">—</span>
+            </button>
+            <button type="button" class="po-chip" data-origem="PROMOCAO" title="Aplicar preço promocional">
+              <i class="ph ph-gift" aria-hidden="true"></i>
+              <span class="po-chip-label">Promoção</span>
+              <span class="po-chip-valor" id="poChipPromoValor">—</span>
+              <span class="po-chip-extra" id="poChipPromoExtra"></span>
+            </button>
+            <button type="button" class="po-chip" data-origem="MANUAL" title="Digitar preço manual (exige observação)">
+              <i class="ph ph-pencil-simple" aria-hidden="true"></i>
+              <span class="po-chip-label">Manual</span>
+            </button>
+          </div>
+          <div id="precoOrigemObsWrap" class="preco-origem-obs hidden">
+            <label for="precoOrigemObs">
+              Motivo do preço manual <span class="text-required">*</span>
+            </label>
+            <input type="text" id="precoOrigemObs" placeholder="Ex.: negociação especial, cliente VIP, ajuste promocional..." maxlength="500" />
+          </div>
+        </div>
       </div>
 
       <div style="margin-top: 15px;">

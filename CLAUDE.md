@@ -192,6 +192,49 @@ Tipo de venda (`TGFTPV.CODTAB`) e cadastro de produto (`TGFPRO.CODTAB`) NÃO par
 
 **Pendência conhecida (Cat B futuro)**: IAgro não popula `TGFITE.NUTAB` no INSERT — perde paridade com Sankhya nativo. Não causa erro fiscal mas será adicionado no payload de `inserir_item_nota_banco` em sessão futura. Detalhes em [`.claude/tabela_precos_sankhya.md`](.claude/tabela_precos_sankhya.md) §8.
 
+### 🎁 Tabela de Preços + Promoções com escopo flexível (Mai/2026 — 2026-05-20/21)
+
+Sessão grande dividida em 2 dias:
+
+**2026-05-20** — primeira versão de Promoções (CODPARC obrigatório) + chips Tabela/Promoção/Manual no modal de item da Venda + tela `/sankhya/venda/promocoes/` com CRUD. Origem do preço registrada em `AD_ITEM_PRECO_ORIGEM` (TABELA / PROMOCAO / MANUAL — MANUAL exige observação obrigatória).
+
+**2026-05-21** — refator pra **escopo flexível** + nova section "Tabela de Preços" na sidebar:
+
+- **ALTER `AD_PROMOCAO`**: adicionou `CODTAB` nullable, tornou `CODPARC` nullable, novo `CHECK XOR` (exatamente 1 dos 2). Promoção agora pode ser por **grupo (CODTAB do Sankhya)** OU **parceiro individual** — refletindo o cenário real da Agromil onde lojas Assaí DF (7 lojas, CODTAB=5) compartilham tabela.
+- **`consultar_promocoes_vigentes`** ganhou OR no WHERE: busca por CODPARC direto OU pelo CODTAB do parceiro. 1 cadastro afeta automaticamente todas as lojas do grupo.
+- **Sidebar nova section "Tabela de Preços"** entre Comercial e Administrativo, com 2 sub-itens:
+  - `Tabela` — visualização leitura dos preços vigentes de cada grupo (TGFEXC)
+  - `Promoções` — CRUD (migrado de Administrativo)
+- **Tela `/sankhya/venda/tabela-precos/`** (Cat A pura): sidebar com 11 grupos ativos (toggle "Mostrar inativas" libera +9), ordenados por nome. Conteúdo mostra clientes do grupo (chips), preços TGFEXC + flag de promoção vigente (linha amarela quando há).
+- **Descoberta `TGFNTA`** — tabela mestre Sankhya com `NOMETAB` (nome humano: ASSAI, ECONOMART, EXAL, VERDI...). View `VGFTAB = TGFNTA INNER JOIN TGFTAB MAX(DTVIGOR)`. IAgro lê direto de TGFNTA pra evitar dependência da view.
+
+**Mapa real CODTAB → Grupos Agromil**:
+
+| CODTAB | NOMETAB (Sankhya) | Clientes |
+|---|---|---|
+| 5 | ASSAI | 9 lojas (7 Assaí DF + 2 BARÃO antigos) |
+| 17 | ASSAI ARAGUAINA | 1 |
+| 18 | ASSAI PALMAS | 2 |
+| 6 | ECONOMART | 3 (Barreiras, LEM ativos + 1 antiga) |
+| 15 | EXAL | 3 (AURA, LUNDIN + RAJA antigo) |
+| 4 | JC | 4 |
+| 10 | VERDI | 4 (3 Verdi + Pravoce) |
+| 2 | NA HORTA | 2 |
+
+**Componentes**:
+
+| Camada | Componente |
+|---|---|
+| DDL aplicada | `AD_PROMOCAO` (com `CODTAB`+`CODPARC` XOR), `AD_ITEM_PRECO_ORIGEM`, `SEQ_AD_PROMOCAO`, índices `IDX_AD_PROMO_VIGENTE` + `IDX_AD_PROMO_CODTAB` |
+| Services (Cat A) | `consultar_promocoes_vigentes`, `listar_promocoes_cadastradas`, `listar_tabelas_grupos`, `listar_precos_da_tabela`, `consultar_origem_preco_item` |
+| Services (Cat B) | `criar_promocao_banco`, `editar_promocao_banco`, `excluir_promocao_banco`, `registrar_origem_preco_item` |
+| Integração existente (Cat B) | `api_salvar_item_venda` + `api_atualizar_item_venda` aceitam `preco_origem`, `nutab`, `promocao_id`, `observacao_preco` no payload |
+| Endpoints | 7 sob `/sankhya/venda/api/promocoes/*`, `/promocao/*`, `/tabelas-grupos/`, `/tabela-precos/`, `/origem-preco-item/` |
+| Telas | `/sankhya/venda/promocoes/` (CRUD), `/sankhya/venda/tabela-precos/` (LEITURA) |
+| Frontend | `puxarPrecoTabela()` no modal de item agora carrega tabela + promoções em paralelo, exibe chips, prioriza PROMOCAO sobre TABELA |
+
+**Cobertura operacional validada via smoke**: Asa Norte (CODPARC=244, CODTAB=5) acha promoção CODTAB=5; Palmas (CODPARC=211, CODTAB=18) **não** acha (CODTAB diferente); SEM escopo / COM os 2 escopos rejeitados; ordenação por menor `VLRPROMO`. Detalhes em [`modules/venda.md`](.claude/modules/venda.md) → "Promoções com escopo flexível" e [`tabela_precos_sankhya.md`](.claude/tabela_precos_sankhya.md).
+
 ### 🛠 Fix TRG_UPT_TGFITE — RESERVA/ATUALESTOQUE/USOPROD em pedido de venda (Mai/2026 — 2026-05-20)
 
 Pedido criado pelo IAgro (TOP 34) salvava normalmente, mas ao **abrir/imprimir no Sankhya** o `STP_CONFIRMANOTA2` disparava UPDATE em TGFITE e o trigger `TRG_UPT_TGFITE` rejeitava com `ORA-20101: Reserva diferente da definicao na TOP`. Operador não conseguia imprimir nem faturar pelo Sankhya.

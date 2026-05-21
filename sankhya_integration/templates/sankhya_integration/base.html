@@ -92,6 +92,26 @@
             </div>
             {% endif %}
 
+            {# TABELA DE PREÇOS — Promoções (grupos 1, 6, 10) — Mai/2026 (2026-05-21) #}
+            {% if "1" in request.session.grupos or "6" in request.session.grupos or "10" in request.session.grupos %}
+            <div class="sidebar-section" data-section="tabela-precos">
+                <button type="button" class="sidebar-section-toggle" data-section-toggle="tabela-precos" aria-expanded="false">
+                    <span class="sidebar-section-title">Tabela de Preços</span>
+                    <i class="ph ph-caret-right sidebar-section-chevron" aria-hidden="true"></i>
+                </button>
+                <div class="sidebar-section-body">
+                    <a href="/sankhya/venda/tabela-precos/" class="nav-item" data-mod="tabela-precos" title="Tabela de Preços · Tabela vigente por grupo">
+                        <span class="nav-icon"><i class="ph ph-table"></i></span>
+                        <span class="nav-label">Tabela</span>
+                    </a>
+                    <a href="/sankhya/venda/promocoes/" class="nav-item" data-mod="promocoes" title="Tabela de Preços · Promoções">
+                        <span class="nav-icon"><i class="ph ph-gift"></i></span>
+                        <span class="nav-label">Promoções</span>
+                    </a>
+                </div>
+            </div>
+            {% endif %}
+
             {# ADMINISTRATIVO — Venda/Importação grupos 1,6,10; Caixas amplo 1,6,8,9,10,11 #}
             {% if "1" in request.session.grupos or "6" in request.session.grupos or "8" in request.session.grupos or "9" in request.session.grupos or "10" in request.session.grupos or "11" in request.session.grupos %}
             <div class="sidebar-section" data-section="administrativo">

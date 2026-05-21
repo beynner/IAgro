@@ -1,0 +1,194 @@
+{% extends 'sankhya_integration/base.html' %}
+{% load static %}
+
+{% block active_module %}promocoes{% endblock %}
+{% block header_title %}TABELA DE PREÇOS · PROMOÇÕES{% endblock %}
+
+{% block header_actions %}
+  <button id="btnPromoNova" class="btn-primary">
+    <i class="ph ph-plus icon" aria-hidden="true"></i>
+    <span>Nova Promoção</span>
+  </button>
+{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/promocoes.css' %}?v=2">
+{% endblock %}
+
+{% block content %}
+<div class="promo-grid">
+  <aside class="promo-sidebar panel">
+    <h3>FILTROS</h3>
+
+    <div class="form-row">
+      <label>Buscar (cliente ou produto)</label>
+      <input type="text" id="filtroQ" placeholder="Nome do cliente ou produto..." autocomplete="off" />
+    </div>
+
+    <div class="form-row">
+      <label>Cliente</label>
+      <input type="text" id="filtroParcSearch" placeholder="Digite código ou nome..." autocomplete="off" />
+      <input type="hidden" id="filtroParc" />
+      <div id="filtroParcDropdown" class="dropdown-abs fs-13"></div>
+    </div>
+
+    <div class="form-row">
+      <label>Produto</label>
+      <input type="text" id="filtroProdSearch" placeholder="Digite código ou nome..." autocomplete="off" />
+      <input type="hidden" id="filtroProd" />
+      <div id="filtroProdDropdown" class="dropdown-abs fs-13"></div>
+    </div>
+
+    <div class="form-row">
+      <label>Status</label>
+      <select id="filtroAtivo">
+        <option value="">Todos</option>
+        <option value="S" selected>Ativas</option>
+        <option value="N">Inativas</option>
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label>Tipo de escopo</label>
+      <select id="filtroEscopo">
+        <option value="">Todos</option>
+        <option value="TABELA">Grupo (tabela)</option>
+        <option value="PARCEIRO">Parceiro específico</option>
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label>Vigência em</label>
+      <input type="date" id="filtroDtRef" />
+    </div>
+
+    <div class="filters-footer">
+      <button id="btnUpdate" class="btn-primary">Atualizar</button>
+      <button id="btnClear" class="btn-outline">Limpar</button>
+    </div>
+  </aside>
+
+  <main class="promo-main">
+    <div class="panel">
+      <header class="promo-list-header">
+        <h2>Promoções cadastradas</h2>
+        <div id="promoSummary" class="muted">—</div>
+      </header>
+      <table class="ia-selectable-table promo-table">
+        <colgroup>
+          <col class="prom-col-aplica" />
+          <col class="prom-col-produto" />
+          <col class="prom-col-preco" />
+          <col class="prom-col-data" />
+          <col class="prom-col-data" />
+          <col class="prom-col-status" />
+          <col class="prom-col-acoes" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Aplica a</th>
+            <th>Produto</th>
+            <th class="text-right">Preço</th>
+            <th>Início</th>
+            <th>Fim</th>
+            <th class="text-center">Status</th>
+            <th class="text-center">Ações</th>
+          </tr>
+        </thead>
+        <tbody id="promoListBody">
+          <tr><td colspan="7" class="ia-placeholder">Carregando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<!-- ===================== MODAL NOVA / EDITAR ===================== -->
+<div id="promoModalOverlay" class="modal-overlay hidden" aria-hidden="true">
+  <div class="modal-card">
+    <header class="modal-header">
+      <h3 id="promoModalTitle">Nova promoção</h3>
+      <button type="button" class="close-modal" id="promoModalClose">&times;</button>
+    </header>
+    <div class="modal-body">
+      <input type="hidden" id="promoId" />
+
+      <div class="form-row">
+        <label>Aplicar a <span class="text-required">*</span></label>
+        <div class="escopo-radios">
+          <label class="radio-inline">
+            <input type="radio" name="promoEscopo" value="TABELA" checked />
+            <i class="ph ph-users-three" aria-hidden="true"></i>
+            Grupo de clientes (tabela)
+          </label>
+          <label class="radio-inline">
+            <input type="radio" name="promoEscopo" value="PARCEIRO" />
+            <i class="ph ph-user" aria-hidden="true"></i>
+            Parceiro específico
+          </label>
+        </div>
+      </div>
+
+      <div class="form-row" id="promoEscopoTabelaWrap">
+        <label>Grupo (tabela) <span class="text-required">*</span></label>
+        <select id="promoCodtab">
+          <option value="">Selecione um grupo...</option>
+        </select>
+        <small id="promoTabHint" class="muted"></small>
+      </div>
+
+      <div class="form-row hidden" id="promoEscopoParceiroWrap">
+        <label>Cliente <span class="text-required">*</span></label>
+        <input type="text" id="promoParcSearch" placeholder="Digite código ou nome..." autocomplete="off" />
+        <input type="hidden" id="promoCodparc" />
+        <div id="promoParcDropdown" class="dropdown-abs fs-13"></div>
+      </div>
+
+      <div class="form-row">
+        <label>Produto <span class="text-required">*</span></label>
+        <input type="text" id="promoProdSearch" placeholder="Digite código ou nome..." autocomplete="off" />
+        <input type="hidden" id="promoCodprod" />
+        <div id="promoProdDropdown" class="dropdown-abs fs-13"></div>
+      </div>
+
+      <div class="form-row-2col">
+        <div>
+          <label>Preço promocional <span class="text-required">*</span></label>
+          <input type="number" id="promoVlr" step="0.01" min="0.01" />
+        </div>
+        <div>
+          <label>Status</label>
+          <select id="promoAtivo">
+            <option value="S" selected>Ativa</option>
+            <option value="N">Inativa</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row-2col">
+        <div>
+          <label>Início <span class="text-required">*</span></label>
+          <input type="date" id="promoDtInicio" />
+        </div>
+        <div>
+          <label>Fim <span class="text-required">*</span></label>
+          <input type="date" id="promoDtFim" />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>Observação</label>
+        <textarea id="promoObs" rows="2" maxlength="500" placeholder="Negociação, condição, validade especial..."></textarea>
+      </div>
+    </div>
+    <footer class="modal-footer">
+      <button type="button" id="promoModalCancel" class="btn-outline">Cancelar</button>
+      <button type="button" id="promoModalSalvar" class="btn-primary">Salvar</button>
+    </footer>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'sankhya_integration/promocoes.js' %}?v=3"></script>
+{% endblock %}

@@ -10370,6 +10370,652 @@ def consultar_preco_tabela(codparc: int, codprod: int, dtneg=None) -> dict:
         }
 
 
+# =============================================================================
+# PROMOÇÕES (Mai/2026 — 2026-05-20)
+#
+# Promoções na Agromil são SEMPRE por parceiro (cliente × produto), com
+# vigência (DT_INICIO ≤ hoje ≤ DT_FIM). Cadastro próprio em AD_PROMOCAO
+# (Sankhya tem TGFPROM/TGFPROI mas Agromil nunca usou).
+#
+# Origem do preço (AD_ITEM_PRECO_ORIGEM) registra TABELA/PROMOCAO/MANUAL
+# por item da venda. MANUAL exige observação.
+# =============================================================================
+
+def consultar_promocoes_vigentes(codparc: int, codprod: int, dtneg=None) -> dict:
+    """Lista promoções vigentes pro par (codparc, codprod) (Mai/2026 — 2026-05-21).
+
+    Escopo coberto:
+      - Promoção por CODPARC direto (cliente específico)
+      - Promoção por CODTAB do TGFPAR (grupo de clientes do Sankhya: Assaí DF,
+        Assaí Palmas, Economart, Exal, etc) — pega o CODTAB do cliente e busca
+        promoções com esse CODTAB.
+
+    Filtra `ATIVO='S'` + `DT_INICIO ≤ dtneg ≤ DT_FIM`. Pode retornar várias.
+    Ordenadas por `VLRPROMO ASC` — mais barata primeiro (frontend escolhe a 1ª).
+
+    Returns:
+        {
+            'ok': True,
+            'promocoes': [
+                {'id', 'codprod', 'codtab', 'codparc', 'escopo' ('TABELA'|'PARCEIRO'),
+                 'vlrpromo', 'dt_inicio', 'dt_fim', 'observacao', 'criado_em'}, ...
+            ]
+        }
+    """
+    if not codparc or not codprod:
+        return {'ok': False, 'error': 'CODPARC e CODPROD obrigatórios', 'promocoes': []}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            if dtneg is not None:
+                s = str(dtneg).strip()
+                if len(s) == 10 and s[2] == '/' and s[5] == '/':
+                    fmt = 'DD/MM/YYYY'
+                elif len(s) == 10 and s[4] == '-' and s[7] == '-':
+                    fmt = 'YYYY-MM-DD'
+                else:
+                    s = None
+            else:
+                s = None
+
+            data_clause = f"TO_DATE(:d, '{fmt}')" if s else "SYSDATE"
+
+            sql = f"""
+                SELECT p.ID, p.CODPROD, p.CODTAB, p.CODPARC, p.VLRPROMO,
+                       TO_CHAR(p.DT_INICIO, 'YYYY-MM-DD') AS DT_INICIO,
+                       TO_CHAR(p.DT_FIM,    'YYYY-MM-DD') AS DT_FIM,
+                       p.OBSERVACAO,
+                       TO_CHAR(p.CRIADO_EM, 'YYYY-MM-DD HH24:MI:SS') AS CRIADO_EM,
+                       CASE WHEN p.CODTAB IS NOT NULL THEN 'TABELA' ELSE 'PARCEIRO' END AS ESCOPO
+                  FROM SANKHYA.AD_PROMOCAO p
+                 WHERE p.CODPROD = :c
+                   AND p.ATIVO = 'S'
+                   AND {data_clause} BETWEEN p.DT_INICIO AND p.DT_FIM
+                   AND (
+                       p.CODPARC = :p
+                       OR p.CODTAB = (SELECT CODTAB FROM TGFPAR WHERE CODPARC = :p)
+                   )
+                 ORDER BY p.VLRPROMO ASC, p.DT_INICIO DESC
+            """
+            binds = {'p': int(codparc), 'c': int(codprod)}
+            if s:
+                binds['d'] = s
+            cur.execute(sql, binds)
+
+            cols = [d[0].lower() for d in cur.description]
+            promocoes = []
+            for r in cur.fetchall():
+                row = dict(zip(cols, r))
+                row['vlrpromo'] = float(row['vlrpromo']) if row['vlrpromo'] is not None else 0
+                row['codtab']   = int(row['codtab'])  if row.get('codtab')  is not None else None
+                row['codparc']  = int(row['codparc']) if row.get('codparc') is not None else None
+                promocoes.append(row)
+
+            return {'ok': True, 'promocoes': promocoes}
+    except Exception as e:
+        logger.exception(f"Falha ao consultar promoções (codparc={codparc}, codprod={codprod})")
+        return {'ok': False, 'error': humanizar_erro_oracle(e), 'promocoes': []}
+
+
+def listar_tabelas_grupos(incluir_inativas: bool = False) -> dict:
+    """Lista TODAS as tabelas do Sankhya (TGFNTA) + nome + contagem de clientes ativos.
+
+    Mai/2026 — 2026-05-21. Parte de `TGFNTA` (mestre) e faz LEFT JOIN com TGFPAR
+    pra trazer TODAS as tabelas, mesmo as **sem clientes vinculados** (ex:
+    CRECHE, GUARAPARI). Por default retorna só `TGFNTA.ATIVO='S'`; passar
+    `incluir_inativas=True` traz também as inativas (ATIVO='N').
+
+    Ordena por `NOMETAB` ASC.
+
+    Returns:
+        {
+            'ok': True,
+            'tabelas': [
+                {'codtab', 'nome_grupo', 'ativo' ('S'/'N'),
+                 'nutab_ativa', 'qtd_clientes', 'clientes': [...]}, ...
+            ]
+        }
+    """
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            filtro = "" if incluir_inativas else "WHERE n.ATIVO = 'S'"
+            # 1 query única partindo de TGFNTA, LEFT JOIN TGFPAR (ativos) + subquery NUTAB
+            cur.execute(f"""
+                SELECT n.CODTAB,
+                       n.NOMETAB,
+                       n.ATIVO,
+                       (SELECT COUNT(*)
+                          FROM TGFPAR p WHERE p.CODTAB = n.CODTAB AND p.ATIVO = 'S') AS QTD_CLIENTES,
+                       (SELECT LISTAGG(p.NOMEPARC, ' · ') WITHIN GROUP (ORDER BY p.NOMEPARC)
+                          FROM TGFPAR p WHERE p.CODTAB = n.CODTAB AND p.ATIVO = 'S') AS CLIENTES,
+                       (SELECT MAX(NUTAB) KEEP (DENSE_RANK FIRST ORDER BY DTVIGOR DESC)
+                          FROM TGFTAB t WHERE t.CODTAB = n.CODTAB AND t.DTVIGOR <= SYSDATE) AS NUTAB_ATIVA
+                  FROM TGFNTA n
+                  {filtro}
+                 ORDER BY UPPER(n.NOMETAB)
+            """)
+            tabelas = []
+            for r in cur.fetchall():
+                codtab = int(r[0])
+                nome = str(r[1] or '').strip() or f'Tabela {codtab}'
+                ativo = str(r[2] or 'N').strip().upper()
+                qtd = int(r[3] or 0)
+                clientes_str = str(r[4] or '')
+                clientes_list = [c.strip() for c in clientes_str.split('·') if c.strip()]
+                nutab_ativa = int(r[5]) if r[5] is not None else None
+                tabelas.append({
+                    'codtab': codtab,
+                    'nome_grupo': nome,
+                    'ativo': ativo,
+                    'nutab_ativa': nutab_ativa,
+                    'qtd_clientes': qtd,
+                    'clientes': clientes_list,
+                })
+            return {'ok': True, 'tabelas': tabelas}
+    except Exception as e:
+        logger.exception("Falha em listar_tabelas_grupos")
+        return {'ok': False, 'error': humanizar_erro_oracle(e), 'tabelas': []}
+
+
+def listar_promocoes_cadastradas(filtros: dict = None, limite: int = 100, offset: int = 0) -> dict:
+    """Lista promoções pra tela de cadastro (Mai/2026 — 2026-05-21 escopo flexível).
+
+    Filtros suportados:
+        codtab, codparc, codprod, q (busca livre), ativo, dt_referencia, escopo
+
+    Cada linha vem com:
+        - codtab + qtd_clientes_grupo (quando ESCOPO=TABELA)
+        - codparc + nomeparc (quando ESCOPO=PARCEIRO)
+    """
+    filtros = filtros or {}
+    where = ['1=1']
+    binds = {}
+
+    if filtros.get('codtab'):
+        where.append('p.CODTAB = :codtab')
+        binds['codtab'] = int(filtros['codtab'])
+    if filtros.get('codparc'):
+        where.append('p.CODPARC = :codparc')
+        binds['codparc'] = int(filtros['codparc'])
+    if filtros.get('codprod'):
+        where.append('p.CODPROD = :codprod')
+        binds['codprod'] = int(filtros['codprod'])
+    if filtros.get('ativo'):
+        where.append("p.ATIVO = :ativo")
+        binds['ativo'] = str(filtros['ativo']).strip().upper()
+    escopo = (filtros.get('escopo') or '').strip().upper()
+    if escopo == 'TABELA':
+        where.append('p.CODTAB IS NOT NULL')
+    elif escopo == 'PARCEIRO':
+        where.append('p.CODPARC IS NOT NULL')
+    q = (filtros.get('q') or '').strip().upper()
+    if q:
+        where.append("(UPPER(par.NOMEPARC) LIKE :q OR UPPER(pr.DESCRPROD) LIKE :q)")
+        binds['q'] = f"%{q}%"
+    if filtros.get('dt_referencia'):
+        s = str(filtros['dt_referencia']).strip()
+        if len(s) == 10 and s[2] == '/' and s[5] == '/':
+            where.append("TO_DATE(:dtref, 'DD/MM/YYYY') BETWEEN p.DT_INICIO AND p.DT_FIM")
+            binds['dtref'] = s
+        elif len(s) == 10 and s[4] == '-' and s[7] == '-':
+            where.append("TO_DATE(:dtref, 'YYYY-MM-DD') BETWEEN p.DT_INICIO AND p.DT_FIM")
+            binds['dtref'] = s
+
+    sql = f"""
+        SELECT * FROM (
+            SELECT p.ID, p.CODPROD, p.CODTAB, p.CODPARC, p.VLRPROMO,
+                   TO_CHAR(p.DT_INICIO, 'YYYY-MM-DD') AS DT_INICIO,
+                   TO_CHAR(p.DT_FIM,    'YYYY-MM-DD') AS DT_FIM,
+                   p.ATIVO, p.OBSERVACAO,
+                   TO_CHAR(p.CRIADO_EM, 'YYYY-MM-DD HH24:MI:SS') AS CRIADO_EM,
+                   par.NOMEPARC, pr.DESCRPROD,
+                   CASE WHEN p.CODTAB IS NOT NULL THEN 'TABELA' ELSE 'PARCEIRO' END AS ESCOPO,
+                   (SELECT COUNT(*) FROM TGFPAR par2
+                     WHERE par2.CODTAB = p.CODTAB AND par2.ATIVO='S') AS QTD_CLIENTES_GRUPO,
+                   ROW_NUMBER() OVER (ORDER BY p.DT_INICIO DESC, p.ID DESC) AS RN
+              FROM SANKHYA.AD_PROMOCAO p
+              LEFT JOIN TGFPAR par ON par.CODPARC = p.CODPARC
+              LEFT JOIN TGFPRO pr  ON pr.CODPROD  = p.CODPROD
+             WHERE {' AND '.join(where)}
+        ) WHERE RN BETWEEN :rn_ini AND :rn_fim
+    """
+    binds['rn_ini'] = int(offset) + 1
+    binds['rn_fim'] = int(offset) + int(limite)
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, binds)
+            cols = [d[0].lower() for d in cur.description]
+            rows = []
+            for r in cur.fetchall():
+                row = dict(zip(cols, r))
+                row['vlrpromo'] = float(row['vlrpromo']) if row['vlrpromo'] is not None else 0
+                row['codtab']  = int(row['codtab'])  if row.get('codtab')  is not None else None
+                row['codparc'] = int(row['codparc']) if row.get('codparc') is not None else None
+                row['qtd_clientes_grupo'] = int(row['qtd_clientes_grupo'] or 0)
+                row.pop('rn', None)
+                rows.append(row)
+            return {'ok': True, 'promocoes': rows}
+    except Exception as e:
+        logger.exception("Falha em listar_promocoes_cadastradas")
+        return {'ok': False, 'error': humanizar_erro_oracle(e), 'promocoes': []}
+
+
+def listar_precos_da_tabela(codtab: int, filtros: dict = None) -> dict:
+    """Lista preços vigentes de uma tabela (CODTAB) do Sankhya (Mai/2026 — 2026-05-21).
+
+    Resolve NUTAB ativa via TGFTAB e lê TGFEXC[NUTAB, TIPO='V'] + JOIN TGFPRO.
+    Retorna preços + flag se há promoção vigente pro produto (escopo CODTAB).
+
+    Filtros: q (busca em DESCRPROD).
+    """
+    if not codtab:
+        return {'ok': False, 'error': 'CODTAB obrigatório', 'precos': []}
+
+    filtros = filtros or {}
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # Resolve NUTAB ativa
+            cur.execute("""
+                SELECT MAX(NUTAB) KEEP (DENSE_RANK FIRST ORDER BY DTVIGOR DESC),
+                       TO_CHAR(MAX(DTVIGOR), 'YYYY-MM-DD')
+                  FROM TGFTAB
+                 WHERE CODTAB = :ct AND DTVIGOR <= SYSDATE
+            """, ct=int(codtab))
+            row = cur.fetchone()
+            if not row or row[0] is None:
+                return {'ok': True, 'codtab': int(codtab), 'nutab_ativa': None,
+                        'dtvigor': None, 'precos': [], 'qtd_clientes': 0, 'clientes': []}
+            nutab_ativa = int(row[0])
+            dtvigor = row[1]
+
+            # Parceiros do grupo (pra header)
+            cur.execute("""
+                SELECT CODPARC, NOMEPARC
+                  FROM TGFPAR
+                 WHERE CODTAB = :ct AND ATIVO='S'
+                 ORDER BY NOMEPARC
+            """, ct=int(codtab))
+            clientes = [{'codparc': int(r[0]), 'nomeparc': r[1]} for r in cur.fetchall()]
+
+            # Preços + flag de promoção
+            where = ['e.NUTAB = :n', "e.TIPO = 'V'"]
+            binds = {'n': nutab_ativa, 'ct': int(codtab)}
+            q = (filtros.get('q') or '').strip().upper()
+            if q:
+                where.append('UPPER(pr.DESCRPROD) LIKE :q')
+                binds['q'] = f'%{q}%'
+
+            cur.execute(f"""
+                SELECT e.CODPROD, pr.DESCRPROD, e.VLRVENDA,
+                       TO_CHAR(e.DHALTREG, 'YYYY-MM-DD') AS DHALTREG,
+                       (SELECT MIN(p.VLRPROMO) FROM SANKHYA.AD_PROMOCAO p
+                         WHERE p.CODPROD = e.CODPROD AND p.ATIVO='S'
+                           AND SYSDATE BETWEEN p.DT_INICIO AND p.DT_FIM
+                           AND p.CODTAB = :ct) AS PROMOCAO_VLR
+                  FROM TGFEXC e
+                  LEFT JOIN TGFPRO pr ON pr.CODPROD = e.CODPROD
+                 WHERE {' AND '.join(where)}
+                 ORDER BY pr.DESCRPROD
+            """, binds)
+
+            precos = []
+            for r in cur.fetchall():
+                precos.append({
+                    'codprod':       int(r[0]),
+                    'descrprod':     r[1] or '',
+                    'vlrvenda':      float(r[2] or 0),
+                    'dhaltreg':      r[3],
+                    'promocao_vlr':  float(r[4]) if r[4] is not None else None,
+                })
+
+            return {
+                'ok': True,
+                'codtab': int(codtab),
+                'nutab_ativa': nutab_ativa,
+                'dtvigor': dtvigor,
+                'qtd_clientes': len(clientes),
+                'clientes': clientes,
+                'precos': precos,
+            }
+    except Exception as e:
+        logger.exception(f"Falha em listar_precos_da_tabela(codtab={codtab})")
+        return {'ok': False, 'error': humanizar_erro_oracle(e), 'precos': []}
+
+
+def consultar_origem_preco_item(nunota: int, sequencia: int) -> dict:
+    """Lê origem registrada do preço de um item (Mai/2026 — 2026-05-20)."""
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT NUNOTA, SEQUENCIA, ORIGEM, NUTAB, PROMOCAO_ID,
+                       OBSERVACAO,
+                       TO_CHAR(REGISTRADO_EM, 'YYYY-MM-DD HH24:MI:SS') AS REGISTRADO_EM,
+                       CODUSU
+                  FROM SANKHYA.AD_ITEM_PRECO_ORIGEM
+                 WHERE NUNOTA = :n AND SEQUENCIA = :s
+            """, n=int(nunota), s=int(sequencia))
+            row = cur.fetchone()
+            if not row:
+                return {'ok': True, 'origem': None}
+            cols = [d[0].lower() for d in cur.description]
+            return {'ok': True, **dict(zip(cols, row))}
+    except Exception as e:
+        logger.exception(f"Falha em consultar_origem_preco_item({nunota}, {sequencia})")
+        return {'ok': False, 'error': humanizar_erro_oracle(e), 'origem': None}
+
+
+def criar_promocao_banco(dados: dict, codusu: int, nomeusu: str = '') -> dict:
+    """B3 — INSERT em AD_PROMOCAO (Mai/2026 — 2026-05-21 escopo flexível).
+
+    Escopo: aceita `codtab` OU `codparc` (XOR — exatamente 1 dos 2).
+      • codtab → afeta todos TGFPAR com esse CODTAB
+      • codparc → afeta só esse cliente
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+
+    try:
+        codprod   = int(dados.get('codprod'))
+        vlrpromo  = float(dados.get('vlrpromo'))
+        dt_inicio = str(dados.get('dt_inicio')).strip()
+        dt_fim    = str(dados.get('dt_fim')).strip()
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': 'CODPROD, VLRPROMO, DT_INICIO e DT_FIM são obrigatórios'}
+
+    codtab  = dados.get('codtab')
+    codparc = dados.get('codparc')
+    codtab  = int(codtab)  if codtab  not in (None, '', 0, '0') else None
+    codparc = int(codparc) if codparc not in (None, '', 0, '0') else None
+    if (codtab is None and codparc is None) or (codtab is not None and codparc is not None):
+        return {'ok': False, 'error': 'Informe exatamente um escopo: CODTAB (grupo) ou CODPARC (cliente)'}
+
+    if vlrpromo <= 0:
+        return {'ok': False, 'error': 'VLRPROMO deve ser > 0'}
+
+    fmt_ini = 'DD/MM/YYYY' if (len(dt_inicio) == 10 and dt_inicio[2] == '/') else 'YYYY-MM-DD'
+    fmt_fim = 'DD/MM/YYYY' if (len(dt_fim) == 10 and dt_fim[2] == '/') else 'YYYY-MM-DD'
+
+    observacao = (dados.get('observacao') or '').strip() or None
+    ativo = (dados.get('ativo') or 'S').strip().upper()
+    if ativo not in ('S', 'N'):
+        ativo = 'S'
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM TGFPRO WHERE CODPROD = :c", c=codprod)
+            if (cur.fetchone() or [0])[0] == 0:
+                return {'ok': False, 'error': f'CODPROD {codprod} não existe'}
+
+            if codparc is not None:
+                cur.execute("SELECT COUNT(*) FROM TGFPAR WHERE CODPARC = :c", c=codparc)
+                if (cur.fetchone() or [0])[0] == 0:
+                    return {'ok': False, 'error': f'CODPARC {codparc} não existe'}
+
+            if codtab is not None:
+                # Valida que existe TGFTAB com esse CODTAB
+                cur.execute("SELECT COUNT(*) FROM TGFTAB WHERE CODTAB = :c", c=codtab)
+                if (cur.fetchone() or [0])[0] == 0:
+                    return {'ok': False, 'error': f'CODTAB {codtab} não existe em TGFTAB'}
+
+            cur.execute("SELECT SANKHYA.SEQ_AD_PROMOCAO.NEXTVAL FROM DUAL")
+            novo_id = int(cur.fetchone()[0])
+
+            cur.execute(f"""
+                INSERT INTO SANKHYA.AD_PROMOCAO
+                    (ID, CODPROD, CODTAB, CODPARC, VLRPROMO, DT_INICIO, DT_FIM,
+                     ATIVO, OBSERVACAO, CODUSU, NOMEUSU)
+                VALUES
+                    (:id, :p, :ct, :cp, :v,
+                     TO_DATE(:di, '{fmt_ini}'), TO_DATE(:df, '{fmt_fim}'),
+                     :a, :obs, :cu, :nu)
+            """, id=novo_id, p=codprod, ct=codtab, cp=codparc, v=vlrpromo,
+                 di=dt_inicio, df=dt_fim, a=ativo, obs=observacao,
+                 cu=codusu, nu=nomeusu)
+            conn.commit()
+
+        try:
+            registrar_auditoria(
+                modulo='venda', operacao='CRIAR_PROMOCAO',
+                tabela_alvo='AD_PROMOCAO', registro_id=str(novo_id),
+                codusu=codusu, nomeusu=nomeusu,
+                snapshot_depois={
+                    'ID': novo_id, 'CODPROD': codprod,
+                    'CODTAB': codtab, 'CODPARC': codparc,
+                    'VLRPROMO': vlrpromo, 'DT_INICIO': dt_inicio, 'DT_FIM': dt_fim,
+                    'ATIVO': ativo, 'OBSERVACAO': observacao,
+                },
+            )
+        except Exception:
+            logger.exception('Falha ao auditar criar_promocao_banco')
+
+        return {'ok': True, 'id': novo_id}
+    except Exception as e:
+        logger.exception("Falha em criar_promocao_banco")
+        return {'ok': False, 'error': humanizar_erro_oracle(e)}
+
+
+def editar_promocao_banco(promocao_id: int, dados: dict, codusu: int, nomeusu: str = '') -> dict:
+    """B4 — UPDATE em AD_PROMOCAO (Mai/2026 — 2026-05-20)."""
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+
+    try:
+        promocao_id = int(promocao_id)
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': 'ID inválido'}
+
+    sets = []
+    binds = {'id': promocao_id}
+
+    def _add_data(campo_chave, col):
+        v = dados.get(campo_chave)
+        if v is None:
+            return
+        s = str(v).strip()
+        fmt = 'DD/MM/YYYY' if (len(s) == 10 and s[2] == '/') else 'YYYY-MM-DD'
+        sets.append(f"{col} = TO_DATE(:{campo_chave}, '{fmt}')")
+        binds[campo_chave] = s
+
+    if dados.get('codprod') is not None:
+        sets.append("CODPROD = :codprod"); binds['codprod'] = int(dados['codprod'])
+
+    # Mai/2026 (2026-05-21) — troca de escopo: aceita codtab OU codparc.
+    # Quando um dos 2 é enviado, zera o outro pra respeitar o CHECK XOR.
+    codtab_in = dados.get('codtab')
+    codparc_in = dados.get('codparc')
+    if codtab_in not in (None, ''):
+        sets.append("CODTAB = :codtab"); binds['codtab'] = int(codtab_in)
+        sets.append("CODPARC = NULL")
+    elif codparc_in not in (None, ''):
+        sets.append("CODPARC = :codparc"); binds['codparc'] = int(codparc_in)
+        sets.append("CODTAB = NULL")
+
+    if dados.get('vlrpromo') is not None:
+        vp = float(dados['vlrpromo'])
+        if vp <= 0:
+            return {'ok': False, 'error': 'VLRPROMO deve ser > 0'}
+        sets.append("VLRPROMO = :vlrpromo"); binds['vlrpromo'] = vp
+    _add_data('dt_inicio', 'DT_INICIO')
+    _add_data('dt_fim',    'DT_FIM')
+    if dados.get('ativo') is not None:
+        a = str(dados['ativo']).strip().upper()
+        if a not in ('S', 'N'):
+            return {'ok': False, 'error': "ATIVO deve ser 'S' ou 'N'"}
+        sets.append("ATIVO = :ativo"); binds['ativo'] = a
+    if 'observacao' in dados:
+        sets.append("OBSERVACAO = :obs")
+        binds['obs'] = (dados.get('observacao') or '').strip() or None
+
+    if not sets:
+        return {'ok': False, 'error': 'Nenhum campo informado para atualizar'}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT ID, CODPROD, CODPARC, VLRPROMO,
+                       TO_CHAR(DT_INICIO,'YYYY-MM-DD'),
+                       TO_CHAR(DT_FIM,'YYYY-MM-DD'),
+                       ATIVO, OBSERVACAO
+                  FROM SANKHYA.AD_PROMOCAO WHERE ID = :id
+            """, id=promocao_id)
+            antes = cur.fetchone()
+            if not antes:
+                return {'ok': False, 'error': 'Promoção não encontrada'}
+
+            cur.execute(
+                f"UPDATE SANKHYA.AD_PROMOCAO SET {', '.join(sets)} WHERE ID = :id",
+                binds,
+            )
+            conn.commit()
+
+        try:
+            registrar_auditoria(
+                modulo='venda', operacao='EDITAR_PROMOCAO',
+                tabela_alvo='AD_PROMOCAO', registro_id=str(promocao_id),
+                codusu=codusu, nomeusu=nomeusu,
+                snapshot_antes={
+                    'CODPROD': int(antes[1]) if antes[1] is not None else None,
+                    'CODPARC': int(antes[2]) if antes[2] is not None else None,
+                    'VLRPROMO': float(antes[3]) if antes[3] is not None else None,
+                    'DT_INICIO': antes[4], 'DT_FIM': antes[5],
+                    'ATIVO': antes[6], 'OBSERVACAO': antes[7],
+                },
+                snapshot_depois=dados,
+            )
+        except Exception:
+            logger.exception('Falha ao auditar editar_promocao_banco')
+
+        return {'ok': True}
+    except Exception as e:
+        logger.exception("Falha em editar_promocao_banco")
+        return {'ok': False, 'error': humanizar_erro_oracle(e)}
+
+
+def excluir_promocao_banco(promocao_id: int, codusu: int, nomeusu: str = '') -> dict:
+    """B4 — DELETE físico em AD_PROMOCAO (Mai/2026 — 2026-05-20).
+
+    Pra "pausar sem perder histórico", usar ATIVO='N' via editar_promocao_banco.
+    Esta função apaga definitivamente. AD_ITEM_PRECO_ORIGEM com PROMOCAO_ID
+    apontando pra essa linha fica órfão (não há FK física), o histórico do
+    item venda preserva ORIGEM='PROMOCAO' + ID antigo na audit.
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+
+    try:
+        promocao_id = int(promocao_id)
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': 'ID inválido'}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT ID, CODPROD, CODPARC, VLRPROMO,
+                       TO_CHAR(DT_INICIO,'YYYY-MM-DD'), TO_CHAR(DT_FIM,'YYYY-MM-DD'),
+                       ATIVO, OBSERVACAO
+                  FROM SANKHYA.AD_PROMOCAO WHERE ID = :id
+            """, id=promocao_id)
+            antes = cur.fetchone()
+            if not antes:
+                return {'ok': False, 'error': 'Promoção não encontrada'}
+
+            cur.execute("DELETE FROM SANKHYA.AD_PROMOCAO WHERE ID = :id", id=promocao_id)
+            conn.commit()
+
+        try:
+            registrar_auditoria(
+                modulo='venda', operacao='EXCLUIR_PROMOCAO',
+                tabela_alvo='AD_PROMOCAO', registro_id=str(promocao_id),
+                codusu=codusu, nomeusu=nomeusu,
+                snapshot_antes={
+                    'CODPROD': int(antes[1]), 'CODPARC': int(antes[2]),
+                    'VLRPROMO': float(antes[3]),
+                    'DT_INICIO': antes[4], 'DT_FIM': antes[5],
+                    'ATIVO': antes[6], 'OBSERVACAO': antes[7],
+                },
+            )
+        except Exception:
+            logger.exception('Falha ao auditar excluir_promocao_banco')
+
+        return {'ok': True}
+    except Exception as e:
+        logger.exception("Falha em excluir_promocao_banco")
+        return {'ok': False, 'error': humanizar_erro_oracle(e)}
+
+
+def registrar_origem_preco_item(
+    nunota: int, sequencia: int, origem: str,
+    nutab=None, promocao_id=None, observacao: str = None,
+    codusu: int = None, conexao_existente=None,
+) -> dict:
+    """B5 — UPSERT em AD_ITEM_PRECO_ORIGEM (Mai/2026 — 2026-05-20).
+
+    Validações:
+      - ORIGEM in ('TABELA','PROMOCAO','MANUAL')
+      - ORIGEM='TABELA'   → nutab obrigatório
+      - ORIGEM='PROMOCAO' → promocao_id obrigatório
+      - ORIGEM='MANUAL'   → observacao obrigatória (operador explica)
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+
+    origem = str(origem or '').strip().upper()
+    if origem not in ('TABELA', 'PROMOCAO', 'MANUAL'):
+        return {'ok': False, 'error': "ORIGEM inválida (TABELA/PROMOCAO/MANUAL)"}
+
+    if origem == 'TABELA' and not nutab:
+        return {'ok': False, 'error': "NUTAB obrigatória quando ORIGEM=TABELA"}
+    if origem == 'PROMOCAO' and not promocao_id:
+        return {'ok': False, 'error': "PROMOCAO_ID obrigatória quando ORIGEM=PROMOCAO"}
+    if origem == 'MANUAL' and not (observacao and str(observacao).strip()):
+        return {'ok': False, 'error': "OBSERVACAO obrigatória quando ORIGEM=MANUAL"}
+
+    obs = (observacao or '').strip() or None
+
+    sql_merge = """
+        MERGE INTO SANKHYA.AD_ITEM_PRECO_ORIGEM tgt
+        USING (SELECT :n AS NUNOTA, :s AS SEQUENCIA FROM DUAL) src
+           ON (tgt.NUNOTA = src.NUNOTA AND tgt.SEQUENCIA = src.SEQUENCIA)
+         WHEN MATCHED THEN UPDATE SET
+              ORIGEM=:origem, NUTAB=:nutab, PROMOCAO_ID=:pid,
+              OBSERVACAO=:obs, CODUSU=:cu, REGISTRADO_EM=SYSTIMESTAMP
+         WHEN NOT MATCHED THEN INSERT
+              (NUNOTA, SEQUENCIA, ORIGEM, NUTAB, PROMOCAO_ID, OBSERVACAO, CODUSU)
+              VALUES (:n, :s, :origem, :nutab, :pid, :obs, :cu)
+    """
+    binds = {
+        'n': int(nunota), 's': int(sequencia), 'origem': origem,
+        'nutab': int(nutab) if nutab else None,
+        'pid': int(promocao_id) if promocao_id else None,
+        'obs': obs, 'cu': codusu,
+    }
+
+    try:
+        if conexao_existente is not None:
+            cur = conexao_existente.cursor()
+            cur.execute(sql_merge, binds)
+        else:
+            with obter_conexao_oracle() as conn:
+                cur = conn.cursor()
+                cur.execute(sql_merge, binds)
+                conn.commit()
+        return {'ok': True}
+    except Exception as e:
+        logger.exception(f"Falha em registrar_origem_preco_item({nunota}, {sequencia})")
+        return {'ok': False, 'error': humanizar_erro_oracle(e)}
+
+
 def editar_entrada_combustivel_banco(nunota: int, dados: dict, codusu: int, nomeusu: str = '') -> dict:
     """B14 (Mai/2026) — Edita entrada de combustível (TOP 10) em modo CRUD do IAgro.
 

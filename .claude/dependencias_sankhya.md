@@ -138,6 +138,30 @@
 
 ---
 
+### 1.4.4 TGFNTA — Cadastro Nominal das Tabelas de Preço (Mai/2026 — 2026-05-21)
+
+**Propósito:** Mestre nominal das tabelas de preço — 1 linha por `CODTAB` com o nome humano (ASSAI, ECONOMART, EXAL, JC, VERDI...). É a tabela que aparece na tela "Tabelas de Preços" do Sankhya com a coluna "Nome".
+
+**Operações do IAgro:**
+- **SELECT**: lê NOMETAB pra exibir nome do grupo na tela de Tabela de Preços + select de Promoção
+
+**Colunas usadas:**
+- `CODTAB` (PK)
+- `NOMETAB` — nome humano da tabela
+- `OBS` — observação
+- `DECVENDA` — casas decimais
+- `CODTIPPARC` — tipo de parceiro
+- `CODREG` — região
+- `CODMOEDA` — moeda
+- `ATIVO` — `S`/`N`
+
+**Função que consulta:**
+- `listar_tabelas_grupos` — `SELECT n.CODTAB, n.NOMETAB, n.ATIVO ... FROM TGFNTA n` (LEFT JOIN com TGFPAR pra contar clientes vinculados; ordena por UPPER(NOMETAB))
+
+**Discoverability:** view `VGFTAB` faz `INNER JOIN TGFNTA ON TGFNTA.CODTAB = TGFTAB.CODTAB AND TGFTAB.DTVIGOR = MAX(DTVIGOR)`. IAgro lê **direto de TGFNTA** pra leitura mais leve e semântica clara (mestre vs versionamento).
+
+---
+
 ### 1.4.5 TGFTAB — Cadastro de Tabelas de Preço (Mai/2026 — 2026-05-20)
 
 **Propósito:** Histórico de versões das tabelas de preço — cada combinação `(CODTAB, DTVIGOR)` é uma versão.

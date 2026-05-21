@@ -609,6 +609,90 @@ Onde `caixas` por TGFITE = `CEIL(QTDNEG / TGFITE.PESO)` quando `PESO > 0`. Desco
 
 ---
 
+## 7.9 Tabela de Preços + Promoções — TGFNTA, TGFTAB, TGFEXC + AD_PROMOCAO + AD_ITEM_PRECO_ORIGEM (Mai/2026 — 2026-05-20/21)
+
+Cadastro completo de **resolução de preço por cliente** + **promoções por (Tabela × Produto)** com flexibilidade de escopo.
+
+### Tabelas Sankhya nativas envolvidas (LEITURA APENAS)
+
+| Tabela | Função |
+|---|---|
+| `TGFNTA` | Mestre nominal — `CODTAB` (PK), `NOMETAB`, `OBS`, `ATIVO` (descoberta Mai/2026 — 2026-05-21) |
+| `TGFTAB` | Versionamento — `NUTAB` (PK), `CODTAB`, `DTVIGOR`, `PERCENTUAL` |
+| `TGFEXC` | Preço operacional — `NUTAB`, `CODPROD`, `VLRVENDA`, `TIPO='V'` |
+| `TGFPAR.CODTAB` | Liga cliente ao grupo |
+
+**Cascata de resolução:**
+```
+TGFPAR.CODTAB → TGFNTA.NOMETAB (label) + TGFTAB[MAX(DTVIGOR<=hoje)].NUTAB → TGFEXC[NUTAB,CODPROD].VLRVENDA
+```
+
+Detalhes completos em `.claude/tabela_precos_sankhya.md`.
+
+### `AD_PROMOCAO` (auxiliar IAgro — escopo flexível Mai/2026)
+
+DDL em [`AD_PROMOCAO.sql`](../sankhya_integration/sql/AD_PROMOCAO.sql).
+
+| Coluna | Tipo | Função |
+|---|---|---|
+| `ID` | NUMBER PK | Sequence `SEQ_AD_PROMOCAO` |
+| `CODPROD` | NUMBER NOT NULL | FK lógica TGFPRO |
+| `CODTAB` | NUMBER NULL | Quando preenchido, afeta TODOS os TGFPAR com esse CODTAB |
+| `CODPARC` | NUMBER NULL | Quando preenchido, afeta só 1 cliente |
+| `VLRPROMO` | NUMBER(15,4) NOT NULL CHECK > 0 | Preço promocional |
+| `DT_INICIO`, `DT_FIM` | DATE NOT NULL CHECK fim >= inicio | Vigência |
+| `ATIVO` | CHAR(1) DEFAULT 'S' CHECK in (S,N) | Liga/desliga sem perder histórico |
+| `OBSERVACAO`, `CODUSU`, `NOMEUSU`, `CRIADO_EM` | — | Audit |
+| `CONSTRAINT CK_AD_PROMO_ESCOPO` | CHECK XOR | Exatamente 1 entre CODTAB/CODPARC |
+
+Índices: `IDX_AD_PROMO_VIGENTE (CODPARC, CODPROD, ATIVO, DT_INICIO, DT_FIM)` + `IDX_AD_PROMO_CODTAB (CODTAB, CODPROD, ATIVO, DT_INICIO, DT_FIM)`.
+
+### `AD_ITEM_PRECO_ORIGEM` (audit por item)
+
+DDL em [`AD_ITEM_PRECO_ORIGEM.sql`](../sankhya_integration/sql/AD_ITEM_PRECO_ORIGEM.sql).
+
+| Coluna | Tipo | Função |
+|---|---|---|
+| `NUNOTA`, `SEQUENCIA` | NUMBER NOT NULL (PK composto) | TGFITE do item |
+| `ORIGEM` | VARCHAR2(20) NOT NULL CHECK in (TABELA, PROMOCAO, MANUAL) | De onde veio o VLRUNIT |
+| `NUTAB` | NUMBER NULL | Quando ORIGEM='TABELA' |
+| `PROMOCAO_ID` | NUMBER NULL | FK lógica AD_PROMOCAO quando ORIGEM='PROMOCAO' |
+| `OBSERVACAO` | VARCHAR2(500) NULL | **Obrigatória quando ORIGEM='MANUAL'** (validado no service) |
+| `CODUSU`, `REGISTRADO_EM` | — | Audit |
+
+### Funções service (em `oracle_conn.py`)
+
+| Função | Cat | Operação |
+|---|---|---|
+| `consultar_preco_tabela(codparc, codprod, dtneg=None)` | A | Resolve preço via TGFPAR.CODTAB → TGFTAB → TGFEXC. Já validado contra Oracle (smoke Mai/2026) |
+| `consultar_promocoes_vigentes(codparc, codprod, dtneg=None)` | A | Promoções vigentes (CODPARC direto OR CODTAB do parceiro) |
+| `listar_tabelas_grupos(incluir_inativas=False)` | A | TODAS as TGFNTA + nome + nutab vigente + clientes (LEFT JOIN, ordena por nome) |
+| `listar_precos_da_tabela(codtab, filtros)` | A | TGFEXC[NUTAB ativa do CODTAB] + flag de promoção vigente |
+| `listar_promocoes_cadastradas(filtros, limite, offset)` | A | CRUD list (paginado) com escopo TABELA/PARCEIRO + qtd_clientes_grupo |
+| `consultar_origem_preco_item(nunota, sequencia)` | A | Lê AD_ITEM_PRECO_ORIGEM |
+| `criar_promocao_banco(dados, codusu, nomeusu)` | **B** | INSERT — aceita CODTAB OU CODPARC (XOR) |
+| `editar_promocao_banco(promocao_id, dados, codusu, nomeusu)` | **B** | UPDATE — pode trocar escopo (CODTAB ↔ CODPARC) |
+| `excluir_promocao_banco(promocao_id, codusu, nomeusu)` | **B** | DELETE físico |
+| `registrar_origem_preco_item(...)` | **B** | UPSERT (MERGE) em AD_ITEM_PRECO_ORIGEM. Valida MANUAL → observação obrigatória |
+
+### Endpoints REST
+
+- `GET  /sankhya/venda/promocoes/` — tela CRUD
+- `GET  /sankhya/venda/tabela-precos/` — tela LEITURA
+- `GET  /sankhya/venda/api/preco-tabela/?codparc=X&codprod=Y`
+- `GET  /sankhya/venda/api/promocoes/vigentes/?codparc=X&codprod=Y`
+- `GET  /sankhya/venda/api/promocoes/listar/?codtab=X&codparc=Y&ativo=S&escopo=TABELA|PARCEIRO`
+- `GET  /sankhya/venda/api/tabelas-grupos/?incluir_inativas=true`
+- `GET  /sankhya/venda/api/tabela-precos/?codtab=X`
+- `GET  /sankhya/venda/api/origem-preco-item/?nunota=X&sequencia=Y`
+- `POST /sankhya/venda/api/promocao/criar/`
+- `POST /sankhya/venda/api/promocao/editar/`
+- `POST /sankhya/venda/api/promocao/excluir/`
+
+Acesso: `@exige_grupo('venda')` (grupos 1, 6, 10).
+
+---
+
 ## 8. Modelos SQLite (Django)
 
 ### `Simulation`

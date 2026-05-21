@@ -1,0 +1,240 @@
+/* =========================================================================
+   PROMOÇÕES — tela de cadastro
+   Mai/2026 — 2026-05-20
+   ========================================================================= */
+.promo-grid {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 14px;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+.promo-sidebar {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 100%;
+    overflow-y: auto;
+}
+.promo-sidebar h3 {
+    margin: 0 0 6px 0;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: #6b7280;
+}
+.promo-sidebar .form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    position: relative;
+}
+.promo-sidebar .form-row label {
+    font-size: 11px;
+    color: #6b7280;
+    font-weight: 500;
+}
+.promo-sidebar input,
+.promo-sidebar select {
+    padding: 6px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 12px;
+    width: 100%;
+    box-sizing: border-box;
+}
+.promo-sidebar input:focus,
+.promo-sidebar select:focus {
+    outline: none;
+    border-color: #5e7e4a;
+}
+.promo-sidebar .filters-footer {
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+}
+.promo-sidebar .filters-footer button {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
+.promo-main {
+    overflow: auto;
+}
+.promo-main .panel {
+    padding: 16px;
+}
+.promo-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 12px;
+}
+.promo-list-header h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #374151;
+}
+.promo-list-header .muted {
+    color: #6b7280;
+    font-size: 12px;
+}
+
+.promo-table {
+    width: 100%;
+    table-layout: fixed;
+}
+.promo-table .prom-col-aplica  { width: auto; }
+.promo-table .prom-col-cliente { width: auto; }
+.promo-table .prom-col-produto { width: auto; }
+.promo-table .prom-col-preco   { width: 90px; }
+.promo-table .prom-col-data    { width: 100px; }
+.promo-table .prom-col-status  { width: 80px; }
+.promo-table .prom-col-acoes   { width: 80px; }
+
+.promo-table td,
+.promo-table th {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 6px 8px;
+    font-size: 12px;
+}
+.promo-table th {
+    text-align: left;
+    background: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+    font-weight: 600;
+    color: #4b5563;
+}
+.promo-table tbody tr:hover {
+    background: #f9fafb;
+}
+
+.promo-status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+.promo-status-badge.ativa {
+    background: #d1fae5;
+    color: #065f46;
+}
+.promo-status-badge.inativa {
+    background: #f3f4f6;
+    color: #6b7280;
+}
+
+/* ===== Modal cadastro ===== */
+.modal-card { max-width: min(560px, 95vw); }
+.modal-body .form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+    position: relative;
+}
+.modal-body .form-row-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+.modal-body label {
+    font-size: 12px;
+    color: #6b7280;
+    font-weight: 500;
+}
+.modal-body input,
+.modal-body select,
+.modal-body textarea {
+    padding: 7px 9px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 13px;
+    width: 100%;
+    box-sizing: border-box;
+    font-family: inherit;
+}
+.modal-body input:focus,
+.modal-body select:focus,
+.modal-body textarea:focus {
+    outline: none;
+    border-color: #5e7e4a;
+}
+.text-required { color: #dc2626; }
+
+/* ===== Escopo (Grupo / Parceiro) ===== */
+.escopo-radios {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.escopo-radios .radio-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #374151;
+    background: #ffffff;
+    transition: all 120ms ease-out;
+}
+.escopo-radios .radio-inline:hover {
+    border-color: #5e7e4a;
+    background: #f9fafb;
+}
+.escopo-radios input[type="radio"] {
+    margin: 0;
+    width: auto;
+}
+.escopo-radios .radio-inline:has(input:checked) {
+    background: #ecfdf5;
+    border-color: #5e7e4a;
+    color: #065f46;
+    font-weight: 600;
+}
+
+.muted { color: #6b7280; font-size: 11px; display: block; margin-top: 4px; }
+
+/* ===== Badges na listagem ===== */
+.escopo-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.escopo-badge.escopo-tabela {
+    background: #dbeafe;
+    color: #1e40af;
+}
+.escopo-badge.escopo-parceiro {
+    background: #fef3c7;
+    color: #92400e;
+}
+.hidden { display: none !important; }
+
+@media (max-width: 900px) {
+    .promo-grid {
+        grid-template-columns: 1fr;
+    }
+    .promo-sidebar {
+        max-height: 40vh;
+    }
+}

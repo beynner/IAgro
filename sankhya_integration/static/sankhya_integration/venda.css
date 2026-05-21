@@ -538,6 +538,101 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+/* ==========================================================================
+   MÓDULO 8: BARRA DE ORIGEM DO PREÇO (TABELA / PROMOÇÃO / MANUAL)
+   Mai/2026 — 2026-05-20
+   ========================================================================== */
+.preco-origem-bar {
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 12px;
+}
+.preco-origem-chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.po-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 16px;
+    cursor: pointer;
+    font-size: 12px;
+    color: #374151;
+    transition: all 120ms ease-out;
+    white-space: nowrap;
+}
+.po-chip:hover:not(:disabled) {
+    background: #f3f4f6;
+    border-color: #9ca3af;
+}
+.po-chip:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.po-chip.is-active {
+    background: #5e7e4a;
+    border-color: #4a6939;
+    color: #ffffff;
+    font-weight: 600;
+}
+.po-chip.is-active .po-chip-valor,
+.po-chip.is-active .po-chip-extra {
+    color: #ffffff;
+}
+.po-chip[data-origem="PROMOCAO"].is-active {
+    background: #d97706;
+    border-color: #b45309;
+}
+.po-chip[data-origem="MANUAL"].is-active {
+    background: #6b7280;
+    border-color: #4b5563;
+}
+.po-chip-label { font-weight: 500; }
+.po-chip-valor {
+    font-variant-numeric: tabular-nums;
+    color: #16a34a;
+    font-weight: 600;
+}
+.po-chip-extra {
+    font-size: 10px;
+    color: #6b7280;
+    margin-left: 2px;
+}
+.preco-origem-obs {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.preco-origem-obs label {
+    font-size: 11px;
+    color: #6b7280;
+    font-weight: 500;
+}
+.preco-origem-obs input {
+    padding: 6px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 12px;
+    width: 100%;
+}
+.preco-origem-obs input:focus {
+    border-color: #5e7e4a;
+    outline: none;
+}
+.text-required { color: #dc2626; }
 .icon-btn-mini {
     background: transparent;
     border: 1px solid transparent;
