@@ -272,16 +272,48 @@
 **Colunas usadas:**
 - `CODPROD` — PK
 - `DESCRPROD` — Descrição
-- `CODVOL` — Volume padrão (KG, UN, LT)
+- `CODVOL` — Volume padrão (KG, UN, LT, BD, etc) — unidade da venda
 - `CODGRUPOPROD` — Código do grupo de produto
 - `FABRICANTE` — Fabricante cadastrado (na Agromil = nome do produto, não fabricante real)
 - `REFERENCIA` — EAN13 (campo de código de barras — usado em etiquetas Mai/2026)
+- `USOPROD` — Tipo de uso (`V`=Venda, `R`=Revenda, `C`=Consumo). IAgro lê e propaga pra `TGFITE.USOPROD` em TOP 34/35/37 desde Mai/2026 (2026-05-20) — sem isso, trigger `TRG_UPT_TGFITE` rejeita
 
 **Funções:**
 - `consultar_produtos_oracle` — Typeahead
 - `consultar_fabricantes_disponiveis` — SELECT DISTINCT FABRICANTE → migrado para SELECT DISTINCT NOMEPARC_ORIGEM em Mai/2026
 - `consultar_produtos_combustivel` — Filtra CODGRUPOPROD=200400
 - `consultar_dados_etiqueta_pedido` — Lê REFERENCIA pra EAN
+
+---
+
+### 1.7.5 TGFVOA — Volumes Alternativos (Unidades de conversão) (Mai/2026 — 2026-05-21)
+
+**Propósito:** Cadastro nativo Sankhya que registra **unidades alternativas** por produto com fator de conversão pra unidade padrão. Permite vender em uma unidade (BD) e transportar em outra (CX).
+
+**Operações do IAgro:**
+- **SELECT**: leitura do fator de conversão pra calcular nº de caixas no PDF/tela de impressão
+
+**Colunas usadas:**
+- `CODPROD` — FK lógica TGFPRO (PK composto)
+- `CODVOL` — Unidade alternativa (PK composto): `CX`, `BD`, `DZ`, `SC`, etc
+- `DIVIDEMULTIPLICA` — `M`=multiplica · `D`=divide
+- `QUANTIDADE` — Fator de conversão. Com `DIV='M'`: `1 unidade_alt = QUANTIDADE × unidade_padrão (TGFPRO.CODVOL)`
+- `ATIVO` — `S`/`N`
+
+**Exemplos reais Agromil:**
+
+| CODPROD | DESCR | TGFPRO.CODVOL | CODVOL alt | DIV | QUANTIDADE | Significa |
+|---|---|---|---|---|---|---|
+| 372 | TOMATE GRAPE | KG | CX | M | 20.0 | 1 CX = 20 KG |
+| 372 | TOMATE GRAPE | KG | BD | M | 0.25 | 1 BD = 0.25 KG |
+| 61  | MILHO VERDE  | BD | CX | M | 10.0 | 1 CX = 10 BD |
+
+**Função que consulta:**
+- `consultar_pesos_referencia_por_codprods` — Camada 2 da cascata de cálculo de caixas no PDF (após moda TOP 26, antes da moda TOP 11). 1 query única com CTEs unidos por `UNION ALL` + prioridade.
+
+**Cobertura observada na Agromil (Mai/2026):** 1078 linhas TGFVOA ATIVO=S, 921 produtos distintos. Dos 87 produtos vendidos no último mês, 62% têm `CODVOL='CX'` cadastrado em TGFVOA (cálculo de caixas automático); 97% têm alguma unidade alternativa.
+
+**Diretriz operacional:** quando aparecer produto com CX vazio no PDF (cascata falhou), orientar operador a cadastrar `(CODPROD, 'CX', 'M', X)` em TGFVOA via tela nativa do Sankhya. Fonte única, sem coluna `AD_*` paralela.
 
 ---
 
@@ -730,6 +762,44 @@ Detalhes em `.claude/modules/caixas.md` e `.claude/schema.md` §7.8.
 **Tabelas Sankhya consumidas (LEITURA APENAS):** apenas via view (que por sua vez consulta TGFCAB, TGFITE, TGFVAR, TGFPRO, TGFPAR). Nenhuma escrita em tabela Sankhya nativa.
 
 **Zero impacto em queries existentes:** tabela auxiliar 100% isolada; outras funções continuam apontadas pra view real.
+
+---
+
+## 5.5 Colunas Customizadas `AD_*` em Tabelas Sankhya Nativas
+
+**Atualizado 2026-05-21** — `ALTER TABLE` em tabela Sankhya nativa adicionando coluna `AD_<NOME>` agora é **permitido** (continua exigindo aprovação Cat B ponto-a-ponto). Diretriz arquitetural em [`CLAUDE.md`](../CLAUDE.md) → "Estratégia de produto".
+
+Razão: o schema do banco do spin-off será **réplica exata** do schema Sankhya atual + nossas extensões `AD_*`. Acoplar via coluna `AD_*` em tabela nativa não cria dívida adicional — basta listar aqui as colunas customizadas.
+
+### Princípios
+
+1. **Prefixo `AD_<NOME>`** obrigatório (sem prefixo é reservado a campos nativos Sankhya).
+2. **Ler antes de criar** — se o dado já existe em campo nativo ou tabela Sankhya (ex.: `TGFVOA`, `TGFEXC`, `TGFPRO.PESO_NETO`), **ler** em vez de duplicar.
+3. **DDL versionada** em `sankhya_integration/sql/` (mesmo padrão das tabelas `AD_*`).
+4. **Tabela auxiliar `AD_*` ainda é preferível** quando o dado é multi-row por entidade (vários clientes por produto, histórico temporal). Coluna escalar única (1 valor por linha da tabela nativa) é candidato natural a coluna.
+
+### Inventário de Colunas Customizadas (estado atual)
+
+| Tabela Nativa | Coluna | Origem | Quem usa |
+|---|---|---|---|
+| `TGFCAB` | `AD_NUMPEDIDOORIG` | Convenção customizada da Agromil (legado pré-IAgro) | Entrada/Classificação/Comercial — rastreabilidade da "nota raiz via lote". Default = `NUNOTA próprio` (auto-referência) no INSERT do IAgro |
+| `TGFITE` | `AD_NUMPEDIDOORIG` | Convenção customizada da Agromil | Propagado do cabeçalho. Auto-cura em `atualizar_cabecalho_nota_banco` busca MIN de outros itens com mesmo CODAGREGACAO |
+| `TGFITE` | `AD_QTDAVARIA` | Convenção customizada da Agromil | Classificação registra descarte. Vira perna E (`AVARIA_FORNECEDOR`) na view `ANDRE_IAGRO_SALDO_LOTE`. Mai/2026: editável também em produto não-classificável (modal Entrada) |
+| `TGFITE` | `AD_PESO` | Convenção customizada da Agromil | Peso registrado na pesagem da Entrada (TOP 11). Não confundir com `TGFITE.PESO` (campo nativo canônico, usado pelo IAgro desde Mai/2026 — 2026-05-16) |
+| `TGFITE` | `AD_QTDCONFERIDA` | Convenção customizada da Agromil | Quantidade conferida na Entrada — atualizado em `inserir_item_nota_banco` (= `QTDNEG` em pedidos novos) |
+
+### Como adicionar nova coluna `AD_*` (checklist)
+
+1. **Smoke prévio (Cat A):** confirmar via `ALL_TAB_COLUMNS` que a coluna ainda não existe + verificar se o dado já não vive em outro lugar do schema Sankhya
+2. **Plano Cat B** apresentado ao usuário (o quê · como · por quê · o que afeta)
+3. **DDL versionada** em `sankhya_integration/sql/AD_<TABELA>_<COLUNA>.sql` com `ALTER TABLE` idempotente
+4. **Atualizar esse arquivo** — adicionar linha na tabela "Inventário" acima
+5. **Aplicar no Oracle** (smoke `_apply_*.py` ou execução manual)
+6. **Documentar uso** no módulo afetado (`.claude/modules/*.md`) — quem lê, quem escreve, com que regra
+
+### Por que essa lista importa pro spin-off
+
+Quando recriarmos o schema no banco próprio, **toda coluna listada acima precisa ser criada junto com a tabela nativa equivalente**. Sem esse inventário, é fácil esquecer uma extensão e quebrar funcionalidade. Esta seção é o **blueprint complementar** ao do §1 (Tabelas Sankhya consumidas).
 
 ---
 

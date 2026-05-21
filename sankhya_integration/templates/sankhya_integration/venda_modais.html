@@ -99,79 +99,68 @@
       <input type="hidden" id="items_nunota" />
       <input type="hidden" id="item_seq_edit" />
 
-      <div class="flex-col gap-8">
-        <div class="flex gap-8 align-end">
-          <div class="pos-rel flex-3-2 min-w-320">
-            <label>Produto</label>
-            <input type="text" id="item_prod_vis" placeholder="Buscar produto..." autocomplete="off" class="full-width" />
-            <input type="hidden" id="item_prod_hidden" />
-            <div id="item_prod_sugg" class="dropdown-abs fs-13"></div>
-          </div>
-          <div class="w-120">
-            <label>Lote</label>
-            <input type="text" id="item_lote" placeholder="Opcional" class="full-width" />
-          </div>
-          <div class="w-88">
-            <label>Volume</label>
-            <select id="item_codvol" class="full-width">
-              <option value="KG" selected>KG</option>
-              <option value="CX">CX</option>
-              <option value="UN">UN</option>
-              <option value="MC">MC</option>
-              <option value="SC">SC</option>
-            </select>
-          </div>
-          <div class="w-88">
-            <label>Qtd</label>
-            <input type="number" id="item_qtd" step="0.001" class="full-width" />
-          </div>
-          <div class="w-120">
-            <label>Preço Unit.</label>
-            <input type="number" id="item_preco" step="0.01" class="full-width" />
-          </div>
-          <div class="w-120">
-            <label>Total</label>
-            <input type="text" id="item_total_venda" disabled class="text-right full-width input-readonly" />
-          </div>
-          <button id="itemAddBtn" class="icon-btn" title="Adicionar Item (Enter)">
-            <i class="ph ph-plus-circle icon" aria-hidden="true"></i>
+      <div class="flex gap-8 align-end">
+        <div class="pos-rel flex-1 min-w-280">
+          <label>Produto</label>
+          <input type="text" id="item_prod_vis" placeholder="Buscar produto..." autocomplete="off" class="full-width" />
+          <input type="hidden" id="item_prod_hidden" />
+          <div id="item_prod_sugg" class="dropdown-abs fs-13"></div>
+        </div>
+
+        <!-- Mai/2026 (2026-05-21) — Chips de origem do preço (TABELA / PROMOÇÃO) empilhados verticais -->
+        <div id="precoOrigemBar" class="preco-origem-bar hidden">
+          <button type="button" class="po-chip" data-origem="TABELA" tabindex="-1" title="Aplicar preço da tabela do cliente">
+            <i class="ph ph-table" aria-hidden="true"></i>
+            <span class="po-chip-label">Tabela</span>
           </button>
-          <button id="itemEditCancel" class="icon-btn hidden" title="Cancelar Edição (Esc)">
-            <i class="ph ph-x icon" aria-hidden="true"></i>
+          <button type="button" class="po-chip" data-origem="PROMOCAO" tabindex="-1" title="Aplicar preço promocional">
+            <i class="ph ph-gift" aria-hidden="true"></i>
+            <span class="po-chip-label">Promoção</span>
           </button>
         </div>
 
-        <!-- Mai/2026 (2026-05-20) — Origem do preço (TABELA / PROMOÇÃO / MANUAL) -->
-        <div id="precoOrigemBar" class="preco-origem-bar hidden">
-          <div class="preco-origem-chips">
-            <button type="button" class="po-chip" data-origem="TABELA" title="Aplicar preço da tabela do cliente">
-              <i class="ph ph-table" aria-hidden="true"></i>
-              <span class="po-chip-label">Tabela</span>
-              <span class="po-chip-valor" id="poChipTabelaValor">—</span>
-            </button>
-            <button type="button" class="po-chip" data-origem="PROMOCAO" title="Aplicar preço promocional">
-              <i class="ph ph-gift" aria-hidden="true"></i>
-              <span class="po-chip-label">Promoção</span>
-              <span class="po-chip-valor" id="poChipPromoValor">—</span>
-              <span class="po-chip-extra" id="poChipPromoExtra"></span>
-            </button>
-            <button type="button" class="po-chip" data-origem="MANUAL" title="Digitar preço manual (exige observação)">
-              <i class="ph ph-pencil-simple" aria-hidden="true"></i>
-              <span class="po-chip-label">Manual</span>
-            </button>
-          </div>
-          <div id="precoOrigemObsWrap" class="preco-origem-obs hidden">
-            <label for="precoOrigemObs">
-              Motivo do preço manual <span class="text-required">*</span>
-            </label>
-            <input type="text" id="precoOrigemObs" placeholder="Ex.: negociação especial, cliente VIP, ajuste promocional..." maxlength="500" />
-          </div>
+        <div class="w-96">
+          <label>Lote</label>
+          <input type="text" id="item_lote" placeholder="Opcional" class="full-width" />
         </div>
+        <div class="w-60">
+          <label>Volume</label>
+          <select id="item_codvol" class="full-width">
+            <option value="KG" selected>KG</option>
+            <option value="CX">CX</option>
+            <option value="UN">UN</option>
+            <option value="MC">MC</option>
+            <option value="SC">SC</option>
+          </select>
+        </div>
+        <div class="w-70">
+          <label>Qtd</label>
+          <input type="number" id="item_qtd" step="0.001" class="full-width" />
+        </div>
+        <div class="w-80">
+          <label>Preço Unit.</label>
+          <input type="number" id="item_preco" step="0.01" class="full-width" />
+        </div>
+        <div class="w-96">
+          <label>Total</label>
+          <input type="text" id="item_total_venda" disabled class="text-right full-width input-readonly" />
+        </div>
+        <div class="item-acoes-col">
+          <button id="itemAddBtn" class="icon-btn" title="Adicionar Item (Enter)">
+            <i class="ph ph-plus-circle icon" aria-hidden="true"></i>
+          </button>
+          <button id="itemClearBtn" type="button" class="icon-btn icon-btn-clear" title="Limpar campos do formulário">
+            <i class="ph ph-eraser icon" aria-hidden="true"></i>
+          </button>
+        </div>
+        <button id="itemEditCancel" class="icon-btn hidden" title="Cancelar Edição (Esc)">
+          <i class="ph ph-arrow-u-up-left icon" aria-hidden="true"></i>
+        </button>
       </div>
 
       <div style="margin-top: 15px;">
         <label>Produtos no Pedido</label>
-        <div class="scroll-panel" style="height: 300px;">
+        <div class="scroll-panel vda-items-scroll">
           <table class="ia-selectable-table vda-items-table">
             <colgroup>
               <col class="vda-col-prod" />
@@ -196,6 +185,15 @@
             <tbody id="itemsListBody">
               <tr><td colspan="7" class="ia-placeholder">Nenhum item inserido.</td></tr>
             </tbody>
+            <tfoot id="itemsListFoot" class="vda-items-tfoot hidden">
+              <tr>
+                <td colspan="3" class="text-right"><strong>Totais:</strong></td>
+                <td class="text-right" id="itemsTotalQtd">0,00</td>
+                <td></td>
+                <td class="text-right" id="itemsTotalValor">0,00</td>
+                <td></td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </div>
@@ -451,6 +449,92 @@
         <button id="btnCancelarFaturar" class="btn btn-clear">Cancelar</button>
         <button id="btnConfirmarFaturar" class="btn btn-success">Faturar</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Mai/2026 (2026-05-21) — Modal de impressão de pedidos -->
+<div id="impressaoModal" class="modal-overlay hidden">
+  <div class="modal-card modal-card-imp">
+    <div class="modal-header">
+      <h3>Impressão de Pedidos</h3>
+      <button class="modal-close-btn" id="impFechar" type="button" aria-label="Fechar">×</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Linha de agrupamento rápido (chips renderizados dinamicamente conforme grupos detectados no dia) -->
+      <div class="imp-grupos">
+        <span class="imp-grupos-lbl">Agrupar:</span>
+        <div id="impChipsDinamicos" class="imp-chips-wrap"></div>
+        <span class="imp-grupos-info" id="impInfo">— Use a data do filtro atual da tela</span>
+      </div>
+
+      <div class="imp-layout">
+        <!-- Painel esquerdo: lista de pedidos -->
+        <div class="imp-pedidos-panel">
+          <div class="imp-pedidos-header">
+            <div>
+              <strong id="impPedidosTitulo">Pedidos</strong>
+              <span class="imp-counter" id="impPedidosCount">0</span>
+            </div>
+            <div class="imp-pedidos-actions">
+              <button type="button" class="imp-link" id="impMarcarTodos">Marcar todos</button>
+              <button type="button" class="imp-link" id="impDesmarcarTodos">Desmarcar</button>
+            </div>
+          </div>
+          <div class="imp-pedidos-list" id="impPedidosList">
+            <div class="ia-placeholder">Selecione um grupo acima.</div>
+          </div>
+        </div>
+
+        <!-- Painel direito: consolidação -->
+        <div class="imp-consol-panel">
+          <div class="imp-consol-header">
+            <strong>Consolidação por produto</strong>
+            <span class="imp-consol-info" id="impConsolInfo">—</span>
+          </div>
+          <div class="imp-consol-wrap">
+            <table class="imp-consol-table">
+              <colgroup>
+                <col class="imp-col-cod" />
+                <col class="imp-col-descr" />
+                <col class="imp-col-un" />
+                <col class="imp-col-qtd" />
+                <col class="imp-col-cx" />
+                <col class="imp-col-ped" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th class="text-right">Cód.</th>
+                  <th>Descrição</th>
+                  <th class="text-center">UN</th>
+                  <th class="text-right">QTD Total</th>
+                  <th class="text-right">CX</th>
+                  <th class="text-right">Nº Ped.</th>
+                </tr>
+              </thead>
+              <tbody id="impConsolBody">
+                <tr><td colspan="6" class="ia-placeholder">Sem dados</td></tr>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="3" class="text-right"><strong>Total:</strong></td>
+                  <td class="text-right" id="impTotalQtd">0</td>
+                  <td class="text-right" id="impTotalCx">0</td>
+                  <td class="text-right" id="impTotalPed">0</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex gap-8 justify-end mt6">
+        <button id="impCancelar" type="button" class="btn btn-clear">Fechar</button>
+        <button id="impPdfIndividual" type="button" class="btn">Imprimir individuais</button>
+        <button id="impPdfConsolidado" type="button" class="btn btn-success">Imprimir consolidado</button>
+      </div>
+
     </div>
   </div>
 </div>

@@ -83,8 +83,16 @@ from .services.oracle_conn import (
     consultar_avarias_fornecedor_de_pedido,
     # Toggle Absorver/Descontar do modal Faturamento (Mai/2026 — 2026-05-20)
     alternar_modo_avaria_vale_lote,
+    # Impressão de pedidos (Mai/2026 — 2026-05-21)
+    obter_dados_pedido_completo_para_impressao,
+    listar_pedidos_para_impressao,
+    consultar_pesos_referencia_por_codprods,
 )
 from .services.etiqueta_lote import gerar_pdf_etiquetas
+from .services.pedido_venda_pdf import (
+    gerar_pdf_pedidos_individual,
+    gerar_pdf_pedidos_consolidado,
+)
 
 from django.contrib import messages
 from django.core.cache import cache
@@ -6607,3 +6615,324 @@ def api_caixas_refresh_pesos(request: HttpRequest) -> JsonResponse:
     return JsonResponse(result)
 
 
+# ============================================================================
+# IMPRESSÃO DE PEDIDOS DE VENDA (Mai/2026 — 2026-05-21)
+# 3 endpoints: preview JSON + PDF individual + PDF consolidado.
+# Tudo Cat A (leitura pura + geração de PDF — zero escrita).
+# ============================================================================
+
+# Atalhos de agrupamento — CODTAB no TGFPAR identifica famílias de cliente
+_GRUPOS_IMPRESSAO_CODTAB = {
+    'ASSAI_DF':                 [5],            # 7 lojas Assaí DF
+    'ASSAI_PALMAS_ARAGUAINA':   [17, 18],       # Araguaína + Palmas (2 lojas)
+    'ASSAI_TODOS':              [5, 17, 18],    # todos os Assaís
+}
+
+
+def _build_filtros_impressao(request: HttpRequest) -> dict:
+    """Constrói o dict de filtros pra ``listar_pedidos_para_impressao`` a partir
+    do GET (modo + codtabs + datas + nunotas explícitos)."""
+    filtros: dict = {}
+
+    # codtabs explícitos (ex: ?codtabs=4,5,6) — vence sobre `modo`
+    codtabs_raw = (request.GET.get('codtabs') or '').strip()
+    if codtabs_raw:
+        try:
+            filtros['codtabs'] = [int(t) for t in codtabs_raw.split(',') if t.strip()]
+        except ValueError:
+            pass
+
+    # Modo nomeado legado (compat com chips antigos) — só se ainda não tiver codtabs
+    if 'codtabs' not in filtros:
+        modo = (request.GET.get('modo') or '').strip().upper()
+        if modo in _GRUPOS_IMPRESSAO_CODTAB:
+            filtros['codtabs'] = _GRUPOS_IMPRESSAO_CODTAB[modo]
+
+    # Datas — aceita ou data única (dtneg) ou intervalo (dtneg_de/dtneg_ate)
+    dtneg = (request.GET.get('dtneg') or '').strip()
+    if dtneg:
+        # Aceita YYYY-MM-DD do input HTML e converte pra DD/MM/YYYY do Oracle
+        if len(dtneg) == 10 and dtneg[4] == '-':
+            y, m, d = dtneg.split('-')
+            filtros['dtneg'] = f"{d}/{m}/{y}"
+        else:
+            filtros['dtneg'] = dtneg
+    else:
+        de  = (request.GET.get('dtneg_de')  or '').strip()
+        ate = (request.GET.get('dtneg_ate') or '').strip()
+        def _to_br(s):
+            if not s:
+                return None
+            if len(s) == 10 and s[4] == '-':
+                y, m, d = s.split('-')
+                return f"{d}/{m}/{y}"
+            return s
+        de_br  = _to_br(de)
+        ate_br = _to_br(ate)
+        if de_br and ate_br:
+            filtros['dtneg_de']  = de_br
+            filtros['dtneg_ate'] = ate_br
+
+    codparc = (request.GET.get('codparc') or '').strip()
+    if codparc:
+        try:
+            filtros['codparc'] = int(codparc)
+        except ValueError:
+            pass
+
+    nunotas_raw = (request.GET.get('nunotas') or '').strip()
+    if nunotas_raw:
+        try:
+            filtros['nunotas'] = [int(n) for n in nunotas_raw.split(',') if n.strip()]
+        except ValueError:
+            pass
+
+    return filtros
+
+
+@require_http_methods(["GET"])
+@exige_grupo('venda')
+def api_imprimir_preview(request: HttpRequest) -> JsonResponse:
+    """Lista pedidos TOP 34 ativos pra preview da tela de impressão.
+
+    Aceita os mesmos filtros do ``_build_filtros_impressao``. Frontend usa
+    pra montar painel esquerdo (lista) + chips dinâmicos (só grupos com
+    pedidos no dia aparecem).
+    """
+    filtros = _build_filtros_impressao(request)
+    pedidos = listar_pedidos_para_impressao(filtros)
+    # CODTABs únicos detectados — alimenta os chips de agrupamento dinâmico
+    codtabs_distintos = sorted({
+        p['codtab'] for p in pedidos if p.get('codtab') is not None
+    })
+    return JsonResponse({
+        'ok': True,
+        'pedidos': pedidos,
+        'codtabs_distintos': codtabs_distintos,
+        'filtros_aplicados': filtros,
+    })
+
+
+def _carregar_dados_para_pdf(nunotas: list[int]) -> list[dict]:
+    """Carrega dados completos pra cada NUNOTA. Pula NUNOTAs inexistentes."""
+    out = []
+    for n in nunotas:
+        try:
+            d = obter_dados_pedido_completo_para_impressao(int(n))
+        except Exception:
+            logger.exception("Falha em obter_dados_pedido_completo_para_impressao(%s)", n)
+            continue
+        if d and d.get('pedido'):
+            out.append(d)
+    return out
+
+
+def _coletar_pesos_fallback_pdf(dados: list[dict]) -> dict[int, float]:
+    """Resolve pesos fallback (TOP 26 → TOP 11) só pros CODPRODs onde a venda
+    não tem PESO populado. Reusado pelos endpoints de PDF individual e
+    consolidado pra preencher a coluna CX nos relatórios."""
+    codprods = list({
+        it['codprod']
+        for d in dados
+        for it in (d.get('itens') or [])
+        if not it.get('qtd_caixas')
+    })
+    if not codprods:
+        return {}
+    try:
+        return consultar_pesos_referencia_por_codprods(codprods)
+    except Exception:
+        logger.exception("Falha em consultar_pesos_referencia_por_codprods (pdf)")
+        return {}
+
+
+def _parse_nunotas_payload(request: HttpRequest) -> list[int] | None:
+    """Lê lista de NUNOTAs do corpo da request (JSON ``{nunotas: [...]}``) OU
+    do query string ``?nunotas=N1,N2,...`` como fallback. Retorna None se
+    formato inválido."""
+    # 1ª tentativa: JSON body (POST)
+    if request.method == 'POST':
+        try:
+            body = json.loads(request.body or b'{}')
+            lista = body.get('nunotas') or []
+            return [int(n) for n in lista if n]
+        except (ValueError, TypeError, json.JSONDecodeError):
+            return None
+    # Fallback: query string
+    raw = (request.GET.get('nunotas') or '').strip()
+    if not raw:
+        return []
+    try:
+        return [int(n) for n in raw.split(',') if n.strip()]
+    except ValueError:
+        return None
+
+
+@require_http_methods(["GET", "POST"])
+@exige_grupo('venda')
+def api_imprimir_consolidacao(request: HttpRequest) -> JsonResponse:
+    """Retorna agregação por CODPROD de uma lista de NUNOTAs.
+
+    Aceita POST (JSON body ``{nunotas: [...]}``) — recomendado pra listas
+    grandes — ou GET (``?nunotas=N1,N2``) como fallback.
+    """
+    nunotas = _parse_nunotas_payload(request)
+    if nunotas is None:
+        return JsonResponse(
+            {'ok': False, 'error': 'Lista de pedidos inválida.'}, status=400,
+        )
+    if not nunotas:
+        return JsonResponse({'ok': True, 'produtos': [], 'total_pedidos': 0,
+                              'total_qtd': 0, 'total_caixas': 0})
+
+    dados = _carregar_dados_para_pdf(nunotas)
+    if not dados:
+        return JsonResponse({'ok': True, 'produtos': [], 'total_pedidos': 0,
+                              'total_qtd': 0, 'total_caixas': 0})
+
+    por_prod: dict[int, dict] = {}
+    for d in dados:
+        for it in (d.get('itens') or []):
+            cp = it['codprod']
+            slot = por_prod.setdefault(cp, {
+                'codprod':    cp,
+                'descrprod':  it['descrprod'],
+                'codvol':     it['codvol'],
+                'qtd_total':  0.0,
+                'qtd_caixas': 0,
+                'n_pedidos':  0,
+                '_nunotas':   set(),
+            })
+            slot['qtd_total']  += float(it['qtdneg'] or 0)
+            slot['qtd_caixas'] += int(it['qtd_caixas'] or 0)
+            slot['_nunotas'].add(d['pedido']['nunota'])
+
+    # Pra produtos sem caixas calculadas (TGFITE.PESO=0), resolve via cascata
+    # TOP 26 → TOP 11 numa única query. Recalcula qtd_caixas = CEIL(qtd_total / peso).
+    codprods_sem_cx = [cp for cp, slot in por_prod.items() if slot['qtd_caixas'] == 0]
+    pesos_ref = {}
+    if codprods_sem_cx:
+        try:
+            pesos_ref = consultar_pesos_referencia_por_codprods(codprods_sem_cx)
+        except Exception:
+            logger.exception("Falha em consultar_pesos_referencia_por_codprods")
+
+    produtos = []
+    total_qtd = 0.0
+    total_cx  = 0
+    for slot in sorted(por_prod.values(), key=lambda r: r['codprod']):
+        slot['n_pedidos'] = len(slot['_nunotas'])
+        del slot['_nunotas']
+        # Fallback de caixas
+        if slot['qtd_caixas'] == 0:
+            peso_ref = pesos_ref.get(slot['codprod'])
+            if peso_ref and peso_ref > 0:
+                slot['qtd_caixas'] = int(-(-float(slot['qtd_total']) // float(peso_ref)))
+        total_qtd += slot['qtd_total']
+        total_cx  += slot['qtd_caixas']
+        produtos.append(slot)
+
+    return JsonResponse({
+        'ok': True,
+        'produtos':       produtos,
+        'total_pedidos':  len(dados),
+        'total_qtd':      total_qtd,
+        'total_caixas':   total_cx,
+    })
+
+
+@require_http_methods(["GET", "POST"])
+@exige_grupo('venda')
+def api_imprimir_pdf_individual(request: HttpRequest):
+    """Gera PDF com 1 página por pedido (layout Sankhya).
+
+    Aceita POST (JSON body ``{nunotas: [...]}``) — recomendado pra listas
+    grandes — ou GET (``?nunotas=N1,N2``) como fallback.
+    """
+    nunotas = _parse_nunotas_payload(request)
+    if nunotas is None:
+        return JsonResponse(
+            {'ok': False, 'error': 'Lista de pedidos inválida.'}, status=400,
+        )
+    if not nunotas:
+        return JsonResponse(
+            {'ok': False, 'error': 'Selecione pelo menos 1 pedido pra imprimir.'},
+            status=400,
+        )
+
+    dados = _carregar_dados_para_pdf(nunotas)
+    if not dados:
+        return JsonResponse(
+            {'ok': False, 'error': 'Nenhum pedido encontrado.'}, status=404,
+        )
+
+    pesos_fallback = _coletar_pesos_fallback_pdf(dados)
+
+    try:
+        pdf_bytes = gerar_pdf_pedidos_individual(dados, pesos_fallback=pesos_fallback)
+    except Exception as exc:
+        logger.exception("Falha em gerar_pdf_pedidos_individual")
+        return JsonResponse(
+            {'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500,
+        )
+
+    sufx = f'-{nunotas[0]}' if len(nunotas) == 1 else f'-lote-{len(nunotas)}'
+    fname = f'pedidos{sufx}.pdf'
+    response = HttpResponse(pdf_bytes, content_type='application/pdf')
+    response['Content-Disposition'] = f'inline; filename="{fname}"'
+    return response
+
+
+@require_http_methods(["GET", "POST"])
+@exige_grupo('venda')
+def api_imprimir_pdf_consolidado(request: HttpRequest):
+    """Gera PDF consolidado de N pedidos agrupado por CODPROD.
+
+    Aceita POST (JSON body ``{nunotas: [...], titulo: ..., subtitulo: ...}``)
+    — recomendado — ou GET (``?nunotas=...&titulo=...&subtitulo=...``).
+    """
+    if request.method == 'POST':
+        try:
+            body = json.loads(request.body or b'{}')
+        except (ValueError, json.JSONDecodeError):
+            body = {}
+        titulo    = (body.get('titulo')    or '').strip() or 'CONSOLIDAÇÃO DE PEDIDOS'
+        subtitulo = (body.get('subtitulo') or '').strip()
+    else:
+        titulo    = (request.GET.get('titulo')    or '').strip() or 'CONSOLIDAÇÃO DE PEDIDOS'
+        subtitulo = (request.GET.get('subtitulo') or '').strip()
+
+    nunotas = _parse_nunotas_payload(request)
+    if nunotas is None:
+        return JsonResponse(
+            {'ok': False, 'error': 'Lista de pedidos inválida.'}, status=400,
+        )
+    if not nunotas:
+        return JsonResponse(
+            {'ok': False, 'error': 'Selecione pelo menos 1 pedido pra consolidar.'},
+            status=400,
+        )
+
+    dados = _carregar_dados_para_pdf(nunotas)
+    if not dados:
+        return JsonResponse(
+            {'ok': False, 'error': 'Nenhum pedido encontrado.'}, status=404,
+        )
+
+    pesos_fallback = _coletar_pesos_fallback_pdf(dados)
+
+    try:
+        pdf_bytes = gerar_pdf_pedidos_consolidado(
+            dados, titulo=titulo, subtitulo=subtitulo,
+            pesos_fallback=pesos_fallback,
+        )
+    except Exception as exc:
+        logger.exception("Falha em gerar_pdf_pedidos_consolidado")
+        return JsonResponse(
+            {'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500,
+        )
+
+    fname = f'consolidado-{len(nunotas)}-pedidos.pdf'
+    response = HttpResponse(pdf_bytes, content_type='application/pdf')
+    response['Content-Disposition'] = f'inline; filename="{fname}"'
+    return response

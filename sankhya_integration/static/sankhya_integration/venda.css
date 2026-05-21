@@ -543,36 +543,77 @@
    MÓDULO 8: BARRA DE ORIGEM DO PREÇO (TABELA / PROMOÇÃO / MANUAL)
    Mai/2026 — 2026-05-20
    ========================================================================== */
-.preco-origem-bar {
-    margin-top: 8px;
-    padding: 8px 10px;
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
+/* Force align-items: flex-end no form-row do modal de item (`.flex.align-end`
+   estava sem regra real em CSS — items ficavam stretch e o bar estourava). */
+#cabItemsCard .flex.gap-8.align-end {
+    align-items: flex-end !important;
+}
+
+/* Modal de itens: largura/altura confortáveis pra ver mais itens */
+#cabItemsCard.modal-card.large {
+    width: min(1100px, 96vw);
+    max-height: 92vh;
+    height: 92vh;
+}
+#cabItemsCard .modal-body {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    font-size: 12px;
+    overflow: hidden;
+    max-height: calc(92vh - 60px);  /* header ~60px */
 }
-.preco-origem-chips {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    align-items: center;
+/* Scroll-panel da tabela de itens — cresce até o que sobrar do modal */
+.vda-items-scroll {
+    flex: 1 1 auto;
+    min-height: 220px;
+    max-height: calc(92vh - 280px);  /* desconta cabeçalho + form + rodapé */
+    overflow-y: auto;
+}
+
+/* tfoot da tabela de itens — fixo no rodapé + verde Agromil sutil */
+.vda-items-tfoot td {
+    position: sticky;
+    bottom: 0;
+    padding: 6px 8px;
+    background: #eef2e8;
+    border-top: 2px solid #5e7e4a;
+    font-weight: 700;
+    color: #1f2937;
+    z-index: 1;
+}
+.vda-items-tfoot td.text-right { text-align: right; }
+
+/* Bar inline (Mai/2026 — 2026-05-21): 2 chips empilhados ao lado do input
+   do Produto. Borda inferior do conjunto alinha com borda inferior dos inputs
+   Produto/Lote via `align-self: flex-end` herdando do parent flex-end. */
+.preco-origem-bar {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 3px;
+    align-self: flex-end;
+    flex: 0 0 auto;
+    font-size: 11.5px;
 }
 .po-chip {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 5px 11px;
+    justify-content: flex-start;
+    gap: 5px;
+    padding: 0 10px;
     background: #ffffff;
     border: 1px solid #d1d5db;
-    border-radius: 16px;
+    border-radius: 10px;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11.5px;
     color: #374151;
     transition: all 120ms ease-out;
     white-space: nowrap;
+    height: 20px;
+    line-height: 1;
+}
+.po-chip .ph {
+    font-size: 12px;
+    line-height: 1;
 }
 .po-chip:hover:not(:disabled) {
     background: #f3f4f6;
@@ -596,10 +637,6 @@
     background: #d97706;
     border-color: #b45309;
 }
-.po-chip[data-origem="MANUAL"].is-active {
-    background: #6b7280;
-    border-color: #4b5563;
-}
 .po-chip-label { font-weight: 500; }
 .po-chip-valor {
     font-variant-numeric: tabular-nums;
@@ -611,22 +648,26 @@
     color: #6b7280;
     margin-left: 2px;
 }
+
+/* Antigos blocos do campo "Motivo" — descontinuados em 2026-05-21
+   (chip MANUAL e campo de observação removidos pra desburocratizar).
+   CSS preservado abaixo só pra retrocompat caso alguém renderize legado;
+   pode ser removido no próximo passe de limpeza. */
 .preco-origem-obs {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+    display: none;
 }
 .preco-origem-obs label {
     font-size: 11px;
     color: #6b7280;
     font-weight: 500;
+    white-space: nowrap;
 }
 .preco-origem-obs input {
-    padding: 6px 8px;
+    flex: 1 1 auto;
+    padding: 5px 8px;
     border: 1px solid #d1d5db;
     border-radius: 4px;
     font-size: 12px;
-    width: 100%;
 }
 .preco-origem-obs input:focus {
     border-color: #5e7e4a;
@@ -875,6 +916,56 @@ input:focus {
 .pos-rel { position: relative !important; }
 .full-width { width: 100% !important; }
 
+/* Utilitários adicionados em 2026-05-21 — modal de item da Venda compactado */
+.w-60 { width: 60px; }
+.w-70 { width: 70px; }
+.w-72 { width: 72px; }
+.w-80 { width: 80px; }
+.min-w-200 { min-width: 200px !important; }
+.min-w-280 { min-width: 280px !important; }
+
+/* Coluna vertical com botão + (verde, maior) e X (vermelho, limpar)
+   empilhados, sem bordas. */
+.item-acoes-col {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    align-self: flex-end;
+    padding-bottom: 1px;
+}
+.item-acoes-col .icon-btn {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    cursor: pointer;
+}
+.item-acoes-col #itemAddBtn {
+    color: #16a34a;  /* verde forte */
+}
+.item-acoes-col #itemAddBtn .ph {
+    font-size: 28px;
+    line-height: 1;
+}
+.item-acoes-col #itemAddBtn:hover .ph {
+    color: #15803d;
+}
+.icon-btn-clear {
+    color: #dc2626;  /* X vermelho */
+}
+.icon-btn-clear .ph {
+    font-size: 20px;
+    line-height: 1;
+}
+.icon-btn-clear:hover {
+    color: #991b1b;
+}
+
 .dropdown-abs { 
     position: absolute; 
     top: 100%; 
@@ -975,7 +1066,8 @@ input:focus {
 /* Override do modal-overlay (precisa por causa do conflito com entrada.css) */
 #avariaModal:not(.hidden),
 #devolucaoModal:not(.hidden),
-#historicoLoteModal:not(.hidden) {
+#historicoLoteModal:not(.hidden),
+#impressaoModal:not(.hidden) {
     display: flex !important;
     align-items: center;
     justify-content: center;
@@ -1276,4 +1368,206 @@ input:focus {
         border-radius: 0 !important;
     }
     .vd-toolbar-btn span { display: none; }
+}
+
+/* ==========================================================================
+   MÓDULO X: MODAL DE IMPRESSÃO DE PEDIDOS (Mai/2026 — 2026-05-21)
+   ========================================================================== */
+.modal-card-imp {
+    width: 1000px;
+    max-width: 96vw;
+}
+.imp-grupos {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 8px 4px;
+    border-bottom: 1px solid #e5e7eb;
+    margin-bottom: 10px;
+}
+.imp-grupos-lbl {
+    font-size: 12px;
+    color: #6b7280;
+    font-weight: 600;
+}
+.imp-chips-wrap {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.imp-chip {
+    padding: 5px 12px;
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 14px;
+    cursor: pointer;
+    font-size: 12px;
+    color: #374151;
+    transition: all 120ms ease-out;
+    white-space: nowrap;
+}
+.imp-chip:hover:not(:disabled) {
+    background: #f3f4f6;
+    border-color: #9ca3af;
+}
+.imp-chip.is-active {
+    background: #5e7e4a;
+    border-color: #4a6939;
+    color: #ffffff;
+    font-weight: 600;
+}
+.imp-grupos-info {
+    margin-left: auto;
+    font-size: 11px;
+    color: #6b7280;
+}
+.imp-layout {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 12px;
+    min-height: 380px;
+}
+.imp-pedidos-panel,
+.imp-consol-panel {
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #ffffff;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.imp-pedidos-header,
+.imp-consol-header {
+    padding: 7px 10px;
+    background: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+}
+.imp-pedidos-header > div:first-child {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.imp-counter {
+    font-size: 11px;
+    color: #6b7280;
+    background: #e5e7eb;
+    padding: 1px 6px;
+    border-radius: 8px;
+}
+.imp-pedidos-actions {
+    display: flex;
+    gap: 6px;
+}
+.imp-link {
+    background: transparent;
+    border: none;
+    color: #2563eb;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 2px 4px;
+}
+.imp-link:hover { text-decoration: underline; }
+
+.imp-pedidos-list {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    max-height: 380px;
+}
+.imp-pedido-row {
+    display: grid;
+    grid-template-columns: 18px 1fr auto;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 11.5px;
+    cursor: pointer;
+}
+.imp-pedido-row:hover { background: #f9fafb; }
+.imp-ped-nome {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #374151;
+}
+.imp-tab-badge {
+    background: #dbeafe;
+    color: #1e40af;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-weight: 600;
+}
+
+.imp-consol-info {
+    color: #6b7280;
+    font-size: 11px;
+}
+.imp-consol-wrap {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    max-height: 380px;
+}
+.imp-consol-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11.5px;
+    table-layout: fixed;
+}
+.imp-consol-table colgroup col.imp-col-cod  { width: 48px; }
+.imp-consol-table colgroup col.imp-col-un   { width: 40px; }
+.imp-consol-table colgroup col.imp-col-qtd  { width: 90px; }
+.imp-consol-table colgroup col.imp-col-cx   { width: 50px; }
+.imp-consol-table colgroup col.imp-col-ped  { width: 55px; }
+.imp-consol-table colgroup col.imp-col-descr { width: auto; }
+.imp-consol-table tbody td:nth-child(2) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.imp-consol-table thead th {
+    position: sticky;
+    top: 0;
+    background: #f3f4f6;
+    color: #374151;
+    font-weight: 600;
+    padding: 6px 8px;
+    text-align: left;
+    border-bottom: 1px solid #e5e7eb;
+    z-index: 1;
+}
+.imp-consol-table th.text-right { text-align: right; }
+.imp-consol-table th.text-center { text-align: center; }
+.imp-consol-table tbody td {
+    padding: 4px 8px;
+    border-bottom: 1px solid #f3f4f6;
+    color: #374151;
+    font-variant-numeric: tabular-nums;
+}
+.imp-consol-table tbody td.text-center { text-align: center; }
+.imp-consol-table tbody td.text-right { text-align: right; }
+.imp-consol-table tfoot td {
+    padding: 6px 8px;
+    background: #eef2e8;          /* tom sutil verde Agromil */
+    border-top: 2px solid #5e7e4a;
+    font-weight: 700;
+    position: sticky;             /* fixo na base ao rolar */
+    bottom: 0;
+    z-index: 2;
+    color: #1f2937;
+}
+.imp-consol-table tfoot td.text-right { text-align: right; }
+
+@media (max-width: 900px) {
+    .modal-card-imp { width: 95vw; }
+    .imp-layout {
+        grid-template-columns: 1fr;
+    }
+    .imp-pedidos-list, .imp-consol-wrap { max-height: 220px; }
 }

@@ -192,6 +192,70 @@ Tipo de venda (`TGFTPV.CODTAB`) e cadastro de produto (`TGFPRO.CODTAB`) NÃO par
 
 **Pendência conhecida (Cat B futuro)**: IAgro não popula `TGFITE.NUTAB` no INSERT — perde paridade com Sankhya nativo. Não causa erro fiscal mas será adicionado no payload de `inserir_item_nota_banco` em sessão futura. Detalhes em [`.claude/tabela_precos_sankhya.md`](.claude/tabela_precos_sankhya.md) §8.
 
+### 🖨 Impressão de pedidos PDV + Consolidação por grupo (Mai/2026 — 2026-05-21)
+
+Botão impressora da Venda (`btnPrintVenda`, antes desabilitado) agora abre **modal de impressão** com 2 painéis: lista de pedidos do dia (com checkbox) + consolidação por CODPROD calculada server-side. 2 modos de saída: **PDF individual** (1 página por pedido, layout idêntico ao Sankhya) ou **PDF consolidado** (agregado por produto com totais).
+
+**Agrupamentos rápidos via chips dinâmicos** — só aparecem os grupos com pedidos no dia (Assaí DF / Palmas + Araguaína / Todos os Assaís / Economart / Exal-Lundin / JC / Verdi / Na Horta / Todos do dia). Mapeamento por `TGFPAR.CODTAB` (5=Assaí DF, 17=Araguaína, 18=Palmas, 6=Economart, 15=Exal, etc). Default ao abrir: "Todos os pedidos do dia" — operador já vê tudo consolidado sem clicar em nada.
+
+**Cascata de cálculo de caixas (3 camadas em 1 query única)** — pra produtos onde `TGFITE.PESO` da venda está em 0 ou 1:
+
+```
+PRIO 1: Moda PESO TOP 26 (Classificação)    ← peso real do lote (mais preciso)
+PRIO 2: TGFVOA[CODPROD, 'CX', M].QUANTIDADE ← cadastro Sankhya nativo (NOVO)
+PRIO 3: Moda PESO TOP 11 (Entrada)          ← último recurso
+```
+
+`consultar_pesos_referencia_por_codprods` em [oracle_conn.py](sankhya_integration/services/oracle_conn.py) faz **1 query Oracle** com CTEs unidas via `UNION ALL` + `MAX(PESO) KEEP DENSE_RANK FIRST ORDER BY PRIO ASC` — pega a camada mais prioritária que tenha dado pra cada CODPROD. Cobertura testada na Agromil: **97% dos produtos vendidos no último mês** têm fator resolvido automaticamente (sem cadastro adicional do operador).
+
+**Casos resolvidos pela camada 2 (TGFVOA)** — produtos vendidos em unidade alternativa sem classificação:
+- TOMATE GRAPE (372): venda em KG, `TGFVOA[CX]=20.0` → CEIL(40/20) = 2 caixas
+- MILHO VERDE (61): venda em BD, `TGFVOA[CX]=10.0` → CEIL(500/10) = 50 caixas
+
+Pra produtos não cobertos (~3%), orientação é cadastrar `(CODPROD, 'CX', 'M', X)` na tela nativa do Sankhya — fonte única da verdade, sem coluna `AD_*` paralela.
+
+**Layout do PDF (idêntico ao Sankhya):**
+- **Individual**: header com empresa + cliente (CNPJ, IE, endereço, fone) + tabela CÓDIGO / DESCRIÇÃO / UN / QTD (sem decimal) / VLR UNIT / CX + linha de TOTAIS destacada (verde Agromil + borda superior espessa) + bloco OBSERVAÇÃO/TOTAIS no rodapé. Coluna VENDEDOR e VALE 1/2 removidas (decisão Mai/2026 — IAgro não usa). CX preenchida via fallback (CEIL aplicado item-a-item antes de renderizar).
+- **Consolidado**: header com título + período + N pedidos consolidados; tabela CÓDIGO / DESCRIÇÃO / UN / QTD TOTAL / CAIXAS / Nº PEDIDOS ordenada por CODPROD; linha de TOTAIS destacada; lista de pedidos consolidados ao final.
+
+**Detalhes técnicos:**
+
+| Componente | Cat | Onde |
+|---|---|---|
+| `obter_dados_pedido_completo_para_impressao(nunota)` | A (leitura) | [oracle_conn.py](sankhya_integration/services/oracle_conn.py) — JOIN TGFCAB+TGFPAR+TSIEMP+TGFITE+TGFPRO, schema-resilient |
+| `listar_pedidos_para_impressao(filtros)` | A (leitura) | Lista TOP 34 ativos. Filtros: codtabs, dtneg/dtneg_de/dtneg_ate, codparc, nunotas |
+| `consultar_pesos_referencia_por_codprods(codprods)` | A (leitura) | Cascata 3 camadas (TOP 26 / TGFVOA / TOP 11) |
+| `gerar_pdf_pedidos_individual` + `gerar_pdf_pedidos_consolidado` | A | Novo módulo [pedido_venda_pdf.py](sankhya_integration/services/pedido_venda_pdf.py) com reportlab |
+| 4 endpoints REST | A | `/sankhya/venda/api/imprimir/{preview,consolidacao,pdf-individual,pdf-consolidado}/` — PDFs aceitam POST com JSON body (evita URI Too Long com listas grandes) |
+| Modal `#impressaoModal` + JS reativo | A | [venda_modais.html](sankhya_integration/templates/sankhya_integration/venda_modais.html) + [venda.js](sankhya_integration/static/sankhya_integration/venda.js) |
+
+**Bug crítico corrigido durante implementação**: filtro `WHERE` em `listar_pedidos_para_impressao` tinha `STATUSNOTA <> 'E' OR STATUSNOTA IS NULL` **sem parênteses** — precedência do `OR` ignorava filtros de data, devolvendo histórico inteiro (14k pedidos). Fix: `(STATUSNOTA <> 'E' OR STATUSNOTA IS NULL)`.
+
+### ⚙ Diretriz arquitetural revisada — colunas `AD_*` em tabelas Sankhya nativas (Mai/2026 — 2026-05-21)
+
+A regra que proibia adicionar colunas em tabelas Sankhya nativas **foi relaxada**. Agora é permitido (com aprovação Cat B ponto-a-ponto), porque o schema do banco do spin-off futuro será réplica exata do Sankhya + nossas extensões `AD_*` — não cria dívida.
+
+**Disciplina obrigatória** (registrada em [`CLAUDE.md`](CLAUDE.md) → "Estratégia de produto"):
+- Prefixo `AD_<NOME>` (sem prefixo é reservado a campos nativos)
+- **Ler antes de criar** — se o dado já existe em campo nativo ou tabela Sankhya, ler em vez de duplicar (zero risco de desencontro)
+- DDL versionada em `sankhya_integration/sql/` + entrada em [`dependencias_sankhya.md`](.claude/dependencias_sankhya.md)
+- Cat B obrigatório
+- Tabela auxiliar `AD_*` ainda é preferível quando o dado é multi-row por entidade
+
+**Inventário inicial das colunas `AD_*` em tabelas nativas** (já existiam — agora documentadas formalmente):
+
+| Tabela | Coluna | Uso |
+|---|---|---|
+| `TGFCAB` | `AD_NUMPEDIDOORIG` | Rastreabilidade nota raiz via lote (Agromil) |
+| `TGFITE` | `AD_NUMPEDIDOORIG` | Propagado do cabeçalho |
+| `TGFITE` | `AD_QTDAVARIA` | Descarte da Classificação / Avaria fornecedor não-classificável |
+| `TGFITE` | `AD_PESO` | Peso da pesagem na Entrada (legado — desde Mai/2026 IAgro usa `TGFITE.PESO` nativo) |
+| `TGFITE` | `AD_QTDCONFERIDA` | Qtd conferida na Entrada |
+
+Detalhes em [`dependencias_sankhya.md`](.claude/dependencias_sankhya.md) §5.5.
+
+**Caso prático dessa sessão**: pra resolver cálculo de caixas do TOMATE GRAPE e MILHO VERDE, ao invés de criar coluna `TGFPRO.AD_FATOR_CAIXA`, descobrimos que o dado já existia em `TGFVOA` (volumes alternativos Sankhya nativo). Cobertura imediata de 62% dos produtos vendidos + 97% somando outras unidades alt. Operador cadastra os outliers via tela nativa do Sankhya — IAgro só lê.
+
 ### 🎁 Tabela de Preços + Promoções com escopo flexível (Mai/2026 — 2026-05-20/21)
 
 Sessão grande dividida em 2 dias:
@@ -255,13 +319,18 @@ Diagnóstico via comparação direta TGFITE NUNOTA=113083 (1 item IAgro vs 1 ite
 
 - **Módulo Relatórios — MVP entregue em 2026-05-17** com 5 relatórios funcionando. Restam **20 relatórios** mapeados no backlog (6 eixos: Financeiro / Vendas / Compras-Estoque / Rastreio-WMS / Combustível-Frota / Auditoria-Produtividade) aguardando feedback operacional pra priorizar próximas iterações. Export Excel/PDF intencionalmente fora do MVP. Detalhes em [`roadmap.md`](.claude/roadmap.md) → "Módulo Relatórios — Backlog planejado" e em [`modules/relatorios.md`](.claude/modules/relatorios.md).
 
-### Estratégia de produto (Mai/2026)
+### Estratégia de produto (Mai/2026 — atualizado 2026-05-21)
 
 IAgro está sendo modelado pra virar **produto SaaS independente do Sankhya**, atendendo múltiplos clientes do agro com produtos diferentes (hortifrúti, grãos, carnes, defensivos, etc.). **Diretrizes:**
 
 - **Schema núcleo permanece igual ao Sankhya** (TGFCAB, TGFITE, TGFPAR, TGFPRO, TSIEMP, etc.) — quando desacoplar, recriar mesmos nomes em banco próprio.
 - **Tabelas auxiliares (`AD_*` ou `ANDRE_IAGRO_*`)** podem ser criadas livremente no banco atual — sem restrição.
-- **Evitar adicionar colunas em tabelas Sankhya nativas** — preferir tabela auxiliar.
+- **Estender tabelas Sankhya nativas com colunas `AD_*` É PERMITIDO** (atualizado 2026-05-21). O spin-off vai recriar o schema do Sankhya **exatamente** com as mesmas tabelas e colunas + nossas extensões `AD_*` — então acoplar via coluna `AD_*` não cria dívida adicional. Disciplina obrigatória:
+  - **Prefixo `AD_<NOME>`** obrigatório (sem prefixo é reservado a campos nativos Sankhya).
+  - **Ler antes de criar:** se o dado já existe em campo nativo ou em tabela Sankhya, **ler** em vez de duplicar (zero risco de desencontro).
+  - **DDL versionada** em `sankhya_integration/sql/` + entrada em [`dependencias_sankhya.md`](.claude/dependencias_sankhya.md).
+  - **Categoria B (aprovação ponto-a-ponto)** continua exigida pra `ALTER TABLE` em tabela nativa.
+  - **Tabela auxiliar `AD_*` ainda é preferível** quando o dado é multi-row por entidade (vários clientes por produto, histórico temporal). Coluna escalar única é candidato natural a coluna em tabela nativa.
 - **Evitar criar triggers** no Oracle — conflito potencial com triggers nativas.
 - **Dependências mapeadas** em [`dependencias_sankhya.md`](.claude/dependencias_sankhya.md) — atualizar a cada nova dependência descoberta (regra crítica #7).
 - **Risco principal:** triggers Sankhya proprietárias fazem coisas invisíveis que IAgro herda. Quando desacoplar, lógica delas precisa ser reimplementada em código Python.

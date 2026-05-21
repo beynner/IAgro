@@ -688,9 +688,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function renderItensModal() {
         const tbody = document.getElementById('itemsListBody');
+        const tfoot = document.getElementById('itemsListFoot');
         if (itensAtuais.length === 0) {
             tbody.innerHTML = '<tr><td colspan="7" class="ia-placeholder">Nenhum item inserido.</td></tr>';
+            tfoot?.classList.add('hidden');
             return;
+        }
+        // Popula tfoot com totais (qtd com 2 decimais + separador milhar)
+        if (tfoot) {
+            const somaQtd = itensAtuais.reduce((s, it) => s + (it.qtd || 0), 0);
+            const somaVlt = itensAtuais.reduce((s, it) => s + (it.vlt || 0), 0);
+            document.getElementById('itemsTotalQtd').textContent =
+                somaQtd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            document.getElementById('itemsTotalValor').textContent =
+                somaVlt.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            tfoot.classList.remove('hidden');
         }
         tbody.innerHTML = '';
         itensAtuais.forEach(item => {
@@ -879,9 +891,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // do cliente (TGFPAR.CODTAB → TGFTAB.NUTAB ativa → TGFEXC.VLRVENDA).
     // Regra completa documentada em `.claude/tabela_precos_sankhya.md`.
     // Não sobrescreve se operador já digitou preço; silencioso se sem preço.
-    // Estado da origem do preço do item em construção (Mai/2026 — 2026-05-20)
+    // Estado da origem do preço do item em construção (Mai/2026 — 2026-05-20,
+    // simplificado em 2026-05-21: chip MANUAL e campo de motivo removidos pra
+    // desburocratizar — operador edita o preço livre = origem null = preço livre.
+    // Backend só registra origem quando TABELA ou PROMOCAO foi aplicada via chip).
     const precoOrigemEstado = {
-        origem: null,        // 'TABELA' | 'PROMOCAO' | 'MANUAL' | null
+        origem: null,        // 'TABELA' | 'PROMOCAO' | null (livre)
         nutab: null,
         promocaoId: null,
         promocoes: [],       // todas vigentes pro par (codparc, codprod)
@@ -896,10 +911,6 @@ document.addEventListener('DOMContentLoaded', function() {
         precoOrigemEstado.tabelaPreco = null;
         const bar = document.getElementById('precoOrigemBar');
         if (bar) bar.classList.add('hidden');
-        const obsWrap = document.getElementById('precoOrigemObsWrap');
-        if (obsWrap) obsWrap.classList.add('hidden');
-        const obs = document.getElementById('precoOrigemObs');
-        if (obs) obs.value = '';
         document.querySelectorAll('.po-chip').forEach(c => c.classList.remove('is-active'));
     }
 
@@ -920,10 +931,6 @@ document.addEventListener('DOMContentLoaded', function() {
             inputPreco.value = Number(promo.vlrpromo).toFixed(2);
             precoOrigemEstado.origem = 'PROMOCAO';
             precoOrigemEstado.promocaoId = promo.id;
-        } else if (origem === 'MANUAL') {
-            precoOrigemEstado.origem = 'MANUAL';
-            precoOrigemEstado.promocaoId = null;
-            // input fica como está; operador edita ou mantém
         }
         atualizarTotalItem();
 
@@ -931,14 +938,6 @@ document.addEventListener('DOMContentLoaded', function() {
         document.querySelectorAll('.po-chip').forEach(c => {
             c.classList.toggle('is-active', c.dataset.origem === precoOrigemEstado.origem);
         });
-
-        // Mostra/esconde campo de observação (obrigatório em MANUAL)
-        const obsWrap = document.getElementById('precoOrigemObsWrap');
-        if (obsWrap) obsWrap.classList.toggle('hidden', precoOrigemEstado.origem !== 'MANUAL');
-        if (precoOrigemEstado.origem === 'MANUAL') {
-            const obs = document.getElementById('precoOrigemObs');
-            if (obs) setTimeout(() => obs.focus(), 80);
-        }
     }
 
     async function puxarPrecoTabela() {
@@ -1010,7 +1009,9 @@ document.addEventListener('DOMContentLoaded', function() {
             if (bar) bar.classList.remove('hidden');
 
             // Aplica automaticamente o melhor preço (promoção tem prioridade visual,
-            // tabela como fallback). MANUAL fica disponível mas não auto.
+            // tabela como fallback). Sem preço cadastrado: chips ficam disabled,
+            // operador digita preço livre — preco_origem fica null, backend não
+            // registra origem (livre, sem burocracia).
             const inputPreco = document.getElementById('item_preco');
             if (inputPreco && !(parseFloat(inputPreco.value) > 0)) {
                 if (precoOrigemEstado.promocoes.length) {
@@ -1021,10 +1022,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     aplicarChipOrigem('TABELA');
                     const sufx = precoOrigemEstado.nutab ? ` (Tabela ${precoOrigemEstado.nutab})` : '';
                     phToast(`Preço R$ ${_fmtBRL(precoOrigemEstado.tabelaPreco)}${sufx}`, 'success');
-                } else {
-                    phToast('Sem preço cadastrado — digite manual (com motivo)', 'info');
-                    aplicarChipOrigem('MANUAL');
                 }
+                // Sem tabela e sem promoção: bar continua visível (chips disabled),
+                // operador digita preço livre. Sem toast obtrusivo.
             }
         } catch (e) {
             console.error('puxarPrecoTabela falhou', e);
@@ -1032,7 +1032,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Listeners dos chips
+    // Listeners dos chips (apenas TABELA e PROMOCAO desde 2026-05-21)
     document.querySelectorAll('.po-chip').forEach(chip => {
         chip.addEventListener('click', () => {
             if (chip.disabled) return;
@@ -1040,19 +1040,19 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Edição manual do preço marca origem como MANUAL automaticamente
+    // Quando operador edita o preço manualmente, desativa o chip ativo
+    // (origem fica null = preço livre, sem registrar nada no backend)
     document.getElementById('item_preco')?.addEventListener('input', () => {
-        // Só ativa MANUAL se já havia escolha (não estraga o autopopular inicial)
-        if (precoOrigemEstado.origem && precoOrigemEstado.origem !== 'MANUAL') {
-            const inputPreco = document.getElementById('item_preco');
-            const precoAtual = parseFloat(inputPreco.value);
-            const ehTabela   = precoOrigemEstado.tabelaPreco
-                && Math.abs(precoAtual - precoOrigemEstado.tabelaPreco) < 0.001;
-            const ehPromocao = precoOrigemEstado.promocoes[0]
-                && Math.abs(precoAtual - Number(precoOrigemEstado.promocoes[0].vlrpromo)) < 0.001;
-            if (!ehTabela && !ehPromocao) {
-                aplicarChipOrigem('MANUAL');
-            }
+        if (!precoOrigemEstado.origem) return;
+        const precoAtual = parseFloat(document.getElementById('item_preco').value);
+        const ehTabela   = precoOrigemEstado.tabelaPreco
+            && Math.abs(precoAtual - precoOrigemEstado.tabelaPreco) < 0.001;
+        const ehPromocao = precoOrigemEstado.promocoes[0]
+            && Math.abs(precoAtual - Number(precoOrigemEstado.promocoes[0].vlrpromo)) < 0.001;
+        if (!ehTabela && !ehPromocao) {
+            precoOrigemEstado.origem = null;
+            precoOrigemEstado.promocaoId = null;
+            document.querySelectorAll('.po-chip').forEach(c => c.classList.remove('is-active'));
         }
     });
 
@@ -1730,6 +1730,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     /** Monta payload de origem do preço pra incluir no POST do item. */
     function _coletarPrecoOrigemPayload() {
+        // 2026-05-21 — só registra origem quando vier de TABELA ou PROMOCAO
+        // (chip MANUAL e campo de motivo foram removidos pra desburocratizar).
         const out = {};
         if (!precoOrigemEstado.origem) return out;
         out.preco_origem = precoOrigemEstado.origem;
@@ -1738,10 +1740,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         if (precoOrigemEstado.origem === 'PROMOCAO' && precoOrigemEstado.promocaoId) {
             out.promocao_id = precoOrigemEstado.promocaoId;
-        }
-        if (precoOrigemEstado.origem === 'MANUAL') {
-            const obs = (document.getElementById('precoOrigemObs')?.value || '').trim();
-            out.observacao_preco = obs;
         }
         return out;
     }
@@ -1758,17 +1756,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!codprod)           { phToast('Selecione um produto.', 'warning'); return; }
         if (!qtdneg || qtdneg <= 0) { phToast('Informe uma quantidade válida.', 'warning'); return; }
 
-        // Mai/2026 (2026-05-20) — origem do preço + validação de MANUAL
+        // Mai/2026 (2026-05-21) — origem do preço (sem mais validação de MANUAL;
+        // origem null = preço livre, backend não obriga observação)
         const precoOrigemPayload = _coletarPrecoOrigemPayload();
-        if (precoOrigemEstado.origem === 'MANUAL') {
-            const obs = precoOrigemPayload.observacao_preco || '';
-            if (!obs) {
-                phToast('Preço manual exige motivo (preencha o campo "Motivo do preço manual").', 'warning');
-                const inpObs = document.getElementById('precoOrigemObs');
-                if (inpObs) { inpObs.focus(); inpObs.classList.add('ia-field-invalid'); }
-                return;
-            }
-        }
 
         const btn = document.getElementById('itemAddBtn');
         btn.disabled = true;
@@ -1845,6 +1835,19 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     document.getElementById('itemEditCancel')?.addEventListener('click', cancelarEdicaoItem);
+
+    // 2026-05-21 — botão X (limpar campos) — pra trocar o lançamento antes de adicionar
+    document.getElementById('itemClearBtn')?.addEventListener('click', () => {
+        // Em modo edição, mantém o cancelar dedicado (que restaura valores originais).
+        // Em modo novo, simplesmente zera os campos.
+        if (itemEditandoSeq > 0) {
+            cancelarEdicaoItem();
+        } else {
+            limparCamposItem();
+            document.getElementById('item_codvol').value = 'KG'; // restaura default
+            document.getElementById('item_prod_vis')?.focus();
+        }
+    });
 
     // Atalho — Enter no formulário de item dispara salvar (exceto em dropdown aberto)
     cabItemsCard?.addEventListener('keydown', (e) => {
@@ -1946,6 +1949,423 @@ document.addEventListener('DOMContentLoaded', function() {
             phToast('Erro ao faturar pedido.', 'error');
             btn.disabled = false;
         }
+    });
+
+    // ========================================================================
+    // Mai/2026 (2026-05-21) — Modal de impressão de pedidos
+    // ========================================================================
+    const impState = {
+        pedidos: [],              // lista do preview
+        selecionados: new Set(),  // NUNOTAs selecionados
+        modo: null,               // ASSAI_DF | ASSAI_PALMAS_ARAGUAINA | ASSAI_TODOS | DIA
+        consolDebounce: null,
+    };
+
+    function _fmtBR(n, casas = 2) {
+        return (Number(n) || 0).toLocaleString('pt-BR', {
+            minimumFractionDigits: casas, maximumFractionDigits: casas
+        });
+    }
+    function _fmtDataBR(s) {
+        if (!s) return '';
+        if (s.length === 10 && s[4] === '-') {
+            const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`;
+        }
+        return s;
+    }
+    function _escHtml(s) {
+        return String(s ?? '').replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
+    }
+
+    // Definição dos grupos disponíveis. Renderizados dinamicamente conforme
+    // CODTABs detectados no preview do dia (modo DIA sem filtro de tabela).
+    // Cada grupo só aparece se houver pelo menos 1 pedido no dia daquela tabela.
+    const IMP_GRUPOS = [
+        {
+            modo:   'ASSAI_DF',
+            label:  'Assaí DF',
+            // Mostra se pelo menos 1 CODTAB 5 (Assaí DF) presente
+            mostra: (tabs) => tabs.includes(5),
+        },
+        {
+            modo:   'ASSAI_PALMAS_ARAGUAINA',
+            label:  'Palmas + Araguaína',
+            mostra: (tabs) => tabs.includes(17) || tabs.includes(18),
+        },
+        {
+            modo:   'ASSAI_TODOS',
+            label:  'Todos os Assaís',
+            // Só se houver MAIS DE 1 grupo Assaí distinto (senão é igual ao chip do grupo único)
+            mostra: (tabs) => {
+                const assais = [5, 17, 18].filter(t => tabs.includes(t));
+                return assais.length >= 2;
+            },
+        },
+        {
+            modo:   'ECONOMART',
+            label:  'Economart',
+            mostra: (tabs) => tabs.includes(6),
+        },
+        {
+            modo:   'EXAL',
+            label:  'Exal (Lundin)',
+            mostra: (tabs) => tabs.includes(15),
+        },
+        {
+            modo:   'JC',
+            label:  'JC',
+            mostra: (tabs) => tabs.includes(4),
+        },
+        {
+            modo:   'VERDI',
+            label:  'Verdi',
+            mostra: (tabs) => tabs.includes(10),
+        },
+        {
+            modo:   'NA_HORTA',
+            label:  'Na Horta',
+            mostra: (tabs) => tabs.includes(2),
+        },
+        // "Todos os pedidos do dia" sempre aparece (não filtra CODTAB)
+        {
+            modo:   'DIA',
+            label:  'Todos os pedidos do dia',
+            mostra: () => true,
+        },
+    ];
+
+    // CODTAB → lista de CODTABs aplicáveis no backend
+    const IMP_MODO_CODTABS = {
+        'ASSAI_DF':                 [5],
+        'ASSAI_PALMAS_ARAGUAINA':   [17, 18],
+        'ASSAI_TODOS':              [5, 17, 18],
+        'ECONOMART':                [6],
+        'EXAL':                     [15],
+        'JC':                       [4],
+        'VERDI':                    [10],
+        'NA_HORTA':                 [2],
+        'DIA':                      [],  // sem filtro de tabela
+    };
+
+    function renderChipsDinamicos(codtabsDistintos) {
+        const wrap = document.getElementById('impChipsDinamicos');
+        if (!wrap) return;
+        const aplicaveis = IMP_GRUPOS.filter(g => g.mostra(codtabsDistintos));
+        if (!aplicaveis.length) {
+            wrap.innerHTML = '<span class="ia-placeholder" style="font-size:11px;">Nenhum pedido no dia</span>';
+            return;
+        }
+        wrap.innerHTML = aplicaveis.map(g => `
+            <button type="button" class="imp-chip" data-modo="${g.modo}">${_escHtml(g.label)}</button>
+        `).join('');
+        // Re-anexa listeners
+        wrap.querySelectorAll('.imp-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                wrap.querySelectorAll('.imp-chip').forEach(c => c.classList.remove('is-active'));
+                chip.classList.add('is-active');
+                impState.modo = chip.dataset.modo;
+                carregarPreviewImpressao(impState.modo);
+            });
+        });
+    }
+
+    async function detectarGruposDoDia() {
+        // Faz preview SEM modo (= todos os pedidos do dia) — usado pra:
+        //   1) Descobrir quais CODTABs existem → chips dinâmicos
+        //   2) Já popular a lista de pedidos com TUDO do dia (chip DIA default)
+        const qs = new URLSearchParams();
+        const dtIni = inputStart?.value || '';
+        const dtFim = inputEnd?.value   || '';
+        if (dtIni && dtFim && dtIni === dtFim) qs.set('dtneg', dtIni);
+        else if (dtIni && dtFim) { qs.set('dtneg_de', dtIni); qs.set('dtneg_ate', dtFim); }
+        try {
+            const r = await fetch(`/sankhya/venda/api/imprimir/preview/?${qs.toString()}`);
+            const d = await r.json();
+            if (!d.ok) { renderChipsDinamicos([]); return; }
+            renderChipsDinamicos(d.codtabs_distintos || []);
+            // Auto-aplica "Todos os pedidos do dia" como default e popula a lista
+            impState.pedidos = d.pedidos || [];
+            impState.selecionados = new Set(impState.pedidos.map(p => p.nunota));
+            impState.modo = 'DIA';
+            const chipDia = document.querySelector('.imp-chip[data-modo="DIA"]');
+            if (chipDia) chipDia.classList.add('is-active');
+            renderImpPedidos();
+            atualizarConsolDebounced();
+        } catch (e) {
+            console.error('detectarGruposDoDia', e);
+            renderChipsDinamicos([]);
+        }
+    }
+
+    function abrirImpressaoModal() {
+        const m = document.getElementById('impressaoModal');
+        if (!m) return;
+        m.classList.remove('hidden');
+        // Mostra Data única OU Período conforme filtro lateral
+        const dtIni = inputStart?.value || '';
+        const dtFim = inputEnd?.value   || '';
+        let labelData = '';
+        if (dtIni && dtFim && dtIni === dtFim) {
+            labelData = `Data do filtro: ${_fmtDataBR(dtIni)}`;
+        } else if (dtIni && dtFim) {
+            labelData = `Período: ${_fmtDataBR(dtIni)} → ${_fmtDataBR(dtFim)}`;
+        } else if (dtIni || dtFim) {
+            labelData = `Data do filtro: ${_fmtDataBR(dtIni || dtFim)}`;
+        } else {
+            labelData = 'Sem data no filtro';
+        }
+        document.getElementById('impInfo').textContent = labelData;
+        // Limpa estado anterior
+        impState.pedidos = [];
+        impState.selecionados.clear();
+        impState.modo = null;
+        renderImpPedidos();
+        renderImpConsol(null);
+        // Detecta grupos do dia → renderiza chips dinâmicos
+        detectarGruposDoDia();
+    }
+
+    function fecharImpressaoModal() {
+        document.getElementById('impressaoModal')?.classList.add('hidden');
+    }
+
+    async function carregarPreviewImpressao(modo) {
+        const qs = new URLSearchParams();
+        // Backend aceita `modo` legado (ASSAI_DF etc) OU `codtabs` lista direta.
+        // Modos novos (ECONOMART, EXAL, JC...) não estão no backend ainda — pra
+        // não criar duplicidade, mandamos CODTABs explícitos via querystring.
+        const codtabs = IMP_MODO_CODTABS[modo] || [];
+        if (codtabs.length === 0 && modo !== 'DIA') {
+            // Fallback compatibilidade: passa modo direto (backend conhece)
+            qs.set('modo', modo);
+        } else if (codtabs.length > 0) {
+            qs.set('codtabs', codtabs.join(','));
+        }
+        // Data do filtro vira filtro de DTNEG (sempre — em todos os modos)
+        const dtIni = inputStart?.value || '';
+        const dtFim = inputEnd?.value   || '';
+        if (dtIni && dtFim && dtIni === dtFim) {
+            qs.set('dtneg', dtIni);
+        } else if (dtIni && dtFim) {
+            qs.set('dtneg_de',  dtIni);
+            qs.set('dtneg_ate', dtFim);
+        }
+        const lista = document.getElementById('impPedidosList');
+        lista.innerHTML = '<div class="ia-placeholder">Carregando…</div>';
+        try {
+            const r = await fetch(`/sankhya/venda/api/imprimir/preview/?${qs.toString()}`);
+            const d = await r.json();
+            if (!d.ok) {
+                lista.innerHTML = `<div class="ia-placeholder">${_escHtml(d.error || 'Erro')}</div>`;
+                return;
+            }
+            impState.pedidos = d.pedidos || [];
+            impState.selecionados = new Set(impState.pedidos.map(p => p.nunota));
+            renderImpPedidos();
+            atualizarConsolDebounced();
+        } catch (e) {
+            console.error('carregarPreviewImpressao', e);
+            lista.innerHTML = '<div class="ia-placeholder">Erro de rede.</div>';
+        }
+    }
+
+    function renderImpPedidos() {
+        const lista = document.getElementById('impPedidosList');
+        const ct = document.getElementById('impPedidosCount');
+        ct.textContent = `${impState.selecionados.size} / ${impState.pedidos.length}`;
+        if (!impState.pedidos.length) {
+            lista.innerHTML = '<div class="ia-placeholder">Nenhum pedido encontrado.</div>';
+            return;
+        }
+        const html = impState.pedidos.map(p => {
+            const checked = impState.selecionados.has(p.nunota) ? 'checked' : '';
+            const tab = p.codtab ? `<span class="imp-tab-badge">T${p.codtab}</span>` : '';
+            return `
+              <label class="imp-pedido-row" title="Pedido ${p.nunota} · R$ ${_fmtBR(p.vlrnota)}">
+                <input type="checkbox" class="imp-ped-check" data-nunota="${p.nunota}" ${checked}>
+                <span class="imp-ped-nome">${_escHtml(p.nomeparc)}</span>
+                ${tab}
+              </label>`;
+        }).join('');
+        lista.innerHTML = html;
+        lista.querySelectorAll('.imp-ped-check').forEach(cb => {
+            cb.addEventListener('change', (ev) => {
+                const n = parseInt(ev.target.dataset.nunota, 10);
+                if (ev.target.checked) impState.selecionados.add(n);
+                else impState.selecionados.delete(n);
+                ct.textContent = `${impState.selecionados.size} / ${impState.pedidos.length}`;
+                atualizarConsolDebounced();
+            });
+        });
+    }
+
+    function atualizarConsolDebounced() {
+        if (impState.consolDebounce) clearTimeout(impState.consolDebounce);
+        impState.consolDebounce = setTimeout(carregarConsolidacao, 250);
+    }
+
+    async function carregarConsolidacao() {
+        const sel = Array.from(impState.selecionados);
+        if (!sel.length) { renderImpConsol(null); return; }
+        const info = document.getElementById('impConsolInfo');
+        info.textContent = 'Calculando…';
+        try {
+            const csrf = (window.IAgro?.getCookie?.('csrftoken')
+                || document.cookie.split('; ').find(c => c.startsWith('csrftoken='))?.split('=')[1]
+                || '');
+            const r = await fetch('/sankhya/venda/api/imprimir/consolidacao/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrf,
+                },
+                body: JSON.stringify({ nunotas: sel }),
+            });
+            const d = await r.json();
+            if (!d.ok) {
+                info.textContent = d.error || 'Erro';
+                return;
+            }
+            renderImpConsol(d);
+        } catch (e) {
+            console.error('carregarConsolidacao', e);
+            info.textContent = 'Erro de rede.';
+        }
+    }
+
+    function renderImpConsol(d) {
+        const body = document.getElementById('impConsolBody');
+        const info = document.getElementById('impConsolInfo');
+        const tQtd = document.getElementById('impTotalQtd');
+        const tCx  = document.getElementById('impTotalCx');
+        const tPed = document.getElementById('impTotalPed');
+        if (!d) {
+            body.innerHTML = '<tr><td colspan="6" class="ia-placeholder">Marque pedidos pra consolidar.</td></tr>';
+            info.textContent = '—';
+            tQtd.textContent = '0'; tCx.textContent = '0'; tPed.textContent = '0';
+            return;
+        }
+        info.textContent = `${d.total_pedidos} pedido${d.total_pedidos !== 1 ? 's' : ''}, ${d.produtos.length} produto${d.produtos.length !== 1 ? 's' : ''} distinto${d.produtos.length !== 1 ? 's' : ''}`;
+        if (!d.produtos.length) {
+            body.innerHTML = '<tr><td colspan="6" class="ia-placeholder">Sem itens nos pedidos selecionados.</td></tr>';
+            tQtd.textContent = '0'; tCx.textContent = '0'; tPed.textContent = '0';
+            return;
+        }
+        body.innerHTML = d.produtos.map(p => `
+          <tr>
+            <td class="text-right">${p.codprod}</td>
+            <td>${_escHtml(p.descrprod)}</td>
+            <td class="text-center">${_escHtml(p.codvol)}</td>
+            <td class="text-right">${_fmtBR(p.qtd_total, 0)}</td>
+            <td class="text-right">${p.qtd_caixas || ''}</td>
+            <td class="text-right">${p.n_pedidos}</td>
+          </tr>`).join('');
+        tQtd.textContent = _fmtBR(d.total_qtd, 0);
+        tCx.textContent  = String(d.total_caixas);
+        tPed.textContent = String(d.total_pedidos);
+    }
+
+    async function _imprimirPdf(modo) {
+        const sel = Array.from(impState.selecionados);
+        if (!sel.length) {
+            phToast('Selecione pelo menos 1 pedido pra imprimir.', 'warning');
+            return;
+        }
+
+        // Monta payload
+        const payload = { nunotas: sel };
+        let url;
+        if (modo === 'consolidado') {
+            const titulos = {
+                'ASSAI_DF':              'CONSOLIDAÇÃO - ASSAÍ DF',
+                'ASSAI_PALMAS_ARAGUAINA':'CONSOLIDAÇÃO - PALMAS + ARAGUAÍNA',
+                'ASSAI_TODOS':           'CONSOLIDAÇÃO - TODOS OS ASSAÍS',
+                'DIA':                   'CONSOLIDAÇÃO - PEDIDOS DO DIA',
+            };
+            if (impState.modo) payload.titulo = titulos[impState.modo] || 'CONSOLIDAÇÃO DE PEDIDOS';
+            const dtIni = inputStart?.value || '';
+            const dtFim = inputEnd?.value   || '';
+            if (dtIni === dtFim && dtIni) payload.subtitulo = `Data: ${_fmtDataBR(dtIni)}`;
+            else if (dtIni && dtFim)       payload.subtitulo = `Período: ${_fmtDataBR(dtIni)} → ${_fmtDataBR(dtFim)}`;
+            url = '/sankhya/venda/api/imprimir/pdf-consolidado/';
+        } else {
+            url = '/sankhya/venda/api/imprimir/pdf-individual/';
+        }
+
+        // POST + blob → URL local → abre em aba nova (não estoura URL e
+        // não precisa de form/target hack)
+        const csrf = (window.IAgro?.getCookie?.('csrftoken')
+            || document.cookie.split('; ').find(c => c.startsWith('csrftoken='))?.split('=')[1]
+            || '');
+        try {
+            const r = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrf,
+                },
+                body: JSON.stringify(payload),
+            });
+            if (!r.ok) {
+                let msg = `Erro ${r.status}`;
+                try {
+                    const j = await r.json();
+                    msg = j.error || msg;
+                } catch (_) {}
+                phToast(msg, 'error');
+                return;
+            }
+            const blob = await r.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            window.open(blobUrl, '_blank');
+            // Libera memória depois de alguns segundos
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 30_000);
+        } catch (e) {
+            console.error('_imprimirPdf', e);
+            phToast('Erro ao gerar PDF.', 'error');
+        }
+    }
+
+    // Bind dos elementos do modal de impressão
+    const btnPrint = document.getElementById('btnPrintVenda');
+    if (btnPrint) {
+        btnPrint.disabled = false;  // habilita (estava disabled no HTML)
+        btnPrint.addEventListener('click', abrirImpressaoModal);
+    }
+    document.getElementById('impFechar')?.addEventListener('click', fecharImpressaoModal);
+    document.getElementById('impCancelar')?.addEventListener('click', fecharImpressaoModal);
+
+    // Chips de agrupamento
+    document.querySelectorAll('.imp-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            document.querySelectorAll('.imp-chip').forEach(c => c.classList.remove('is-active'));
+            chip.classList.add('is-active');
+            impState.modo = chip.dataset.modo;
+            carregarPreviewImpressao(impState.modo);
+        });
+    });
+
+    // Marcar/desmarcar todos
+    document.getElementById('impMarcarTodos')?.addEventListener('click', () => {
+        impState.selecionados = new Set(impState.pedidos.map(p => p.nunota));
+        renderImpPedidos();
+        atualizarConsolDebounced();
+    });
+    document.getElementById('impDesmarcarTodos')?.addEventListener('click', () => {
+        impState.selecionados.clear();
+        renderImpPedidos();
+        renderImpConsol(null);
+    });
+
+    // Botões imprimir
+    document.getElementById('impPdfIndividual')?.addEventListener('click', () => _imprimirPdf('individual'));
+    document.getElementById('impPdfConsolidado')?.addEventListener('click', () => _imprimirPdf('consolidado'));
+
+    // Fechar com Esc / click fora
+    document.getElementById('impressaoModal')?.addEventListener('click', (ev) => {
+        if (ev.target.id === 'impressaoModal') fecharImpressaoModal();
     });
 
     // Inicia: tenta restaurar filtros do localStorage; se vier sem datas, aplica "hoje".

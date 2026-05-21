@@ -497,6 +497,77 @@ Tela de consulta: "pegue um lote e veja tudo que aconteceu com ele".
 
 ---
 
+## Impressão de pedidos (Mai/2026 — 2026-05-21)
+
+Botão impressora da toolbar (`#btnPrintVenda`) abre modal `#impressaoModal` com 2 painéis: lista de pedidos com checkbox + consolidação por CODPROD. Operador imprime 1 ou mais pedidos em **PDF individual** (layout idêntico ao Sankhya, 1 página por pedido) ou **PDF consolidado** (agregado por produto).
+
+### Chips de agrupamento dinâmicos
+
+Ao abrir o modal, `detectarGruposDoDia()` faz preview "Todos do dia" sem filtro de tabela e retorna `codtabs_distintos` (CODTABs únicos encontrados). Renderiza apenas os chips relevantes:
+
+| CODTAB | Chip exibido quando |
+|---|---|
+| 5 → Assaí DF | CODTAB 5 presente |
+| 17 / 18 → Palmas + Araguaína | CODTAB 17 ou 18 presente |
+| → Todos os Assaís | ≥ 2 CODTABs Assaí distintos |
+| 6 → Economart | CODTAB 6 presente |
+| 15 → Exal (Lundin) | CODTAB 15 presente |
+| 4 → JC | CODTAB 4 presente |
+| 10 → Verdi | CODTAB 10 presente |
+| 2 → Na Horta | CODTAB 2 presente |
+| → Todos os pedidos do dia | sempre (default ao abrir) |
+
+Default ao abrir = **"Todos os pedidos do dia"** já ativo + lista populada automaticamente.
+
+### Cálculo de caixas — cascata em 1 query única
+
+`consultar_pesos_referencia_por_codprods(codprods)` resolve "X unidades = 1 caixa" via CTE com `UNION ALL` + prioridade (menor PRIO vence):
+
+| PRIO | Camada | Fonte | Cenário típico |
+|---|---|---|---|
+| 1 | Moda PESO TOP 26 | Classificação | Lote com peso real classificado (mais preciso) |
+| 2 | `TGFVOA[CODPROD, 'CX', M].QUANTIDADE` | Cadastro Sankhya nativo | Produto sem classificação (in natura direto, ex.: GRAPE em KG → CX=20, MILHO em BD → CX=10) |
+| 3 | Moda PESO TOP 11 | Entrada | Último recurso (raro, só quando 1 e 2 falham) |
+
+Helper `_coletar_pesos_fallback_pdf(dados)` no [views.py](../../sankhya_integration/views.py) chama a função só pros CODPRODs com `qtd_caixas=0` (custo zero quando todos já têm PESO).
+
+**Camada externa adicional no PDF**: se `TGFITE.PESO > 1` da própria venda, usa direto (pula a cascata). Trata `PESO <= 1` como "lixo" (default herdado quando entrada não passou pela Classificação).
+
+### Endpoints (todos Cat A)
+
+| Endpoint | Função |
+|---|---|
+| `GET /sankhya/venda/api/imprimir/preview/` | Lista pedidos do filtro + `codtabs_distintos` pra renderizar chips |
+| `GET\|POST /sankhya/venda/api/imprimir/consolidacao/` | Agregação por CODPROD pra painel direito do modal |
+| `GET\|POST /sankhya/venda/api/imprimir/pdf-individual/` | PDF com 1 página por pedido (layout Sankhya) |
+| `GET\|POST /sankhya/venda/api/imprimir/pdf-consolidado/` | PDF agregado com totais por CODPROD |
+
+POST aceita JSON body `{nunotas: [...], titulo?: ..., subtitulo?: ...}` — evita URI Too Long com listas grandes. GET continua disponível como fallback.
+
+### Layout do PDF — destaque da linha de TOTAIS
+
+Após a tabela de itens (individual ou consolidado):
+
+- **Gap sutil de 1.5mm** entre último produto e linha de TOTAIS (suave)
+- **Linha de TOTAIS** com fundo verde Agromil sutil `(0.86, 0.91, 0.83)` + borda superior espessa 1.8pt + texto bold 10pt + altura 7mm
+- **Gap de 5mm** após a linha de TOTAIS (maior, separa do bloco OBSERVAÇÃO/TOTAIS abaixo)
+- QTD na coluna sem decimal (`_fmt_qtd(qtdneg, casas=0)`); preço mantém 2 casas
+- Separador de milhar em todos os números (1.430,00 / 1.234)
+
+### Bug crítico corrigido (precedência OR)
+
+Filtro `WHERE` em `listar_pedidos_para_impressao` tinha `STATUSNOTA <> 'E' OR STATUSNOTA IS NULL` **sem parênteses** → precedência do OR ignorava filtros de data. Fix: `(STATUSNOTA <> 'E' OR STATUSNOTA IS NULL)`.
+
+### Decisões consolidadas
+
+- **Vendedor omitido** do PDF (IAgro não usa o campo)
+- **Colunas VALE 1 / VALE 2 removidas** (não preenchidas na operação Agromil)
+- **CX preenchido pelo IAgro** (operador não anota mais à mão)
+- **Filtro de data vem da tela** (DTNEG do filtro lateral) — período aparece como "Período: 18/05 → 21/05" quando ini != fim, ou "Data: 21/05" quando ini == fim
+- **Somente TOP 34** (PDV) na listagem — vendas faturadas (TOP 35/37) e devoluções/avarias ficam fora
+
+---
+
 ## Pendências
 
 - **Vínculo lote ↔ item dentro do modal** — hoje fica para o Rastreio. Avaliação: manter assim (recomendação) ou adicionar typeahead com saldo de lote.

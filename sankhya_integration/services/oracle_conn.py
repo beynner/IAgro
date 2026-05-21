@@ -13151,3 +13151,342 @@ def popular_pesos_top34_35_37_via_moda_TEMP(codusu: int, nomeusu: str = '') -> d
     except Exception as exc:
         logger.exception("Falha em popular_pesos_top34_35_37_via_moda_TEMP")
         return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+
+# ============================================================================
+# IMPRESSÃO DE PEDIDO DE VENDA (Mai/2026 — 2026-05-21)
+# Funções aditivas de leitura pra gerar PDFs no formato Sankhya + consolidações.
+# ============================================================================
+
+def obter_dados_pedido_completo_para_impressao(nunota: int) -> dict:
+    """Retorna cabeçalho + cliente + empresa + itens de 1 pedido pra geração de PDF.
+
+    Schema-resilient: TGFPAR/TSIEMP variam entre instalações. Detecta colunas
+    de endereço/contato via ``_existe_coluna`` (cacheado 1× por processo).
+
+    Retorna:
+        {
+          'pedido': {'nunota', 'numnota', 'dtneg', 'observacao', 'vlrnota',
+                     'codparc', 'codtipoper'},
+          'empresa': {'codemp', 'razao', 'nome_fantasia', 'cgc'},
+          'cliente': {'codparc', 'nome', 'razao', 'cgc_cpf', 'ie',
+                      'endereco', 'bairro', 'cidade', 'uf', 'cep',
+                      'fone', 'fax'},
+          'itens':   [{'sequencia', 'codprod', 'descrprod', 'codvol',
+                       'qtdneg', 'vlrunit', 'vlrtot', 'peso', 'qtd_caixas'}],
+        }
+        ou ``{'pedido': None, ...}`` se NUNOTA não existir.
+    """
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+
+        # Detecta colunas opcionais
+        col_end   = next((c for c in ('ENDERECO', 'NOMEEND', 'LOGRADOURO')
+                          if _existe_coluna(cur, 'TGFPAR', c)), None)
+        col_bai   = 'BAIRRO'    if _existe_coluna(cur, 'TGFPAR', 'BAIRRO')    else None
+        col_cid   = next((c for c in ('CIDADE', 'NOMECID')
+                          if _existe_coluna(cur, 'TGFPAR', c)), None)
+        col_uf    = 'UF'        if _existe_coluna(cur, 'TGFPAR', 'UF')        else None
+        col_cep   = 'CEP'       if _existe_coluna(cur, 'TGFPAR', 'CEP')       else None
+        col_ie    = next((c for c in ('IE', 'INSCRICAO_ESTADUAL', 'INSCEST')
+                          if _existe_coluna(cur, 'TGFPAR', c)), None)
+        col_tel   = next((c for c in ('TELEFONE', 'FONE', 'TELEFONE1')
+                          if _existe_coluna(cur, 'TGFPAR', c)), None)
+        col_fax   = 'FAX'       if _existe_coluna(cur, 'TGFPAR', 'FAX')       else None
+
+        sel = lambda col, alias: f"p.{col}" if col else "NULL"
+
+        sql_cab = f"""
+            SELECT c.NUNOTA, c.NUMNOTA, c.DTNEG, c.OBSERVACAO,
+                   NVL(c.VLRNOTA, 0), c.CODPARC, c.CODTIPOPER,
+                   c.CODEMP, e.RAZAOSOCIAL, e.NOMEFANTASIA, e.CGC,
+                   p.CODPARC, p.NOMEPARC, p.RAZAOSOCIAL, p.CGC_CPF,
+                   {sel(col_ie, 'ie')},
+                   {sel(col_end, 'end')},
+                   {sel(col_bai, 'bai')},
+                   {sel(col_cid, 'cid')},
+                   {sel(col_uf, 'uf')},
+                   {sel(col_cep, 'cep')},
+                   {sel(col_tel, 'tel')},
+                   {sel(col_fax, 'fax')}
+              FROM TGFCAB c
+              LEFT JOIN TSIEMP e ON e.CODEMP  = c.CODEMP
+              LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC
+             WHERE c.NUNOTA = :n
+        """
+        cur.execute(sql_cab, n=int(nunota))
+        row = cur.fetchone()
+        if not row:
+            return {'pedido': None, 'empresa': None, 'cliente': None, 'itens': []}
+
+        pedido = {
+            'nunota':      int(row[0]),
+            'numnota':     int(row[1]) if row[1] is not None else None,
+            'dtneg':       row[2],
+            'observacao':  row[3] or '',
+            'vlrnota':     float(row[4] or 0),
+            'codparc':     int(row[5]),
+            'codtipoper':  int(row[6]),
+        }
+        empresa = {
+            'codemp':         int(row[7]),
+            'razao':          row[8] or '',
+            'nome_fantasia':  row[9] or '',
+            'cgc':            row[10] or '',
+        }
+        cliente = {
+            'codparc':   int(row[11]),
+            'nome':      row[12] or '',
+            'razao':     row[13] or '',
+            'cgc_cpf':   row[14] or '',
+            'ie':        row[15] or '',
+            'endereco':  row[16] or '',
+            'bairro':    row[17] or '',
+            'cidade':    row[18] or '',
+            'uf':        row[19] or '',
+            'cep':       row[20] or '',
+            'fone':      row[21] or '',
+            'fax':       row[22] or '',
+        }
+
+        # Itens — incluímos PESO da TGFITE pra calcular qtd de caixas (CEIL kg/peso)
+        cur.execute("""
+            SELECT i.SEQUENCIA, i.CODPROD, pr.DESCRPROD, i.CODVOL,
+                   NVL(i.QTDNEG, 0), NVL(i.VLRUNIT, 0), NVL(i.VLRTOT, 0),
+                   NVL(i.PESO, 0)
+              FROM TGFITE i
+              JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
+             WHERE i.NUNOTA = :n
+             ORDER BY i.SEQUENCIA
+        """, n=int(nunota))
+
+        itens = []
+        for r in cur.fetchall():
+            qtdneg = float(r[4] or 0)
+            peso   = float(r[7] or 0)
+            qtd_cx = 0
+            if peso > 0:
+                qtd_cx = int(-(-qtdneg // peso))  # CEIL via floor-div negativa
+            itens.append({
+                'sequencia':  int(r[0]),
+                'codprod':    int(r[1]),
+                'descrprod':  r[2] or '',
+                'codvol':     r[3] or '',
+                'qtdneg':     qtdneg,
+                'vlrunit':    float(r[5] or 0),
+                'vlrtot':     float(r[6] or 0),
+                'peso':       peso,
+                'qtd_caixas': qtd_cx,
+            })
+
+        return {
+            'pedido':  pedido,
+            'empresa': empresa,
+            'cliente': cliente,
+            'itens':   itens,
+        }
+
+
+def listar_pedidos_para_impressao(filtros: dict) -> list[dict]:
+    """Lista pedidos TOP 34 (Pedido de Venda) ativos, com filtros pra alimentar
+    a tela de pré-visualização da impressão.
+
+    Filtros aceitos:
+        - ``dtneg`` (str DD/MM/YYYY) — data exata da negociação
+        - ``dtneg_de`` + ``dtneg_ate`` — período (alternativa a dtneg)
+        - ``codtab`` (int) ou ``codtabs`` (list[int]) — filtra clientes por
+          tabela de preço (5=Assaí DF, 17=Araguaína, 18=Palmas)
+        - ``codparc`` (int) — cliente específico
+        - ``nunotas`` (list[int]) — pedidos explícitos (vence outros filtros)
+        - ``codemp`` (int) — empresa
+
+    Retorna lista de dicts:
+        [{'nunota', 'numnota', 'dtneg', 'codparc', 'nomeparc',
+          'codtab', 'vlrnota', 'qtd_itens'}, ...]
+    """
+    filtros = filtros or {}
+    where  = [
+        "c.CODTIPOPER = 34",
+        "(c.STATUSNOTA <> 'E' OR c.STATUSNOTA IS NULL)",  # parênteses essenciais
+    ]
+    binds  = {}
+
+    if filtros.get('nunotas'):
+        lista = [int(n) for n in filtros['nunotas'] if n]
+        if lista:
+            # Oracle NOT IN com lista — bind por bind name pra evitar limites
+            placeholders = ', '.join(f":n{i}" for i in range(len(lista)))
+            where.append(f"c.NUNOTA IN ({placeholders})")
+            for i, val in enumerate(lista):
+                binds[f'n{i}'] = val
+
+    if filtros.get('dtneg'):
+        where.append("TRUNC(c.DTNEG) = TO_DATE(:dtneg, 'DD/MM/YYYY')")
+        binds['dtneg'] = filtros['dtneg']
+    elif filtros.get('dtneg_de') and filtros.get('dtneg_ate'):
+        where.append("TRUNC(c.DTNEG) BETWEEN "
+                     "TO_DATE(:dtde, 'DD/MM/YYYY') "
+                     "AND TO_DATE(:dtate, 'DD/MM/YYYY')")
+        binds['dtde']  = filtros['dtneg_de']
+        binds['dtate'] = filtros['dtneg_ate']
+
+    if filtros.get('codparc'):
+        where.append("c.CODPARC = :codparc")
+        binds['codparc'] = int(filtros['codparc'])
+
+    if filtros.get('codtab'):
+        where.append("p.CODTAB = :codtab")
+        binds['codtab'] = int(filtros['codtab'])
+    elif filtros.get('codtabs'):
+        lista_tab = [int(t) for t in filtros['codtabs'] if t]
+        if lista_tab:
+            placeholders = ', '.join(f":ct{i}" for i in range(len(lista_tab)))
+            where.append(f"p.CODTAB IN ({placeholders})")
+            for i, val in enumerate(lista_tab):
+                binds[f'ct{i}'] = val
+
+    if filtros.get('codemp'):
+        where.append("c.CODEMP = :codemp")
+        binds['codemp'] = int(filtros['codemp'])
+
+    sql = f"""
+        SELECT c.NUNOTA, c.NUMNOTA, c.DTNEG,
+               c.CODPARC, p.NOMEPARC, p.CODTAB,
+               NVL(c.VLRNOTA, 0),
+               (SELECT COUNT(*) FROM TGFITE i2 WHERE i2.NUNOTA = c.NUNOTA) AS QTD_ITENS,
+               c.STATUSNOTA
+          FROM TGFCAB c
+          LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC
+         WHERE {' AND '.join(where)}
+         ORDER BY p.NOMEPARC, c.NUNOTA
+    """
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, binds)
+            rows = cur.fetchall()
+    except Exception:
+        logger.exception("Falha em listar_pedidos_para_impressao")
+        return []
+
+    out = []
+    for r in rows:
+        out.append({
+            'nunota':     int(r[0]),
+            'numnota':    int(r[1]) if r[1] is not None else None,
+            'dtneg':      r[2],
+            'codparc':    int(r[3]),
+            'nomeparc':   r[4] or '',
+            'codtab':     int(r[5]) if r[5] is not None else None,
+            'vlrnota':    float(r[6] or 0),
+            'qtd_itens':  int(r[7] or 0),
+            'statusnota': r[8] or '',
+        })
+    return out
+
+
+def consultar_pesos_referencia_por_codprods(codprods: list[int]) -> dict[int, float]:
+    """Resolve fator de caixa por CODPROD pra cálculo de quantidade de caixas
+    quando o item da venda não tem ``TGFITE.PESO`` populado.
+
+    Cascata em **1 query única** com prioridade (menor PRIO vence):
+        1. Moda de PESO da TOP 26 (Classificação) do CODPROD — peso real do
+           lote classificado pelo operador (mais preciso, vence cadastro
+           genérico).
+        2. ``TGFVOA[CODPROD, 'CX', M].QUANTIDADE`` — cadastro Sankhya nativo
+           (unidade alternativa CX, "1 CX = QTD × unidade padrão"). Atualizado
+           2026-05-21 — usar Sankhya direto evita coluna AD_* nova e mantém
+           operador cadastrando 1 vez só na tela nativa do ERP.
+        3. Moda de PESO da TOP 11 (Entrada) do CODPROD — último recurso.
+
+    Como funciona o cálculo de caixas com o valor retornado:
+        ``caixas = CEIL(qtdneg / fator)``
+    onde ``qtdneg`` vem em ``TGFITE.CODVOL`` (unidade da venda) e ``fator``:
+        - Camadas 1/3: peso em kg (só faz sentido pra venda em KG).
+        - Camada 2: TGFVOA["1 CX = X unidades padrão"] — operador cadastra
+          exatamente quantas unidades da venda formam 1 caixa.
+
+    Limita a 200 CODPRODs por chamada pra evitar bind explosion. Resultado:
+    ``{codprod: fator}``. CODPRODs sem nenhum dado não aparecem.
+    """
+    if not codprods:
+        return {}
+    lista = list({int(c) for c in codprods if c})[:200]
+    if not lista:
+        return {}
+
+    placeholders = ', '.join(f":c{i}" for i in range(len(lista)))
+    binds = {f'c{i}': cp for i, cp in enumerate(lista)}
+
+    # CTE `pesos`: contagem moda PESO em TGFITE TOP 11 / TOP 26 (fallback histórico)
+    # CTE `voa`: TGFVOA pra unidade CX cadastrada no Sankhya (cadastro nativo)
+    # UNION ALL com coluna PRIO: 1=moda_top26 > 2=TGFVOA > 3=moda_top11
+    # `MAX(PESO) KEEP DENSE_RANK FIRST ORDER BY PRIO ASC` escolhe a camada
+    # mais prioritária que tenha dado pra cada CODPROD.
+    sql = f"""
+        WITH voa AS (
+            SELECT CODPROD, QUANTIDADE AS PESO
+              FROM TGFVOA
+             WHERE CODVOL = 'CX'
+               AND ATIVO = 'S'
+               AND DIVIDEMULTIPLICA = 'M'
+               AND CODPROD IN ({placeholders})
+               AND NVL(QUANTIDADE, 0) > 0
+        ),
+        pesos AS (
+            SELECT i.CODPROD, i.PESO, c.CODTIPOPER, COUNT(*) AS qtd_uso
+              FROM TGFITE i
+              JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+             WHERE c.CODTIPOPER IN (11, 26)
+               AND c.STATUSNOTA <> 'E'
+               AND i.CODPROD IN ({placeholders})
+               AND NVL(i.PESO, 0) > 0
+             GROUP BY i.CODPROD, i.PESO, c.CODTIPOPER
+        ),
+        moda_top26 AS (
+            SELECT CODPROD,
+                   MAX(PESO) KEEP (DENSE_RANK FIRST ORDER BY qtd_uso DESC, PESO DESC) AS PESO
+              FROM pesos
+             WHERE CODTIPOPER = 26
+             GROUP BY CODPROD
+        ),
+        moda_top11 AS (
+            SELECT CODPROD,
+                   MAX(PESO) KEEP (DENSE_RANK FIRST ORDER BY qtd_uso DESC, PESO DESC) AS PESO
+              FROM pesos
+             WHERE CODTIPOPER = 11
+             GROUP BY CODPROD
+        ),
+        unidos AS (
+            SELECT CODPROD, PESO, 1 AS PRIO FROM moda_top26
+            UNION ALL
+            SELECT CODPROD, PESO, 2 AS PRIO FROM voa
+            UNION ALL
+            SELECT CODPROD, PESO, 3 AS PRIO FROM moda_top11
+        )
+        SELECT CODPROD,
+               MAX(PESO) KEEP (DENSE_RANK FIRST ORDER BY PRIO ASC) AS PESO_REF
+          FROM unidos
+         GROUP BY CODPROD
+    """
+
+    # Replica binds (CODPROD usado em 2 CTEs)
+    binds_finais = dict(binds)
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, binds_finais)
+            rows = cur.fetchall()
+    except Exception:
+        logger.exception("Falha em consultar_pesos_referencia_por_codprods")
+        return {}
+
+    out = {}
+    for r in rows:
+        cp = int(r[0])
+        peso = float(r[1] or 0)
+        if peso > 0:
+            out[cp] = peso
+    return out

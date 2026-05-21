@@ -37,6 +37,7 @@ Estas regras se aplicam a **todas** as sessões, sem exceção. Violar qualquer 
 
 - Qualquer função em `oracle_conn.py` (ou qualquer outro service) que execute `INSERT`, `UPDATE`, `DELETE`, `MERGE` no Oracle — **seja função existente sendo modificada, seja função aditiva nova sendo criada**
 - DDL direta aplicada no Oracle real (`ALTER TABLE`, `DROP TABLE`, `TRUNCATE`, `CREATE/REPLACE` em **tabelas Sankhya nativas**)
+  - **Atualizado 2026-05-21:** `ALTER TABLE` em tabela Sankhya nativa **adicionando coluna `AD_<NOME>`** é PERMITIDO (continua exigindo aprovação Cat B ponto-a-ponto). Antes de propor, **ler** sempre se o dado já existe em campo nativo ou tabela auxiliar Sankhya (ex.: TGFVOA, TGFEXC). Detalhes da diretriz em `CLAUDE.md` → "Estratégia de produto"
 - `CREATE TABLE` ou `CREATE SEQUENCE` mesmo que prefixados com `AD_` (DDL nova em produção)
 - **Views Oracle não-prefixadas por `AD_` ou `ANDRE_IAGRO_`** (qualquer view Sankhya nativa)
 - Rodar scripts smoke `_apply_*.py` que aplicam DDL em produção

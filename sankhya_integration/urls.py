@@ -153,6 +153,11 @@ urlpatterns = [
     path("venda/api/cabecalho/obter/", views.api_obter_cabecalho_pedido, name="api_obter_cabecalho_pedido"),
     path("venda/api/cabecalho/editar/", views.api_atualizar_cabecalho_venda, name="api_atualizar_cabecalho_venda"),
     path("venda/api/faturar/", views.api_faturar_pedido_venda, name="api_faturar_pedido_venda"),
+    # Mai/2026 (2026-05-21) — Impressão de pedidos (preview + consolidação + PDFs)
+    path("venda/api/imprimir/preview/",         views.api_imprimir_preview,          name="api_imprimir_preview"),
+    path("venda/api/imprimir/consolidacao/",    views.api_imprimir_consolidacao,     name="api_imprimir_consolidacao"),
+    path("venda/api/imprimir/pdf-individual/",  views.api_imprimir_pdf_individual,   name="api_imprimir_pdf_individual"),
+    path("venda/api/imprimir/pdf-consolidado/", views.api_imprimir_pdf_consolidado,  name="api_imprimir_pdf_consolidado"),
     # Mai/2026 (2026-05-20) — Resolve preço da tabela do Sankhya
     path("venda/api/preco-tabela/", views.api_preco_tabela, name="api_preco_tabela"),
 
