@@ -2398,15 +2398,11 @@ document.addEventListener('DOMContentLoaded', function() {
         if (semLote.length > 0) {
             faturarValidEl.classList.remove('hidden');
             faturarValidEl.innerHTML = `
-                <strong><i class="ph ph-warning"></i> Não é possível faturar este pedido ainda.</strong><br>
-                ${semLote.length} ${semLote.length === 1 ? 'item está' : 'itens estão'} sem lote vinculado.
-                Vincule os lotes pelo módulo <strong>Rastreio</strong> antes de faturar.`;
-            const btnConf = document.getElementById('btnConfirmarFaturar');
-            if (btnConf) btnConf.disabled = true;
-        } else {
-            const btnConf = document.getElementById('btnConfirmarFaturar');
-            if (btnConf) btnConf.disabled = false;
+                <strong><i class="ph ph-info"></i> ${semLote.length} ${semLote.length === 1 ? 'item está' : 'itens estão'} sem lote vinculado.</strong><br>
+                Pode faturar agora. Vincule os lotes depois pelo módulo <strong>Rastreio</strong>.`;
         }
+        const btnConf = document.getElementById('btnConfirmarFaturar');
+        if (btnConf) btnConf.disabled = false;
         faturarNunotaEl.textContent = nunota;
         faturarModal.classList.remove('hidden');
         faturarModal.style.display = 'flex';

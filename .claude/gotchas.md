@@ -165,6 +165,52 @@ UPDATE só `QTDCONFERIDA=0.0` no 113264 (sem mexer em mais nada) destravou o fat
 
 ---
 
+### Trigger `TRG_UPD_TGFCAB` exige trio CODTIPOPER+DHTIPOPER+TIPMOV sincronizados (Mai/2026 — 2026-05-22)
+
+Ao mudar CODTIPOPER (caso típico: UPDATE in-place pedido TOP 34 → 35/37, caminho antigo de `faturar_pedido_venda_banco`), o trigger valida 2 invariantes em sequência:
+
+| # | Validação | Erro se falhar |
+|---|---|---|
+| 1 | Par `(CODTIPOPER, DHTIPOPER)` bate com linha **ativa** em TGFTOP | `ORA-20101: Tipo de operação não esta ativo. Nota de Nro Único: NNNNN` |
+| 2 | `NEW.TIPMOV` == `TGFTOP.TIPMOV` da nova TOP | `ORA-20101: Esta TOP X não pode ser lançada nesta opção` |
+
+TOPs comuns: TOP 34 (PEDIDO) tem `TIPMOV='P'`; TOP 35 e TOP 37 (VENDA) têm `TIPMOV='V'`.
+
+**Fix se realmente precisar mudar CODTIPOPER via UPDATE**: incluir os 3 campos juntos. Buscar DHTIPOPER + TIPMOV da nova TOP em TGFTOP `WHERE CODTIPOPER=:t AND ATIVO='S' ORDER BY DHALTER DESC FETCH FIRST 1` (ou ROWNUM=1 pra 11g compat). Aplicar no mesmo UPDATE.
+
+**Alternativa preferível (Mai/2026)**: criar TGFCAB nova (caminho C) em vez de UPDATE in-place. A função `inserir_cabecalho_nota_banco` já cuida do trio corretamente no INSERT (busca DHTIPOPER da TGFTOP via subquery). Detalhes em [`modules/venda.md`](modules/venda.md) → "Faturamento (Caminho C)".
+
+---
+
+### Módulo Java do Sankhya não emite NFe quando TGFCAB é criada via Oracle direto (Mai/2026 — 2026-05-22)
+
+**Smoke A1 confirmou empiricamente**: criar TGFCAB TOP 35 + TGFITE via INSERT direto no Oracle, ajustar SERIENOTA='1', RESERVA='N', ATUALESTOQUE=-1, NUMNOTA=0, chamar `STP_CONFIRMANOTA2(nunota, 'N', 1)` → STATUSNOTA vai pra 'L' mas **STATUSNFE permanece NULL** indefinidamente. Módulo Java não pega a nota.
+
+**Mensagem do Sankhya**: `"Documento NNNNN: Nota sem status nfe. Ignorada na impressão"`.
+
+**Causa**: o módulo Java do Sankhya processa apenas notas criadas pela **rotina nativa de faturamento** (painel ou STP específico do menu). Essa rotina popula dezenas de campos fiscais que o IAgro **não preenche** ao criar TGFCAB direto via Oracle:
+
+| Categoria | Campos | Origem (Sankhya nativo) |
+|---|---|---|
+| Geo TGFCAB | `CODCIDORIGEM`, `CODCIDDESTINO`, `CODUFORIGEM`, `CODUFDESTINO` | JOIN TSIEMP/TGFPAR.CODCID + TSICID.UF (trigger Sankhya popula no INSERT) |
+| Fiscal TGFCAB | `NATUREZAOPERDES`, `CLASSIFICMS`, `INDPRESNFCE`, `INDNEGMODAL`, `TPRETISS` | Rotina Java do painel |
+| Fiscal TGFITE | `CODCFO`, `CODTRIB`, `IDALIQICMS`, `NUTAB`, `ORIGPROD`, `PRODUTONFE`, `GTINNFE`, `GTINTRIBNFE` | Rotina Java + cadastro fiscal (TGFTRB) |
+
+Quando IAgro deixa esses campos vazios, o módulo Java rejeita com `CORE_E04895`:
+> `O valor do campo natOp (Descrição da Natureza da Operação) informado não é valido.`
+> `O valor do campo idDest (Identificador de Local de destino da operação...) informado não é valido.`
+> `O valor do campo CFOP (Cfop) informado não é valido.`
+
+**Tentativa A1 descartada**: replicar 100% da rotina Java do Sankhya via Oracle exigiria semanas/meses de engenharia reversa do cadastro fiscal. Inviável.
+
+**Estratégia atual (caminho C)**: `faturar_pedido_venda_banco` cria TGFCAB nova e **herda campos fiscais da última TOP 35/37 emitida OK** do mesmo `(CODEMP, CODPARC, CODPROD)`. Pra Agromil, com volume histórico grande (>1000 NFe emitidas em 2026), praticamente sempre tem nota anterior pareável. Quando não tem (cliente novo + produto novo), o módulo Java rejeita e operador trata no Sankhya.
+
+**Fluxo operacional**: IAgro cria a nota STATUSNOTA='P', operador abre Sankhya, clica CONFIRMAR → módulo Java emite NFe (Sankhya popula campos faltantes via sua rotina interna + chama SEFAZ).
+
+Detalhes em [`modules/venda.md`](modules/venda.md) → "Faturamento (Caminho C)" + `CLAUDE.md` → "📑 Faturamento Caminho C".
+
+---
+
 ### Variante: TGFCAB TOP 30 (avaria) exige CODTIPVENDA mesmo sem operação de venda (Mai/2026 — 2026-05-20)
 
 Manifestação real: ao implementar `upsert_avaria_top30_lote` (geração automática de avaria interna no faturamento do Comercial), a primeira versão omitia `CODTIPVENDA` no dict do cabeçalho — TGFCAB TOP 30 é avaria interna, não tem negociação. Resultado: `ORA-20101: Campo Tipo de negociação obrigatório para a nota de Nro Único:NNNNN`.

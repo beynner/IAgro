@@ -528,6 +528,8 @@
 | `TRG_INC_TGFCAB` | BEFORE INSERT | ORA-20101 | `(CODTIPVENDA, DHTIPVENDA)` inconsistente | Busca DHALTER mais recente de TGFTPV antes do INSERT |
 | `TRG_INC_TGFCAB` (Mai/2026 — 2026-05-20) | BEFORE INSERT | ORA-20101: "Campo Tipo de negociação obrigatório" | INSERT em **qualquer TOP** sem `CODTIPVENDA` — inclusive TOP 30 (avaria interna que conceitualmente não tem negociação) | Sempre passar `CODTIPVENDA` no payload. Em TGFCAB TOP 30 automática (`upsert_avaria_top30_lote`), herda de `c.CODTIPVENDA` da TOP 11 origem; fallback `11` (mesma estratégia da `criar_avaria_top30_banco` do módulo Venda) |
 | `TRG_UPD_TGFCAB` | BEFORE UPDATE | ORA-20101 | Tenta `UPDATE STATUSNOTA='E'` — trigger bloqueia, só permite → 'L' | Use DELETE físico pra "excluir" (Combustível B6) |
+| `TRG_UPD_TGFCAB` (Mai/2026 — 2026-05-22) | BEFORE UPDATE | ORA-20101: "Tipo de operação não esta ativo" | UPDATE muda `CODTIPOPER` mas mantém `DHTIPOPER` antigo — par `(CODTIPOPER, DHTIPOPER)` não bate com TGFTOP ativa | Atualizar `DHTIPOPER = MAX(DHALTER) FROM TGFTOP WHERE CODTIPOPER=:t AND ATIVO='S'` no mesmo UPDATE |
+| `TRG_UPD_TGFCAB` (Mai/2026 — 2026-05-22) | BEFORE UPDATE | ORA-20101: "Esta TOP X não pode ser lançada nesta opção" | UPDATE muda `CODTIPOPER` mas mantém `TIPMOV` antigo. TOP 34 (PEDIDO) tem TIPMOV='P', TOP 35/37 (VENDA) tem TIPMOV='V' — incompatibilidade detectada | Atualizar `TIPMOV` junto: ler de TGFTOP.TIPMOV da nova TOP e gravar no UPDATE. Alternativa preferível: criar TGFCAB nova (caminho C) em vez de UPDATE in-place — vide `faturar_pedido_venda_banco` |
 
 ### 2.2 Triggers em TGFFIN
 

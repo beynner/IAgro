@@ -1032,7 +1032,7 @@ def api_listar_itens_nota(request: HttpRequest) -> JsonResponse:
             seq = r[1] if len(r) > 1 else None
             qtdneg = float(r[5] or 0) if len(r) > 5 else 0.0
             qtdconferida = float(r[11]) if len(r) > 11 and r[11] is not None else qtdneg
-            
+
             retorno.append({
                 'nunota': nunota,
                 'sequencia': int(seq) if seq is not None else None,
@@ -1040,11 +1040,16 @@ def api_listar_itens_nota(request: HttpRequest) -> JsonResponse:
                 'descr': r[3] if len(r) > 3 else '',
                 'lote': r[0] if len(r) > 0 else '',
                 'codvol': r[4] if len(r) > 4 else '',
-                'qtd': qtdconferida,
+                # Mai/2026 (2026-05-22): usa QTDNEG (negociada) em vez de
+                # QTDCONFERIDA pra exibir na UI. B4 fix zera QTDCONFERIDA em
+                # TOP 34/35/37 (pré-req do Sankhya pra "atender pedido"), e
+                # a UI mostrava 0 erroneamente.
+                'qtd': qtdneg,
+                'qtd_conferida': qtdconferida,
                 'peso': float(r[6]) if len(r) > 6 and r[6] is not None else None,
                 'vlu': float(r[7] or 0) if len(r) > 7 else 0.0,
                 'vlt': float(r[8] or 0) if len(r) > 8 else 0.0,
-                'total': qtdneg, 
+                'total': qtdneg,
                 'obs': r[9] if len(r) > 9 else '',
                 'classifica': (str(r[10]).upper() != 'N') if len(r) > 10 and r[10] is not None else None,
                 'geraproducao': str(r[10]).upper() if len(r) > 10 and r[10] is not None else None,

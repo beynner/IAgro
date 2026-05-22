@@ -315,6 +315,61 @@ Diagnóstico via comparação direta TGFITE NUNOTA=113083 (1 item IAgro vs 1 ite
 
 **Escopo do fix**: só pedidos novos criados após 2026-05-20. Pedidos antigos pré-fix continuam com `RESERVA='N'` — operador faz UPDATE manual no Sankhya quando encontrar. Como Agromil está começando a usar IAgro pra vendas agora, volume é pequeno. Detalhes em [`gotchas.md`](.claude/gotchas.md), [`modules/venda.md`](.claude/modules/venda.md) e [`dependencias_sankhya.md`](.claude/dependencias_sankhya.md) §2.2.5.
 
+### 📑 Faturamento Caminho C — cria TGFCAB NOVA + TGFVAR (Mai/2026 — 2026-05-22, continuação)
+
+**Pivotagem arquitetural do faturamento**: até então `faturar_pedido_venda_banco` fazia `UPDATE TGFCAB SET CODTIPOPER=35/37` (in-place no mesmo NUNOTA). Pedido "virava" venda. Descoberto via smoke A1 que o módulo Java do Sankhya **não emite NFe** com esse fluxo — ele processa apenas notas criadas pela rotina nativa de faturamento. Pivotagem pra **criar TGFCAB NOVA** + TGFITE espelhado + TGFVAR pareando pedido↔nota. Pedido TOP 34 fica intacto.
+
+**Investigação caminho A1 (descartada)**: testes empíricos confirmaram que mesmo chamando `STP_CONFIRMANOTA2` via Oracle, o módulo Java não emite NFe — exige dezenas de campos fiscais (CFOP, CODTRIB, IDALIQICMS, NUTAB, NATUREZAOPERDES, INDNEGMODAL, TPRETISS, CODCIDORIGEM/DESTINO, CODUFORIGEM/DESTINO, CLASSIFICMS) que rotinas Java internas do Sankhya populam — não dá pra replicar via SQL direto.
+
+**Comportamento novo (`faturar_pedido_venda_banco` reescrita Cat B)**:
+
+```
+1. Lock pessimista no pedido TOP 34 (FOR UPDATE)
+2. Validações: existe + TOP 34 + STATUSNOTA != 'E' + tem itens
+3. Confirmação implícita: se STATUSNOTA='P', UPDATE pra 'L' antes de criar nota
+4. Bloqueia re-faturamento: verifica TGFVAR par pedido↔nota
+5. INSERT TGFCAB nova (via inserir_cabecalho_nota_banco) copiando do pedido:
+   - CODEMP, CODPARC, CODTIPVENDA, OBSERVACAO
+   - CODTIPOPER=nova_top (35 ou 37), CODNAT=CODNAT_POR_TOP[nova_top]
+   - DTNEG/DTMOV/DTENTSAI=hoje
+6. UPDATE TGFCAB nova: SERIENOTA='1', STATUSNOTA='P', DTFATUR=SYSDATE
+   - NUMNOTA condicional: TOP 35 → 0 (Java sobrescreve na emissão SEFAZ),
+     TOP 37 → NUNOTA (referência interna, sem emissão fiscal)
+7. INSERT TGFITE espelhado (via inserir_item_nota_banco gerar_lote_auto=False)
+   pra cada item do pedido: CODPROD, CODVOL, QTDNEG, VLRUNIT, VLRTOT,
+   CODAGREGACAO (se houver), PESO, OBSERVACAO
+8. UPDATE TGFITE: RESERVA='N', ATUALESTOQUE=-1 (semântica TOP 35/37 — não
+   reserva estoque; diferente de TOP 34 que reserva)
+9. Herança fiscal — UPDATE TGFCAB+TGFITE copiando da última TOP 35/37
+   STATUSNFE='A' pro mesmo (CODEMP, CODPARC, CODPROD):
+   - TGFCAB: NATUREZAOPERDES, INDNEGMODAL, TPRETISS, CLASSIFICMS, INDPRESNFCE
+   - TGFITE: CODCFO, CODTRIB, IDALIQICMS, NUTAB, ORIGPROD, PRODUTONFE,
+     GTINNFE, GTINTRIBNFE
+   - NVL preserva valores não-nulos (não sobrescreve trigger Sankhya)
+10. Recalcula totais TGFCAB nova (VLRNOTA, QTDVOL)
+11. INSERT TGFVAR pra cada item (par pedido↔nota — trigger TRG_INC_TGFVAR
+    dispara cascata em TGMTRA, esperado)
+```
+
+**Trava de "todos os itens com lote vinculado" REMOVIDA**: operador pode faturar sem CODAGREGACAO — vinculação posterior pelo módulo Rastreio. Backend logs `logger.info` em vez de bloquear. Frontend mostra aviso amarelo informativo (não bloqueante).
+
+**Trigger `TRG_UPD_TGFCAB` exige trio sincronizado** ao mudar CODTIPOPER (descoberto na sessão): `(CODTIPOPER, DHTIPOPER, TIPMOV)` precisam bater com linha ativa em `TGFTOP`. Se DHTIPOPER ou TIPMOV ficarem da TOP antiga, dispara `ORA-20101: Tipo de operação não esta ativo` ou `Esta TOP X não pode ser lançada nesta opção`. Mantido no caminho C antigo (UPDATE in-place de DHTIPOPER+TIPMOV) caso alguém ainda use — mas o novo caminho cria TGFCAB nova, então não passa por essa via.
+
+**Bug visual UI corrigido**: endpoint `/sankhya/item/list/` mapeava `'qtd': qtdconferida` na resposta JSON. Como o fix B4 (Mai/2026 — 2026-05-22) zerou QTDCONFERIDA em TOP 34/35/37, a UI mostrava QTD=0. Corrigido: `'qtd': qtdneg` + `'qtd_conferida': qtdconferida` separados.
+
+**Fluxo operacional final**:
+
+```
+IAgro: criar pedido TOP 34 + adicionar itens (STATUSNOTA='P')
+IAgro: 📋 Faturar Pedido → escolhe TOP 35 (NFe) ou TOP 37 (sem NFe)
+       → cria TGFCAB nova STATUSNOTA='P' + herda campos fiscais do histórico
+Sankhya: operador localiza a nota nova, clica CONFIRMAR
+       → módulo Java emite NFe SEFAZ (TOP 35) ou só registra (TOP 37)
+       → operador imprime DANFE
+```
+
+Detalhes em [`modules/venda.md`](.claude/modules/venda.md) → "Faturamento (Caminho C)" + [`gotchas.md`](.claude/gotchas.md) → "Trigger TRG_UPD_TGFCAB exige trio CODTIPOPER+DHTIPOPER+TIPMOV" + "Módulo Java Sankhya não emite NFe de TGFCAB criada via Oracle direto".
+
 ### ✅ Botão "Confirmar Pedido" no portal Venda (Mai/2026 — 2026-05-22)
 
 Pedido criado pelo IAgro nasce com `TGFCAB.STATUSNOTA='P'` (pré-nota). Antes de faturar no Sankhya, o operador precisava clicar **CONFIRMAR** lá pra mudar pra `'L'` (sem isso, Sankhya rejeita o "atender pedido"). Botão novo no IAgro elimina essa fricção — confirmação direto no portal Venda.

@@ -4773,13 +4773,27 @@ def faturar_pedido_venda_banco(nunota: int, nova_top: int,
         resultado['error'] = f'CODNAT não mapeado para TOP {nova_top}'
         return resultado
 
+    # ─────────────────────────────────────────────────────────────────────
+    # Mai/2026 (2026-05-22): pivotagem do UPDATE in-place pro caminho C
+    # ─────────────────────────────────────────────────────────────────────
+    # Antes: o IAgro fazia UPDATE TGFCAB SET CODTIPOPER=35/37 → o pedido
+    # TOP 34 "virava" venda no mesmo NUNOTA. Não emitia NFe pelo módulo
+    # Java (validado no smoke A1: módulo só processa TGFCAB criada via
+    # rotina de faturamento, não UPDATE in-place).
+    #
+    # Agora: cria TGFCAB TOP 35/37 NOVA + TGFITE espelhado + TGFVAR par.
+    # Pedido TOP 34 fica intacto (STATUSNOTA='L'). Operador abre o Sankhya,
+    # localiza a nota nova (STATUSNOTA='P') e clica CONFIRMAR pra emitir
+    # NFe pelo módulo Java do ERP.
+    # ─────────────────────────────────────────────────────────────────────
     try:
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
             try:
-                # 1) Lock pessimista do cabeçalho — evita faturamento duplicado
+                # 1) Lock pessimista do pedido — evita faturamento duplicado
                 cur.execute("""
-                    SELECT CODTIPOPER, STATUSNOTA, CODEMP, NVL(VLRNOTA, 0)
+                    SELECT CODTIPOPER, STATUSNOTA, CODEMP, CODPARC,
+                           CODTIPVENDA, NVL(VLRNOTA, 0), OBSERVACAO
                     FROM TGFCAB
                     WHERE NUNOTA = :n
                     FOR UPDATE
@@ -4789,21 +4803,63 @@ def faturar_pedido_venda_banco(nunota: int, nova_top: int,
                     resultado['error'] = 'Pedido não encontrado'
                     return resultado
 
-                codtipoper, statusnota, codemp, vlrnota = row
+                (codtipoper, statusnota, codemp, codparc,
+                 codtipvenda, vlrnota, observacao) = row
+
                 if int(codtipoper) != 34:
                     resultado['error'] = (
-                        f'Pedido já foi faturado ou é de outra operação '
-                        f'(TOP atual: {codtipoper}).'
+                        f'Documento NUNOTA={nunota} é TOP {codtipoper}, '
+                        f'não pode ser faturado (deve ser TOP 34).'
                     )
-                    return resultado
-                if statusnota == 'L':
-                    resultado['error'] = 'Pedido já consta como faturado.'
                     return resultado
                 if statusnota == 'E':
                     resultado['error'] = 'Pedido foi excluído — não pode ser faturado.'
                     return resultado
+                # Confirmação implícita (Mai/2026 — 2026-05-22): se o pedido
+                # estiver em pré-nota ('P'), confirma automaticamente antes
+                # de criar a nota. Equivalente ao botão CONFIRMAR — economiza
+                # 1 clique. Trigger TRG_UPD_TGFCAB aceita P→L (gotcha
+                # bloqueia só pra 'E'). Sem efeitos colaterais financeiros.
+                if statusnota == 'P':
+                    logger.info(
+                        f"Confirmação implícita do pedido NUNOTA={nunota} "
+                        f"(STATUSNOTA P→L) antes do faturamento."
+                    )
+                    cur.execute("""
+                        UPDATE TGFCAB SET STATUSNOTA = 'L', DTALTER = SYSDATE
+                         WHERE NUNOTA = :n
+                    """, n=int(nunota))
+                    statusnota = 'L'
+                elif statusnota != 'L':
+                    resultado['error'] = (
+                        f'Pedido em estado inesperado (STATUSNOTA={statusnota!r}). '
+                        f'Aguardando regularização.'
+                    )
+                    return resultado
 
-                # 2) Valida itens — precisa ter ao menos 1, e nenhum com lote pendente
+                # 2) Verifica se o pedido já tem nota gerada (via TGFVAR ou
+                # AD_VINCULO_PEDIDO_NOTA do Rastreio). Evita duplicar.
+                cur.execute("""
+                    SELECT COUNT(*) FROM TGFVAR v
+                     WHERE v.NUNOTAORIG = :n
+                       AND EXISTS (
+                           SELECT 1 FROM TGFCAB c
+                            WHERE c.NUNOTA = v.NUNOTA
+                              AND c.CODTIPOPER IN (35, 37)
+                              AND c.STATUSNOTA <> 'E'
+                       )
+                """, n=int(nunota))
+                if int(cur.fetchone()[0] or 0) > 0:
+                    resultado['error'] = (
+                        f'Pedido NUNOTA={nunota} já tem nota fiscal gerada. '
+                        f'Veja no Sankhya.'
+                    )
+                    return resultado
+
+                # 3) Valida itens — precisa ter ao menos 1.
+                # Trava de "todos com lote vinculado" continua removida —
+                # operador pode faturar sem lote (vinculação posterior pelo
+                # Rastreio).
                 cur.execute("""
                     SELECT COUNT(*),
                            SUM(CASE WHEN CODAGREGACAO IS NULL THEN 1 ELSE 0 END)
@@ -4814,49 +4870,235 @@ def faturar_pedido_venda_banco(nunota: int, nova_top: int,
                     resultado['error'] = 'Pedido sem itens — não pode ser faturado.'
                     return resultado
                 if int(itens_sem_lote or 0) > 0:
+                    logger.info(
+                        f"Faturando NUNOTA={nunota} com {int(itens_sem_lote)} "
+                        f"item(ns) sem lote — vinculação posterior pelo Rastreio."
+                    )
+
+                # 4) Cria TGFCAB TOP 35/37 NOVA via inserir_cabecalho_nota_banco
+                hoje_str = datetime.now().strftime('%d/%m/%Y')
+                dados_nova = {
+                    'CODTIPOPER': int(nova_top),
+                    'CODNAT': int(nova_codnat),
+                    'CODEMP': int(codemp),
+                    'CODPARC': int(codparc),
+                    'DTNEG': hoje_str,
+                    'DTMOV': hoje_str,
+                    'DTENTSAI': hoje_str,
+                }
+                if codtipvenda:
+                    dados_nova['CODTIPVENDA'] = int(codtipvenda)
+                if observacao:
+                    dados_nova['OBSERVACAO'] = observacao
+
+                r_cab = inserir_cabecalho_nota_banco(dados_nova, conexao_existente=conn)
+                if not r_cab.get('ok'):
                     resultado['error'] = (
-                        f'Pedido tem {int(itens_sem_lote)} item(ns) sem lote vinculado. '
-                        f'Vincule todos os lotes no Rastreio antes de faturar.'
+                        f'Falha ao criar nota TOP {nova_top}: {r_cab.get("error")}'
                     )
                     return resultado
+                nunota_nota = int(r_cab['nunota'])
 
-                # 3) Próximo NUMNOTA dentro do CODEMP — simples e suficiente para
-                #    o MVP. Numeração formal de NFe é responsabilidade do Sankhya.
+                # 5) UPDATE TGFCAB nova — SERIENOTA='1', STATUSNOTA='P', DTFATUR.
+                # NUMNOTA depende da TOP:
+                #   TOP 35 (com NFe): NUMNOTA=0 — sinaliza ao módulo Java do
+                #     Sankhya "nota pra emitir"; o Java sobrescreve com a
+                #     sequência correta na emissão SEFAZ.
+                #   TOP 37 (sem NFe): NUMNOTA=NUNOTA — não vai pro SEFAZ, não
+                #     tem ninguém pra sobrescrever; usa o próprio NUNOTA como
+                #     número de referência interna.
+                if int(nova_top) == 35:
+                    numnota_inicial = 0
+                else:  # TOP 37
+                    numnota_inicial = nunota_nota
+
+                colunas_cab = _obter_colunas_da_tabela(conn, 'TGFCAB')
+                set_parts_cab = [
+                    "SERIENOTA = '1'",
+                    "NUMNOTA = :numnota",
+                    "STATUSNOTA = 'P'",
+                    "DTFATUR = SYSDATE",
+                ]
+                binds_cab = {'n': nunota_nota, 'numnota': numnota_inicial}
+                if codusu_logado and 'CODUSU' in colunas_cab:
+                    set_parts_cab.append("CODUSU = :u")
+                    binds_cab['u'] = int(codusu_logado)
+                cur.execute(
+                    f"UPDATE TGFCAB SET {', '.join(set_parts_cab)} WHERE NUNOTA = :n",
+                    binds_cab,
+                )
+
+                # 6) Lê itens do pedido + cria TGFITE espelhado
                 cur.execute("""
-                    SELECT NVL(MAX(NUMNOTA), 0) + 1
-                    FROM TGFCAB
-                    WHERE CODEMP = :e
-                      AND CODTIPOPER IN (35, 37)
-                """, e=int(codemp))
-                proximo_numnota = int(cur.fetchone()[0])
+                    SELECT SEQUENCIA, CODPROD, CODVOL, QTDNEG, VLRUNIT, VLRTOT,
+                           CODLOCALORIG, CODAGREGACAO, PESO, OBSERVACAO
+                      FROM TGFITE WHERE NUNOTA = :n ORDER BY SEQUENCIA
+                """, n=int(nunota))
+                itens_pedido = cur.fetchall()
 
-                # 4) Atualiza o cabeçalho — só colunas conhecidas. Se DTFATUR
-                #    não existir nesta versão da TGFCAB, ignora silenciosamente.
-                colunas = _obter_colunas_da_tabela(conn, 'TGFCAB')
-                set_parts = ["CODTIPOPER = :top", "CODNAT = :nat",
-                             "STATUSNOTA = 'L'", "NUMNOTA = :num"]
-                binds = {
-                    'top': int(nova_top),
-                    'nat': int(nova_codnat),
-                    'num': proximo_numnota,
-                    'n': int(nunota),
-                }
-                if 'DTFATUR' in colunas:
-                    set_parts.append("DTFATUR = SYSDATE")
-                if 'DTMOV' in colunas:
-                    set_parts.append("DTMOV = SYSDATE")
-                if 'CODUSU' in colunas and codusu_logado:
-                    set_parts.append("CODUSU = :u")
-                    binds['u'] = int(codusu_logado)
+                pares_tgfvar = []  # [(seq_nota, seq_pedido, qtd)]
+                for ip in itens_pedido:
+                    (seq_p, codprod_i, codvol, qtdneg_i, vlrunit_i, vlrtot_i,
+                     codlocalorig, codagregacao, peso, obs_item) = ip
 
-                sql = f"UPDATE TGFCAB SET {', '.join(set_parts)} WHERE NUNOTA = :n"
-                cur.execute(sql, binds)
+                    dados_item = {
+                        'NUNOTA': nunota_nota,
+                        'CODPROD': int(codprod_i),
+                        'CODVOL': codvol or 'KG',
+                        'QTDNEG': float(qtdneg_i or 0),
+                        'VLRUNIT': float(vlrunit_i or 0),
+                        'VLRTOT': float(vlrtot_i or 0),
+                        'CODLOCALORIG': int(codlocalorig or 101),
+                    }
+                    if codagregacao:
+                        dados_item['CODAGREGACAO'] = codagregacao
+                    if peso:
+                        dados_item['PESO'] = float(peso)
+                    if obs_item:
+                        dados_item['OBSERVACAO'] = obs_item
+
+                    r_ite = inserir_item_nota_banco(
+                        dados_item, conexao_existente=conn, gerar_lote_auto=False
+                    )
+                    if not r_ite.get('ok'):
+                        resultado['error'] = (
+                            f'Falha ao copiar item SEQ={seq_p}: {r_ite.get("error")}'
+                        )
+                        return resultado
+                    seq_n = int(r_ite['sequencia'])
+                    pares_tgfvar.append((seq_n, int(seq_p), float(qtdneg_i or 0)))
+
+                # 7) UPDATE TGFITE — TOP 35/37 NÃO reserva estoque, então
+                # RESERVA='N' e ATUALESTOQUE=-1 (semântica de venda já
+                # efetivada, diferente do pedido TOP 34 que reserva).
+                cur.execute("""
+                    UPDATE TGFITE
+                       SET RESERVA = 'N',
+                           ATUALESTOQUE = -1
+                     WHERE NUNOTA = :n
+                """, n=nunota_nota)
+
+                # 7.1) Herda campos fiscais da TGFCAB de uma nota TOP 35/37
+                # emitida OK pro mesmo cliente — Mai/2026 (2026-05-22):
+                # sem NATUREZAOPERDES/INDNEGMODAL/TPRETISS, o Sankhya
+                # rejeita NFe com CORE_E04895 (natOp/idDest/CFOP inválidos).
+                cur.execute("""
+                    SELECT * FROM (
+                        SELECT NATUREZAOPERDES, INDNEGMODAL, TPRETISS,
+                               CLASSIFICMS, INDPRESNFCE
+                          FROM TGFCAB
+                         WHERE CODEMP = :e AND CODPARC = :p
+                           AND CODTIPOPER = :t AND STATUSNFE = 'A'
+                           AND NATUREZAOPERDES IS NOT NULL
+                         ORDER BY NUNOTA DESC
+                    ) WHERE ROWNUM = 1
+                """, e=int(codemp), p=int(codparc), t=int(nova_top))
+                row_fiscal = cur.fetchone()
+                if row_fiscal:
+                    nat_desc, ind_neg, tpretiss, class_icms, ind_pres = row_fiscal
+                    cur.execute("""
+                        UPDATE TGFCAB SET
+                            NATUREZAOPERDES = NVL(NATUREZAOPERDES, :nat_desc),
+                            INDNEGMODAL = NVL(INDNEGMODAL, :ind_neg),
+                            TPRETISS = NVL(TPRETISS, :tpretiss),
+                            CLASSIFICMS = NVL(CLASSIFICMS, :class_icms),
+                            INDPRESNFCE = NVL(INDPRESNFCE, :ind_pres)
+                         WHERE NUNOTA = :n
+                    """, nat_desc=nat_desc, ind_neg=ind_neg, tpretiss=tpretiss,
+                         class_icms=class_icms, ind_pres=ind_pres, n=nunota_nota)
+                else:
+                    logger.warning(
+                        f"Sem TOP {nova_top} histórica de CODEMP={codemp}/"
+                        f"CODPARC={codparc} pra herdar NATUREZAOPERDES. "
+                        f"Sankhya pode rejeitar emissão NFe."
+                    )
+
+                # 7.2) Herda campos fiscais do TGFITE de uma nota TOP 35/37
+                # emitida OK pro mesmo (CODPARC, CODPROD) — CODCFO,
+                # CODTRIB, IDALIQICMS, NUTAB. Sem isso o Sankhya não
+                # consegue calcular o XML da NFe (CFOP/CST/etc).
+                for seq_n, seq_p, _qtd in pares_tgfvar:
+                    cur.execute("""
+                        SELECT CODPROD FROM TGFITE
+                         WHERE NUNOTA = :n AND SEQUENCIA = :s
+                    """, n=nunota_nota, s=seq_n)
+                    r = cur.fetchone()
+                    if not r:
+                        continue
+                    codprod_seq = int(r[0])
+
+                    cur.execute("""
+                        SELECT * FROM (
+                            SELECT i.CODCFO, i.CODTRIB, i.IDALIQICMS, i.NUTAB,
+                                   i.ORIGPROD, i.PRODUTONFE, i.GTINNFE,
+                                   i.GTINTRIBNFE
+                              FROM TGFITE i JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                             WHERE c.CODEMP = :e AND c.CODPARC = :p
+                               AND c.CODTIPOPER = :t AND c.STATUSNFE = 'A'
+                               AND i.CODPROD = :cp
+                               AND i.CODCFO IS NOT NULL AND i.CODCFO > 0
+                             ORDER BY c.NUNOTA DESC
+                        ) WHERE ROWNUM = 1
+                    """, e=int(codemp), p=int(codparc), t=int(nova_top), cp=codprod_seq)
+                    row_ite = cur.fetchone()
+                    if row_ite:
+                        (codcfo, codtrib, idaliq, nutab, origprod,
+                         prodnfe, gtin, gtintrib) = row_ite
+                        cur.execute("""
+                            UPDATE TGFITE SET
+                                CODCFO = NVL(NULLIF(CODCFO, 0), :codcfo),
+                                CODTRIB = NVL(CODTRIB, :codtrib),
+                                IDALIQICMS = NVL(IDALIQICMS, :idaliq),
+                                NUTAB = NVL(NUTAB, :nutab),
+                                ORIGPROD = NVL(ORIGPROD, :origprod),
+                                PRODUTONFE = NVL(PRODUTONFE, :prodnfe),
+                                GTINNFE = NVL(GTINNFE, :gtin),
+                                GTINTRIBNFE = NVL(GTINTRIBNFE, :gtintrib)
+                             WHERE NUNOTA = :n AND SEQUENCIA = :s
+                        """, codcfo=codcfo, codtrib=codtrib, idaliq=idaliq,
+                             nutab=nutab, origprod=origprod, prodnfe=prodnfe,
+                             gtin=gtin, gtintrib=gtintrib,
+                             n=nunota_nota, s=seq_n)
+                    else:
+                        logger.warning(
+                            f"Sem TGFITE TOP {nova_top} histórico pra "
+                            f"CODPARC={codparc}/CODPROD={codprod_seq}. "
+                            f"CFOP/tributação ficaram NULL — Sankhya pode "
+                            f"rejeitar emissão."
+                        )
+
+                # 8) Recalcula totais TGFCAB nova
+                cur.execute("""
+                    UPDATE TGFCAB
+                       SET VLRNOTA = (SELECT NVL(SUM(VLRTOT),0) FROM TGFITE WHERE NUNOTA = :n),
+                           QTDVOL = (SELECT NVL(SUM(QTDNEG),0) FROM TGFITE WHERE NUNOTA = :n)
+                     WHERE NUNOTA = :n
+                """, n=nunota_nota)
+
+                # 9) INSERT TGFVAR — par pedido↔nota (rastreabilidade Sankhya)
+                # Trigger TRG_INC_TGFVAR dispara cascata em TGMTRA — esperado
+                # (é exatamente o que o Sankhya nativo faz no faturamento).
+                for seq_n, seq_p, qtd in pares_tgfvar:
+                    cur.execute("""
+                        INSERT INTO TGFVAR (NUNOTA, SEQUENCIA, NUNOTAORIG,
+                                            SEQUENCIAORIG, QTDATENDIDA, STATUSNOTA)
+                        VALUES (:nn, :sn, :no, :so, :q, 'P')
+                    """, nn=nunota_nota, sn=seq_n, no=int(nunota),
+                         so=seq_p, q=qtd)
 
                 conn.commit()
+                logger.info(
+                    f"Faturamento criou nota NUNOTA={nunota_nota} TOP={nova_top} "
+                    f"a partir do pedido NUNOTA={nunota} ({len(pares_tgfvar)} itens)."
+                )
                 resultado.update({
                     'ok': True, 'executed': True,
-                    'top': int(nova_top), 'numnota': proximo_numnota,
-                    'codnat': int(nova_codnat), 'vlrnota': float(vlrnota or 0),
+                    'nunota_pedido': int(nunota),
+                    'nunota_nota': nunota_nota,
+                    'top': int(nova_top),
+                    'numnota': numnota_inicial,
+                    'codnat': int(nova_codnat),
+                    'vlrnota': float(vlrnota or 0),
                 })
                 return resultado
             except Exception:

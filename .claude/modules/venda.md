@@ -303,24 +303,81 @@ Backward-compat: operador pode continuar confirmando direto no Sankhya se prefer
 
 ---
 
-## Faturamento — `faturar_pedido_venda_banco`
+## Faturamento — `faturar_pedido_venda_banco` (Caminho C, Mai/2026 — 2026-05-22)
 
-Operação atômica com `SELECT FOR UPDATE` na TGFCAB. Validações:
+**Pivotagem arquitetural**: até Mai/2026 a função fazia `UPDATE TGFCAB SET CODTIPOPER=35/37` (in-place no mesmo NUNOTA), pedido "virava" venda e sumia. Smoke A1 confirmou que módulo Java do Sankhya **não emite NFe** com esse fluxo — ele processa apenas notas criadas pela rotina nativa de faturamento.
 
-1. Pedido existe
+**Comportamento atual (caminho C)**: cria TGFCAB NOVA + TGFITE espelhado + TGFVAR pareando pedido↔nota. Pedido TOP 34 fica intacto (STATUSNOTA='L').
+
+### Validações
+
+1. Pedido existe (FOR UPDATE)
 2. É TOP 34
-3. Não está faturado/excluído
-4. Tem itens
-5. **Todos os itens com `CODAGREGACAO` preenchido** (validação de lote vinculado)
+3. STATUSNOTA != 'E' (excluído rejeitado)
+4. Se STATUSNOTA='P', **confirmação implícita** (UPDATE pra 'L' — equivale ao botão CONFIRMAR)
+5. Bloqueia re-faturamento (verifica TGFVAR par)
+6. Tem ao menos 1 item
+7. **Lote NÃO é mais obrigatório** — operador pode faturar sem CODAGREGACAO; vinculação posterior pelo Rastreio
 
-Atualiza:
-- `CODTIPOPER` → 35 ou 37
-- `CODNAT` via `CODNAT_POR_TOP[nova_top]`
-- `STATUSNOTA` → `'L'`
-- `NUMNOTA` → próximo da empresa (`MAX(NUMNOTA) + 1`)
-- Opcionalmente `DTFATUR` / `DTMOV` / `CODUSU` se as colunas existirem
+### Fluxo
 
-**NÃO dispara emissão de NFe.** Decisão consciente: TOP 35 fica visível no painel do Sankhya para emissão lá.
+```
+1. Lock pessimista (SELECT FOR UPDATE)
+2. INSERT TGFCAB nova (via inserir_cabecalho_nota_banco) copiando do pedido:
+   CODEMP, CODPARC, CODTIPVENDA, OBSERVACAO + CODTIPOPER=nova_top
+3. UPDATE TGFCAB nova: SERIENOTA='1', STATUSNOTA='P', DTFATUR=SYSDATE
+   • NUMNOTA depende da TOP:
+     - TOP 35 (NFe) → 0 (módulo Java sobrescreve na emissão SEFAZ)
+     - TOP 37 (sem NFe) → NUNOTA (referência interna, sem emissão fiscal)
+4. INSERT TGFITE espelhado (gerar_lote_auto=False) preservando CODAGREGACAO+PESO
+5. UPDATE TGFITE: RESERVA='N', ATUALESTOQUE=-1 (TOP 35/37 não reserva estoque)
+6. Herança fiscal — copia da última TOP 35/37 emitida OK do mesmo (CODEMP,
+   CODPARC, CODPROD):
+   • TGFCAB: NATUREZAOPERDES, INDNEGMODAL, TPRETISS, CLASSIFICMS, INDPRESNFCE
+   • TGFITE: CODCFO, CODTRIB, IDALIQICMS, NUTAB, ORIGPROD, PRODUTONFE,
+             GTINNFE, GTINTRIBNFE
+   • Usa NVL pra não sobrescrever valores não-nulos (trigger Sankhya pode
+     ter populado)
+   • Sem histórico → log warning + continua (Sankhya tentará validar na
+     emissão; pode rejeitar com CORE_E04895)
+7. Recalcula totais TGFCAB nova (VLRNOTA, QTDVOL via SUM dos itens)
+8. INSERT TGFVAR pra cada item — trigger TRG_INC_TGFVAR dispara cascata em
+   TGMTRA (esperado, replica fluxo nativo Sankhya)
+```
+
+### Retorno
+
+```python
+{
+    'ok': True, 'executed': True,
+    'nunota_pedido': <NUNOTA do pedido TOP 34, preservado>,
+    'nunota_nota':   <NUNOTA novo da TOP 35/37>,
+    'top': 35 ou 37,
+    'numnota': 0 (TOP 35) ou NUNOTA (TOP 37),
+    'codnat': 10010100 ou 10010200,
+    'vlrnota': <valor do pedido>,
+}
+```
+
+### Próximo passo (operador no Sankhya)
+
+Após IAgro criar a nota TOP 35:
+1. Operador abre Sankhya, localiza a nota
+2. Clica CONFIRMAR → dispara módulo Java → emite NFe SEFAZ
+3. Imprime DANFE
+
+**NÃO dispara emissão de NFe pelo IAgro.** Decisão consciente — Sankhya cuida da assinatura digital, comunicação SEFAZ e numeração definitiva.
+
+### Trigger TRG_UPD_TGFCAB — caso especial (Mai/2026 — 2026-05-22)
+
+Caso alguém tente UPDATE in-place (caminho antigo), o trigger valida 2 invariantes:
+
+| Validação | Mensagem se falhar |
+|---|---|
+| `(CODTIPOPER, DHTIPOPER)` bate com TGFTOP ativa | `ORA-20101: Tipo de operação não esta ativo` |
+| `NEW.TIPMOV == TGFTOP.TIPMOV` da nova TOP | `Esta TOP X não pode ser lançada nesta opção` |
+
+TOP 34 (PEDIDO) tem TIPMOV='P', TOP 35/37 (VENDA) tem TIPMOV='V'. Os 3 campos devem ser atualizados juntos. Detalhes em [`gotchas.md`](../gotchas.md).
 
 ---
 
@@ -377,13 +434,19 @@ CODNAT_POR_TOP = {
 - **Empty state amigável** quando lista vazia: ilustração + `[Limpar filtros]` `[+ Novo pedido]`
 - **CODNAT como dropdown** (não label readonly) — permite revenda
 
-### Faturamento
+### Faturamento (atualizado Mai/2026 — 2026-05-22)
 
 - Botão **"Faturar Pedido"** ao lado de "Editar Cabeçalho"
 - Modal `#faturarModal` com escolha **TOP 35 (com NFe)** vs **TOP 37 (sem NFe)**
-- Validação cliente: bloqueia se há item sem lote (mostra aviso amarelo com `count`)
-- Linha de TOP 35/37 fica esmaecida (`.pedido-faturado`)
+- **Trava de lote removida**: aviso amarelo informativo `"X itens sem lote — pode faturar agora. Vincule depois pelo Rastreio."` (botão FATURAR sempre habilitado)
+- Após sucesso, retorno traz `nunota_pedido` (preservado) + `nunota_nota` (novo). Pedido TOP 34 fica intacto na listagem.
 - Badge `top-badge` mostra `34` / `35-NFe` / `37-S/NFe` com cores diferentes
+
+### Bug visual UI (corrigido Mai/2026 — 2026-05-22)
+
+Endpoint `/sankhya/item/list/` mapeava `'qtd': qtdconferida` na resposta JSON. Como o fix B4 (QTDCONFERIDA=0 em TOP 34/35/37 — pré-req do Sankhya) zerou o campo, a UI mostrava QTD=0 em todos pedidos novos.
+
+**Fix em [views.py:1043](../../sankhya_integration/views.py#L1043)**: `'qtd': qtdneg` (negociada) + `'qtd_conferida': qtdconferida` separados. UI volta a mostrar quantidade correta.
 
 ### Integração com módulo Importação por e-mail (Mai/2026)
 
