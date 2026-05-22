@@ -132,6 +132,39 @@ ORA-06512: em "SANKHYA.STP_CONFIRMANOTA2", line 413
 
 ---
 
+### `QTDCONFERIDA = QTDNEG` em TOP de venda quebra "atender pedido" (Mai/2026 — 2026-05-22)
+
+Pedidos IAgro TOP 34 **sem lote vinculado** não conseguiam ser faturados pelo Sankhya — erro:
+
+```
+[CORE_E04678] Não existem produtos/quantidades disponíveis para essa operação.
+```
+
+**Causa**: `inserir_item_nota_banco` gravava `QTDCONFERIDA = QTDNEG` por default (`qtdconferida = dados.get('QTDCONFERIDA') or qtdneg`). Faz sentido pra **Entrada** (operador confere ao receber a mercadoria), mas é errado pra **TOP de venda** (34/35/37) — pedido novo não tem nada conferido/entregue. Sankhya interpreta `QTDCONFERIDA = QTDNEG` como "item já atendido" → bloqueia o atender pedido. Sankhya nativo grava `0.0` em pedido novo.
+
+**Diagnóstico cirúrgico**: TGFITE 113264 (IAgro, erro) vs 113259 (Sankhya nativo OK, mesmo cliente/produto/dia/STATUSNOTA/PENDENTE) — única coluna divergente:
+
+| Campo | IAgro (errado) | Sankhya nativo (certo) |
+|---|:-:|:-:|
+| QTDNEG | 1.0 | 1.0 |
+| **QTDCONFERIDA** | **1.0** | **0.0** |
+| QTDENTREGUE | 0.0 | 0.0 |
+
+UPDATE só `QTDCONFERIDA=0.0` no 113264 (sem mexer em mais nada) destravou o faturamento, confirmando hipótese.
+
+**Pedidos com `ATRIBUIR_LOTE`** no Rastreio funcionavam — provavelmente alguma rota interna do UPDATE em CODAGREGACAO ou trigger Sankhya zera QTDCONFERIDA ao vincular lote. Quem nunca tinha lote vinculado ficava quebrado.
+
+**Fix aplicado** em [`inserir_item_nota_banco`](../sankhya_integration/services/oracle_conn.py): default condicional ao CODTIPOPER do cabeçalho:
+- **TOP 34/35/37** (venda) → `QTDCONFERIDA = 0.0`
+- **Outros TOPs** (11/13/26/30/36/10/53) → `QTDCONFERIDA = QTDNEG` (default histórico preservado)
+- Payload com QTDCONFERIDA explícita continua respeitado, inclusive `0` em TOP 11 (o `or qtdneg` antigo ignorava 0)
+
+**Lição do diagnóstico**: o erro foi inicialmente atribuído **erroneamente a `PENDENTE='S'`** — eu vi 733 pedidos nativos com PENDENTE='N' e 152 com 'S', e assumi que 'N' era o estado correto. Mas os 733 com 'N' eram pedidos **já atendidos** (Sankhya muda pra 'N' ao atender); os 152 com 'S' eram não-atendidos — mesmo estado dos pedidos IAgro. Fix errôneo deployed e revertido em ~1 hora (commits `29bfa59` → `b826024`). **Regra**: ao comparar IAgro vs Sankhya nativo pra inferir causa, garantir mesmo estado operacional (atendido vs não-atendido, faturado vs aberto).
+
+**Pedidos antigos pré-fix** continuam com `QTDCONFERIDA = QTDNEG`. Operador faz `UPDATE TGFITE SET QTDCONFERIDA=0 WHERE NUNOTA=X` quando encontrar, ou backfill em massa (Cat B separado) se aparecer volume.
+
+---
+
 ### Variante: TGFCAB TOP 30 (avaria) exige CODTIPVENDA mesmo sem operação de venda (Mai/2026 — 2026-05-20)
 
 Manifestação real: ao implementar `upsert_avaria_top30_lote` (geração automática de avaria interna no faturamento do Comercial), a primeira versão omitia `CODTIPVENDA` no dict do cabeçalho — TGFCAB TOP 30 é avaria interna, não tem negociação. Resultado: `ORA-20101: Campo Tipo de negociação obrigatório para a nota de Nro Único:NNNNN`.

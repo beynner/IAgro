@@ -28,6 +28,7 @@ Criação, edição, exclusão, faturamento e listagem de pedidos de venda.
 | `/sankhya/venda/api/item/editar/` | POST | Editar item (qtd, preço, lote, volume) |
 | `/sankhya/venda/api/item/remover/` | POST | Remover item; deleta cabeçalho se foi o último |
 | `/sankhya/venda/api/excluir/` | POST | Excluir pedido completo |
+| `/sankhya/venda/api/confirmar/` | POST | **Confirmar pedido TOP 34** (STATUSNOTA → 'L') — equivalente ao CONFIRMAR do Sankhya. Mai/2026 — 2026-05-22 |
 | `/sankhya/venda/api/faturar/` | POST | Faturar TOP 34 → 35/37 |
 | `/sankhya/empresa/search/` | GET | Typeahead TSIEMP |
 | `/sankhya/tipvenda/search/` | GET | Typeahead TGFTPV |
@@ -50,6 +51,7 @@ Criação, edição, exclusão, faturamento e listagem de pedidos de venda.
 | `api_atualizar_item_venda` | UPDATE TGFITE (trava: só TOP 34 não-faturado) |
 | `api_remover_item_venda` | DELETE TGFITE + recalculo |
 | `api_excluir_pedido_venda` | DELETE pedido completo |
+| `api_confirmar_pedido_venda` | **B5 Mai/2026** — UPDATE STATUSNOTA='L' em pedido TOP 34 |
 | `api_faturar_pedido_venda` | TOP 34 → 35/37 |
 
 ---
@@ -67,6 +69,7 @@ Criação, edição, exclusão, faturamento e listagem de pedidos de venda.
 | `atualizar_item_nota_banco` | UPDATE de item (mas Venda não usa `CODAGREGACAO` aqui — fica para o Rastreio) |
 | `recalcular_totais_nota_banco` | Recalcula `VLRNOTA` e `QTDVOL`. **Deleta cabeçalho se ficar sem itens** |
 | `faturar_pedido_venda_banco(nunota, nova_top, codusu_logado)` | **Lock pessimista** + validação de itens com lote + geração `NUMNOTA` por empresa + aplicação `CODNAT_POR_TOP` |
+| `confirmar_pedido_venda_banco(nunota, codusu_logado)` | **B5 Mai/2026** — UPDATE TGFCAB.STATUSNOTA='L' em TOP 34 (equivalente ao CONFIRMAR do Sankhya). Valida: pedido existe, TOP 34, STATUSNOTA != 'L' (idempotente), != 'E'. Sem TGFFIN/NFe/estoque |
 
 ---
 
@@ -237,6 +240,66 @@ Diagnóstico via comparação direta TGFITE NUNOTA=113083 (1 item IAgro vs 1 ite
 Outras divergências menores (NULL no IAgro vs `0.0` no Sankhya — `NUTAB`, `CODTRIB`, `ALIQICMS`, `CUSTO`, etc) não disparam o trigger — Sankhya preenche internamente ao confirmar/faturar.
 
 Detalhes em [`gotchas.md`](../gotchas.md) → "Trigger TRG_UPT_TGFITE exige RESERVA/ATUALESTOQUE/USOPROD em TOP de venda".
+
+---
+
+## Fix QTDCONFERIDA — `CORE_E04678` no atendimento Sankhya (Mai/2026 — 2026-05-22)
+
+Pedidos IAgro **sem lote vinculado** não conseguiam ser faturados pelo Sankhya — erro `[CORE_E04678] Não existem produtos/quantidades disponíveis para essa operação`.
+
+**Causa**: `inserir_item_nota_banco` gravava `QTDCONFERIDA = QTDNEG` por default (`qtdconferida = dados.get('QTDCONFERIDA') or qtdneg`). Sankhya interpreta `QTDCONFERIDA = QTDNEG` como "item já conferido/entregue" → nada a atender → erro. Sankhya nativo grava `0.0` em pedido novo.
+
+Diagnóstico: TGFITE 113264 (IAgro, erro) vs 113259 (Sankhya nativo, OK, mesmo cliente/produto/dia/STATUSNOTA/PENDENTE) — única coluna divergente foi QTDCONFERIDA (1.0 vs 0.0). UPDATE cirúrgico em 113264 (`QTDCONFERIDA: 1.0 → 0.0`, sem mexer em mais nada) destravou o faturamento.
+
+**Fix** ([oracle_conn.py:1138](../../sankhya_integration/services/oracle_conn.py#L1138)): default condicional ao CODTIPOPER do cabeçalho:
+- **TOP 34/35/37** (venda) → `QTDCONFERIDA = 0.0`
+- **Outros TOPs** (11/13/26/30/36/10/53) → `QTDCONFERIDA = QTDNEG` (default histórico preservado — Entrada confere ao receber)
+- Payload com QTDCONFERIDA explícita continua respeitado (inclusive `0` em TOP 11 — o `or qtdneg` antigo ignorava 0)
+
+**Histórico do diagnóstico**: o erro `CORE_E04678` foi inicialmente atribuído erroneamente a `PENDENTE='S'` (commit `29bfa59`, revertido em `b826024`). Sankhya nativo grava `PENDENTE='S'` em pedido TOP 34 novo (vira 'N' apenas ao ser atendido) — IAgro estava correto. Lição: validar premissas com pedidos do mesmo estado (atendido vs não-atendido) antes de inferir causa.
+
+**Pedidos antigos pré-fix** continuam com `QTDCONFERIDA = QTDNEG`. Operador faz `UPDATE TGFITE SET QTDCONFERIDA=0 WHERE NUNOTA=X` quando encontrar, ou aplica backfill em massa (Cat B separado se aparecer volume).
+
+---
+
+## Confirmar pedido — `confirmar_pedido_venda_banco` (B5 Mai/2026 — 2026-05-22)
+
+Pedido criado pelo IAgro nasce com `TGFCAB.STATUSNOTA='P'` (pré-nota). Antes de faturar, operador precisava clicar **CONFIRMAR** no Sankhya pra mudar pra `'L'` — sem isso, Sankhya rejeita o "atender pedido". Botão novo no portal Venda elimina essa fricção.
+
+### Service
+
+```python
+def confirmar_pedido_venda_banco(nunota, codusu_logado=None) -> dict:
+    """UPDATE TGFCAB SET STATUSNOTA='L', DTALTER=SYSDATE WHERE NUNOTA=:n"""
+```
+
+Validações:
+1. Pedido existe
+2. É TOP 34 (não confirma 11/13/26/30/35/36/37/53)
+3. STATUSNOTA != 'L' (idempotente — não dispara UPDATE redundante)
+4. STATUSNOTA != 'E' (não confirma excluído)
+
+Trigger Sankhya `TRG_UPD_TGFCAB` aceita transição pra 'L' (gotcha conhecido bloqueia só pra 'E'). **Sem efeitos colaterais financeiros** — não cria TGFFIN, não emite NFe, não move estoque.
+
+### Endpoint + audit
+
+`POST /sankhya/venda/api/confirmar/` body `{nunota}` → `api_confirmar_pedido_venda` → audit `CONFIRMAR_PEDIDO` em AD_AUDITORIA_GERAL com snapshot antes/depois.
+
+### Frontend
+
+- Botão `#btnConfirmarVenda` na toolbar da Venda (ícone Phosphor `ph-check-circle`, verde Agromil)
+- Habilitado **só pra TOP 34 STATUSNOTA != 'L'** — desabilitado se outro TOP, já confirmado, ou nenhuma linha selecionada
+- `listar_vendas_paginado` ganhou `c.STATUSNOTA` no SELECT (Cat A) pra UX correta de habilitação. Frontend usa `v.statusnota` na linha do click
+
+### Fluxo operacional final
+
+```
+1. IAgro: criar pedido + adicionar itens (STATUSNOTA='P')
+2. IAgro: clicar ✓ Confirmar      → STATUSNOTA='L'
+3. Sankhya: Faturar pedido         → vira TOP 35/37, atende qtds
+```
+
+Backward-compat: operador pode continuar confirmando direto no Sankhya se preferir — botão é alternativa, não obrigatório.
 
 ---
 
