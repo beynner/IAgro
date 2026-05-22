@@ -315,6 +315,18 @@ Diagnóstico via comparação direta TGFITE NUNOTA=113083 (1 item IAgro vs 1 ite
 
 **Escopo do fix**: só pedidos novos criados após 2026-05-20. Pedidos antigos pré-fix continuam com `RESERVA='N'` — operador faz UPDATE manual no Sankhya quando encontrar. Como Agromil está começando a usar IAgro pra vendas agora, volume é pequeno. Detalhes em [`gotchas.md`](.claude/gotchas.md), [`modules/venda.md`](.claude/modules/venda.md) e [`dependencias_sankhya.md`](.claude/dependencias_sankhya.md) §2.2.5.
 
+### ✅ Botão "Confirmar Pedido" no portal Venda (Mai/2026 — 2026-05-22)
+
+Pedido criado pelo IAgro nasce com `TGFCAB.STATUSNOTA='P'` (pré-nota). Antes de faturar no Sankhya, o operador precisava clicar **CONFIRMAR** lá pra mudar pra `'L'` (sem isso, Sankhya rejeita o "atender pedido"). Botão novo no IAgro elimina essa fricção — confirmação direto no portal Venda.
+
+**Backend (Cat B aplicada)**: `confirmar_pedido_venda_banco(nunota, codusu_logado)` em [oracle_conn.py](sankhya_integration/services/oracle_conn.py) faz `UPDATE TGFCAB SET STATUSNOTA='L', DTALTER=SYSDATE WHERE NUNOTA=:n`. Validações: pedido existe, é TOP 34, STATUSNOTA != 'L' (idempotente), STATUSNOTA != 'E' (não confirma excluído). Trigger Sankhya `TRG_UPD_TGFCAB` aceita transição pra 'L' (gotcha conhecido bloqueia só pra 'E'). **Sem efeitos colaterais financeiros** — não cria TGFFIN, não emite NFe, não move estoque.
+
+**Endpoint**: `POST /sankhya/venda/api/confirmar/` body `{nunota}` — audit `CONFIRMAR_PEDIDO` em AD_AUDITORIA_GERAL com snapshot antes/depois.
+
+**Frontend**: botão `#btnConfirmarVenda` na toolbar da Venda (ícone Phosphor `ph-check-circle`, verde Agromil). Habilitado só pra TOP 34 STATUSNOTA != 'L'. Click → confirmação modal → POST → toast + recarga da listagem. SELECT da `listar_vendas_paginado` ganhou `c.STATUSNOTA` (Cat A — só leitura) pra UX correta.
+
+**Tests novos** (12): service (escrita desabilitada, sem NUNOTA, pedido inexistente, TOP != 34, já confirmado, excluído, sucesso P→L verificando UPDATE) + endpoint (sem payload, sem NUNOTA, escrita desabilitada, sucesso, já confirmado 400).
+
 ### 🛠 Fix QTDCONFERIDA — `CORE_E04678` no faturamento Sankhya (Mai/2026 — 2026-05-22)
 
 Pedidos TOP 34 criados pelo IAgro **sem lote vinculado** não conseguiam ser faturados pelo Sankhya — erro `[CORE_E04678] Não existem produtos/quantidades disponíveis para essa operação`.

@@ -1044,6 +1044,17 @@ input:focus {
     background: #eff6ff;
     color: #1e40af;
 }
+/* B5 Mai/2026 — Confirmar pedido (STATUSNOTA → 'L') */
+.icon-btn-venda.btn-confirmar {
+    color: #5e7e4a;          /* verde Agromil */
+}
+.icon-btn-venda.btn-confirmar:hover:not(:disabled) {
+    background: #ecfccb;
+    color: #3f6212;
+}
+.icon-btn-venda.btn-confirmar:disabled {
+    color: #cbd5e1;
+}
 
 /* Badge na coluna TOP da listagem — pequeno, contornado */
 .top-badge {

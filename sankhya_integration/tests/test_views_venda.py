@@ -983,6 +983,159 @@ class RemoverItemVendaTest(TestCase):
 
 
 # ---------------------------------------------------------------------------
+# B5 (Mai/2026 — 2026-05-22) — Confirmar pedido (STATUSNOTA → 'L')
+# ---------------------------------------------------------------------------
+
+class ConfirmarPedidoVendaServiceTest(TestCase):
+    """Testa direto confirmar_pedido_venda_banco com mock do Oracle."""
+
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=False)
+    def test_escrita_desabilitada(self, _mp):
+        from sankhya_integration.services.oracle_conn import confirmar_pedido_venda_banco
+        res = confirmar_pedido_venda_banco(99999)
+        self.assertFalse(res['ok'])
+        self.assertIn('escrita', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_sem_nunota(self, _mp):
+        from sankhya_integration.services.oracle_conn import confirmar_pedido_venda_banco
+        res = confirmar_pedido_venda_banco(None)
+        self.assertFalse(res['ok'])
+        self.assertIn('NUNOTA', res['error'])
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_pedido_inexistente(self, _mp, mock_conn):
+        from sankhya_integration.services.oracle_conn import confirmar_pedido_venda_banco
+        cur_mock = MagicMock()
+        cur_mock.fetchone.return_value = None
+        conn = MagicMock(); conn.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn
+
+        res = confirmar_pedido_venda_banco(99999)
+        self.assertFalse(res['ok'])
+        self.assertIn('não encontrado', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_bloqueia_top_diferente_de_34(self, _mp, mock_conn):
+        from sankhya_integration.services.oracle_conn import confirmar_pedido_venda_banco
+        cur_mock = MagicMock()
+        cur_mock.fetchone.return_value = (35, 'L')  # TOP 35
+        conn = MagicMock(); conn.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn
+
+        res = confirmar_pedido_venda_banco(99999)
+        self.assertFalse(res['ok'])
+        self.assertIn('TOP 34', res['error'])
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_bloqueia_ja_confirmado(self, _mp, mock_conn):
+        from sankhya_integration.services.oracle_conn import confirmar_pedido_venda_banco
+        cur_mock = MagicMock()
+        cur_mock.fetchone.return_value = (34, 'L')  # já confirmado
+        conn = MagicMock(); conn.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn
+
+        res = confirmar_pedido_venda_banco(99999)
+        self.assertFalse(res['ok'])
+        self.assertIn('já está confirmado', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_bloqueia_excluido(self, _mp, mock_conn):
+        from sankhya_integration.services.oracle_conn import confirmar_pedido_venda_banco
+        cur_mock = MagicMock()
+        cur_mock.fetchone.return_value = (34, 'E')  # excluído
+        conn = MagicMock(); conn.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn
+
+        res = confirmar_pedido_venda_banco(99999)
+        self.assertFalse(res['ok'])
+        self.assertIn('excluído', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_sucesso_pedido_pendente_vira_l(self, _mp, mock_conn):
+        from sankhya_integration.services.oracle_conn import confirmar_pedido_venda_banco
+        cur_mock = MagicMock()
+        cur_mock.fetchone.return_value = (34, 'P')  # pré-nota
+        cur_mock.rowcount = 1
+        conn = MagicMock(); conn.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn
+
+        res = confirmar_pedido_venda_banco(113274)
+        self.assertTrue(res['ok'], msg=res.get('error'))
+        self.assertEqual(res['nunota'], 113274)
+        self.assertEqual(res['rows_updated'], 1)
+        self.assertEqual(res['statusnota_anterior'], 'P')
+
+        # Verifica que o UPDATE foi chamado com STATUSNOTA='L'
+        update_call = None
+        for call in cur_mock.execute.call_args_list:
+            if 'UPDATE TGFCAB' in (call.args[0] if call.args else ''):
+                update_call = call
+                break
+        self.assertIsNotNone(update_call, "UPDATE TGFCAB não foi chamado")
+        self.assertIn("STATUSNOTA = 'L'", update_call.args[0])
+
+
+class ConfirmarPedidoVendaEndpointTest(TestCase):
+    """Endpoint POST /sankhya/venda/api/confirmar/"""
+
+    def setUp(self):
+        self.client = Client()
+        _login_session(self.client, grupos=['10'])
+        self.url = reverse('api_confirmar_pedido_venda')
+
+    def _post(self, payload):
+        return self.client.post(self.url, data=json.dumps(payload),
+                                content_type='application/json')
+
+    def test_sem_payload_400(self):
+        response = self.client.post(self.url, data='', content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_sem_nunota_400(self):
+        response = self._post({})
+        self.assertEqual(response.status_code, 400)
+
+    @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=False)
+    def test_escrita_desabilitada_403(self, _mp):
+        response = self._post({'nunota': 113274})
+        self.assertEqual(response.status_code, 403)
+
+    @patch('sankhya_integration.views.confirmar_pedido_venda_banco',
+           return_value={'ok': True, 'nunota': 113274,
+                         'rows_updated': 1, 'statusnota_anterior': 'P'})
+    @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=True)
+    def test_sucesso(self, _mp, _mock_svc):
+        response = self._post({'nunota': 113274})
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.content)
+        self.assertTrue(body['ok'])
+        self.assertEqual(body['nunota'], 113274)
+
+    @patch('sankhya_integration.views.confirmar_pedido_venda_banco',
+           return_value={'ok': False,
+                         'error': 'Pedido NUNOTA=113274 já está confirmado (STATUSNOTA=L).'})
+    @patch('sankhya_integration.views.verificar_permissao_escrita', return_value=True)
+    def test_ja_confirmado_400(self, _mp, _mock_svc):
+        response = self._post({'nunota': 113274})
+        self.assertEqual(response.status_code, 400)
+        body = json.loads(response.content)
+        self.assertIn('já está confirmado', body['error'].lower())
+
+
+# ---------------------------------------------------------------------------
 # api_faturar_pedido_venda — Fase 4.1+4.2 (Faturar Pedido)
 # ---------------------------------------------------------------------------
 

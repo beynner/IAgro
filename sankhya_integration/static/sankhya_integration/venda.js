@@ -195,6 +195,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const btnDev = document.getElementById('btnDevolucao');
             if (btnAv)  btnAv.disabled  = true;
             if (btnDev) btnDev.disabled = true;
+            // B5 Mai/2026 — confirmar só pra TOP 34 ainda não confirmada
+            const btnConf = document.getElementById('btnConfirmarVenda');
+            if (btnConf) btnConf.disabled = true;
             const labelSel = document.getElementById('label_sel_nunota');
             if (labelSel) labelSel.textContent = '—';
             const subheader = document.getElementById('itensCardSubheader');
@@ -314,6 +317,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     const btnDev = document.getElementById('btnDevolucao');
                     if (btnAv)  btnAv.disabled  = false;
                     if (btnDev) btnDev.disabled = (topNum !== 35 && topNum !== 37);
+                    // B5 Mai/2026 — confirmar habilita só pra TOP 34 STATUSNOTA != 'L'
+                    const btnConf = document.getElementById('btnConfirmarVenda');
+                    if (btnConf) btnConf.disabled = !(topNum === 34 && v.statusnota !== 'L');
                 });
                 // Double-click (mouse) + double-tap (touch) cross-device
                 IAgro.onDoubleActivate(tr, function() {
@@ -862,6 +868,41 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (_) {
             phToast('Erro ao excluir pedido.', 'error');
             btn.disabled = false;
+        }
+    });
+
+    // B5 Mai/2026 (2026-05-22) — Confirmar pedido (STATUSNOTA → 'L').
+    // Equivalente ao botão CONFIRMAR do Sankhya nativo. Passo obrigatório
+    // antes do faturamento — sem CONFIRMAR, Sankhya bloqueia o atendimento.
+    document.getElementById('btnConfirmarVenda')?.addEventListener('click', async () => {
+        if (!pedidoSelecionado) return;
+        if (pedidoSelecionado.top !== 34) {
+            phToast('Apenas pedidos TOP 34 podem ser confirmados.', 'warning');
+            return;
+        }
+        const ok = await phConfirmar({
+            titulo:   'Confirmar pedido?',
+            mensagem: `Confirmar o pedido <strong>${pedidoSelecionado.nunota}</strong>? Isso muda STATUSNOTA pra <strong>'L'</strong> (equivalente ao CONFIRMAR do Sankhya). Não cria financeiro nem NFe — esse é só o passo antes do faturamento.`,
+            confirmarLabel: 'Confirmar',
+            tipo: 'aviso',
+        });
+        if (!ok) return;
+
+        const btn = document.getElementById('btnConfirmarVenda');
+        btn.disabled = true; btn.classList.add('btn--loading');
+        try {
+            const res = await phPostJSON('/sankhya/venda/api/confirmar/', { nunota: pedidoSelecionado.nunota });
+            if (res.ok && res.body?.ok) {
+                phToast(`Pedido ${pedidoSelecionado.nunota} confirmado. Pode faturar no Sankhya agora.`, 'success');
+                carregarVendas(false);
+            } else {
+                phToast(res.body?.error || 'Falha ao confirmar pedido.', 'error');
+            }
+        } catch (_) {
+            phToast('Erro ao confirmar pedido.', 'error');
+        } finally {
+            btn.classList.remove('btn--loading');
+            // O reload via carregarVendas vai re-habilitar/desabilitar conforme novo estado
         }
     });
 

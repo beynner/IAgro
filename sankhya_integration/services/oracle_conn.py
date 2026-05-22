@@ -4869,6 +4869,95 @@ def faturar_pedido_venda_banco(nunota: int, nova_top: int,
         return resultado
 
 
+def confirmar_pedido_venda_banco(nunota: int, codusu_logado: int | None = None) -> dict:
+    """Muda TGFCAB.STATUSNOTA='L' em pedido TOP 34 (Mai/2026 — 2026-05-22).
+
+    Equivalente ao botão CONFIRMAR do Sankhya nativo. Passo obrigatório
+    antes do faturamento — sem CONFIRMAR, o pedido fica em estado 'P'
+    (pré-nota) e o Sankhya bloqueia o "atender pedido".
+
+    Validações:
+        - Pedido existe
+        - É TOP 34 (não confirma 11/13/26/30/35/36/37/53)
+        - STATUSNOTA != 'L' (idempotente — evita UPDATE redundante)
+        - STATUSNOTA != 'E' (não confirma excluído)
+
+    Trigger Sankhya TRG_UPD_TGFCAB aceita transição pra 'L' (rejeita só
+    pra 'E' — gotcha conhecido em `gotchas.md`). Sem efeitos colaterais
+    financeiros: não cria TGFFIN, não emite NFe, não move estoque.
+
+    Audit registrado pela view chamadora (não dentro do service) pra
+    capturar codusu/nomeusu da sessão.
+
+    Retorno: {ok, nunota, rows_updated, statusnota_anterior, error?}
+    """
+    resultado = {'ok': False, 'nunota': nunota,
+                 'statusnota_anterior': None, 'rows_updated': 0}
+
+    if not verificar_permissao_escrita():
+        resultado['error'] = 'Escrita desabilitada'
+        return resultado
+    if not nunota:
+        resultado['error'] = 'NUNOTA obrigatório'
+        return resultado
+
+    try:
+        nunota_int = int(nunota)
+    except (ValueError, TypeError):
+        resultado['error'] = f'NUNOTA inválido: {nunota}'
+        return resultado
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT CODTIPOPER, STATUSNOTA
+                FROM TGFCAB WHERE NUNOTA = :n
+            """, n=nunota_int)
+            row = cur.fetchone()
+            if not row:
+                resultado['error'] = f'Pedido NUNOTA={nunota_int} não encontrado'
+                return resultado
+
+            top = int(row[0])
+            status = row[1]
+            resultado['statusnota_anterior'] = status
+
+            if top != 34:
+                resultado['error'] = (
+                    f'CONFIRMAR só vale em pedido TOP 34. '
+                    f'NUNOTA={nunota_int} é TOP {top}.'
+                )
+                return resultado
+            if status == 'L':
+                resultado['error'] = (
+                    f'Pedido NUNOTA={nunota_int} já está confirmado (STATUSNOTA=L).'
+                )
+                return resultado
+            if status == 'E':
+                resultado['error'] = (
+                    f'Pedido NUNOTA={nunota_int} está excluído (STATUSNOTA=E).'
+                )
+                return resultado
+
+            cur.execute("""
+                UPDATE TGFCAB SET STATUSNOTA = 'L', DTALTER = SYSDATE
+                WHERE NUNOTA = :n
+            """, n=nunota_int)
+            n_rows = int(cur.rowcount or 0)
+            conn.commit()
+
+            resultado.update({
+                'ok': True,
+                'rows_updated': n_rows,
+            })
+            return resultado
+    except Exception as exc:
+        logger.exception("Erro em confirmar_pedido_venda_banco")
+        resultado['error'] = humanizar_erro_oracle(exc)
+        return resultado
+
+
 def listar_vendas_paginado(limite: int = 50, offset: int = 0, **kwargs):
     # TOP 30 (Avaria) e 36 (Devolução) entram na mesma lista — operador filtra via select.
     where = ["c.CODTIPOPER IN (30, 34, 35, 36, 37)", "c.STATUSNOTA <> 'E'"]
@@ -4925,6 +5014,8 @@ def listar_vendas_paginado(limite: int = 50, offset: int = 0, **kwargs):
         binds['lt'] = f"%{str(kwargs['lote']).upper()}%"
 
     # Restante da SQL permanece o mesmo...
+    # Mai/2026 (2026-05-22): adicionado c.STATUSNOTA no SELECT pra UX do
+    # botão CONFIRMAR (B5) — frontend habilita só pra TOP 34 STATUSNOTA != 'L'.
     sql_base = f"""
         SELECT
             c.NUNOTA, c.CODTIPOPER, c.DTNEG, p.NOMEPARC, c.VLRNOTA,
@@ -4934,7 +5025,8 @@ def listar_vendas_paginado(limite: int = 50, offset: int = 0, **kwargs):
             END AS STATUS_LOTE,
             c.NUMNOTA,
             c.CODEMP,
-            c.OBSERVACAO
+            c.OBSERVACAO,
+            c.STATUSNOTA
         FROM TGFCAB c
         LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC
         WHERE {' AND '.join(where)}

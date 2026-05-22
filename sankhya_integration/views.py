@@ -172,6 +172,7 @@ try:
         consultar_lista_ultimas_vendas,
         listar_vendas_paginado,
         faturar_pedido_venda_banco,
+        confirmar_pedido_venda_banco,
         # Mai/2026 — Avaria (TOP 30) + Devolução (TOP 36) + Histórico de Lote
         criar_avaria_top30_banco,
         criar_devolucao_top36_banco,
@@ -216,6 +217,7 @@ except Exception as exc:
     obter_conexao_oracle = _ausente('obter_conexao_oracle')
     listar_vendas_paginado = _ausente('listar_vendas_paginado')
     faturar_pedido_venda_banco = _ausente('faturar_pedido_venda_banco')
+    confirmar_pedido_venda_banco = _ausente('confirmar_pedido_venda_banco')
     criar_avaria_top30_banco = _ausente('criar_avaria_top30_banco')
     criar_devolucao_top36_banco = _ausente('criar_devolucao_top36_banco')
     consultar_nota_para_devolucao = _ausente('consultar_nota_para_devolucao')
@@ -2734,6 +2736,8 @@ def api_listar_vendas(request: HttpRequest) -> JsonResponse:
                 "numnota": r[6] or "", # Nº Nota
                 "emp": r[7],           # CODEMP
                 "observacao": (obs_raw or '').strip() if isinstance(obs_raw, str) else (obs_raw or ''),
+                # B5 Mai/2026 — frontend usa pra habilitar botão CONFIRMAR
+                "statusnota": r[9] if len(r) > 9 else None,
             })
         return JsonResponse({"ok": True, "vendas": vendas})
     except Exception as e:
@@ -3676,6 +3680,65 @@ def api_faturar_pedido_venda(request: HttpRequest) -> JsonResponse:
             'STATUSNOTA': 'L',
         },
         observacao='Faturado com NFe' if nova_top == 35 else 'Faturado sem NFe',
+    )
+    return JsonResponse(res, status=200)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('venda')
+def api_confirmar_pedido_venda(request: HttpRequest) -> JsonResponse:
+    """B5 (Mai/2026 — 2026-05-22): confirma pedido TOP 34 (STATUSNOTA → 'L').
+
+    Equivalente ao botão CONFIRMAR do Sankhya nativo. Passo obrigatório
+    antes do faturamento — sem CONFIRMAR, o pedido fica em estado 'P'
+    (pré-nota) e o Sankhya bloqueia o atendimento.
+
+    Payload JSON: {nunota: int}
+
+    Validações no service: pedido existe, é TOP 34, STATUSNOTA != 'L'/'E'.
+    Sem efeitos colaterais — não cria TGFFIN, não emite NFe, não move
+    estoque.
+    """
+    payload = _get_json_payload(request)
+    if not payload:
+        return JsonResponse({"ok": False, "error": "JSON inválido"}, status=400)
+
+    nunota = _converter_para_inteiro(payload.get('nunota'))
+    if not nunota:
+        return JsonResponse({"ok": False, "error": "NUNOTA obrigatório"}, status=400)
+
+    if not verificar_permissao_escrita():
+        return JsonResponse({"ok": False, "error": "Escrita desabilitada"}, status=403)
+
+    try:
+        res = confirmar_pedido_venda_banco(
+            nunota=nunota,
+            codusu_logado=request.session.get('codusu'),
+        )
+    except Exception as e:
+        logger.exception("Erro em api_confirmar_pedido_venda")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+    if not res.get('ok'):
+        res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao confirmar pedido')
+        return JsonResponse(res, status=400)
+
+    registrar_auditoria(
+        modulo='venda',
+        operacao='CONFIRMAR_PEDIDO',
+        tabela_alvo='TGFCAB',
+        registro_id=nunota,
+        codusu=request.session.get('codusu'),
+        nomeusu=request.session.get('nomeusu'),
+        snapshot_antes={
+            'NUNOTA':     nunota,
+            'STATUSNOTA': res.get('statusnota_anterior'),
+        },
+        snapshot_depois={
+            'NUNOTA':     nunota,
+            'STATUSNOTA': 'L',
+        },
+        observacao='Pedido confirmado (equivalente ao CONFIRMAR do Sankhya)',
     )
     return JsonResponse(res, status=200)
 
