@@ -1643,6 +1643,215 @@ class CriarDevolucaoServiceTest(TestCase):
         self.assertIn('2.', res['error'])  # devolvível formatado
 
 
+class InserirCabecalhoNotaBancoPendenteTest(TestCase):
+    """B3 (Mai/2026 — 2026-05-22): PENDENTE='N' default em TOP 34.
+
+    Sankhya rejeita "atender pedido" com CORE_E04678 quando o pedido TOP 34
+    tem PENDENTE='S'. Sankhya nativo grava 'N' direto; IAgro tava gravando
+    'S' default. Fix: default condicional ao CODTIPOPER.
+    """
+
+    def _montar_conn_mock(self, cur_mock):
+        """Conn mock que respond as queries auxiliares de
+        inserir_cabecalho_nota_banco:
+            1) SELECT TIPMOV, DHALTER FROM TGFTOP ... → ('S', date)
+            2) gerar_proximo_numero_unico_cabecalho (1 ou + queries) → 999999
+            3) (opcional) SELECT DHALTER FROM TGFTPV → (date,)
+            4) INSERT INTO TGFCAB → captura binds
+        """
+        from datetime import datetime
+        cur_mock.fetchone.side_effect = [
+            ('V', datetime(2024, 7, 11)),    # TGFTOP
+            (999999,),                        # gerar_proximo_numero_unico_cabecalho
+            (datetime(2024, 7, 11),),         # TGFTPV (se houver CODTIPVENDA)
+        ]
+        conn = MagicMock()
+        conn.cursor.return_value = cur_mock
+        return conn
+
+    @patch('sankhya_integration.services.oracle_conn.gerar_proximo_numero_unico_cabecalho',
+           return_value=999999)
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_top_34_grava_pendente_n_default(self, _mp, mock_conn, _mgen):
+        from sankhya_integration.services.oracle_conn import inserir_cabecalho_nota_banco
+        cur_mock = MagicMock()
+        from datetime import datetime
+        cur_mock.fetchone.side_effect = [
+            ('V', datetime(2024, 7, 11)),
+            (datetime(2024, 7, 11),),  # TGFTPV
+        ]
+        conn = MagicMock()
+        conn.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn
+
+        res = inserir_cabecalho_nota_banco({
+            'CODEMP': 10, 'CODPARC': 244, 'CODTIPOPER': 34,
+            'CODNAT': 10010100, 'DTNEG': '22/05/2026',
+            'CODTIPVENDA': 2,
+        })
+        self.assertTrue(res.get('ok'), msg=res.get('error'))
+
+        # Procura o INSERT INTO TGFCAB nos calls e checa o bind PENDENTE
+        insert_call = None
+        for call in cur_mock.execute.call_args_list:
+            if 'INSERT INTO TGFCAB' in (call.args[0] if call.args else ''):
+                insert_call = call
+                break
+        self.assertIsNotNone(insert_call, "INSERT TGFCAB não foi chamado")
+        binds = insert_call.args[1]
+        self.assertEqual(binds.get('PENDENTE'), 'N',
+                         "TOP 34 deve gravar PENDENTE='N' por default (fix B3)")
+
+    @patch('sankhya_integration.services.oracle_conn.gerar_proximo_numero_unico_cabecalho',
+           return_value=999999)
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_top_11_preserva_pendente_s_default(self, _mp, mock_conn, _mgen):
+        """Regressão: TOP 11 (Entrada) e demais TOPs preservam 'S' default."""
+        from sankhya_integration.services.oracle_conn import inserir_cabecalho_nota_banco
+        from datetime import datetime
+        cur_mock = MagicMock()
+        cur_mock.fetchone.side_effect = [
+            ('E', datetime(2024, 7, 11)),  # TGFTOP TIPMOV='E' pra TOP 11
+        ]
+        conn = MagicMock()
+        conn.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn
+
+        res = inserir_cabecalho_nota_banco({
+            'CODEMP': 10, 'CODPARC': 244, 'CODTIPOPER': 11,
+            'CODNAT': 10010100, 'DTNEG': '22/05/2026',
+        })
+        self.assertTrue(res.get('ok'), msg=res.get('error'))
+
+        insert_call = None
+        for call in cur_mock.execute.call_args_list:
+            if 'INSERT INTO TGFCAB' in (call.args[0] if call.args else ''):
+                insert_call = call
+                break
+        self.assertIsNotNone(insert_call)
+        binds = insert_call.args[1]
+        self.assertEqual(binds.get('PENDENTE'), 'S',
+                         "TOP 11 deve preservar PENDENTE='S' default antigo")
+
+    @patch('sankhya_integration.services.oracle_conn.gerar_proximo_numero_unico_cabecalho',
+           return_value=999999)
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_pendente_explicito_no_payload_respeitado(self, _mp, mock_conn, _mgen):
+        """Se caller passa PENDENTE explícito, fix não sobrescreve."""
+        from sankhya_integration.services.oracle_conn import inserir_cabecalho_nota_banco
+        from datetime import datetime
+        cur_mock = MagicMock()
+        cur_mock.fetchone.side_effect = [
+            ('V', datetime(2024, 7, 11)),
+        ]
+        conn = MagicMock()
+        conn.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn
+
+        # TOP 34 com PENDENTE='S' explícito — operador quer forçar pendente
+        res = inserir_cabecalho_nota_banco({
+            'CODEMP': 10, 'CODPARC': 244, 'CODTIPOPER': 34,
+            'CODNAT': 10010100, 'DTNEG': '22/05/2026',
+            'PENDENTE': 'S',
+        })
+        self.assertTrue(res.get('ok'), msg=res.get('error'))
+
+        insert_call = None
+        for call in cur_mock.execute.call_args_list:
+            if 'INSERT INTO TGFCAB' in (call.args[0] if call.args else ''):
+                insert_call = call
+                break
+        binds = insert_call.args[1]
+        self.assertEqual(binds.get('PENDENTE'), 'S',
+                         "PENDENTE explícito no payload deve ser respeitado")
+
+
+class InserirItemNotaBancoPendenteTest(TestCase):
+    """B3 (Mai/2026 — 2026-05-22): defesa em profundidade — item TOP 34
+    também grava PENDENTE='N' no INSERT TGFITE."""
+
+    @patch('sankhya_integration.services.oracle_conn.gerar_proxima_sequencia_item',
+           return_value=1)
+    @patch('sankhya_integration.services.oracle_conn._obter_colunas_da_tabela',
+           return_value={'NUNOTA', 'SEQUENCIA', 'CODEMP', 'CODPROD', 'QTDNEG',
+                         'VLRUNIT', 'VLRTOT', 'AD_NUMPEDIDOORIG', 'CODVOL',
+                         'CODLOCALORIG', 'CODAGREGACAO', 'RESERVA',
+                         'ATUALESTOQUE', 'USOPROD', 'PENDENTE'})
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_item_top_34_grava_pendente_n(self, _mp, mock_conn, _mcols, _mseq):
+        from sankhya_integration.services.oracle_conn import inserir_item_nota_banco
+        cur_mock = MagicMock()
+        # 1) SELECT do cabeçalho devolve CODTIPOPER=34
+        # 2) SELECT USOPROD do TGFPRO (TOP 34/35/37 puxa cadastro)
+        cur_mock.fetchone.side_effect = [
+            (10, None, 244, 113258, 34),
+            ('R',),
+        ]
+        conn = MagicMock()
+        conn.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn
+
+        res = inserir_item_nota_banco({
+            'NUNOTA': 113258, 'CODPROD': 358, 'QTDNEG': 1.0,
+            'VLRUNIT': 8.5, 'CODVOL': 'KG',
+        }, gerar_lote_auto=False)
+        self.assertTrue(res.get('ok'), msg=res.get('error'))
+
+        # Procura INSERT INTO TGFITE
+        insert_call = None
+        for call in cur_mock.execute.call_args_list:
+            if 'INSERT INTO TGFITE' in (call.args[0] if call.args else ''):
+                insert_call = call
+                break
+        self.assertIsNotNone(insert_call)
+        binds = insert_call.args[1]
+        self.assertEqual(binds.get('PENDENTE_ITE'), 'N',
+                         "Item de TOP 34 deve gravar PENDENTE='N' (defesa em profundidade)")
+
+    @patch('sankhya_integration.services.oracle_conn.gerar_proxima_sequencia_item',
+           return_value=1)
+    @patch('sankhya_integration.services.oracle_conn._obter_colunas_da_tabela',
+           return_value={'NUNOTA', 'SEQUENCIA', 'CODEMP', 'CODPROD', 'QTDNEG',
+                         'VLRUNIT', 'VLRTOT', 'AD_NUMPEDIDOORIG', 'CODVOL',
+                         'CODLOCALORIG', 'PENDENTE'})
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_item_top_11_nao_passa_pendente(self, _mp, mock_conn, _mcols, _mseq):
+        """Regressão: TOP 11 (Entrada) não tem o bind PENDENTE_ITE injetado."""
+        from sankhya_integration.services.oracle_conn import inserir_item_nota_banco
+        cur_mock = MagicMock()
+        cur_mock.fetchone.side_effect = [
+            (10, None, 244, 113000, 11),  # CODTIPOPER=11
+        ]
+        conn = MagicMock()
+        conn.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn
+
+        res = inserir_item_nota_banco({
+            'NUNOTA': 113000, 'CODPROD': 358, 'QTDNEG': 100.0,
+            'VLRUNIT': 8.5, 'CODVOL': 'KG',
+        }, gerar_lote_auto=False)
+        self.assertTrue(res.get('ok'), msg=res.get('error'))
+
+        insert_call = None
+        for call in cur_mock.execute.call_args_list:
+            if 'INSERT INTO TGFITE' in (call.args[0] if call.args else ''):
+                insert_call = call
+                break
+        binds = insert_call.args[1]
+        self.assertNotIn('PENDENTE_ITE', binds,
+                         "TOP 11 não deve injetar bind PENDENTE_ITE")
+
+
 class CriarDevolucaoSplitLotesServiceTest(TestCase):
     """B1 (Mai/2026) — formato novo `lotes_devolver` no payload.
 

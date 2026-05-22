@@ -764,20 +764,33 @@ def inserir_cabecalho_nota_banco(dados: dict, simulacao: bool = False, conexao_e
                    ':TIPFRETE', ':CIF_FOB', ':ISSRETIDO', ':APROVADO', ':IRFRETIDO', ':DIGITAL', ':CANCELADO', 
                    ':AD_NUMPEDIDOORIG']
         
+        # PENDENTE default — Mai/2026 (2026-05-22): TOP 34 (Pedido de Venda)
+        # PRECISA nascer com PENDENTE='N' pra que o Sankhya consiga "atender
+        # pedido" depois (gerar TOP 35/37). Sankhya nativo grava 'N' direto;
+        # IAgro tava gravando 'S' default e Sankhya rejeitava com CORE_E04678
+        # ("não existem produtos/quantidades disponíveis"). Diagnóstico via
+        # comparação 113258 (IAgro, PENDENTE=S, deu erro) vs 113259 (Sankhya
+        # nativo, PENDENTE=N, OK). Pedidos com ATRIBUIR_LOTE (Rastreio)
+        # acabavam virando 'N' via trigger Sankhya, mas pedidos sem lote
+        # ficavam travados em 'S'. Outros TOPs (11/13/26/30/36) preservam
+        # comportamento atual.
+        codtipoper_int = int(dados['CODTIPOPER'])
+        pendente_default = 'N' if codtipoper_int == 34 else 'S'
+
         binds = {
-            'NUNOTA': novo_nunota, 
-            'CODEMP': int(dados['CODEMP']), 
-            'CODPARC': int(dados['CODPARC']), 
-            'CODTIPOPER': int(dados['CODTIPOPER']),
-            'DHTIPOPER': dhtipoper, 
-            'TIPMOV': tipmov, 
-            'CODNAT': int(dados['CODNAT']), 
+            'NUNOTA': novo_nunota,
+            'CODEMP': int(dados['CODEMP']),
+            'CODPARC': int(dados['CODPARC']),
+            'CODTIPOPER': codtipoper_int,
+            'DHTIPOPER': dhtipoper,
+            'TIPMOV': tipmov,
+            'CODNAT': int(dados['CODNAT']),
             'DTNEG': dados['DTNEG'],
-            'DTMOV': dados.get('DTMOV') or dados['DTNEG'], 
-            'DTENTSAI': dados.get('DTENTSAI') or dados['DTNEG'], 
+            'DTMOV': dados.get('DTMOV') or dados['DTNEG'],
+            'DTENTSAI': dados.get('DTENTSAI') or dados['DTNEG'],
             'NUMNOTA': dados.get('NUMNOTA') or novo_nunota,
-            'PENDENTE': dados.get('PENDENTE', 'S'), 
-            'TIPFRETE': 'N', 'CIF_FOB': 'C', 'ISSRETIDO': 'N', 'APROVADO': 'N', 
+            'PENDENTE': dados.get('PENDENTE') or pendente_default,
+            'TIPFRETE': 'N', 'CIF_FOB': 'C', 'ISSRETIDO': 'N', 'APROVADO': 'N',
             'IRFRETIDO': 'S', 'DIGITAL': 'N', 'CANCELADO': 'N',
             'AD_NUMPEDIDOORIG': int(dados.get('AD_NUMPEDIDOORIG') or novo_nunota)
         }
@@ -1202,6 +1215,14 @@ def inserir_item_nota_banco(dados: dict, simulacao: bool = False, conexao_existe
                 except Exception:
                     usoprod_valor = 'R'
                 colunas_sql.append('USOPROD'); valores_sql.append(':USOPROD'); binds['USOPROD'] = str(usoprod_valor).strip().upper()
+            # Mai/2026 (2026-05-22) — PENDENTE='N' em TOP 34 também no item.
+            # Defesa em profundidade: cabeçalho já é criado com PENDENTE='N'
+            # em TOP 34, mas se trigger Sankhya não copiar pro item OU se
+            # alguma rota antiga ainda passar 'S' no cabeçalho, o item
+            # garante 'N'. Sem isso o "atender pedido" do Sankhya rejeita
+            # com CORE_E04678 (não existem qtds disponíveis).
+            if codtipoper == 34 and 'PENDENTE' in colunas_tabela:
+                colunas_sql.append('PENDENTE'); valores_sql.append(':PENDENTE_ITE'); binds['PENDENTE_ITE'] = 'N'
 
         sql = f"INSERT INTO TGFITE ({', '.join(colunas_sql)}) VALUES ({', '.join(valores_sql)})"
         cur.execute(sql, binds)

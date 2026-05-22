@@ -315,6 +315,29 @@ Diagnóstico via comparação direta TGFITE NUNOTA=113083 (1 item IAgro vs 1 ite
 
 **Escopo do fix**: só pedidos novos criados após 2026-05-20. Pedidos antigos pré-fix continuam com `RESERVA='N'` — operador faz UPDATE manual no Sankhya quando encontrar. Como Agromil está começando a usar IAgro pra vendas agora, volume é pequeno. Detalhes em [`gotchas.md`](.claude/gotchas.md), [`modules/venda.md`](.claude/modules/venda.md) e [`dependencias_sankhya.md`](.claude/dependencias_sankhya.md) §2.2.5.
 
+### 🛠 Fix `PENDENTE='N'` em TOP 34 — CORE_E04678 no faturamento Sankhya (Mai/2026 — 2026-05-22)
+
+Pedidos TOP 34 criados pelo IAgro não conseguiam ser faturados pelo Sankhya — erro `[CORE_E04678] Não existem produtos/quantidades disponíveis para essa operação`. Diagnóstico via comparação direta TGFITE+TGFCAB do NUNOTA 113258 (IAgro, falhou) vs 113259 (Sankhya nativo, mesmo cliente/produto/dia, OK).
+
+**Causa**: `inserir_cabecalho_nota_banco` gravava `PENDENTE='S'` default. Sankhya nativo grava `'N'` direto em TOP 34. Trigger Sankhya copia PENDENTE do cabeçalho pro item, e a rotina "atender pedido" rejeita pedidos com PENDENTE='S' nos itens.
+
+**Pedidos IAgro que vinham funcionando** tinham `ATRIBUIR_LOTE` na auditoria — alguma rota do Rastreio (provavelmente UPDATE de CODAGREGACAO) ativava trigger Sankhya que setava `PENDENTE='N'`. Pedidos sem lote vinculado ficavam quebrados.
+
+| Cenário | CAB.PEND | ITE.PEND | Atende? |
+|---|:-:|:-:|:-:|
+| Sankhya nativo TOP 34 (733 pedidos) | N | N | ✅ |
+| IAgro TOP 34 com Rastreio | N | N | ✅ |
+| IAgro TOP 34 sem Rastreio (113258, 113083) | **S** | **S** | ❌ |
+
+**Fix**:
+- `inserir_cabecalho_nota_banco`: default `PENDENTE='N'` quando `CODTIPOPER=34` (outros TOPs preservam `'S'`). Payload com PENDENTE explícito continua sendo respeitado
+- `inserir_item_nota_banco`: defesa em profundidade — grava `PENDENTE='N'` no INSERT TGFITE em TOP 34 (caso trigger Sankhya não copie do cabeçalho)
+- **Backfill aplicado em produção** pro NUNOTA 113258 (UPDATE TGFCAB+TGFITE PENDENTE='N'). Operador conseguiu faturar imediatamente
+
+**Pedidos antigos pré-fix** continuam com `PENDENTE='S'` — operador faz `UPDATE TGFCAB SET PENDENTE='N' WHERE NUNOTA=X` no Sankhya quando encontrar, ou aplica backfill em massa se aparecer demanda (Cat B separado).
+
+**Tests novos**: 5 em `test_views_venda.py` cobrindo (a) TOP 34 grava 'N', (b) TOP 11 preserva 'S' (regressão), (c) payload explícito é respeitado, (d) item TOP 34 grava PENDENTE_ITE='N', (e) item TOP 11 não passa o bind.
+
 ### 🔄 Navegação inversa TGFVAR — divisão por lote em Devolução + Avaria (Mai/2026 — 2026-05-21)
 
 Quando o Sankhya fatura via "atender pedido", **consolida** múltiplas linhas TGFITE do pedido (cada uma com seu CODAGREGACAO) em 1 linha da nota. Ex.: pedido TOP 34 SEQ 5 com 500kg lote A + SEQ 6 com 500kg lote B vira nota TOP 35 SEQ 1 com 1000kg consolidado. Antes desta entrega, qualquer **devolução (TOP 36) ou avaria (TOP 30) a partir de uma nota faturada com SPLIT** colapsava no lote único da nota — saldo do outro lote nunca recuperava (devolução) nem descontava (avaria), perdendo coerência com a realidade física.
