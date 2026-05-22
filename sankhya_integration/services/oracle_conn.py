@@ -1135,9 +1135,24 @@ def inserir_item_nota_banco(dados: dict, simulacao: bool = False, conexao_existe
             valores_sql.append(':codusu_log')
             binds['codusu_log'] = int(codusu_logado)
 
-        qtdconferida = dados.get('QTDCONFERIDA') or qtdneg
+        # QTDCONFERIDA — Mai/2026 (2026-05-22): default depende do TOP.
+        # TOP 34/35/37 (venda) NÃO podem nascer com QTDCONFERIDA=QTDNEG —
+        # Sankhya interpreta como "item já conferido/entregue" e rejeita o
+        # "atender pedido" com CORE_E04678 (Não existem produtos/qtds
+        # disponíveis). Sankhya nativo grava 0.0 em pedido de venda novo.
+        # Demais TOPs (11/13/26/30/36/10/53) preservam o default histórico
+        # (QTDCONFERIDA = QTDNEG) — faz sentido em Entrada onde o operador
+        # confere a mercadoria ao receber. Diagnóstico via 113264 (IAgro,
+        # erro) vs 113259 (Sankhya nativo OK), única coluna divergente.
+        qtdconferida_raw = dados.get('QTDCONFERIDA')
+        if qtdconferida_raw is not None:
+            qtdconferida = float(qtdconferida_raw)
+        elif codtipoper in (34, 35, 37):
+            qtdconferida = 0.0
+        else:
+            qtdconferida = float(qtdneg)
         if 'QTDCONFERIDA' in colunas_tabela:
-            colunas_sql.append('QTDCONFERIDA'); valores_sql.append(':QTDCONFERIDA'); binds['QTDCONFERIDA'] = float(qtdconferida)
+            colunas_sql.append('QTDCONFERIDA'); valores_sql.append(':QTDCONFERIDA'); binds['QTDCONFERIDA'] = qtdconferida
             
         if 'PESO' in colunas_tabela:
             colunas_sql.append('PESO'); valores_sql.append(':PESO'); binds['PESO'] = float(peso)

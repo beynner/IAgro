@@ -315,6 +315,34 @@ Diagnóstico via comparação direta TGFITE NUNOTA=113083 (1 item IAgro vs 1 ite
 
 **Escopo do fix**: só pedidos novos criados após 2026-05-20. Pedidos antigos pré-fix continuam com `RESERVA='N'` — operador faz UPDATE manual no Sankhya quando encontrar. Como Agromil está começando a usar IAgro pra vendas agora, volume é pequeno. Detalhes em [`gotchas.md`](.claude/gotchas.md), [`modules/venda.md`](.claude/modules/venda.md) e [`dependencias_sankhya.md`](.claude/dependencias_sankhya.md) §2.2.5.
 
+### 🛠 Fix QTDCONFERIDA — `CORE_E04678` no faturamento Sankhya (Mai/2026 — 2026-05-22)
+
+Pedidos TOP 34 criados pelo IAgro **sem lote vinculado** não conseguiam ser faturados pelo Sankhya — erro `[CORE_E04678] Não existem produtos/quantidades disponíveis para essa operação`.
+
+**Causa**: `inserir_item_nota_banco` gravava `QTDCONFERIDA = QTDNEG` por default (`qtdconferida = dados.get('QTDCONFERIDA') or qtdneg`). Sankhya interpreta `QTDCONFERIDA = QTDNEG` como "item já conferido/entregue" → nada a atender → erro. Sankhya nativo grava `0.0` em pedido novo. Pedidos com `ATRIBUIR_LOTE` (Rastreio) funcionavam porque alguma rota/trigger zerava QTDCONFERIDA ao vincular o lote — pedidos sem lote ficavam quebrados.
+
+Diagnóstico via comparação cirúrgica TGFITE de **113264 (IAgro, erro)** vs **113259 (Sankhya nativo, OK, mesmo cliente/produto/dia/STATUSNOTA/PENDENTE)** — única coluna divergente:
+
+| Campo | IAgro | Sankhya nativo |
+|---|:-:|:-:|
+| QTDNEG | 1.0 | 1.0 |
+| **QTDCONFERIDA** | **1.0** | **0.0** |
+| QTDENTREGUE | 0.0 | 0.0 |
+| PENDENTE (ambos) | S | S |
+
+UPDATE cirúrgico em 113264 (`QTDCONFERIDA: 1.0 → 0.0`, sem mexer em mais nada) destravou o faturamento, confirmando hipótese.
+
+**Fix em `inserir_item_nota_banco`** ([oracle_conn.py:1138](sankhya_integration/services/oracle_conn.py#L1138)): default condicional ao CODTIPOPER:
+- **TOP 34/35/37** (venda) → `QTDCONFERIDA = 0.0`
+- **Outros TOPs** (11/13/26/30/36/10/53) → `QTDCONFERIDA = QTDNEG` (default histórico preservado — faz sentido em Entrada onde operador confere ao receber)
+- Payload com QTDCONFERIDA explícita continua respeitado (inclusive `0` em TOP 11)
+
+**Pedidos antigos pré-fix** continuam com `QTDCONFERIDA = QTDNEG`. Operador faz `UPDATE TGFITE SET QTDCONFERIDA=0 WHERE NUNOTA=X` quando encontrar, ou aplica backfill em massa (Cat B separado se aparecer volume).
+
+**Histórico do diagnóstico (importante registrar)**: o erro `CORE_E04678` foi inicialmente atribuído erroneamente a `PENDENTE='S'` (commit `29bfa59`, depois revertido em `b826024`). O Sankhya nativo grava `PENDENTE='S'` em pedido TOP 34 novo (vira 'N' apenas ao ser atendido) — o IAgro estava correto. O erro real é só QTDCONFERIDA. Lição: validar premissas com pedidos do mesmo estado (atendido vs não-atendido) antes de inferir causa.
+
+**Tests novos**: 4 em `test_views_venda.py` cobrindo (a) TOP 34 grava QTDCONFERIDA=0, (b) TOP 11 preserva QTDNEG, (c) payload explícito é respeitado, (d) QTDCONFERIDA=0 explícito em TOP 11 (edge case do `or qtdneg` antigo que ignorava 0).
+
 ### 🔄 Navegação inversa TGFVAR — divisão por lote em Devolução + Avaria (Mai/2026 — 2026-05-21)
 
 Quando o Sankhya fatura via "atender pedido", **consolida** múltiplas linhas TGFITE do pedido (cada uma com seu CODAGREGACAO) em 1 linha da nota. Ex.: pedido TOP 34 SEQ 5 com 500kg lote A + SEQ 6 com 500kg lote B vira nota TOP 35 SEQ 1 com 1000kg consolidado. Antes desta entrega, qualquer **devolução (TOP 36) ou avaria (TOP 30) a partir de uma nota faturada com SPLIT** colapsava no lote único da nota — saldo do outro lote nunca recuperava (devolução) nem descontava (avaria), perdendo coerência com a realidade física.

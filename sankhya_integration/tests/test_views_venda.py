@@ -1387,6 +1387,147 @@ class CriarAvariaServiceTest(TestCase):
         self.assertIn('maior que zero', res['error'].lower())
 
 
+class InserirItemNotaBancoQtdConferidaTest(TestCase):
+    """B4 (Mai/2026 — 2026-05-22): QTDCONFERIDA=0 default em TOP 34/35/37.
+
+    Sankhya rejeita "atender pedido" com CORE_E04678 quando o item
+    TGFITE nasce com QTDCONFERIDA=QTDNEG (entende como já conferido).
+    Sankhya nativo grava 0.0. IAgro tava copiando QTDNEG como default.
+    Confirmado via UPDATE cirúrgico em 113264 (QTDCONFERIDA: 1.0 → 0.0
+    destravou o faturamento sem mudar nenhum outro campo).
+    """
+
+    COLUNAS_TGFITE_MIN = {
+        'NUNOTA', 'SEQUENCIA', 'CODEMP', 'CODPROD', 'QTDNEG', 'VLRUNIT',
+        'VLRTOT', 'AD_NUMPEDIDOORIG', 'CODVOL', 'CODLOCALORIG',
+        'QTDCONFERIDA', 'PESO', 'RESERVA', 'ATUALESTOQUE', 'USOPROD',
+    }
+
+    def _capturar_insert_tgfite(self, cur_mock):
+        for call in cur_mock.execute.call_args_list:
+            if 'INSERT INTO TGFITE' in (call.args[0] if call.args else ''):
+                return call.args[1]
+        return None
+
+    @patch('sankhya_integration.services.oracle_conn.gerar_proxima_sequencia_item',
+           return_value=1)
+    @patch('sankhya_integration.services.oracle_conn._obter_colunas_da_tabela')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_top_34_qtdconferida_zero(self, _mp, mock_conn, mock_cols, _mseq):
+        from sankhya_integration.services.oracle_conn import inserir_item_nota_banco
+        mock_cols.return_value = self.COLUNAS_TGFITE_MIN
+        cur_mock = MagicMock()
+        # 1) SELECT cab: CODTIPOPER=34
+        # 2) SELECT USOPROD TGFPRO (TOP 34/35/37 lê)
+        cur_mock.fetchone.side_effect = [
+            (10, None, 244, 113000, 34),
+            ('R',),
+        ]
+        conn = MagicMock(); conn.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn
+
+        res = inserir_item_nota_banco({
+            'NUNOTA': 113000, 'CODPROD': 358, 'QTDNEG': 1.0,
+            'VLRUNIT': 8.5, 'CODVOL': 'KG',
+        }, gerar_lote_auto=False)
+        self.assertTrue(res.get('ok'), msg=res.get('error'))
+
+        binds = self._capturar_insert_tgfite(cur_mock)
+        self.assertIsNotNone(binds, "INSERT TGFITE não capturado")
+        self.assertEqual(binds.get('QTDCONFERIDA'), 0.0,
+                         "TOP 34 deve gravar QTDCONFERIDA=0 (não QTDNEG)")
+        # Sanity check — QTDNEG ainda é 1.0
+        self.assertEqual(binds.get('QTDNEG'), 1.0)
+
+    @patch('sankhya_integration.services.oracle_conn.gerar_proxima_sequencia_item',
+           return_value=1)
+    @patch('sankhya_integration.services.oracle_conn._obter_colunas_da_tabela')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_top_11_qtdconferida_igual_qtdneg(self, _mp, mock_conn, mock_cols, _mseq):
+        """Regressão: Entrada (TOP 11) preserva default antigo QTDCONFERIDA=QTDNEG."""
+        from sankhya_integration.services.oracle_conn import inserir_item_nota_banco
+        mock_cols.return_value = self.COLUNAS_TGFITE_MIN
+        cur_mock = MagicMock()
+        cur_mock.fetchone.side_effect = [
+            (10, None, 244, 0, 11),
+        ]
+        conn = MagicMock(); conn.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn
+
+        res = inserir_item_nota_banco({
+            'NUNOTA': 100, 'CODPROD': 358, 'QTDNEG': 500.0,
+            'VLRUNIT': 3.0, 'CODVOL': 'KG',
+        }, gerar_lote_auto=False)
+        self.assertTrue(res.get('ok'), msg=res.get('error'))
+
+        binds = self._capturar_insert_tgfite(cur_mock)
+        self.assertEqual(binds.get('QTDCONFERIDA'), 500.0,
+                         "TOP 11 deve preservar QTDCONFERIDA=QTDNEG default antigo")
+
+    @patch('sankhya_integration.services.oracle_conn.gerar_proxima_sequencia_item',
+           return_value=1)
+    @patch('sankhya_integration.services.oracle_conn._obter_colunas_da_tabela')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_qtdconferida_explicita_no_payload_respeitada(self, _mp, mock_conn, mock_cols, _mseq):
+        """Caller que passa QTDCONFERIDA explícita NÃO é sobrescrito pelo fix."""
+        from sankhya_integration.services.oracle_conn import inserir_item_nota_banco
+        mock_cols.return_value = self.COLUNAS_TGFITE_MIN
+        cur_mock = MagicMock()
+        cur_mock.fetchone.side_effect = [
+            (10, None, 244, 0, 34),
+            ('R',),
+        ]
+        conn = MagicMock(); conn.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn
+
+        # TOP 34, mas operador passou QTDCONFERIDA=2.5 explícito
+        res = inserir_item_nota_banco({
+            'NUNOTA': 113000, 'CODPROD': 358, 'QTDNEG': 5.0,
+            'VLRUNIT': 8.5, 'CODVOL': 'KG',
+            'QTDCONFERIDA': 2.5,
+        }, gerar_lote_auto=False)
+        self.assertTrue(res.get('ok'), msg=res.get('error'))
+
+        binds = self._capturar_insert_tgfite(cur_mock)
+        self.assertEqual(binds.get('QTDCONFERIDA'), 2.5,
+                         "QTDCONFERIDA explícita no payload deve ser respeitada")
+
+    @patch('sankhya_integration.services.oracle_conn.gerar_proxima_sequencia_item',
+           return_value=1)
+    @patch('sankhya_integration.services.oracle_conn._obter_colunas_da_tabela')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_qtdconferida_zero_explicito_em_top_11(self, _mp, mock_conn, mock_cols, _mseq):
+        """Edge case: caller pode forçar QTDCONFERIDA=0 mesmo em TOP 11
+        (default antigo `or qtdneg` ignorava 0 e usava qtdneg — fix corrige)."""
+        from sankhya_integration.services.oracle_conn import inserir_item_nota_banco
+        mock_cols.return_value = self.COLUNAS_TGFITE_MIN
+        cur_mock = MagicMock()
+        cur_mock.fetchone.side_effect = [
+            (10, None, 244, 0, 11),
+        ]
+        conn = MagicMock(); conn.cursor.return_value = cur_mock
+        mock_conn.return_value.__enter__.return_value = conn
+
+        res = inserir_item_nota_banco({
+            'NUNOTA': 100, 'CODPROD': 358, 'QTDNEG': 500.0,
+            'VLRUNIT': 3.0, 'CODVOL': 'KG',
+            'QTDCONFERIDA': 0,
+        }, gerar_lote_auto=False)
+        self.assertTrue(res.get('ok'), msg=res.get('error'))
+
+        binds = self._capturar_insert_tgfite(cur_mock)
+        self.assertEqual(binds.get('QTDCONFERIDA'), 0.0,
+                         "QTDCONFERIDA=0 explícito deve ser respeitado (não cair em qtdneg)")
+
+
 class CriarAvariaSplitLotesServiceTest(TestCase):
     """B2 (Mai/2026) — modo "a partir de nota" no criar_avaria_top30_banco.
 
