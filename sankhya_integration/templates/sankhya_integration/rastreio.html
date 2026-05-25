@@ -5,7 +5,7 @@
 {% block active_module %}rastreio{% endblock %}
 
 {% block extra_css %}
-  <link rel="stylesheet" href="{% static 'sankhya_integration/rastreio.css' %}?v=15">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/rastreio.css' %}?v=16">
 {% endblock %}
 
 {% block header_title %}RASTREABILIDADE (WMS){% endblock %}
@@ -34,17 +34,10 @@
         <header class="ras-header">
             <div class="ras-header-row">
                 <span class="ras-painel-titulo">Lotes Disponíveis</span>
-                <div class="ras-search-duo">
-                    <div class="ras-search">
-                        <i class="ph ph-magnifying-glass ras-search-icone" aria-hidden="true"></i>
-                        <input type="text" id="filtroLotes" placeholder="Buscar lote ou produto..." class="search-input ras-search-input" autocomplete="off">
-                        <div id="dropdownLotes" class="search-dropdown hidden"></div>
-                    </div>
-                    <div class="ras-search">
-                        <i class="ph ph-user ras-search-icone" aria-hidden="true"></i>
-                        <input type="text" id="filtroFabricante" placeholder="Buscar fornecedor..." class="search-input ras-search-input" autocomplete="off">
-                        <div id="dropdownFabricante" class="search-dropdown hidden"></div>
-                    </div>
+                <div class="ras-search">
+                    <i class="ph ph-magnifying-glass ras-search-icone" aria-hidden="true"></i>
+                    <input type="text" id="filtroLotes" placeholder="Buscar lote, produto, fornecedor ou nº do pedido..." class="search-input ras-search-input" autocomplete="off">
+                    <div id="dropdownLotes" class="search-dropdown hidden"></div>
                 </div>
             </div>
             <div class="ras-header-row ras-controls">
@@ -83,7 +76,7 @@
                 <span class="ras-painel-titulo">Pedidos de Venda</span>
                 <div class="ras-search">
                     <i class="ph ph-magnifying-glass ras-search-icone" aria-hidden="true"></i>
-                    <input type="text" id="filtroPedidos" placeholder="Buscar pedido ou cliente..." class="search-input ras-search-input" autocomplete="off">
+                    <input type="text" id="filtroPedidos" placeholder="Buscar pedido/nota ou cliente..." class="search-input ras-search-input" autocomplete="off">
                     <div id="dropdownPedidos" class="search-dropdown hidden"></div>
                 </div>
             </div>
@@ -248,5 +241,5 @@
 {% endblock %}
 
 {% block extra_js %}
-  <script src="{% static 'sankhya_integration/rastreio.js' %}?v=9"></script>
+  <script src="{% static 'sankhya_integration/rastreio.js' %}?v=11"></script>
 {% endblock %}

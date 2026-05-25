@@ -114,21 +114,41 @@ ORA-06512: em "SANKHYA.TRG_UPT_TGFITE", line 734
 ORA-06512: em "SANKHYA.STP_CONFIRMANOTA2", line 413
 ```
 
-**Causa**: o trigger compara `NEW.RESERVA` com a definição de reserva da TOP. INSERT do IAgro deixava `RESERVA='N'` (default), mas TOP 34 espera `'S'`. INSERT em si passa (BEFORE INSERT mais permissivo), mas qualquer UPDATE posterior (impressão, faturamento, recálculo) bate na validação BEFORE UPDATE.
+**Causa**: o trigger compara `NEW.RESERVA` com a definição de reserva da TOP. **TOP 34 espera `'S'`** (pedido reserva estoque); **TOP 35/37 espera `'N'`** (venda já efetivada, não reserva). INSERT do IAgro deixava `RESERVA='N'` em TOP 34 — daí o trigger rejeitar UPDATE posterior. INSERT em si passa (BEFORE INSERT mais permissivo), mas qualquer UPDATE posterior (impressão, faturamento, recálculo) bate na validação BEFORE UPDATE.
 
 **Diagnóstico** (Mai/2026 — 2026-05-20): comparação direta TGFITE NUNOTA=113083 com 1 item IAgro vs 1 item Sankhya nativo identificou 3 campos divergindo de forma que aciona o trigger:
 
-| Campo | IAgro (antigo) | Sankhya nativo | Significado |
+| Campo | TOP 34 esperado | TOP 35/37 esperado | Significado |
 |---|---|---|---|
-| `RESERVA` | `'N'` | `'S'` | Causa direta do erro |
-| `ATUALESTOQUE` | `-1` | `1` | -1 = "ignora estoque", 1 = "atualiza ao faturar" |
-| `USOPROD` | `'V'` (chute) | `'R'` ou outro | Vem de `TGFPRO.USOPROD` no nativo |
+| `RESERVA` | `'S'` | `'N'` | Reserva estoque (pedido) vs já efetivado (nota) |
+| `ATUALESTOQUE` | `1` | `-1` | `1` = "atualiza ao faturar", `-1` = "ignora" (TOP 35/37 já saiu da reserva pra estoque real) |
+| `USOPROD` | `TGFPRO.USOPROD` (fallback `'R'`) | mesmo | Vem do cadastro do produto |
 
-**Fix aplicado** em [`inserir_item_nota_banco`](../sankhya_integration/services/oracle_conn.py): SELECT da TGFCAB ganhou `CODTIPOPER`; quando TOP ∈ (34, 35, 37), INSERT em TGFITE preenche `RESERVA='S'`, `ATUALESTOQUE=1`, `USOPROD=<TGFPRO.USOPROD>` (fallback `'R'`). Schema-resilient (`if 'COL' in colunas_tabela`).
+**Fix aplicado** em 2 caminhos distintos:
+1. [`inserir_item_nota_banco`](../sankhya_integration/services/oracle_conn.py) (cria TGFITE de pedido TOP 34): SELECT da TGFCAB ganhou `CODTIPOPER`; quando TOP ∈ (34, 35, 37), INSERT preenche `RESERVA='S'`, `ATUALESTOQUE=1`, `USOPROD=<TGFPRO.USOPROD>` (fallback `'R'`). Schema-resilient (`if 'COL' in colunas_tabela`).
+2. [`faturar_pedido_venda_banco`](../sankhya_integration/services/oracle_conn.py) (caminho C, cria TGFITE de nota TOP 35/37): após o INSERT espelhado, faz UPDATE setando `RESERVA='N'` e `ATUALESTOQUE=-1` — semântica de venda já efetivada. **Em TOP 35/37 esses valores são o correto**, NÃO bug.
 
 **Escopo do fix**: só pedidos novos criados após 2026-05-20. Pedidos antigos criados antes do fix continuam com `RESERVA='N'` — qualquer impressão/faturamento dispara o erro. Solução pontual: operador pode UPDATE manual no Sankhya, ou criar script de backfill (Cat B). Como Agromil está começando a usar IAgro pra vendas agora (Mai/2026), o volume de pedidos antigos quebrados é pequeno — backfill não foi feito.
 
 **Outras divergências menores** (NULL no IAgro vs `0.0`/valor no Sankhya): `NUTAB`, `CODTRIB`, `ALIQICMS`, `ALIQIPI`, `CUSTO`, `M3`, vários `VLR*MOE`, `BASEST*`, `INDREPDES`, `CODSIT08EFD`. Não disparam o trigger porque são opcionais/recalculáveis. Sankhya os preenche internamente quando precisa (ao confirmar, faturar, calcular impostos).
+
+**Mesmo bug no SPLIT do Rastreio (Mai/2026 — 2026-05-25)**: `atribuir_lote_item_pedido` quando faz **SPLIT** (atribuição parcial, `qtd < QTDNEG`) cria linha nova via `INSERT INTO TGFITE ... SELECT ...` copiando do original — mas o INSERT antigo listava só 12 colunas e **não incluía `RESERVA`, `ATUALESTOQUE`, `USOPROD`**. Resultado: linha nova nascia com defaults Oracle (`RESERVA='N'`, etc) em pedido TOP 34, e na emissão da NFe pelo Sankhya o módulo Java rejeitava o item (trigger `TRG_UPT_TGFITE` no UPDATE de `STP_CONFIRMANOTA2`) — produto sumia da nota silenciosamente. Caminho **UPDATE total** (qtd == QTDNEG) preserva os campos da linha original e não tem o bug.
+
+**Fix do SPLIT**: INSERT agora força `RESERVA='S'`, `ATUALESTOQUE=1`, `USOPROD = NVL((SELECT USOPROD FROM TGFPRO WHERE CODPROD = TGFITE.CODPROD), 'R')` (valores corretos pra TOP 34 — guard antes da função já garante que CODTIPOPER ∈ 34/35/37; na prática SPLIT só acontece em TOP 34, mas mesmo se chegasse em TOP 35/37 a TGFCAB nova do caminho C faz UPDATE pra `'N'`/`-1` depois). Cobre inclusive SPLIT de pedidos antigos pré-fix do `inserir_item_nota_banco` — a partir do SPLIT, a linha nova já sai correta.
+
+**Backfill aplicado em produção (2026-05-25)**: 48 linhas TGFITE em pedidos TOP 34 STATUSNOTA='L' com `CODAGREGACAO IS NOT NULL` foram corrigidas via UPDATE direto — abrange os 2 cenários (INSERT pré-fix faixa antes-20/05 + SPLIT faixa 20-25/05). NUNOTA 113155 SEQ 34 (caso reportado pelo cliente — SALVIA cortada da NFe) incluída. Pedidos antigos TOP 35/37 já emitidos com produto cortado **não retroagem** — operador trata caso-a-caso no Sankhya se aparecer demanda.
+
+### Filtro `cliente_q` quebrado pós-refator do cache de saldo (Mai/2026 — 2026-05-25)
+
+Sub-consequência do refator de Mai/2026 — 2026-05-19 que trocou o `FROM` de `consultar_saldo_lote_disponivel` de `SANKHYA.ANDRE_IAGRO_SALDO_LOTE` (view) pra `SANKHYA.AD_SALDO_LOTE_CACHE` (tabela materializada). O `EXISTS` do filtro `cliente_q` (cross-filter Rastreio: digita cliente nos Pedidos → Lotes mostra só CODPRODs vendidos pra ele) ainda referenciava o nome legado no `WHERE` da subquery:
+
+```sql
+WHERE i_cli.CODPROD = ANDRE_IAGRO_SALDO_LOTE.CODPROD   -- ❌ tabela fora do FROM
+```
+
+Como a view não está no FROM da query principal, Oracle não consegue resolver o nome qualificado e levanta `ORA-00904: "ANDRE_IAGRO_SALDO_LOTE"."CODPROD": invalid identifier`. Frontend mostrava toast de erro rapidamente e o painel ficava vazio — operador via "card de lotes não filtra" sem entender. Fix de 1 linha: trocar referência pra `AD_SALDO_LOTE_CACHE.CODPROD`.
+
+**Lição** pra refators futuros: ao trocar o FROM de uma função, fazer grep de **todas as referências qualificadas** no corpo da função (incluindo subqueries em EXISTS, NOT EXISTS, IN). Subquery correlacionada que aponta pra tabela do FROM principal é o padrão mais fácil de esquecer.
 
 ---
 
@@ -669,13 +689,11 @@ Função central que agrupa, ordena e renderiza pedidos. Mudanças aqui afetam *
 
 Duplicidade de `Set` é **intencional**. **Não consolidar em um único** — perderia a distinção "novo vs. já visto" que preserva escolha do usuário.
 
-### `checksLotes` + `checksPorPedido` (Rastreio)
-
-Não consolidar em estrutura única. **Eixos separados são premissa do filtro cruzado isolado** (decisão pedida pelo usuário).
-
 ### `limparTudo()` (Rastreio)
 
-Toda nova feature de filtro/estado precisa adicionar reset aqui. Hoje reseta: typeaheads, datas, agrupamento, tipoLote, lote armado, isolamento, `pedidosColapsados`, `pedidosJaVistos`, `gruposProdutoColapsados`, `gruposProdutoJaVistos`, `checksLotes`, `checksPorPedido`, `somentePendentes`. **Esquecer um item deixa estado residual.**
+Toda nova feature de filtro/estado precisa adicionar reset aqui. Hoje reseta: typeaheads, datas, agrupamento, tipoLote, lote armado, isolamento (`pedidoIsolado` + `codprodsIsolados`), `pedidosColapsados`, `pedidosJaVistos`, `gruposProdutoColapsados`, `gruposProdutoJaVistos`, `gruposLotesColapsados`, `mostrarPendentes/Finalizados`. **Esquecer um item deixa estado residual.**
+
+> _Os checkboxes de filtro cruzado (`checksLotes` + `checksPorPedido`) foram **removidos em Mai/2026 — 2026-05-25**. Operador relatou que atrapalhavam mais que ajudavam — cross-filter agora vive só nos campos únicos `q_lotes` / `cliente_q` automaticamente disparados pelo backend._
 
 ### `renderFiltrosAtivos()` (Rastreio)
 

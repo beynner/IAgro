@@ -5352,6 +5352,8 @@ def consultar_saldo_lote_disponivel(filtros: dict | None = None,
     # Filtro combinado lote OU produto (Mai/2026): texto do campo principal
     # bate em CODAGREGACAO OU DESCRPROD via OR. Placeholder do input já é
     # "Buscar lote ou produto…" — agora consistente com isso.
+    # (Legado — mantido por compat com URLs em cache. Frontend novo usa
+    # `q_lotes` abaixo, que cobre os mesmos campos + fornecedor + nº pedido.)
     if filtros.get('q_lote_prod'):
         termo_lp = str(filtros['q_lote_prod']).strip().upper()
         if termo_lp:
@@ -5359,6 +5361,32 @@ def consultar_saldo_lote_disponivel(filtros: dict | None = None,
                 "(UPPER(CODAGREGACAO) LIKE :qlp OR UPPER(DESCRPROD) LIKE :qlp)"
             )
             binds['qlp'] = f"%{termo_lp}%"
+
+    # Mai/2026 — 2026-05-25: campo único unificado do Rastreio. Substitui
+    # `q_lote_prod` + `fabricante` por 1 termo só, que casa em:
+    #   - CODAGREGACAO     (LIKE — lote)
+    #   - DESCRPROD        (LIKE — produto)
+    #   - NOMEPARC_ORIGEM  (LIKE — fornecedor real, parceiro da TOP 11)
+    #   - NUNOTA_ORIGEM    (=    — só quando termo é dígito puro; nº do
+    #                              pedido de compra origem TOP 11)
+    q_lotes = str(filtros.get('q_lotes') or '').strip()
+    if q_lotes:
+        if q_lotes.isdigit():
+            where.append("""
+                (UPPER(CODAGREGACAO)      LIKE :q_lotes
+                 OR UPPER(DESCRPROD)      LIKE :q_lotes
+                 OR UPPER(NOMEPARC_ORIGEM) LIKE :q_lotes
+                 OR NUNOTA_ORIGEM = :q_lotes_num)
+            """)
+            binds['q_lotes']     = f"%{q_lotes.upper()}%"
+            binds['q_lotes_num'] = int(q_lotes)
+        else:
+            where.append("""
+                (UPPER(CODAGREGACAO)      LIKE :q_lotes
+                 OR UPPER(DESCRPROD)      LIKE :q_lotes
+                 OR UPPER(NOMEPARC_ORIGEM) LIKE :q_lotes)
+            """)
+            binds['q_lotes'] = f"%{q_lotes.upper()}%"
 
     # Filtro exato de FORNECEDOR (Mai/2026 — antes era FABRICANTE de TGFPRO).
     # Agora aponta pra NOMEPARC_ORIGEM (parceiro da TOP 11 do lote), que é
@@ -5369,22 +5397,48 @@ def consultar_saldo_lote_disponivel(filtros: dict | None = None,
         binds['fab_exato'] = str(filtros['fabricante']).upper()
 
     # Cross filter: mostra apenas lotes cujo CODPROD aparece em pedidos
-    # (TOP 34/35/37) de um cliente cujo nome casa com o termo digitado.
+    # (TOP 34/35/37) que combinam com o termo digitado no campo de Pedidos.
+    # Mai/2026 — 2026-05-25 (refinamento): aceita tanto texto (NOMEPARC LIKE)
+    # quanto número (NUNOTA OR NUMNOTA) — operador unifica busca de cliente,
+    # nº do pedido interno e nº da nota fiscal no mesmo campo do Rastreio.
+    # FIX Mai/2026 — 2026-05-25 (anterior): a correlação aponta pra
+    # AD_SALDO_LOTE_CACHE (tabela materializada, FROM da query principal).
+    # Antes era ANDRE_IAGRO_SALDO_LOTE.CODPROD (view), nome que ficou
+    # inválido após o refator de 2026-05-19 que trocou o FROM. Resultado
+    # anterior: ORA-00904 e o filtro nunca chegava a filtrar.
     cliente_q = str(filtros.get('cliente_q') or '').strip()
     if cliente_q:
-        where.append("""
-            EXISTS (
-                SELECT 1
-                FROM TGFITE i_cli
-                JOIN TGFCAB c_cli       ON c_cli.NUNOTA = i_cli.NUNOTA
-                LEFT JOIN TGFPAR p_cli  ON p_cli.CODPARC = c_cli.CODPARC
-                WHERE i_cli.CODPROD       = ANDRE_IAGRO_SALDO_LOTE.CODPROD
-                  AND c_cli.CODTIPOPER   IN (34, 35, 37)
-                  AND c_cli.STATUSNOTA  <> 'E'
-                  AND UPPER(p_cli.NOMEPARC) LIKE :cliente_q
-            )
-        """)
-        binds['cliente_q'] = f"%{cliente_q.upper()}%"
+        if cliente_q.isdigit():
+            # Termo numérico: filtra por NUNOTA (interno) OU NUMNOTA (fiscal).
+            # Frontend envia o mesmo input do campo Pedidos sem ramificar — o
+            # backend decide a semântica.
+            where.append("""
+                EXISTS (
+                    SELECT 1
+                    FROM TGFITE i_cli
+                    JOIN TGFCAB c_cli ON c_cli.NUNOTA = i_cli.NUNOTA
+                    WHERE i_cli.CODPROD      = AD_SALDO_LOTE_CACHE.CODPROD
+                      AND c_cli.CODTIPOPER  IN (34, 35, 37)
+                      AND c_cli.STATUSNOTA <> 'E'
+                      AND (c_cli.NUNOTA = :cliente_num
+                           OR c_cli.NUMNOTA = :cliente_num)
+                )
+            """)
+            binds['cliente_num'] = int(cliente_q)
+        else:
+            where.append("""
+                EXISTS (
+                    SELECT 1
+                    FROM TGFITE i_cli
+                    JOIN TGFCAB c_cli       ON c_cli.NUNOTA = i_cli.NUNOTA
+                    LEFT JOIN TGFPAR p_cli  ON p_cli.CODPARC = c_cli.CODPARC
+                    WHERE i_cli.CODPROD       = AD_SALDO_LOTE_CACHE.CODPROD
+                      AND c_cli.CODTIPOPER   IN (34, 35, 37)
+                      AND c_cli.STATUSNOTA  <> 'E'
+                      AND UPPER(p_cli.NOMEPARC) LIKE :cliente_q
+                )
+            """)
+            binds['cliente_q'] = f"%{cliente_q.upper()}%"
 
     termo = str(filtros.get('q') or '').strip()
     if termo:
@@ -5697,8 +5751,11 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
     termo = str(filtros.get('q') or '').strip()
     if termo:
         if termo.isdigit():
-            where.append("c.NUNOTA = :q_nunota")
-            binds['q_nunota'] = int(termo)
+            # Mai/2026 — 2026-05-25: aceita NUNOTA (interno) OU NUMNOTA (fiscal)
+            # no mesmo campo. Operador que tem a nota fiscal em mãos consegue
+            # localizar sem precisar do NUNOTA interno.
+            where.append("(c.NUNOTA = :q_num OR c.NUMNOTA = :q_num)")
+            binds['q_num'] = int(termo)
         else:
             where.append("UPPER(p.NOMEPARC) LIKE :q_parc")
             binds['q_parc'] = f"%{termo.upper()}%"
@@ -5708,6 +5765,7 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
     # vendáveis cujo NOMEPARC_ORIGEM (parceiro da TOP 11) bate com o
     # selecionado. Antes filtrava por TGFPRO.FABRICANTE (= nome do produto
     # na Agromil), que não casava com a expectativa do operador.
+    # (Legado — frontend novo usa `q_lotes` abaixo. Mantido por compat.)
     fabricante = str(filtros.get('fabricante') or '').strip()
     if fabricante:
         where.append("""
@@ -5724,6 +5782,54 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
             )
         """)
         binds['fabricante'] = fabricante.upper()
+
+    # Mai/2026 — 2026-05-25: cross-filter vindo do campo único do Rastreio.
+    # Pedido aparece se algum item dele tiver CODPROD em comum com um lote
+    # vendável cuja CODAGREGACAO / DESCRPROD / NOMEPARC_ORIGEM bate (LIKE) ou
+    # cujo NUNOTA_ORIGEM bate (= quando o termo é dígito).
+    #
+    # Performance: subquery IN aninhada (cache + TGFCAB grande) chega a 30s.
+    # Pré-resolve a lista de CODPRODs em Python via 1 SELECT enxuto, depois
+    # injeta como IN literal. Custa ~50ms e o resto da query roda em ~250ms.
+    q_lotes = str(filtros.get('q_lotes') or '').strip()
+    codprods_q_lotes: list[int] | None = None
+    if q_lotes:
+        with obter_conexao_oracle() as conn_ql:
+            cur_ql = conn_ql.cursor()
+            if q_lotes.isdigit():
+                cur_ql.execute("""
+                    SELECT DISTINCT CODPROD FROM SANKHYA.AD_SALDO_LOTE_CACHE
+                     WHERE QTD_DISPONIVEL > 0
+                       AND (UPPER(CODAGREGACAO)      LIKE :q
+                            OR UPPER(DESCRPROD)      LIKE :q
+                            OR UPPER(NOMEPARC_ORIGEM) LIKE :q
+                            OR NUNOTA_ORIGEM = :q_num)
+                """, q=f"%{q_lotes.upper()}%", q_num=int(q_lotes))
+            else:
+                cur_ql.execute("""
+                    SELECT DISTINCT CODPROD FROM SANKHYA.AD_SALDO_LOTE_CACHE
+                     WHERE QTD_DISPONIVEL > 0
+                       AND (UPPER(CODAGREGACAO)      LIKE :q
+                            OR UPPER(DESCRPROD)      LIKE :q
+                            OR UPPER(NOMEPARC_ORIGEM) LIKE :q)
+                """, q=f"%{q_lotes.upper()}%")
+            codprods_q_lotes = [int(r[0]) for r in cur_ql.fetchall() if r[0] is not None]
+
+        if not codprods_q_lotes:
+            # Nenhum lote casa com o termo → cross-filter retorna 0 pedidos.
+            _rastreio_cache_set(_chave_cache, [])
+            return []
+
+        # IN literal (sem subquery aninhada). Reusa nomes de bind únicos.
+        ks_ql = []
+        for i, cp in enumerate(codprods_q_lotes):
+            k = f'cp_ql_{i}'
+            ks_ql.append(':' + k)
+            binds[k] = cp
+        where.append(
+            f"EXISTS (SELECT 1 FROM TGFITE i_ql WHERE i_ql.NUNOTA = c.NUNOTA "
+            f"AND i_ql.CODPROD IN ({', '.join(ks_ql)}))"
+        )
 
     # Filtro de janela temporal: prioriza data_ini/data_fim (range explícito).
     # Fallback: desde_dias (legado, retrocompatibilidade dos testes).
@@ -5754,6 +5860,13 @@ def consultar_pedidos_abertos_para_atribuicao(filtros: dict | None = None,
     item_where_parts = []
     if fabricante:
         item_where_parts.append("UPPER(pr.FABRICANTE) = :fabricante")
+    # Mai/2026 — 2026-05-25: q_lotes peneira itens com a mesma lista de
+    # CODPRODs pré-resolvida acima (codprods_q_lotes) — operador filtrando
+    # por "DEBORA" só vê, dentro de cada pedido, os produtos que ela fornece.
+    if codprods_q_lotes:
+        item_where_parts.append(
+            f"i.CODPROD IN ({', '.join(ks_ql)})"
+        )
     # Mesma lógica para codprods do filtro cruzado: quando o usuário clica
     # num lote (ou em produto-linha), só os itens daquele(s) codprod(s) devem
     # aparecer dentro de cada pedido. Sem isso, o cabeçalho mostraria todos
@@ -6232,15 +6345,27 @@ def atribuir_lote_item_pedido(nunota: int, sequencia: int, codagregacao: str,
                 # Cria nova linha com o lote atribuído (espelha campos da
                 # original) e popula PESO com o valor digitado pelo
                 # operador (ou NULL se não foi informado).
+                #
+                # FIX TRG_UPT_TGFITE (Mai/2026 — 2026-05-25): SPLIT também
+                # precisa gravar RESERVA='S' / ATUALESTOQUE=1 / USOPROD do
+                # TGFPRO em TOP 34/35/37 (já validado por guard acima). Sem
+                # isso, a linha NOVA do SPLIT herda defaults Oracle e Sankhya
+                # corta o item silenciosamente na emissão da NFe. Mesma raiz
+                # do fix em inserir_item_nota_banco (2026-05-20). Forçamos os
+                # valores no SELECT (em vez de copiar da original) pra cobrir
+                # também SPLIT de pedidos antigos pré-fix.
                 cur.execute("""
                     INSERT INTO TGFITE (
                         NUNOTA, SEQUENCIA, CODEMP, CODPROD, QTDNEG,
                         VLRUNIT, VLRTOT, CODVOL, CODLOCALORIG, CODAGREGACAO,
-                        PESO, AD_NUMPEDIDOORIG
+                        PESO, AD_NUMPEDIDOORIG,
+                        RESERVA, ATUALESTOQUE, USOPROD
                     )
                     SELECT :n_dest, :s_dest, CODEMP, CODPROD, :q,
                            VLRUNIT, NVL(VLRUNIT, 0) * :q, CODVOL, CODLOCALORIG, :l,
-                           :p, AD_NUMPEDIDOORIG
+                           :p, AD_NUMPEDIDOORIG,
+                           'S', 1,
+                           NVL((SELECT USOPROD FROM TGFPRO pr WHERE pr.CODPROD = TGFITE.CODPROD), 'R')
                       FROM TGFITE
                      WHERE NUNOTA = :n_orig AND SEQUENCIA = :s_orig
                 """, n_dest=int(nunota), s_dest=nova_seq, q=qtd_atribuir,

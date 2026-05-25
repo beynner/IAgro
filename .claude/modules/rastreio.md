@@ -136,9 +136,9 @@ maior que 10 min.
 
 | Função | Operação |
 |---|---|
-| `consultar_saldo_lote_disponivel(filtros, limite, offset)` | Lê da view |
-| `consultar_pedidos_abertos_para_atribuicao(filtros, limite, offset)` | TOP 34 paginado por cabeçalho |
-| `atribuir_lote_item_pedido(nunota, sequencia, codagregacao, qtd=None, peso=None)` | UPDATE total ou SPLIT. Grava `PESO` (Mai/2026 — 2026-05-16: trocou de QTDFIXADA pra PESO; campo agora **opcional**, fallback via TOP 26 do lote) |
+| `consultar_saldo_lote_disponivel(filtros, limite, offset)` | Lê da `AD_SALDO_LOTE_CACHE`. Filtros principais: `q_lotes` (campo único — CODAGREGACAO + DESCRPROD + NOMEPARC_ORIGEM + NUNOTA_ORIGEM quando dígito — Mai/2026 — 2026-05-25), `cliente_q` (cross-filter de Pedidos — NOMEPARC LIKE OU NUNOTA/NUMNOTA quando dígito), `codprods`, datas, `tipo`. Legado: `q_lote_prod`, `fabricante` (aceitos por compat). |
+| `consultar_pedidos_abertos_para_atribuicao(filtros, limite, offset)` | TOP 34 paginado por cabeçalho. Filtros principais: `q` (texto NOMEPARC LIKE / dígito NUNOTA OR NUMNOTA — Mai/2026 — 2026-05-25), `q_lotes` (cross-filter de Lotes — pré-resolve CODPRODs no cache, depois IN literal — 30× mais rápido que subquery aninhada), `mostrar_pendentes`, `mostrar_finalizados`, datas. |
+| `atribuir_lote_item_pedido(nunota, sequencia, codagregacao, qtd=None, peso=None)` | UPDATE total ou SPLIT. Grava `PESO` (Mai/2026 — 2026-05-16: trocou de QTDFIXADA pra PESO; campo agora **opcional**, fallback via TOP 26 do lote). **Mai/2026 — 2026-05-25**: INSERT do SPLIT também força `RESERVA='S'`, `ATUALESTOQUE=1`, `USOPROD=<TGFPRO>` na linha nova — antes nascia com defaults Oracle e Sankhya cortava o item da NFe na emissão (vide [`gotchas.md`](../gotchas.md) → "Mesmo bug no SPLIT do Rastreio") |
 | `desvincular_lote_item_pedido(nunota, sequencia)` | `UPDATE TGFITE SET CODAGREGACAO=NULL, PESO=NULL` (caminho CLEAR) ou MERGE com pendente do mesmo CODPROD |
 | `consultar_fabricantes_disponiveis(termo, limite)` | Typeahead `SELECT DISTINCT FABRICANTE` |
 | `consultar_vinculos_de_lote(codagregacao)` | Pedidos/vendas que usam o lote |
@@ -204,27 +204,24 @@ Helper `_registrar_audit_rastreio()` em `views.py` grava cada atribuição/desvi
 - **Toggle TODOS / CLASSIFICÁVEIS / NÃO-CLASSIF** de tipo de lote (radio)
 - **Switch TRAVAR FILTRO** (mantém filtro cruzado ao re-clicar)
 - **Selects de Período:** lotes (default 30d) e pedidos (default 10d) — janela `desde_dias`
-- **Inputs de busca com typeahead** (debounce 300ms, AbortController, ↑↓/Enter/Tab/Esc/clique fora):
-  - Lotes: busca por **FABRICANTE** distinct
-  - Pedidos: busca por NUNOTA (numérico) ou nome do parceiro
+- **Campos únicos por painel** (Mai/2026 — 2026-05-25, refatorados):
+  - **Lotes (`#filtroLotes` → param `q_lotes`)** — busca livre por **CODAGREGACAO**, **DESCRPROD**, **NOMEPARC_ORIGEM** (fornecedor real) e, quando o termo é dígito puro, também **NUNOTA_ORIGEM** (nº pedido de compra TOP 11). Substitui os 2 inputs antigos (busca lote/produto + typeahead de fornecedor).
+  - **Pedidos (`#filtroPedidos` → param `q` / `cliente_q`)** — busca livre por **NOMEPARC** (texto) ou, quando dígito puro, por **NUNOTA** OR **NUMNOTA** (nº do pedido interno ou número da nota fiscal).
+- **Cross-filter automático** — o termo de Lotes filtra também os Pedidos (mostra só pedidos cujos itens têm CODPROD em comum), e vice-versa.
 
-### Filtro cruzado bidirecional
+### Filtro cruzado (Mai/2026 — 2026-05-25, simplificado)
 
-Estado: `produtosFiltrados: Set` + `pedidoIsolado: NUNOTA`.
+**Os checkboxes de filtro cruzado (`checksLotes` e `checksPorPedido`) foram removidos.** Operador pediu — atrapalhavam mais que ajudavam. Cross-filter agora vive nos campos únicos `q_lotes` (Lotes) e `q` / `cliente_q` (Pedidos), sempre disparado automaticamente pelo backend.
 
-**Eixos separados (premissa do filtro isolado):**
-- `checksLotes: Set<codprod>` — filtra lotes por produto
-- `checksPorPedido: Map<NUNOTA, Set<codprod>>` — filtra produtos visíveis dentro de cada pedido
+**Estado restante:**
+- `pedidoIsolado: NUNOTA | null` — pedido isolado via click no header.
+- `codprodsIsolados: Set<int> | null` — CODPRODs daquele pedido (alimenta cross-filter de Lotes em paralelo).
 
-Marcar produto X num pedido **não cascatea** para outros pedidos com o mesmo produto. Decisão explícita do usuário.
-
-**Comportamento:**
-- Click no card de lote → filtra pedidos por aquele codprod
-- Click em produto-linha do pedido → filtra lotes por aquele codprod, e mostra só esse produto dentro do pedido
-- Click no header do pedido → ISOLA esse pedido (`?nunota=X` no fetch) + filtra lotes pelos N codprods dele. Em isolamento, ignora `desde_dias`/`codprods` para não esconder o pedido alvo
-- Re-click → toggle limpa (a menos que TRAVAR FILTRO)
-
-**Importante:** filtro é **opt-in via checkbox**, nunca por click direto na linha. Click no card/linha **seleciona** (revela botões 🔗/👁); checkbox tem listener próprio.
+**Comportamento atual:**
+- Termo no campo Lotes → filtra Lotes + cross-filter automático em Pedidos
+- Termo no campo Pedidos → filtra Pedidos + cross-filter automático em Lotes
+- Click no header do pedido → ISOLA esse pedido (`?nunota=X` no fetch) + mostra só lotes dos CODPRODs do pedido (`codprodsIsolados`). Click no mesmo header desisola.
+- Click no card/linha → SELECIONA (revela botões 🔗/👁). Sem checkbox.
 
 ### Drag & Drop lote → produto-linha
 
@@ -365,7 +362,6 @@ Detalhes em `gotchas.md`. Resumo:
 
 - `renderPedidos()` é função central — validar 4 caminhos (parceiro/produto × com/sem filtro) ao mexer
 - `pedidosColapsados` + `pedidosJaVistos` — duplicidade intencional, não consolidar
-- `checksLotes` + `checksPorPedido` — eixos separados, não consolidar
 - `limparTudo()` — toda nova feature de filtro/estado precisa adicionar reset aqui
 - `renderFiltrosAtivos()` popula apenas `#filtrosAtivosChips`, não o container externo
 - IDs `btnLimparTudo` / `btnAtualizar` — preservados; listeners dependem deles
@@ -422,7 +418,7 @@ Detalhes em `gotchas.md`. Resumo:
 | 5 | **Persistência do lote armado**: `loteArmadoCodag` adicionado às prefs em `localStorage` (chave `iagro:rastreio:prefs:v1`). Salvo em `armarLote/desarmarLote`. Restaurado 1× por boot via `_tentarRestaurarLoteArmado()` chamado no `finally` do `carregarLotes`. Se o lote sumiu da listagem (foi vendido / fora do filtro), pref é descartada silenciosamente. | `_salvarPrefs`, `armarLote`, `desarmarLote`, `carregarLotes` | Operador interrompido (almoço, F5 acidental, conexão caiu) retoma exatamente de onde parou. |
 
 **Decisões de design preservadas:**
-- Filtros cruzados (`checksLotes`, `checksPorPedido`, `pedidoIsolado`) **NÃO** entram nas prefs — efêmeros por ciclo de uso, decisão consciente de Mai/2026.
+- `pedidoIsolado` + `codprodsIsolados` **NÃO** entram nas prefs — efêmeros por ciclo. Operador re-isola via click no header se quiser. Checkboxes de filtro cruzado foram **removidos em 2026-05-25** (pedido operacional).
 - Atalhos `Space`/`Enter` para armar/atribuir lote em foco **não foram implementados** — exigem rastreamento de "card em foco" que adiciona complexidade. Avaliar quando houver pedido explícito do operador.
 
 ---

@@ -4081,6 +4081,9 @@ def api_rastreio_lotes_disponiveis(request: HttpRequest) -> JsonResponse:
         # Busca combinada do input principal: lote OU produto (Mai/2026)
         'q_lote_prod':  request.GET.get('q_lote_prod'),
         'fabricante':   request.GET.get('fabricante'),
+        # Campo único do Rastreio (Mai/2026 — 2026-05-25): lote/produto/
+        # fornecedor/NUNOTA origem num único termo.
+        'q_lotes':      request.GET.get('q_lotes'),
         'tipo':         request.GET.get('tipo'),
         'desde_dias':   request.GET.get('desde_dias'),
         'data_ini':     request.GET.get('data_ini'),
@@ -4124,6 +4127,10 @@ def api_rastreio_pedidos_abertos(request: HttpRequest) -> JsonResponse:
         'data_ini':   request.GET.get('data_ini'),
         'data_fim':   request.GET.get('data_fim'),
         'fabricante': request.GET.get('fabricante'),
+        # Campo único do Rastreio (Mai/2026 — 2026-05-25): cross-filter
+        # vindo de Lotes — pedido aparece se algum item dele tiver CODPROD
+        # em comum com lotes que casam com o termo.
+        'q_lotes':    request.GET.get('q_lotes'),
         # Toggle Pendente/Finalizado (Mai/2026 — B9): substitui Pendente/Faturado.
         # Critério passa a ser completude do rastreio (existem itens sem lote?).
         # `mostrar_faturados` ainda aceito como alias retro de `mostrar_finalizados`.

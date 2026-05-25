@@ -534,6 +534,279 @@ class HumanizarErroOracleTest(TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Service consultar_saldo_lote_disponivel — filtro cliente_q (Mai/2026 — 2026-05-25)
+# ---------------------------------------------------------------------------
+
+class ConsultarSaldoLoteClienteQTest(TestCase):
+    """Garante que o EXISTS do filtro cliente_q referencia a tabela do FROM
+    principal (AD_SALDO_LOTE_CACHE) — antes apontava pra view legada
+    ANDRE_IAGRO_SALDO_LOTE pós-refator de 2026-05-19, e quebrava com ORA-00904.
+    """
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_cliente_q_correlaciona_com_ad_saldo_lote_cache(self, mock_obter):
+        cursor = MagicMock()
+        # SELECT principal devolve lista vazia — não interessa o resultado,
+        # interessa o SQL que foi enviado pro Oracle.
+        cursor.fetchall.return_value = []
+        cursor.description = [
+            ('CODEMP',), ('CODPROD',), ('DESCRPROD',), ('FABRICANTE',),
+            ('SELECIONADO',), ('CODAGREGACAO',), ('STATUS_LINHA',),
+            ('QTD_ENTRADA',), ('QTD_BAIXADA_VENDA',), ('QTD_BAIXADA_AVARIA',),
+            ('QTD_RESERVADA',), ('QTD_DISPONIVEL',), ('QTD_PENDENTE',),
+            ('QTD_AVARIA_INTERNA',), ('VENDAVEL',), ('NUNOTA_ORIGEM',),
+            ('DTNEG_ORIGEM',), ('CODPARC_ORIGEM',), ('NOMEPARC_ORIGEM',), ('RN',),
+        ]
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        mock_obter.return_value.__enter__.return_value = conn
+        mock_obter.return_value.__exit__.return_value = None
+
+        from sankhya_integration.services.oracle_conn import (
+            consultar_saldo_lote_disponivel,
+            invalidar_cache_rastreio,
+        )
+        invalidar_cache_rastreio()
+        consultar_saldo_lote_disponivel({'cliente_q': 'ASSAI'}, limite=10, offset=0)
+
+        # SQL emitido tem que apontar pro FROM correto E o EXISTS tem que
+        # correlacionar com a MESMA tabela do FROM (sem isso, ORA-00904).
+        sqls = [c[0][0] for c in cursor.execute.call_args_list if c[0]]
+        sql_principal = next(
+            (s for s in sqls if 'AD_SALDO_LOTE_CACHE' in s and 'EXISTS' in s),
+            None,
+        )
+        self.assertIsNotNone(sql_principal,
+                             msg='SELECT principal com EXISTS não foi emitido')
+        self.assertIn('AD_SALDO_LOTE_CACHE.CODPROD', sql_principal,
+                      msg='EXISTS deve correlacionar com AD_SALDO_LOTE_CACHE')
+        self.assertNotIn('ANDRE_IAGRO_SALDO_LOTE.CODPROD', sql_principal,
+                         msg='nome legado da view não pode aparecer no EXISTS '
+                             '(quebraria com ORA-00904)')
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_cliente_q_digito_busca_por_NUNOTA_e_NUMNOTA(self, mock_obter):
+        """Mai/2026 — 2026-05-25: cliente_q numérico filtra por NUNOTA (interno)
+        OU NUMNOTA (fiscal), permitindo operador localizar lotes pelo número
+        da nota fiscal além do nº do pedido interno."""
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        cursor.description = [
+            ('CODEMP',), ('CODPROD',), ('DESCRPROD',), ('FABRICANTE',),
+            ('SELECIONADO',), ('CODAGREGACAO',), ('STATUS_LINHA',),
+            ('QTD_ENTRADA',), ('QTD_BAIXADA_VENDA',), ('QTD_BAIXADA_AVARIA',),
+            ('QTD_RESERVADA',), ('QTD_DISPONIVEL',), ('QTD_PENDENTE',),
+            ('QTD_AVARIA_INTERNA',), ('VENDAVEL',), ('NUNOTA_ORIGEM',),
+            ('DTNEG_ORIGEM',), ('CODPARC_ORIGEM',), ('NOMEPARC_ORIGEM',), ('RN',),
+        ]
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        mock_obter.return_value.__enter__.return_value = conn
+        mock_obter.return_value.__exit__.return_value = None
+
+        from sankhya_integration.services.oracle_conn import (
+            consultar_saldo_lote_disponivel,
+            invalidar_cache_rastreio,
+        )
+        invalidar_cache_rastreio()
+        consultar_saldo_lote_disponivel(
+            {'cliente_q': '113155'}, limite=10, offset=0,
+        )
+
+        sqls = [c[0][0] for c in cursor.execute.call_args_list if c[0]]
+        sql_principal = next(
+            (s for s in sqls if 'AD_SALDO_LOTE_CACHE' in s and 'EXISTS' in s),
+            None,
+        )
+        self.assertIsNotNone(sql_principal,
+                             msg='SELECT principal com EXISTS não foi emitido')
+        # SQL deve filtrar por NUNOTA OU NUMNOTA
+        self.assertIn('c_cli.NUNOTA = :cliente_num', sql_principal)
+        self.assertIn('c_cli.NUMNOTA = :cliente_num', sql_principal)
+        # Não deve cair no caminho de NOMEPARC quando termo é número.
+        # Checamos `p_cli.NOMEPARC` (alias do JOIN TGFPAR no ramo de texto)
+        # — o campo NOMEPARC_ORIGEM da lista de colunas projetadas aparece
+        # naturalmente no SELECT em ambos os ramos.
+        self.assertNotIn('p_cli.NOMEPARC', sql_principal)
+        self.assertNotIn('TGFPAR', sql_principal)
+
+
+# ---------------------------------------------------------------------------
+# Service consultar_pedidos_abertos_para_atribuicao — busca por NUNOTA OR NUMNOTA
+# ---------------------------------------------------------------------------
+
+class ConsultarPedidosAbertosBuscaTest(TestCase):
+    """Garante que termo numérico no campo Pedidos casa por NUNOTA OU NUMNOTA
+    (operador pode digitar nº do pedido interno OU nº da nota fiscal)."""
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_q_digito_busca_NUNOTA_e_NUMNOTA(self, mock_obter):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        # description com 13 colunas (matches o SELECT real do service)
+        cursor.description = [
+            ('NUNOTA',), ('CODPARC',), ('NOMEPARC',), ('DTNEG',),
+            ('QTDVOL',), ('VLRNOTA',), ('CODTIPOPER',), ('STATUSNOTA',),
+            ('NOTA_NUMNOTA',), ('NOTA_NUNOTA',), ('VINCULO_ORIGEM',),
+            ('NUMNOTA_PROPRIO',), ('RN',),
+        ]
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        mock_obter.return_value.__enter__.return_value = conn
+        mock_obter.return_value.__exit__.return_value = None
+
+        from sankhya_integration.services.oracle_conn import (
+            consultar_pedidos_abertos_para_atribuicao,
+            invalidar_cache_rastreio,
+        )
+        invalidar_cache_rastreio()
+        consultar_pedidos_abertos_para_atribuicao(
+            {'q': '113155'}, limite=10, offset=0,
+        )
+
+        sqls = [c[0][0] for c in cursor.execute.call_args_list if c[0]]
+        sql_principal = next((s for s in sqls if 'TGFCAB' in s), None)
+        self.assertIsNotNone(sql_principal)
+        # Mai/2026 — 2026-05-25: WHERE com NUNOTA OR NUMNOTA
+        self.assertIn('c.NUNOTA = :q_num', sql_principal)
+        self.assertIn('c.NUMNOTA = :q_num', sql_principal)
+
+
+# ---------------------------------------------------------------------------
+# Service q_lotes — campo único do Rastreio (Mai/2026 — 2026-05-25)
+# ---------------------------------------------------------------------------
+
+class QLotesUnificadoTest(TestCase):
+    """Valida o campo único do Rastreio: termo bate em CODAGREGACAO, DESCRPROD,
+    NOMEPARC_ORIGEM (fornecedor) e NUNOTA_ORIGEM (nº pedido de compra). Cross-
+    filter espelha pros Pedidos via EXISTS contra AD_SALDO_LOTE_CACHE."""
+
+    def _mock_cursor_lotes(self):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        cursor.description = [
+            ('CODEMP',), ('CODPROD',), ('DESCRPROD',), ('FABRICANTE',),
+            ('SELECIONADO',), ('CODAGREGACAO',), ('STATUS_LINHA',),
+            ('QTD_ENTRADA',), ('QTD_BAIXADA_VENDA',), ('QTD_BAIXADA_AVARIA',),
+            ('QTD_RESERVADA',), ('QTD_DISPONIVEL',), ('QTD_PENDENTE',),
+            ('QTD_AVARIA_INTERNA',), ('VENDAVEL',), ('NUNOTA_ORIGEM',),
+            ('DTNEG_ORIGEM',), ('CODPARC_ORIGEM',), ('NOMEPARC_ORIGEM',), ('RN',),
+        ]
+        return cursor
+
+    def _mock_cursor_pedidos(self):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        cursor.description = [
+            ('NUNOTA',), ('CODPARC',), ('NOMEPARC',), ('DTNEG',),
+            ('QTDVOL',), ('VLRNOTA',), ('CODTIPOPER',), ('STATUSNOTA',),
+            ('NOTA_NUMNOTA',), ('NOTA_NUNOTA',), ('VINCULO_ORIGEM',),
+            ('NUMNOTA_PROPRIO',), ('RN',),
+        ]
+        return cursor
+
+    def _setup_conn(self, mock_obter, cursor):
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        mock_obter.return_value.__enter__.return_value = conn
+        mock_obter.return_value.__exit__.return_value = None
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_q_lotes_texto_busca_4_campos_no_lotes(self, mock_obter):
+        """Termo texto bate nos 3 campos LIKE (CODAGREGACAO/DESCRPROD/
+        NOMEPARC_ORIGEM); NUNOTA_ORIGEM só é incluído quando termo é dígito."""
+        cursor = self._mock_cursor_lotes()
+        self._setup_conn(mock_obter, cursor)
+
+        from sankhya_integration.services.oracle_conn import (
+            consultar_saldo_lote_disponivel,
+            invalidar_cache_rastreio,
+        )
+        invalidar_cache_rastreio()
+        consultar_saldo_lote_disponivel(
+            {'q_lotes': 'DEBORA'}, limite=10, offset=0,
+        )
+
+        sqls = [c[0][0] for c in cursor.execute.call_args_list if c[0]]
+        sql = next((s for s in sqls if 'AD_SALDO_LOTE_CACHE' in s), None)
+        self.assertIsNotNone(sql)
+        self.assertIn('UPPER(CODAGREGACAO)', sql)
+        self.assertIn('UPPER(DESCRPROD)', sql)
+        self.assertIn('UPPER(NOMEPARC_ORIGEM)', sql)
+        # texto puro não usa o bind numérico — só LIKE
+        self.assertNotIn(':q_lotes_num', sql)
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_q_lotes_digito_inclui_NUNOTA_ORIGEM(self, mock_obter):
+        cursor = self._mock_cursor_lotes()
+        self._setup_conn(mock_obter, cursor)
+
+        from sankhya_integration.services.oracle_conn import (
+            consultar_saldo_lote_disponivel,
+            invalidar_cache_rastreio,
+        )
+        invalidar_cache_rastreio()
+        consultar_saldo_lote_disponivel(
+            {'q_lotes': '111752'}, limite=10, offset=0,
+        )
+
+        sqls = [c[0][0] for c in cursor.execute.call_args_list if c[0]]
+        sql = next((s for s in sqls if 'AD_SALDO_LOTE_CACHE' in s), None)
+        self.assertIsNotNone(sql)
+        # Termo numérico expande pros 4 campos
+        self.assertIn('UPPER(CODAGREGACAO)', sql)
+        self.assertIn('UPPER(DESCRPROD)', sql)
+        self.assertIn('UPPER(NOMEPARC_ORIGEM)', sql)
+        self.assertIn('NUNOTA_ORIGEM = :q_lotes_num', sql)
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_q_lotes_cross_filter_em_pedidos(self, mock_obter):
+        """Pedidos respeita o termo do campo Lotes via pré-resolve em
+        AD_SALDO_LOTE_CACHE (DISTINCT CODPROD) + IN literal — mesma janela
+        de campos. Otimização: sem subquery aninhada (era 30s, agora ~250ms)."""
+        cursor = self._mock_cursor_pedidos()
+        # Pré-resolve roda 1 SELECT DISTINCT CODPROD primeiro — devolve lista
+        # mockada de CODPRODs pra forçar entrada no caminho IN literal.
+        cursor.fetchall.side_effect = [
+            [(100,), (200,)],   # pré-resolve devolve 2 CODPRODs
+            [],                  # query principal de pedidos
+        ]
+        self._setup_conn(mock_obter, cursor)
+
+        from sankhya_integration.services.oracle_conn import (
+            consultar_pedidos_abertos_para_atribuicao,
+            invalidar_cache_rastreio,
+        )
+        invalidar_cache_rastreio()
+        consultar_pedidos_abertos_para_atribuicao(
+            {'q_lotes': 'DEBORA'}, limite=10, offset=0,
+        )
+
+        sqls = [c[0][0] for c in cursor.execute.call_args_list if c[0]]
+        # Primeira query: pré-resolve dos CODPRODs no cache
+        sql_pre = next(
+            (s for s in sqls if 'SELECT DISTINCT CODPROD FROM SANKHYA.AD_SALDO_LOTE_CACHE' in s),
+            None,
+        )
+        self.assertIsNotNone(sql_pre,
+                             msg='Pré-resolve deve rodar antes da query principal')
+        self.assertIn('UPPER(CODAGREGACAO)', sql_pre)
+        self.assertIn('UPPER(DESCRPROD)',    sql_pre)
+        self.assertIn('UPPER(NOMEPARC_ORIGEM)', sql_pre)
+        # Segunda query: principal com IN literal (sem subquery aninhada no
+        # filtro). NOTA: query principal de pedidos JÁ tem LEFT JOIN com
+        # AD_SALDO_LOTE_CACHE pra trazer dados de origem do lote (LOTE_NUNOTA,
+        # DTNEG_ORIGEM etc) — esse JOIN é pré-existente e não relacionado ao
+        # filtro q_lotes. O que validamos aqui é que o EXISTS do filtro usa
+        # IN literal (não subquery contra AD_SALDO_LOTE_CACHE).
+        sql_main = next((s for s in sqls if 'TGFCAB' in s and 'i_ql.CODPROD' in s), None)
+        self.assertIsNotNone(sql_main, msg='Query principal com filtro i_ql não encontrada')
+        self.assertIn('i_ql.CODPROD IN (:cp_ql_0, :cp_ql_1)', sql_main)
+        # Garante que o EXISTS de q_lotes não virou subquery aninhada
+        self.assertNotIn('SELECT sl.CODPROD FROM SANKHYA.AD_SALDO_LOTE_CACHE', sql_main)
+
+
+# ---------------------------------------------------------------------------
 # Service atribuir_lote_item_pedido — Fase 1.2 (lock pessimista FOR UPDATE)
 # ---------------------------------------------------------------------------
 
@@ -695,6 +968,49 @@ class AtribuirLoteServiceTest(TestCase):
         res = atribuir_lote_item_pedido(nunota=1, sequencia=1, codagregacao='L1')
         self.assertFalse(res['ok'])
         self.assertIn('não suportada', res['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.invalidar_cache_rastreio')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita',
+           return_value=True)
+    def test_split_insert_inclui_reserva_atualestoque_usoprod(
+            self, _mp, mock_obter, _mi, _mr):
+        """Mai/2026 — 2026-05-25: SPLIT deve gravar RESERVA='S', ATUALESTOQUE=1,
+        USOPROD do TGFPRO na linha NOVA. Sem isso, Sankhya corta o item na
+        emissão da NFe (TRG_UPT_TGFITE rejeita silenciosamente — mesma raiz do
+        fix em inserir_item_nota_banco)."""
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (None, 10.0, 100),    # FOR UPDATE: sem lote, QTDNEG=10, CODPROD=100
+            (34, ' '),            # cabeçalho: TOP 34 em aberto
+            (50.0,),              # saldo do lote: suficiente
+            (5,),                 # MAX(SEQUENCIA)+1 = 5 (nova seq)
+        ]
+        self._mock_conn_ctx(mock_obter, cursor)
+        from sankhya_integration.services.oracle_conn import atribuir_lote_item_pedido
+        # qtd=4 < QTDNEG=10 → força caminho SPLIT
+        res = atribuir_lote_item_pedido(
+            nunota=1, sequencia=1, codagregacao='L1', qtd=4.0,
+        )
+        self.assertTrue(res['ok'], msg=res.get('error'))
+        self.assertEqual(res['operacao'], 'SPLIT')
+        # Procura o INSERT no histórico de chamadas. Última escrita do SPLIT.
+        sqls_emitidas = [c[0][0] for c in cursor.execute.call_args_list]
+        sql_insert = next(
+            (s for s in sqls_emitidas if 'INSERT INTO TGFITE' in s.upper()),
+            None,
+        )
+        self.assertIsNotNone(sql_insert, msg='INSERT INTO TGFITE não emitido no SPLIT')
+        # Os 3 campos do fix devem aparecer no SQL do INSERT
+        self.assertIn('RESERVA', sql_insert)
+        self.assertIn('ATUALESTOQUE', sql_insert)
+        self.assertIn('USOPROD', sql_insert)
+        # E os valores forçados:
+        # RESERVA='S', ATUALESTOQUE=1, USOPROD lido de TGFPRO com fallback 'R'
+        self.assertIn("'S'", sql_insert)
+        self.assertIn('TGFPRO', sql_insert.upper())
+        self.assertIn("'R'", sql_insert)
 
 
 # ---------------------------------------------------------------------------

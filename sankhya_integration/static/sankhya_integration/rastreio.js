@@ -41,22 +41,20 @@ document.addEventListener('DOMContentLoaded', function () {
     let pedidosCarregando = false;
 
     // Filtros / agrupamento / interação
-    // CHECKS DE FILTRO CRUZADO — separados em dois eixos pra que marcar
-    // o produto X num pedido NÃO marque automaticamente os checks de produto X
-    // em outros pedidos (que era o comportamento confuso anterior).
-    //   - checksLotes: produtos marcados via checkbox dos cards de LOTE
-    //   - checksPorPedido: produtos marcados via checkbox de cada PRODUTO-LINHA,
-    //                      mantidos separados por NUNOTA (Map<nunota, Set<codprod>>)
-    // O filtro cruzado (lotes ↔ pedidos) usa a UNIÃO dos dois para enviar
-    // codprods ao backend e para esconder/mostrar lotes/pedidos.
-    const checksLotes       = new Set();
-    const checksPorPedido   = new Map();
+    // Mai/2026 — 2026-05-25: checkboxes de filtro cruzado (checksLotes /
+    // checksPorPedido) foram removidos — atrapalhavam mais que ajudavam.
+    // Cross-filter agora vive nos campos únicos `q_lotes` / `cliente_q`.
+    // `pedidoIsolado` permanece: click no header do pedido ainda isola,
+    // mostrando só aquele NUNOTA + lotes com CODPRODs em comum.
     let pedidoIsolado       = null;         // NUNOTA quando o usuário clica no header de um pedido específico
+    let codprodsIsolados    = null;         // Set<int> dos CODPRODs do pedido isolado (alimenta cross-filter de lotes)
     let agrupamentoAtual    = 'produto';    // 'parceiro' | 'produto' (header agrupador — pedidos)
     let agrupamentoLotes    = 'produto';    // 'parceiro' | 'produto' (header agrupador — lotes, Mai/2026 B9)
     let tipoLote            = 'todos';      // 'todos' | 'classificavel' | 'nao_classificavel'
-    let textoFiltroLotes    = '';           // filtro LIKE de codagregacao
-    let fabricanteAtivo     = '';           // filtro exato de FABRICANTE (vem do typeahead)
+    // Mai/2026 — 2026-05-25: campo único unificado de Lotes. Termo bate em
+    // CODAGREGACAO, DESCRPROD, NOMEPARC_ORIGEM (fornecedor) ou NUNOTA_ORIGEM
+    // (nº pedido de compra).
+    let textoFiltroLotes    = '';           // input único do painel Lotes
     let textoFiltroPedidos  = '';
     // Filtros de período (formato ISO YYYY-MM-DD; '' = sem filtro daquele lado)
     let dataIniLotes        = '';
@@ -153,117 +151,19 @@ document.addEventListener('DOMContentLoaded', function () {
         atualizarBarArmado();
     }
 
-    /** União de todos os produtos marcados em checksLotes + checksPorPedido. */
-    function _uniaoFiltrosProdutos() {
-        const u = new Set(checksLotes);
-        for (const cps of checksPorPedido.values()) {
-            for (const cp of cps) u.add(cp);
-        }
-        return u;
-    }
-    function temFiltroProdutos() {
-        if (checksLotes.size > 0) return true;
-        for (const cps of checksPorPedido.values()) if (cps.size > 0) return true;
-        return false;
-    }
-    /** Para cards de LOTE: o lote está "selecionado" se foi marcado direto
-     *  (checksLotes) OU se algum pedido tem o produto marcado (cross filter). */
-    function loteEstaCheckado(codprod) {
-        const cp = Number(codprod);
-        if (checksLotes.has(cp)) return true;
-        for (const cps of checksPorPedido.values()) if (cps.has(cp)) return true;
-        return false;
-    }
-    /** Para PRODUTO-LINHA: marcado SOMENTE se o usuário marcou
-     *  esta linha específica naquele pedido. Não cascateia entre pedidos. */
-    function produtoLinhaEstaCheckada(codprod, nunota) {
-        const cps = checksPorPedido.get(Number(nunota));
-        return cps ? cps.has(Number(codprod)) : false;
-    }
-    /** Compatibilidade — usado quando NÃO há nunota disponível (lotes,
-     *  filtragem genérica). Equivale ao "tem em qualquer eixo". */
-    function produtoEstaFiltrado(codprod, nunota) {
-        if (nunota !== undefined) return produtoLinhaEstaCheckada(codprod, nunota);
-        return loteEstaCheckado(codprod);
-    }
-    function setsIguais(a, b) {
-        if (a.size !== b.size) return false;
-        for (const v of a) if (!b.has(v)) return false;
-        return true;
-    }
-    /** Limpa todos os checks dos dois eixos. Usado em LIMPAR e isolamento. */
-    function _limparTodosChecks() {
-        checksLotes.clear();
-        checksPorPedido.clear();
-    }
-
-    /** [LEGACY] Mantido pra retro-compat — não chamado por nada de UI.
-     *  Click em card/linha não filtra mais (substituído por checkboxes). */
-    function aplicarFiltroProdutos(codprods) {
-        const lista = Array.isArray(codprods) ? codprods : [codprods];
-        _limparTodosChecks();
-        lista.forEach(cp => checksLotes.add(Number(cp)));
-        pedidoIsolado = null;
-        carregarLotes(true);
-        carregarPedidos(true);
-    }
-
-    /** Toggle do checkbox dentro de um CARD de LOTE — atua em checksLotes. */
-    function toggleCheckLote(codprod, marcado) {
-        const cp = Number(codprod);
-        if (!Number.isFinite(cp)) return;
-        if (marcado) checksLotes.add(cp);
-        else         checksLotes.delete(cp);
-        if (marcado) pedidoIsolado = null;
-        carregarLotes(true);
-        carregarPedidos(true);
-    }
-
-    /** Toggle do checkbox dentro de uma PRODUTO-LINHA — atua em
-     *  checksPorPedido[nunota], sem afetar checks dos mesmos codprods em
-     *  outros pedidos (foi o que o usuário pediu para corrigir). */
-    function toggleCheckProdutoPedido(codprod, nunota, marcado) {
-        const cp = Number(codprod);
-        const nu = Number(nunota);
-        if (!Number.isFinite(cp) || !Number.isFinite(nu)) return;
-        let set = checksPorPedido.get(nu);
-        if (!set) {
-            if (!marcado) return;
-            set = new Set();
-            checksPorPedido.set(nu, set);
-        }
-        if (marcado) set.add(cp);
-        else         set.delete(cp);
-        // Limpa entradas vazias para o Map não acumular
-        if (set.size === 0) checksPorPedido.delete(nu);
-        if (marcado) pedidoIsolado = null;
-        carregarLotes(true);
-        carregarPedidos(true);
-    }
-
-    /** Versão antiga `toggleFiltroProduto` mantida só pra não quebrar callers
-     *  que ainda existam — defaultando ao comportamento antigo de cards de lote. */
-    function toggleFiltroProduto(codprod, marcado) {
-        toggleCheckLote(codprod, marcado);
-    }
-
-    /** Aplica isolamento ao clicar no header do pedido (replace + isolamento).
-     *  Click no mesmo pedido limpa tudo. */
+    /** Aplica isolamento ao clicar no header do pedido. Click no mesmo
+     *  pedido desisola. Os CODPRODs do pedido alimentam o cross-filter de
+     *  lotes (mostra só lotes desses produtos). */
     function aplicarFiltroPedidoIsolado(nunota, codprods) {
-        const novoSet = new Set((codprods || []).map(Number));
-        // Compara a representação atual de filtros de pedido isolado (todos os
-        // codprods desse pedido em checksPorPedido[nunota] e checksLotes vazio)
-        const cpsAtuais = checksPorPedido.get(Number(nunota)) || new Set();
-        const jaIsolado = pedidoIsolado === Number(nunota) &&
-                          checksLotes.size === 0 &&
-                          checksPorPedido.size === 1 &&
-                          setsIguais(novoSet, cpsAtuais);
-        _limparTodosChecks();
-        if (jaIsolado) {
-            pedidoIsolado = null;
+        const nu = Number(nunota);
+        if (!Number.isFinite(nu)) return;
+        if (pedidoIsolado === nu) {
+            // Click no mesmo header → desisola
+            pedidoIsolado    = null;
+            codprodsIsolados = null;
         } else {
-            pedidoIsolado = Number(nunota);
-            checksPorPedido.set(Number(nunota), novoSet);
+            pedidoIsolado    = nu;
+            codprodsIsolados = new Set((codprods || []).map(Number));
         }
         carregarLotes(true);
         carregarPedidos(true);
@@ -275,10 +175,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const containerLotes      = document.getElementById('lotesContainer');
     const containerPedidos    = document.getElementById('pedidosContainer');
     const inputFiltroLotes    = document.getElementById('filtroLotes');
-    const inputFiltroFabricante = document.getElementById('filtroFabricante');
     const inputFiltroPedidos  = document.getElementById('filtroPedidos');
     const dropdownLotes       = document.getElementById('dropdownLotes');
-    const dropdownFabricante  = document.getElementById('dropdownFabricante');
     const dropdownPedidos     = document.getElementById('dropdownPedidos');
     const inputDataIniLotes   = document.getElementById('dataIniLotes');
     const inputDataFimLotes   = document.getElementById('dataFimLotes');
@@ -517,8 +415,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         // ---- Lotes ----
-        if (fabricanteAtivo) chip('lotes', 'fabricante', 'Fabricante', fabricanteAtivo);
-        if (textoFiltroLotes) chip('lotes', 'lote_texto', 'Lote', textoFiltroLotes);
+        if (textoFiltroLotes) chip('lotes', 'lote_texto', 'Busca', textoFiltroLotes);
         if (tipoLote === 'classificavel')           chip('lotes', 'tipo_lote', 'Tipo', 'Classificáveis');
         else if (tipoLote === 'nao_classificavel')  chip('lotes', 'tipo_lote', 'Tipo', 'Não-classif.');
         if (dataIniLotes || dataFimLotes) {
@@ -541,14 +438,9 @@ document.addEventListener('DOMContentLoaded', function () {
             chip('pedidos', 'periodo_pedidos', 'Período pedidos', valor);
         }
 
-        // ---- Filtro cruzado de produtos ----
-        const uniao = _uniaoFiltrosProdutos();
-        if (uniao.size > 0) {
-            const lista = [...uniao];
-            const valor = lista.length === 1
-                ? _descricaoProduto(lista[0])
-                : `${lista.length} produtos`;
-            chip('cruzado', 'produtos', 'Produto', valor);
+        // ---- Pedido isolado (click no header) ----
+        if (pedidoIsolado) {
+            chip('cruzado', 'pedido_isolado', 'Pedido isolado', String(pedidoIsolado));
         }
 
         if (chips.length === 0) {
@@ -566,16 +458,11 @@ document.addEventListener('DOMContentLoaded', function () {
     /** Limpa um filtro específico identificado pelo data-filtro do chip. */
     function removerFiltro(tipo) {
         switch (tipo) {
-            case 'fabricante':
-                fabricanteAtivo = '';
-                if (inputFiltroFabricante) inputFiltroFabricante.value = '';
-                carregarLotes(true);
-                carregarPedidos(true);   // cross filter: limpar fabricante reflete nos pedidos
-                break;
             case 'lote_texto':
                 textoFiltroLotes = '';
                 if (inputFiltroLotes) inputFiltroLotes.value = '';
                 carregarLotes(true);
+                carregarPedidos(true);   // cross filter: limpar busca de lotes reflete nos pedidos
                 break;
             case 'tipo_lote': {
                 tipoLote = 'todos';
@@ -608,9 +495,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (inputDataFimPedidos) inputDataFimPedidos.value = '';
                 carregarPedidos(true);
                 break;
-            case 'produtos':
-                _limparTodosChecks();
-                pedidoIsolado = null;
+            case 'pedido_isolado':
+                pedidoIsolado    = null;
+                codprodsIsolados = null;
                 carregarLotes(true);
                 carregarPedidos(true);
                 break;
@@ -650,22 +537,23 @@ document.addEventListener('DOMContentLoaded', function () {
                 limit: String(PAGE_SIZE),
                 offset: String(lotesOffset),
             });
-            // Busca combinada: o input principal aceita lote OU produto.
-            // Backend faz OR em UPPER(CODAGREGACAO) LIKE :q OR UPPER(DESCRPROD) LIKE :q.
-            if (textoFiltroLotes) params.set('q_lote_prod', textoFiltroLotes);
-            if (fabricanteAtivo)  params.set('fabricante',   fabricanteAtivo);
+            // Mai/2026 — 2026-05-25: campo único de Lotes (q_lotes). Termo bate
+            // em CODAGREGACAO, DESCRPROD, NOMEPARC_ORIGEM (fornecedor) ou
+            // NUNOTA_ORIGEM (nº pedido de compra) no backend.
+            if (textoFiltroLotes) params.set('q_lotes', textoFiltroLotes);
             if (tipoLote && tipoLote !== 'todos') params.set('tipo', tipoLote);
             if (dataIniLotes) params.set('data_ini', dataIniLotes);
             if (dataFimLotes) params.set('data_fim', dataFimLotes);
-            // Cross filter vindo do typeahead de Pedidos: quando o usuário
-            // selecionou/digitou um nome de cliente (texto, não NUNOTA), filtra
-            // os lotes para mostrar apenas os de produtos que esse cliente compra.
-            if (textoFiltroPedidos && !/^\d+$/.test(textoFiltroPedidos)) {
+            // Cross filter vindo do campo Pedidos: envia o texto bruto. Backend
+            // decide se trata como texto (NOMEPARC LIKE) ou número
+            // (NUNOTA OR NUMNOTA). Permite operador filtrar lotes pelo nº da
+            // nota fiscal também, não só pelo nome do cliente. Mai/2026 — 2026-05-25.
+            if (textoFiltroPedidos) {
                 params.set('cliente_q', textoFiltroPedidos);
             }
-            const uniaoLotes = _uniaoFiltrosProdutos();
-            if (uniaoLotes.size > 0) {
-                params.set('codprods', [...uniaoLotes].join(','));
+            // Pedido isolado (click no header) → restringe lotes aos CODPRODs do pedido.
+            if (codprodsIsolados && codprodsIsolados.size > 0) {
+                params.set('codprods', [...codprodsIsolados].join(','));
             }
 
             const r = await fetch(URLS.lotes + '?' + params.toString(), {
@@ -726,14 +614,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
                 if (dataIniPedidos) params.set('data_ini', dataIniPedidos);
                 if (dataFimPedidos) params.set('data_fim', dataFimPedidos);
-                // Cross filter vindo do typeahead de Lotes: quando há FABRICANTE
-                // selecionado, filtra os pedidos para mostrar apenas os que têm
-                // produtos desse fabricante.
-                if (fabricanteAtivo) params.set('fabricante', fabricanteAtivo);
-                const uniaoPed = _uniaoFiltrosProdutos();
-                if (uniaoPed.size > 0) {
-                    params.set('codprods', [...uniaoPed].join(','));
-                }
+                // Cross filter vindo do campo único de Lotes (Mai/2026 — 2026-05-25):
+                // pedido aparece se algum item dele tiver CODPROD em comum com
+                // lotes que casam com o termo (CODAGREGACAO / DESCRPROD /
+                // NOMEPARC_ORIGEM / NUNOTA_ORIGEM).
+                if (textoFiltroLotes) params.set('q_lotes', textoFiltroLotes);
             }
             // Toggle Pendente/Faturado (Mai/2026): cada flag controla TOPs.
             // Default: pendente=true, faturado=false. Backend devolve [] se ambos false.
@@ -814,9 +699,6 @@ document.addEventListener('DOMContentLoaded', function () {
         // Lê do campo qtd_avaria_interna que vem da view ANDRE_IAGRO_SALDO_LOTE
         const qtdAvaria = Number(l.qtd_avaria_interna) || 0;
         card.innerHTML = `
-            <span class="ras-row-check-wrap" aria-hidden="true">
-                <span class="ras-row-check-box ras-row-check-box-disabled"></span>
-            </span>
             <span class="col-prod" title="${escapeHtml(l.descrprod)} (avaria interna deste lote)">
                 <strong>${escapeHtml(l.descrprod)}</strong>
                 <span class="tag-avaria-int" title="Avaria interna reservada — não disponível para vincular em pedido">AVARIA INT.</span>
@@ -847,11 +729,9 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        // Filtra lotes pela união (checksLotes + qualquer codprod marcado em
-        // qualquer pedido). Garante que se você marca um produto num pedido,
-        // os lotes daquele produto também aparecem destacados aqui.
-        const visiveis = lotesData
-            .filter(l => !temFiltroProdutos() || loteEstaCheckado(l.codprod));
+        // Backend já aplica os filtros (q_lotes, codprods via pedido isolado).
+        // Frontend só renderiza tudo que veio.
+        const visiveis = lotesData;
 
         // Pré-calcula falta total por CODPROD (Mai/2026) — usado pra
         // detectar quando o saldo de UM lote casa exatamente com a falta
@@ -879,8 +759,8 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         if (visiveis.length === 0 && !lotesCarregando) {
-            const temFiltro = (textoFiltroLotes || fabricanteAtivo
-                || tipoLote !== 'todos' || temFiltroProdutos());
+            const temFiltro = (textoFiltroLotes
+                || tipoLote !== 'todos' || pedidoIsolado);
             const titulo = temFiltro
                 ? 'Nenhum lote encontrado com os filtros atuais'
                 : 'Sem lotes disponíveis no período';
@@ -971,7 +851,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
             const card = document.createElement('div');
             card.className = 'rastreio-card card-lote compacto';
-            if (loteEstaCheckado(l.codprod)) card.classList.add('selected');
             if (loteArmado && loteArmado.codagregacao === l.codagregacao) {
                 card.classList.add('lote-armado');
             }
@@ -1012,18 +891,8 @@ document.addEventListener('DOMContentLoaded', function () {
                    </button>`
                 : '';
 
-            // Estado do checkbox de filtro cruzado dessa linha — só marca se
-            // o usuário marcou diretamente no card de lote (checksLotes), não
-            // por reflexo de marcação em pedidos.
-            const cpFiltrado = checksLotes.has(Number(l.codprod));
-            const checkAttr  = cpFiltrado ? 'checked' : '';
-
-            // Layout em 1 linha: [check] avatar · produto · parceiro · lote · data · qtd · armar · olho
+            // Layout em 1 linha: produto · parceiro · lote · data · qtd · armar · olho
             card.innerHTML = `
-                <label class="ras-row-check-wrap" title="Cruzar lotes e pedidos deste produto">
-                    <input type="checkbox" class="ras-row-check" ${checkAttr}>
-                    <span class="ras-row-check-box"></span>
-                </label>
                 <span class="col-prod"  title="${escapeHtml(l.descrprod)}">
                     <strong>${escapeHtml(l.descrprod)}</strong>${tagStatus}
                 </span>
@@ -1062,24 +931,11 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                 });
             }
-
-            // Checkbox dispara o filtro cruzado — independente de selecionar a linha
-            const checkEl = card.querySelector('.ras-row-check');
-            if (checkEl) {
-                checkEl.addEventListener('click', (e) => e.stopPropagation());
-                checkEl.addEventListener('change', (e) => {
-                    toggleCheckLote(l.codprod, e.target.checked);
-                });
-            }
-            card.querySelector('.ras-row-check-wrap')
-                ?.addEventListener('click', (e) => e.stopPropagation());
-            // Click na linha (fora do check e dos botões) → SELECIONA a linha
+            // Click na linha (fora dos botões) → SELECIONA a linha
             // (revela os botões olho/armar). Click novamente desmarca.
             card.addEventListener('click', (e) => {
-                // Ignora cliques em botões internos e no checkbox (já tratados)
                 if (e.target.closest('.btn-armar') ||
-                    e.target.closest('.btn-olho') ||
-                    e.target.closest('.ras-row-check-wrap')) return;
+                    e.target.closest('.btn-olho')) return;
                 _selecionarLinha(card, '#lotesContainer');
             });
 
@@ -1186,13 +1042,10 @@ document.addEventListener('DOMContentLoaded', function () {
         }));
     }
 
-    function pedidoCasaFiltro(pedido) {
-        if (!temFiltroProdutos()) return true;
-        // Pedido aparece se: (a) algum produto seu está no checksLotes
-        // (cross-filter vindo dos lotes), OU (b) algum produto está marcado
-        // EM ALGUM PEDIDO (igual em qualquer pedido — basta ter intersecção).
-        const uniao = _uniaoFiltrosProdutos();
-        return pedido.produtos.some(p => uniao.has(Number(p.codprod)));
+    function pedidoCasaFiltro(_pedido) {
+        // Backend já aplica filtros (q_lotes, codprods do pedido isolado).
+        // Frontend renderiza tudo que veio.
+        return true;
     }
 
     function renderPedidos() {
@@ -1254,7 +1107,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (pedidos.length === 0 && !pedidosCarregando) {
             const temFiltro = textoFiltroPedidos || pedidoIsolado != null
-                            || dataIniPedidos || dataFimPedidos || temFiltroProdutos();
+                            || dataIniPedidos || dataFimPedidos;
             let titulo, msg, icone, acao = '';
             if (temFiltro) {
                 titulo = 'Nenhum pedido encontrado com os filtros atuais';
@@ -1291,7 +1144,6 @@ document.addEventListener('DOMContentLoaded', function () {
             // por produto: cada produto vira um grupo, e cada pedido aparece dentro
             pedidos.forEach(p => {
                 p.produtos.forEach(pr => {
-                    if (temFiltroProdutos() && !_uniaoFiltrosProdutos().has(Number(pr.codprod))) return;
                     const key = pr.descrprod || '—';
                     (grupos[key] = grupos[key] || []).push({ pedido: p, produto: pr });
                 });
@@ -1365,17 +1217,6 @@ document.addEventListener('DOMContentLoaded', function () {
         const colapsado = pedidosColapsados.has(Number(pedido.nunota));
         if (colapsado) header.classList.add('colapsado');
 
-        // Estado do checkbox do pedido — count quantos produtos estão marcados
-        // ESPECIFICAMENTE neste pedido (Map<nunota, Set<codprod>>). Não cascata
-        // para outros pedidos.
-        const totalProdutos    = codprodsPedido.length;
-        const cpsDoPedido      = checksPorPedido.get(Number(pedido.nunota)) || new Set();
-        const filtradosNoSet   = codprodsPedido.filter(cp => cpsDoPedido.has(Number(cp))).length;
-        let estadoCheck = 'none';
-        if (filtradosNoSet === totalProdutos && totalProdutos > 0) estadoCheck = 'all';
-        else if (filtradosNoSet > 0) estadoCheck = 'some';
-        const checkAttr = estadoCheck === 'all' ? 'checked' : '';
-
         const checkOk = completo
             ? '<span class="pb-check" title="Todos os produtos vinculados"><i class="ph ph-check"></i></span>'
             : '';
@@ -1428,13 +1269,8 @@ document.addEventListener('DOMContentLoaded', function () {
                </button>`
             : '';
 
-        // Layout: [check] [chevron] avatar  parceiro · data ··· progresso · NUNOTA
-        // O check fica antes do chevron para alinhar com os checks das produto-linhas.
+        // Layout: [chevron] avatar  parceiro · data ··· progresso · NUNOTA
         header.innerHTML = `
-            <label class="ras-row-check-wrap pb-check-wrap" title="Selecionar todos os produtos deste pedido">
-                <input type="checkbox" class="ras-row-check pb-check-input" ${checkAttr}>
-                <span class="ras-row-check-box"></span>
-            </label>
             <button type="button" class="pb-chevron" aria-label="${colapsado ? 'Expandir' : 'Colapsar'} produtos" title="${colapsado ? 'Expandir' : 'Colapsar'} produtos do pedido">
                 <i class="ph ph-caret-down" aria-hidden="true"></i>
             </button>
@@ -1456,34 +1292,7 @@ document.addEventListener('DOMContentLoaded', function () {
             ${checkOk}
         `;
 
-        // Indeterminate visualmente — após inserir no DOM, marca a propriedade
-        // (não dá pra fazer via atributo HTML; é só JS).
-        const inputCheck = header.querySelector('.pb-check-input');
-        if (inputCheck) inputCheck.indeterminate = (estadoCheck === 'some');
-
         // ----- Listeners -----
-        // (a) Checkbox do header: marca/desmarca TODOS os produtos APENAS DESTE
-        // pedido (não afeta outros pedidos com os mesmos codprods, conforme
-        // pedido do usuário). Atua em checksPorPedido[nunota].
-        if (inputCheck) {
-            inputCheck.addEventListener('click', (e) => e.stopPropagation());
-            inputCheck.addEventListener('change', (e) => {
-                const marcar = e.target.checked;
-                const nu = Number(pedido.nunota);
-                if (marcar) {
-                    const set = new Set(codprodsPedido);
-                    checksPorPedido.set(nu, set);
-                    pedidoIsolado = null;
-                } else {
-                    checksPorPedido.delete(nu);
-                }
-                carregarLotes(true);
-                carregarPedidos(true);
-            });
-        }
-        header.querySelector('.pb-check-wrap')
-              ?.addEventListener('click', (e) => e.stopPropagation());
-
         // Botão unificado de resolução de nota órfã (Mai/2026)
         header.querySelector('.btn-resolver-orfa')
               ?.addEventListener('click', async (e) => {
@@ -1535,13 +1344,8 @@ document.addEventListener('DOMContentLoaded', function () {
         containerPedidos.appendChild(_criarPedidoHeader(pedido, false));
         // Pedido colapsado → esconde produtos (header continua mostrando o resumo)
         if (pedidosColapsados.has(Number(pedido.nunota))) return;
-        // Quando há filtro de produtos ativo, mostra apenas os produtos cuja
-        // intersecção bate (qualquer eixo: lotes ou pedidos).
-        const uniao = _uniaoFiltrosProdutos();
-        const produtos = temFiltroProdutos()
-            ? pedido.produtos.filter(p => uniao.has(Number(p.codprod)))
-            : pedido.produtos;
-        produtos.forEach(prod => {
+        // Backend já filtra itens via q_lotes/codprods quando ativo.
+        pedido.produtos.forEach(prod => {
             containerPedidos.appendChild(renderProdutoLinha(pedido, prod));
         });
     }
@@ -1576,19 +1380,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const completo = pct >= 100 && qtdTotal > 0;
         if (completo) header.classList.add('pedido-completo');
 
-        // Codprod do grupo (todos os items têm o mesmo). Usado pelo checkbox
-        // do header — marca/desmarca o filtro cruzado por aquele produto via
-        // checksLotes (afeta lotes globalmente + reflete em todos os pedidos
-        // que contêm o produto).
-        const codprodGrupo = items[0]?.produto?.codprod;
-        const checkAttr    = (codprodGrupo != null && checksLotes.has(Number(codprodGrupo)))
-                             ? 'checked' : '';
-
         header.innerHTML = `
-            <label class="ras-row-check-wrap pb-check-wrap" title="Filtrar cruzado por este produto">
-                <input type="checkbox" class="ras-row-check" ${checkAttr}>
-                <span class="ras-row-check-box"></span>
-            </label>
             <span class="grupo-chevron" aria-label="${colapsado ? 'Expandir' : 'Recolher'} grupo">
                 <i class="ph ph-caret-down" aria-hidden="true"></i>
             </span>
@@ -1602,21 +1394,8 @@ document.addEventListener('DOMContentLoaded', function () {
             <span class="pb-nunota">${fmtInt(numPedidos)} ${numPedidos === 1 ? 'pedido' : 'pedidos'}</span>
         `;
 
-        // Checkbox: filtra cruzado por este produto (atua em checksLotes).
-        // stopPropagation no wrap impede que o click chegue ao header.
-        const inputCheck = header.querySelector('.ras-row-check');
-        if (inputCheck && codprodGrupo != null) {
-            inputCheck.addEventListener('click', (e) => e.stopPropagation());
-            inputCheck.addEventListener('change', (e) => {
-                toggleCheckLote(codprodGrupo, e.target.checked);
-            });
-        }
-        header.querySelector('.pb-check-wrap')
-              ?.addEventListener('click', (e) => e.stopPropagation());
-
-        // Click no header (fora do checkbox) → toggle do colapso + re-render
-        header.addEventListener('click', (e) => {
-            if (e.target.closest('.pb-check-wrap')) return;
+        // Click no header → toggle do colapso + re-render
+        header.addEventListener('click', () => {
             if (gruposProdutoColapsados.has(nomeProduto))
                 gruposProdutoColapsados.delete(nomeProduto);
             else
@@ -1632,7 +1411,6 @@ document.addEventListener('DOMContentLoaded', function () {
      *  produto-linha — só o layout muda. */
     function renderLinhaCompactaPedidoProduto(pedido, prod) {
         const completo = prod.qtd_falta <= 0.000001;
-        const selected = produtoLinhaEstaCheckada(prod.codprod, pedido.nunota);
         const ehAlvo   = !!loteArmado &&
                          Number(loteArmado.codprod) === Number(prod.codprod) &&
                          !completo;
@@ -1640,12 +1418,10 @@ document.addEventListener('DOMContentLoaded', function () {
         const linha = document.createElement('div');
         linha.className = 'linha-pedido-compacta clicavel';
         if (completo) linha.classList.add('completo');
-        if (selected) linha.classList.add('selected');
         if (ehAlvo)   linha.classList.add('alvo-armado');
         linha.dataset.nunota  = pedido.nunota;
         linha.dataset.codprod = prod.codprod;
 
-        const checkAttr = selected ? 'checked' : '';
         const tagFalta = completo
             ? '<span class="tag-atribuido-mini"><i class="ph ph-check"></i> OK</span>'
             : `<span class="tag-falta">falta ${fmtInt(prod.qtd_falta)}</span>`;
@@ -1667,10 +1443,6 @@ document.addEventListener('DOMContentLoaded', function () {
             : '';
 
         linha.innerHTML = `
-            <label class="ras-row-check-wrap" title="Cruzar este produto neste pedido">
-                <input type="checkbox" class="ras-row-check" ${checkAttr}>
-                <span class="ras-row-check-box"></span>
-            </label>
             <span class="lpc-parc" title="${escapeHtml(pedido.nomeparc || '—')}">
                 ${setaAlvo}${escapeHtml(pedido.nomeparc || '—')}
             </span>
@@ -1703,22 +1475,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 _abrirPdfEtiquetas(pedido.nunota, prod.codprod);
             });
         }
-        const checkEl = linha.querySelector('.ras-row-check');
-        if (checkEl) {
-            checkEl.addEventListener('click', (e) => e.stopPropagation());
-            checkEl.addEventListener('change', (e) => {
-                toggleCheckProdutoPedido(prod.codprod, pedido.nunota, e.target.checked);
-            });
-        }
-        linha.querySelector('.ras-row-check-wrap')
-             ?.addEventListener('click', (e) => e.stopPropagation());
 
         // Click na linha:
         // - Se há lote armado compatível e tem falta → modal de transferência
         // - Senão → seleciona a linha (revela botão olho)
         linha.addEventListener('click', (e) => {
-            if (e.target.closest('.btn-olho') ||
-                e.target.closest('.ras-row-check-wrap')) return;
+            if (e.target.closest('.btn-olho')) return;
             if (loteArmado && !completo &&
                 Number(loteArmado.codprod) === Number(prod.codprod)) {
                 if (!prod.linhas_pendentes.length) {
@@ -1742,12 +1504,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function renderProdutoLinha(pedido, prod) {
         const completo = prod.qtd_falta <= 0.000001;
-        // "selected" só fica marcado se ESTE produto-linha (pedido+codprod)
-        // foi marcado especificamente. Outros pedidos com mesmo codprod NÃO
-        // ficam selected, conforme pedido do usuário.
-        const selected = produtoLinhaEstaCheckada(prod.codprod, pedido.nunota);
-        const faded    = temFiltroProdutos() &&
-                         !_uniaoFiltrosProdutos().has(Number(prod.codprod));
         // Quando há lote armado e esta linha tem o mesmo CODPROD, ela vira "alvo"
         const ehAlvo = !!loteArmado &&
                        Number(loteArmado.codprod) === Number(prod.codprod) &&
@@ -1756,8 +1512,6 @@ document.addEventListener('DOMContentLoaded', function () {
         const linha = document.createElement('div');
         linha.className = 'rastreio-card card-pedido compacto produto-linha clicavel';
         if (completo) linha.classList.add('completo');
-        if (faded)    linha.classList.add('faded');
-        if (selected) linha.classList.add('selected');
         if (ehAlvo)   linha.classList.add('alvo-armado');
 
         linha.dataset.nunota  = pedido.nunota;
@@ -1786,15 +1540,7 @@ document.addEventListener('DOMContentLoaded', function () {
             ? '<span class="ras-arrow-alvo" title="Solte aqui para vincular o lote armado">←</span>'
             : '';
 
-        // Estado do checkbox dessa linha — específico ao pedido (não cruza)
-        const cpFiltrado = produtoLinhaEstaCheckada(prod.codprod, pedido.nunota);
-        const checkAttr  = cpFiltrado ? 'checked' : '';
-
         linha.innerHTML = `
-            <label class="ras-row-check-wrap" title="Cruzar lotes deste produto">
-                <input type="checkbox" class="ras-row-check" ${checkAttr}>
-                <span class="ras-row-check-box"></span>
-            </label>
             <span class="col-prod" title="${escapeHtml(prod.descrprod)}">
                 ${setaAlvo}${escapeHtml(prod.descrprod)}
             </span>
@@ -1825,25 +1571,12 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         }
 
-        // Checkbox: opt-in explícito do filtro cruzado, por PEDIDO+CODPROD.
-        // Marcar este produto NÃO afeta produtos iguais em outros pedidos.
-        const checkEl = linha.querySelector('.ras-row-check');
-        if (checkEl) {
-            checkEl.addEventListener('click', (e) => e.stopPropagation());
-            checkEl.addEventListener('change', (e) => {
-                toggleCheckProdutoPedido(prod.codprod, pedido.nunota, e.target.checked);
-            });
-        }
-        linha.querySelector('.ras-row-check-wrap')
-             ?.addEventListener('click', (e) => e.stopPropagation());
-
-        // Click na linha (fora do checkbox e do olho):
+        // Click na linha (fora do olho):
         // - Se há lote armado compatível e tem falta → modal de transferência
         // - Lote armado incompatível → toast
         // - Sem lote armado → SELECIONA a linha (revela botão olho)
         linha.addEventListener('click', (e) => {
-            if (e.target.closest('.btn-olho') ||
-                e.target.closest('.ras-row-check-wrap')) return;
+            if (e.target.closest('.btn-olho')) return;
             if (loteArmado && !completo &&
                 Number(loteArmado.codprod) === Number(prod.codprod)) {
                 if (!prod.linhas_pendentes.length) {
@@ -2821,100 +2554,18 @@ document.addEventListener('DOMContentLoaded', function () {
     // (otimização: carrega todos os fabricantes uma vez e filtra localmente).
     // Já tem ↑/↓/Enter/Tab/Esc, debounce 300/500ms, blur tolerante. Sem retrofit necessário.
     // Cache cliente-side: carrega TODOS os fabricantes uma vez no boot,
-    // depois cada keystroke filtra localmente — sem rede, instantâneo.
-    // Se o termo digitado não estiver no cache (TGFPRO grande, fabricante
-    // depois do limit alfabético), faz fallback no servidor com aquele q.
-    let fabricantesCache        = null;   // null = ainda não carregou
-    let fabricantesCachePromise = null;
-    function startFabricantesCache() {
-        if (fabricantesCachePromise) return fabricantesCachePromise;
-        fabricantesCachePromise = fetch(URLS.fabricantes + '?limit=5000', {
-            credentials: 'same-origin', cache: 'no-store',
-        })
-            .then(r => r.json())
-            .then(d => {
-                fabricantesCache = d.ok ? (d.fabricantes || []) : [];
-                return fabricantesCache;
-            })
-            .catch(() => {
-                fabricantesCache = [];
-                return fabricantesCache;
-            });
-        return fabricantesCachePromise;
-    }
-    async function buscarFabricantes(q) {
-        if (fabricantesCache === null) await startFabricantesCache();
-        const upper = (q || '').toUpperCase();
-        const lista = [];
-        for (const f of fabricantesCache) {
-            if (f && f.toUpperCase().includes(upper)) {
-                lista.push(f);
-                if (lista.length >= 10) break;
-            }
-        }
-        if (lista.length > 0 || !q || q.length < 2) return lista;
-
-        // Fallback: cache local não tem — vai ao servidor com o termo.
-        // Se achar, agrega ao cache pra próximas pesquisas serem locais.
-        try {
-            const r = await fetch(
-                URLS.fabricantes + '?limit=10&q=' + encodeURIComponent(q),
-                { credentials: 'same-origin', cache: 'no-store' }
-            );
-            const data = await r.json();
-            if (data.ok && Array.isArray(data.fabricantes) && data.fabricantes.length > 0) {
-                for (const f of data.fabricantes) {
-                    if (fabricantesCache.indexOf(f) === -1) fabricantesCache.push(f);
-                }
-                return data.fabricantes.slice(0, 10);
-            }
-        } catch (_) {}
-
-        return lista;
-    }
-
-    // Input de busca de lote/produto — busca livre (LIKE em CODAGREGACAO/DESCRPROD).
-    // Sem typeahead; backend filtra por substring.
+    // Mai/2026 — 2026-05-25: campo único do painel Lotes. Termo bate em
+    // CODAGREGACAO / DESCRPROD / NOMEPARC_ORIGEM (fornecedor) / NUNOTA_ORIGEM
+    // (nº pedido de compra). Dispara também o cross-filter no painel Pedidos
+    // (carregarPedidos) — mostra só pedidos com CODPRODs presentes nos lotes
+    // casados pelo termo.
     if (inputFiltroLotes) {
         inputFiltroLotes.addEventListener('input', debounce((e) => {
             textoFiltroLotes = (e.target.value || '').trim();
             carregarLotes(true);
+            carregarPedidos(true);
         }, 300));
     }
-
-    // Input dedicado ao FORNECEDOR (typeahead de FABRICANTE distinct).
-    // Separado do filtroLotes (Mai/2026) — antes os dois compartilhavam o
-    // mesmo input, confundindo busca livre com seleção de fabricante.
-    let typeaheadFabricante = null;
-    if (inputFiltroFabricante && dropdownFabricante) {
-        typeaheadFabricante = criarTypeahead({
-            input:    inputFiltroFabricante,
-            dropdown: dropdownFabricante,
-            formatItem: (nome) => `<span class="sd-titulo">${escapeHtml(nome)}</span>`,
-            onSelect: (nome) => {
-                inputFiltroFabricante.value = nome;
-                fabricanteAtivo             = nome;
-                carregarLotes(true);
-                carregarPedidos(true);   // cross filter
-            },
-        });
-        // 500ms debounce — dá tempo do operador digitar o nome completo.
-        inputFiltroFabricante.addEventListener('input', debounce(async (e) => {
-            const q = (e.target.value || '').trim();
-            if (q.length === 0) {
-                fabricanteAtivo = '';
-                typeaheadFabricante.fechar();
-                carregarLotes(true);
-                carregarPedidos(true);
-                return;
-            }
-            const items = await buscarFabricantes(q);
-            typeaheadFabricante.abrir(items);
-        }, 500));
-    }
-    // Pre-carrega o cache em background no bootstrap — quando o usuário
-    // digitar pela primeira vez, já vai estar pronto.
-    startFabricantesCache();
 
     // ----- Typeahead de Pedidos --------------------------------------------
     let typeaheadPedidos = null;
@@ -3139,17 +2790,14 @@ document.addEventListener('DOMContentLoaded', function () {
     function limparTudo() {
         // Typeaheads
         textoFiltroLotes   = '';
-        fabricanteAtivo    = '';
         textoFiltroPedidos = '';
-        if (inputFiltroLotes)      inputFiltroLotes.value      = '';
-        if (inputFiltroFabricante) inputFiltroFabricante.value = '';
-        if (inputFiltroPedidos)    inputFiltroPedidos.value    = '';
-        if (typeaheadFabricante) typeaheadFabricante.fechar();
-        if (typeaheadPedidos)    typeaheadPedidos.fechar();
+        if (inputFiltroLotes)   inputFiltroLotes.value   = '';
+        if (inputFiltroPedidos) inputFiltroPedidos.value = '';
+        if (typeaheadPedidos)   typeaheadPedidos.fechar();
 
-        // Filtro cruzado e isolamento
-        _limparTodosChecks();
-        pedidoIsolado     = null;
+        // Isolamento
+        pedidoIsolado    = null;
+        codprodsIsolados = null;
 
         // Lote armado
         if (loteArmado) desarmarLote();

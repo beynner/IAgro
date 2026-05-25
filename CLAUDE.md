@@ -410,6 +410,49 @@ UPDATE cirúrgico em 113264 (`QTDCONFERIDA: 1.0 → 0.0`, sem mexer em mais nada
 
 **Tests novos**: 4 em `test_views_venda.py` cobrindo (a) TOP 34 grava QTDCONFERIDA=0, (b) TOP 11 preserva QTDNEG, (c) payload explícito é respeitado, (d) QTDCONFERIDA=0 explícito em TOP 11 (edge case do `or qtdneg` antigo que ignorava 0).
 
+### 🧬 Rastreio — fix SPLIT (RESERVA/AE/USOPROD) + filtro `cliente_q` quebrado (Mai/2026 — 2026-05-25)
+
+Operador relatou pedidos faturados pelo Sankhya com **produto cortado da NFe**. Diagnóstico cirúrgico via TGFITE da NUNOTA 113155 SEQ 34 (SALVIA com lote `113214S04D260521`) mostrou linha com `RESERVA='N'`, `ATUALESTOQUE=-1`, `USOPROD='V'` — exatamente o padrão do fix Mai/2026 — 2026-05-20 que afetou `inserir_item_nota_banco`, mas no caminho **SPLIT** do `atribuir_lote_item_pedido` (atribuição parcial de lote no Rastreio).
+
+**Causa**: o INSERT que cria a linha NOVA do SPLIT listava só 12 colunas (`NUNOTA, SEQUENCIA, CODEMP, CODPROD, QTDNEG, VLRUNIT, VLRTOT, CODVOL, CODLOCALORIG, CODAGREGACAO, PESO, AD_NUMPEDIDOORIG`) — Oracle aplicava defaults nos 3 campos críticos. Caminho **UPDATE total** (qtd == QTDNEG) sempre esteve OK porque preserva os campos da linha original.
+
+**Fix do código** ([oracle_conn.py:6235-6256](sankhya_integration/services/oracle_conn.py#L6235-L6256)): SPLIT agora força `RESERVA='S'`, `ATUALESTOQUE=1`, `USOPROD = NVL((SELECT USOPROD FROM TGFPRO WHERE CODPROD = TGFITE.CODPROD), 'R')` no `SELECT` do INSERT.
+
+**Backfill em produção (2026-05-25)**: 48 linhas TGFITE em pedidos TOP 34 STATUSNOTA='L' com lote vinculado e campos divergentes foram corrigidas via UPDATE direto — cobre faixa A (INSERT pré-fix, antes-20/05), faixa B (20-24/05 com SPLIT) e a faixa C (≥25/05 — a própria NUNOTA 113155). Pedidos antigos TOP 35/37 já emitidos com produto cortado **não retroagem**.
+
+**Fix bônus descoberto na sessão — filtro `cliente_q` quebrado por refator**: o cross-filter do Rastreio (operador digita cliente nos Pedidos → Lotes filtra) estava quebrado desde Mai/2026 — 2026-05-19. O refator que trocou o `FROM` de `consultar_saldo_lote_disponivel` de `SANKHYA.ANDRE_IAGRO_SALDO_LOTE` (view) pra `SANKHYA.AD_SALDO_LOTE_CACHE` (tabela materializada) não atualizou a referência no `EXISTS` do filtro — Oracle levantava `ORA-00904` silenciosamente. Frontend mostrava toast de erro rapidamente e operador via "filtro não funciona". Fix de 1 linha: `ANDRE_IAGRO_SALDO_LOTE.CODPROD` → `AD_SALDO_LOTE_CACHE.CODPROD`. Lição registrada em [`gotchas.md`](.claude/gotchas.md): ao refatorar FROM de função, grep todas as referências qualificadas (EXISTS, NOT EXISTS, IN subquery).
+
+**Limpeza de pedido fantasma**: NUNOTA 113508 (TOP 34, R$ 74.485, ASSAI PALMAS CESAMAR, 18 itens) existia no TGFCAB/TGFITE mas Sankhya não exibia — `NUMNOTA=NUNOTA=113508` (igual) confundia o filtro nativo. DELETE em cascata via `excluir_nota_completa_banco` (mesma função do botão Excluir do portal Venda) + audit completo em `AD_AUDITORIA_GERAL`.
+
+### 🔍 Rastreio — busca unificada (NUNOTA + NUMNOTA + Lotes q_lotes) (Mai/2026 — 2026-05-25)
+
+Refatoração dos campos de busca do Rastreio pra **2 campos únicos** (um por painel), unificando o que antes eram inputs separados.
+
+**Campo Pedidos** (`#filtroPedidos`):
+- Texto → NOMEPARC LIKE (cliente, comportamento legado)
+- Dígito → `NUNOTA = :n OR NUMNOTA = :n` (operador encontra pelo nº pedido **OU** nº nota fiscal)
+- Cross-filter em Lotes: termo numérico filtra Lotes pelos CODPRODs do pedido/nota encontrado
+
+**Campo Lotes** (`#filtroLotes` → param `q_lotes`):
+- Texto: bate em `CODAGREGACAO` OR `DESCRPROD` OR `NOMEPARC_ORIGEM` (LIKE)
+- Dígito: + `NUNOTA_ORIGEM = :n` (nº do pedido de compra TOP 11)
+- Cross-filter em Pedidos: mostra só pedidos cujos itens têm CODPROD em comum com lotes filtrados + filtra **itens** dentro do cabeçalho pra mostrar só os relevantes ao termo
+- **Substitui 2 inputs antigos**: busca de lote/produto + typeahead de fornecedor (helpers `fabricantesCache`/`startFabricantesCache`/`buscarFabricantes` removidos)
+
+**Performance crítica**: cross-filter `q_lotes` em Pedidos primeiro foi implementado com subquery `IN (SELECT FROM AD_SALDO_LOTE_CACHE WHERE...)` aninhada — 28-34s na primeira chamada. Refatorado pra **pré-resolver os CODPRODs em 1 SELECT Python** + IN literal — 1.08-1.18s (**~30× mais rápido**). Operador digita "DEBORA" → fila no Pedidos cai instantaneamente.
+
+**Tests novos**: 4 em `test_rastreio.py` (`ConsultarSaldoLoteClienteQTest`, `ConsultarPedidosAbertosBuscaTest`, `QLotesUnificadoTest` × 3 cenários). 84 tests no total, zero regressão (5 falhas pré-existentes em `FaturarPedidoServiceTest` continuam baseline).
+
+**Compat backend**: `q_lote_prod` e `fabricante` continuam aceitos (Classificação ainda usa `fabricante` — endpoint diferente). Frontend do Rastreio não envia mais nenhum.
+
+### ✂ Rastreio — remoção dos checkboxes de filtro cruzado (Mai/2026 — 2026-05-25)
+
+Operador relatou que **os checkboxes de filtro cruzado atrapalhavam mais que ajudavam**. Removidos: 6 checkboxes HTML (cards de lote, header de pedido, header de produto POR PRODUTO, produto-linha × 2) + 5 event listeners + 2 sets de estado (`checksLotes` Set<codprod>, `checksPorPedido` Map<NUNOTA, Set<codprod>>) + 7 funções helper (`_uniaoFiltrosProdutos`, `temFiltroProdutos`, `loteEstaCheckado`, `produtoLinhaEstaCheckada`, `produtoEstaFiltrado`, `_limparTodosChecks`, `aplicarFiltroProdutos`, `toggleCheckLote`, `toggleCheckProdutoPedido`, `toggleFiltroProduto`, `setsIguais`).
+
+**Mantido**: `pedidoIsolado` (NUNOTA via click no header do pedido) + adicionado `codprodsIsolados` (Set<int>) que alimenta o param `codprods` no `carregarLotes` quando isolado — mostra só lotes dos CODPRODs do pedido alvo.
+
+**Cross-filter automático** agora vive nos campos únicos `q_lotes` / `cliente_q` — o backend faz tudo, frontend nem precisa montar união de codprods. Mais limpo, menos estado, menos cliques.
+
 ### 🔄 Navegação inversa TGFVAR — divisão por lote em Devolução + Avaria (Mai/2026 — 2026-05-21)
 
 Quando o Sankhya fatura via "atender pedido", **consolida** múltiplas linhas TGFITE do pedido (cada uma com seu CODAGREGACAO) em 1 linha da nota. Ex.: pedido TOP 34 SEQ 5 com 500kg lote A + SEQ 6 com 500kg lote B vira nota TOP 35 SEQ 1 com 1000kg consolidado. Antes desta entrega, qualquer **devolução (TOP 36) ou avaria (TOP 30) a partir de uma nota faturada com SPLIT** colapsava no lote único da nota — saldo do outro lote nunca recuperava (devolução) nem descontava (avaria), perdendo coerência com a realidade física.
