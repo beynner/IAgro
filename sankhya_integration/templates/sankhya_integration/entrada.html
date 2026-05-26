@@ -6,7 +6,7 @@
 
 {% block extra_css %}
   <meta name="app-version" content="{{ APP_VERSION }}">
-  <link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}?v=13">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}?v=15">
 {% endblock %}
 
 {% block header_title %}ENTRADA IAGRO{% endblock %}
@@ -261,12 +261,22 @@
         <div>
           <label>Produtos inseridos</label>
           <div class="scroll-panel">
-            <table class="ia-selectable-table">
+            <table class="ia-selectable-table tabela-itens-entrada">
+              <colgroup>
+                <col class="col-produto" />
+                <col class="col-lote" />
+                <col class="col-classifica" />
+                <col class="col-qtd" />
+                <col class="col-peso" />
+                <col class="col-totalkg" />
+                <col class="col-avaria" />
+                <col class="col-acoes" />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Produto</th>
                   <th>Lote</th>
-                  <th>Classifica</th>
+                  <th class="text-center">Classifica</th>
                   <th class="text-right">Qtd</th>
                   <th class="text-right">Peso</th>
                   <th class="text-right">Total kg</th>

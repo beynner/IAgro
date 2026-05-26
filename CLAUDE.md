@@ -410,6 +410,43 @@ UPDATE cirúrgico em 113264 (`QTDCONFERIDA: 1.0 → 0.0`, sem mexer em mais nada
 
 **Tests novos**: 4 em `test_views_venda.py` cobrindo (a) TOP 34 grava QTDCONFERIDA=0, (b) TOP 11 preserva QTDNEG, (c) payload explícito é respeitado, (d) QTDCONFERIDA=0 explícito em TOP 11 (edge case do `or qtdneg` antigo que ignorava 0).
 
+### ⛽ Combustível — financeiro automático pra terceiros + média Diesel/ARLA separada (Mai/2026 — 2026-05-26)
+
+Veículos de terceiro (`TGFVEI.PROPRIO='N'`) abastecem do nosso tanque interno mas o financeiro ficava sem rastro — operador da finança usava planilha externa pra descontar do pagamento de frete. Sessão de Cat B grande (B1+B2+B3) entregou ciclo completo: criar/editar/excluir requisição de combustível agora **gera TGFFIN automático** contra o parceiro do veículo quando o veículo é terceiro.
+
+**Regras consolidadas**:
+- **B1** (criar): se `TGFVEI.PROPRIO='N'` em `INTERNA_FROTA` ou `INTERNA_MAQUINARIO`, gera TGFFIN auto com `CODNAT=10040800` (Receita de Abastecimento), `CODCENCUS=10100` (Comercialização), `RECDESP=+1` (receita a receber), `CODPARC = TGFVEI.CODPARC`, `DTVENC` pelo ciclo decendial (1/10/20/fim-do-mês). TGFFIN nasce em aberto. NUFIN audit em `AD_REQUISICAO_COMBUSTIVEL.NUFIN_GERADO`. Tanque continua descontando normal.
+- **B2** (editar): idempotência completa em 5 cenários — **(A)** veículo terceiro sem NUFIN → cria retroativo (caso típico de requisições antigas pré-B1); **(B)** terceiro com NUFIN → UPDATE proporcional (valor + DTVENC); **(C)** NUFIN renegociado → BLOQUEIA com mensagem; **(D)** trocou de terceiro pra próprio → DELETE TGFFIN + zera AD_REQ.NUFIN_GERADO; **(F)** próprio sem NUFIN → nada (preserva fluxo atual).
+- **B3** (excluir): DELETE TGFFIN universal (interno terceiro **e** externo). Trava NURENEG aplicada antes do DELETE.
+- **Trava NURENEG**: `TGFFIN.NURENEG IS NOT NULL` ⇒ financeiro foi tocado por renegociação Sankhya ⇒ IAgro não mexe (UPDATE/DELETE).
+- **Default decendial DTVENC**: dia ≤10 → vence 10, ≤20 → vence 20, >20 → vence último dia do mês. Helper `proxima_data_fechamento_decendial` em `oracle_conn.py`.
+- **Frontend**: tipo `EXTERNA_FRETE` **removido da UI** — operador escolhe apenas Veículos / Maquinário / Posto Externo. O sistema identifica o terceiro via PROPRIO='N' automaticamente. Campo VLRUNIT do modal virou editável (era readonly em internos). Auto-fill do último preço TOP 10 continua.
+- **HISTORICO do TGFFIN** padronizado: `"Abastecimento Diesel S10 / 50 LT (R$6,26) - JFO5H79"` (combustível + qtd + preço + placa).
+
+**Outras entregas Mai/2026 (2026-05-26) na tela Combustível**:
+- **Filtro de datas no card Movimentações** (ini/fim + `<<`/`>>` setas), dataIni replica em dataFim sempre. Default = mês atual (dia 1 → hoje). Vale tanto pra listagem geral quanto pro relatório do veículo no modo detalhe. Padrão documentado em `conventions.md`.
+- **Filtro Status removido** do card Movimentações.
+- **Campo pesquisa de veículos** (placa/modelo/parceiro/tipo) no mesmo header que toggle Frota/Maquinário. Case/acento-insensitive, debounce 200ms.
+- **Lista de veículos expandida** até a margem inferior do card (era `max-height: 320px` fixo).
+- **Média de consumo separada Diesel vs ARLA**: ARLA (codprod 1374) não interfere mais no km/L do Diesel (392, 1373). Novo cálculo trackeia categorias independentes — entre 2 Diesels consecutivos pra km/L Diesel, entre 2 ARLAs consecutivos pra km/L ARLA. Resumo do detalhe ganha cards "Diesel total", "ARLA total", "Consumo Diesel", "Consumo ARLA", "ARLA / Diesel %" (esperado 3-5%).
+
+**Pré-requisito operacional**: cadastrar veículo de terceiro em `TGFVEI` com `PROPRIO='N'` e `CODPARC` preenchido. Sem CODPARC, IAgro bloqueia com erro humanizado "Atualize o cadastro antes de lançar". A regra vale também pra maquinário terceiro (cooperado, alugado).
+
+Detalhes técnicos em [`modules/combustivel.md`](.claude/modules/combustivel.md) → "TGFFIN automático pra veículos de terceiro" + "Média Diesel vs ARLA".
+
+### 🧹 Rastreio — Zerar fração do lote via TOP 33 (Mai/2026 — 2026-05-26)
+
+Pedido pede 19 kg de tomate, operação envia 20 kg (caixa cheia), sistema desconta 19 → lote fica com 1 kg fantasma de saldo. Tela poluída com restos que não existem fisicamente. Solução: botão **"Zerar fração"** (broom) no card de lote quando saldo ≤ 1% da qtd que entrou no lote.
+
+- **Tolerância adaptativa**: 1% do `qtd_entrada` (TOP 11 origem). Lote de 1000 kg → tolerância 10 kg; lote de 50 kg → tolerância 0,5 kg. Naturalmente proporcional ao volume.
+- **Botão broom** aparece apenas em cards com saldo residual. Click → modal de confirmação → cria TGFCAB **TOP 33 — AVARIA DE AJUSTE** (CODNAT 20010200, mesmo da TOP 30; smoke confirmou TOP 33 já existe e foi usada 269× pelo Sankhya nativo). TGFITE preserva `CODAGREGACAO` (rastreabilidade — diferente do uso nativo que deixa NULL).
+- **Trava em backend** (defesa em profundidade): se operador tentar zerar lote com saldo acima da tolerância (ex: 5 kg de lote 100 kg = 5%), recusa com `"Saldo X kg está acima da tolerância (Y kg). Use TOP 30 avulsa pra avaria maior."`.
+- **VLRUNIT do vale TOP 13** lido pra documentar custo da perda em VLRTOT da TGFITE TOP 33 (audit contábil).
+- **Manual, não automático**: operador decide caso a caso. Audit `ZERAR_FRACAO_LOTE` registra quem zerou e quando. Reversível mentalmente — se a regra de tolerância se mostrar errada nos primeiros dias, basta evitar clicar.
+- **Componentes**: função `zerar_fracao_lote_banco` (Cat B) + endpoint `POST /sankhya/rastreio/api/zerar-fracao/` + badge âmbar `📦 fração` + botão broom no card.
+
+Detalhes em [`modules/rastreio.md`](.claude/modules/rastreio.md) → "Zerar fração do lote (TOP 33)".
+
 ### 🧬 Rastreio — fix SPLIT (RESERVA/AE/USOPROD) + filtro `cliente_q` quebrado (Mai/2026 — 2026-05-25)
 
 Operador relatou pedidos faturados pelo Sankhya com **produto cortado da NFe**. Diagnóstico cirúrgico via TGFITE da NUNOTA 113155 SEQ 34 (SALVIA com lote `113214S04D260521`) mostrou linha com `RESERVA='N'`, `ATUALESTOQUE=-1`, `USOPROD='V'` — exatamente o padrão do fix Mai/2026 — 2026-05-20 que afetou `inserir_item_nota_banco`, mas no caminho **SPLIT** do `atribuir_lote_item_pedido` (atribuição parcial de lote no Rastreio).

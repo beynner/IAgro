@@ -1483,3 +1483,204 @@ class HumanizarErroOracleHelperTest(TestCase):
         except Exception as e:
             humanizada = humanizar_erro_oracle(e)
         self.assertIn('dependências', humanizada)
+
+
+def _conn_cursor_mock_rastreio():
+    """Constrói (conn_ctx, cursor) compatível com `with obter_conexao_oracle() as conn`."""
+    cursor = MagicMock()
+    conn = MagicMock()
+    conn.cursor.return_value = cursor
+    conn_ctx = MagicMock()
+    conn_ctx.__enter__.return_value = conn
+    conn_ctx.__exit__.return_value = False
+    return conn_ctx, conn, cursor
+
+
+class ZerarFracaoLoteServiceTest(TestCase):
+    """B1 (Mai/2026 — 2026-05-26) — zera fração residual do lote via TOP 33.
+
+    Trava: só zera quando saldo <= 1% × qtd_entrada do lote.
+    Comportamento idêntico ao `upsert_avaria_top30_lote` mas pra TOP 33
+    (Avaria de Ajuste — CODNAT 20010200, confirmado via smoke).
+    """
+
+    def setUp(self):
+        from sankhya_integration.services.oracle_conn import zerar_fracao_lote_banco
+        self.fn = zerar_fracao_lote_banco
+
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita')
+    def test_escrita_desabilitada_retorna_erro(self, mock_perm):
+        mock_perm.return_value = False
+        r = self.fn(codprod=392, codagregacao='LOTE1', codusu=1, nomeusu='Teste')
+        self.assertFalse(r['ok'])
+        self.assertIn('Escrita desabilitada', r['error'])
+
+    def test_codprod_ou_codagregacao_vazios_recusa(self):
+        r1 = self.fn(codprod=0, codagregacao='LOTE1', codusu=1, nomeusu='T')
+        self.assertFalse(r1['ok'])
+        r2 = self.fn(codprod=392, codagregacao='', codusu=1, nomeusu='T')
+        self.assertFalse(r2['ok'])
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita')
+    def test_lote_inexistente_retorna_erro(self, mock_perm, mock_conn):
+        mock_perm.return_value = True
+        conn_ctx, _, cur = _conn_cursor_mock_rastreio()
+        mock_conn.return_value = conn_ctx
+        cur.fetchone.return_value = (None, None, None)  # view sem retorno
+        r = self.fn(codprod=999, codagregacao='LOTE_FANTASMA',
+                    codusu=1, nomeusu='Teste')
+        self.assertFalse(r['ok'])
+        self.assertIn('não encontrado', r['error'])
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita')
+    def test_saldo_acima_da_tolerancia_recusa(self, mock_perm, mock_conn):
+        """Lote com 5 kg de saldo num lote que entrou 100 kg → 5% > 1% → recusa."""
+        mock_perm.return_value = True
+        conn_ctx, _, cur = _conn_cursor_mock_rastreio()
+        mock_conn.return_value = conn_ctx
+        cur.fetchone.return_value = (5.0, 100.0, 12345)  # saldo, entrada, nunota_origem
+        r = self.fn(codprod=392, codagregacao='LOTE1', codusu=1, nomeusu='Teste')
+        self.assertFalse(r['ok'])
+        self.assertIn('tolerância', r['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita')
+    def test_saldo_ja_zerado_recusa(self, mock_perm, mock_conn):
+        mock_perm.return_value = True
+        conn_ctx, _, cur = _conn_cursor_mock_rastreio()
+        mock_conn.return_value = conn_ctx
+        cur.fetchone.return_value = (0.0, 100.0, 12345)
+        r = self.fn(codprod=392, codagregacao='LOTE1', codusu=1, nomeusu='Teste')
+        self.assertFalse(r['ok'])
+        self.assertIn('já está zerado', r['error'])
+
+    @patch('sankhya_integration.services.oracle_conn.invalidar_cache_rastreio')
+    @patch('sankhya_integration.services.oracle_conn.registrar_auditoria')
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita')
+    def test_fluxo_feliz_cria_top33_com_codagregacao(
+        self, mock_perm, mock_conn, mock_cab, mock_item, mock_rec, mock_audit, mock_invcache,
+    ):
+        """Cenário do operador: lote tem 1 kg de sobra de 100 kg que entraram.
+        1% = 1 kg → saldo exatamente igual à tolerância → ZERA.
+        TGFCAB TOP 33 criada com CODAGREGACAO preservado."""
+        mock_perm.return_value = True
+        conn_ctx, _, cur = _conn_cursor_mock_rastreio()
+        mock_conn.return_value = conn_ctx
+        cur.fetchone.side_effect = [
+            (1.0, 100.0, 11111),                           # view: saldo, entrada, nunota_origem
+            (1, 200, 10100, date(2026, 5, 1), 11, 'KG', 1.0),  # TGFCAB TOP 11 origem
+            (12.50,),                                      # VLRUNIT do vale TOP 13
+        ]
+        mock_cab.return_value = {'ok': True, 'nunota': 99999}
+        mock_item.return_value = {'ok': True, 'nunota': 99999, 'sequencia': 1}
+        mock_rec.return_value = {'ok': True}
+
+        r = self.fn(codprod=392, codagregacao='LOTE_TOMATE_001',
+                    codusu=1, nomeusu='Teste')
+
+        self.assertTrue(r['ok'], f"Inesperado: {r}")
+        self.assertEqual(r['nunota_33'], 99999)
+        self.assertEqual(r['qtd_zerada'], 1.0)
+        self.assertEqual(r['tolerancia_kg'], 1.0)
+
+        # TGFCAB TOP 33 criada
+        self.assertTrue(mock_cab.called)
+        dados_cab = mock_cab.call_args[0][0]
+        self.assertEqual(dados_cab['CODTIPOPER'], 33)
+        self.assertEqual(dados_cab['CODNAT'], 20010200)
+        self.assertEqual(dados_cab['STATUSNOTA'], 'L')
+        self.assertEqual(dados_cab['CODTIPVENDA'], 11)
+        self.assertEqual(dados_cab['CODEMP'], 1)
+        self.assertEqual(dados_cab['AD_NUMPEDIDOORIG'], 11111)
+
+        # TGFITE com CODAGREGACAO preservado
+        self.assertTrue(mock_item.called)
+        dados_item = mock_item.call_args[0][0]
+        self.assertEqual(dados_item['CODPROD'], 392)
+        self.assertEqual(dados_item['CODAGREGACAO'], 'LOTE_TOMATE_001')
+        self.assertEqual(dados_item['QTDNEG'], 1.0)
+        self.assertEqual(dados_item['VLRUNIT'], 12.50)
+        self.assertAlmostEqual(dados_item['VLRTOT'], 12.50, places=2)
+
+        # Audit chamado
+        self.assertTrue(mock_audit.called)
+        self.assertEqual(mock_audit.call_args.kwargs['operacao'], 'ZERAR_FRACAO_LOTE')
+
+        # Cache invalidado
+        self.assertTrue(mock_invcache.called)
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita')
+    def test_sem_nunota_origem_recusa(self, mock_perm, mock_conn):
+        """Lote sem NUNOTA_ORIGEM (raro mas possível) → erro humanizado."""
+        mock_perm.return_value = True
+        conn_ctx, _, cur = _conn_cursor_mock_rastreio()
+        mock_conn.return_value = conn_ctx
+        cur.fetchone.return_value = (0.5, 100.0, None)
+        r = self.fn(codprod=392, codagregacao='LOTE1', codusu=1, nomeusu='T')
+        self.assertFalse(r['ok'])
+        self.assertIn('NUNOTA_ORIGEM', r['error'])
+
+
+class ApiRastreioZerarFracaoEndpointTest(TestCase):
+    """B2 — endpoint POST /sankhya/rastreio/api/zerar-fracao/"""
+
+    def setUp(self):
+        self.client = Client()
+        _login_session(self.client, grupos=['8'])  # IAGRO_PACKING tem acesso a rastreio
+
+    def test_sem_payload_400(self):
+        url = reverse('api_rastreio_zerar_fracao')
+        resp = self.client.post(url, data='', content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_sem_codprod_ou_codagregacao_400(self):
+        url = reverse('api_rastreio_zerar_fracao')
+        resp = self.client.post(url,
+                                data=json.dumps({'codprod': 392}),
+                                content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_sem_sessao_redireciona(self):
+        client = Client()  # sem _login_session
+        url = reverse('api_rastreio_zerar_fracao')
+        resp = client.post(url,
+                           data=json.dumps({'codprod': 392, 'codagregacao': 'LOTE1'}),
+                           content_type='application/json')
+        # Sem sessão → exige_grupo redireciona pra /
+        self.assertIn(resp.status_code, (302, 403))
+
+    @patch('sankhya_integration.views.zerar_fracao_lote_banco')
+    def test_sucesso_delega_pro_service(self, mock_svc):
+        mock_svc.return_value = {
+            'ok': True, 'nunota_33': 99999,
+            'qtd_zerada': 1.0, 'tolerancia_kg': 1.0,
+        }
+        url = reverse('api_rastreio_zerar_fracao')
+        resp = self.client.post(url,
+                                data=json.dumps({'codprod': 392, 'codagregacao': 'LOTE1'}),
+                                content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['nunota_33'], 99999)
+        mock_svc.assert_called_once()
+        kwargs = mock_svc.call_args.kwargs
+        self.assertEqual(kwargs['codprod'], 392)
+        self.assertEqual(kwargs['codagregacao'], 'LOTE1')
+
+    @patch('sankhya_integration.views.zerar_fracao_lote_banco')
+    def test_service_falha_devolve_400_humanizado(self, mock_svc):
+        mock_svc.return_value = {'ok': False, 'error': 'Saldo acima da tolerância'}
+        url = reverse('api_rastreio_zerar_fracao')
+        resp = self.client.post(url,
+                                data=json.dumps({'codprod': 392, 'codagregacao': 'LOTE1'}),
+                                content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('tolerância', resp.json()['error'].lower())

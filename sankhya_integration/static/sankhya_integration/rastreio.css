@@ -1732,6 +1732,43 @@
     border-left: 3px solid #fb923c;
 }
 
+/* Mai/2026 (2026-05-26): Badge "fração" — saldo residual abaixo de 1% do
+   qtd_entrada do lote. Botão "broom" zera via TGFCAB TOP 33. */
+.badge-fracao-lote {
+    display: inline-block;
+    background: #fbbf24;
+    color: #78350f;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 10px;
+    margin-left: 4px;
+    vertical-align: middle;
+    cursor: help;
+}
+.badge-fracao-lote .ph {
+    font-size: 10px;
+    vertical-align: middle;
+    margin-right: 2px;
+}
+
+.rastreio-card.lote-fracao {
+    border-left: 3px solid #fbbf24;
+    background: #fffbeb;     /* fundo amarelo claríssimo pra destacar */
+}
+
+/* Botão "Zerar fração" (broom) — só aparece em lotes com fração */
+.btn-zerar-fracao {
+    color: #b45309;
+}
+.btn-zerar-fracao:hover {
+    color: #fff;
+    background: #d97706;
+}
+.btn-zerar-fracao .ph {
+    font-size: 14px;
+}
+
 /* Badge de status FATURADO/ATRIBUIDO no modal de vínculos do lote */
 .vinc-status {
     display: inline-block;

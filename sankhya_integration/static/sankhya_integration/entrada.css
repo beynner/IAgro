@@ -560,16 +560,30 @@ table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 }
 
 /* ==========================================================================
+   Larguras das colunas da tabela "Produtos inseridos" (modal Entrada)
+   Mai/2026 (2026-05-26): tabela tem table-layout:fixed → colgroup define
+   as larguras. Produto fica fluido (resto), demais com width explícita.
+   ========================================================================== */
+.tabela-itens-entrada .col-produto    { width: auto; }
+.tabela-itens-entrada .col-lote       { width: 130px; }
+.tabela-itens-entrada .col-classifica { width: 90px; }
+.tabela-itens-entrada .col-qtd        { width: 110px; }
+.tabela-itens-entrada .col-peso       { width: 60px; }
+.tabela-itens-entrada .col-totalkg    { width: 100px; }
+.tabela-itens-entrada .col-avaria     { width: 140px; }
+.tabela-itens-entrada .col-acoes      { width: 44px; }
+
+/* ==========================================================================
    Avaria do fornecedor — coluna da tabela de itens (Mai/2026 — 2026-05-19)
    Auto-save no blur do input; sem botão dedicado de salvar.
    Só produtos não-classificáveis ganham input editável; classificáveis veem "—".
    ========================================================================== */
 .avaria-forn-col {
-    width: 110px;
+    width: 140px;
     text-align: right;
 }
 .avaria-forn-input {
-    width: 95px;
+    width: 120px;    /* Mai/2026 — 2026-05-26: subiu de 95 pra 120px */
     text-align: right;
     padding: 3px 8px;
     font-size: 13px;

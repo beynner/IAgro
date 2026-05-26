@@ -408,6 +408,64 @@ Inputs visíveis de typeahead devem mostrar `cod — NOME` (não só `cod`), pad
 
 **Exceção: campos de filtro por FABRICANTE** mostram só o nome (sem código) — fabricante não tem código numérico, ver seção abaixo.
 
+### Período data inicial → data final + navegação dia-a-dia `<<` `>>`
+
+Padrão consolidado para qualquer tela com filtro de período por data:
+
+```
+[<<]  [Data Inicial]  a  [Data Final]  [>>]
+```
+
+**Regras**:
+- Operador digita `Data Inicial` → JS **replica automaticamente em `Data Final`** (cobre 90% dos casos onde o operador olha um dia só). Operador pode mudar a `Data Final` depois.
+- Botão `<<` recua 1 dia: ambos os campos vão pra `data_inicial - 1` (mantém o range em 1 dia).
+- Botão `>>` avança 1 dia: ambos vão pra `data_inicial + 1`.
+- Ao alterar qualquer um dos campos ou clicar nos botões, dispara `change` → recarrega listagem/dados automaticamente.
+
+**Implementação** (vide `entrada.js` e `combustivel.js`):
+
+```js
+// 1. Replica data_inicial → data_final no onChange da primeira
+detIni.addEventListener('change', () => {
+    const v = detIni.value;
+    if (!v) return;
+    if (!detFim.value || detFim.value < v) {
+        detFim.value = v;
+    }
+    aplicarFiltros();
+});
+
+// 2. Botões << / >>
+const shiftDate = (delta) => {
+    let d = detIni.value ? new Date(detIni.value + 'T12:00:00') : new Date();
+    if (isNaN(d.getTime())) d = new Date();
+    d.setDate(d.getDate() + delta);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const iso = `${y}-${m}-${dd}`;
+    detIni.value = iso;
+    detFim.value = iso;
+    aplicarFiltros();
+};
+btnPrev.addEventListener('click', () => shiftDate(-1));
+btnNext.addEventListener('click', () => shiftDate(1));
+```
+
+**HTML mínimo**:
+
+```html
+<button id="btnPrevDay" class="btn-mini-nav" title="Dia anterior">&lt;&lt;</button>
+<input type="date" id="detDataIni" />
+<span class="sep">a</span>
+<input type="date" id="detDataFim" />
+<button id="btnNextDay" class="btn-mini-nav" title="Dia seguinte">&gt;&gt;</button>
+```
+
+**Onde já aparece**: Entrada (filtros laterais), Combustível (detalhe do veículo).
+
+**Não usar `<select>Últimos N dias</select>`** em telas novas — operador prefere data específica + setas. O select fica reservado para relatórios agregados (Dashboard, Relatórios) onde "período" é semântica de bucket.
+
 ---
 
 ## Campo "Produto" — dois padrões de filtragem (Mai/2026)

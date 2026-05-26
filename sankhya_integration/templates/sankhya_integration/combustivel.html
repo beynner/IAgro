@@ -6,7 +6,7 @@
 {% block header_title %}CONTROLE DE COMBUSTÍVEL{% endblock %}
 
 {% block extra_css %}
-  <link rel="stylesheet" href="{% static 'sankhya_integration/combustivel.css' %}?v=22">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/combustivel.css' %}?v=28">
 {% endblock %}
 
 {% block content %}
@@ -35,10 +35,16 @@
 
         <!-- Modo LISTA: cabeçalho + toggle COM/MAQ + grid de cards -->
         <div id="veiculosListaWrap">
+          <!-- Mai/2026 (2026-05-26): título, busca e toggle na MESMA linha. -->
           <div class="cb-veiculos-header">
             <div class="cb-veiculos-title">
               <span class="cb-icon"><i class="ph ph-truck"></i></span>
               <span>Veículos</span>
+            </div>
+            <div class="cb-veiculos-busca">
+              <i class="ph ph-magnifying-glass cb-veiculos-busca-icone" aria-hidden="true"></i>
+              <input type="text" id="filtroVeiculoTxt" class="cb-input cb-veiculos-busca-input"
+                     placeholder="Buscar placa, modelo ou parceiro…" autocomplete="off" />
             </div>
             <div class="cb-veiculos-toggle">
               <button class="cb-toggle-btn active" data-filtro="COM" title="Frota com motor de combustão">
@@ -61,17 +67,8 @@
               <i class="ph ph-arrow-left" aria-hidden="true"></i>
               <span>Voltar</span>
             </button>
-            <div class="cb-detalhe-periodo">
-              <label class="cb-label" for="detPeriodo" style="margin: 0;">Período</label>
-              <select id="detPeriodo" class="cb-input cb-input-sm" title="Período do relatório">
-                <option value="7">Últimos 7 dias</option>
-                <option value="30" selected>Últimos 30 dias</option>
-                <option value="60">Últimos 60 dias</option>
-                <option value="90">Últimos 90 dias</option>
-                <option value="180">Últimos 6 meses</option>
-                <option value="365">Último ano</option>
-              </select>
-            </div>
+            <!-- Mai/2026 (2026-05-26): filtro de datas foi movido pro card de
+                 Movimentações. Aqui no detalhe ele é só consumido (não editado). -->
           </div>
           <div id="detFoto" class="cb-detalhe-foto"></div>
           <div id="detInfo" class="cb-detalhe-info"></div>
@@ -95,17 +92,25 @@
           <option value="ENTRADA">Só entradas</option>
           <option value="REQUISICAO">Só requisições</option>
         </select>
-        <select id="filtroStatus" class="cb-input cb-input-sm">
-          <option value="">Todos os status</option>
-          <option value="aberto">Em aberto</option>
-          <option value="confirmado">Confirmadas</option>
-        </select>
         <select id="filtroTipo" class="cb-input cb-input-sm" title="Filtrar requisições por tipo">
           <option value="">Todos os tipos</option>
-          <option value="INTERNA_FROTA">Frota própria</option>
-          <option value="INTERNA_MAQUINARIO">Maquinário fazenda</option>
-          <option value="EXTERNA_FRETE">Veículo de freteiro</option>
+          <option value="INTERNA_FROTA">Veículos</option>
+          <option value="INTERNA_MAQUINARIO">Maquinário</option>
         </select>
+        <!-- Filtro de datas (Mai/2026 — 2026-05-26): aplica tanto na listagem
+             geral de movimentações quanto no detalhe do veículo selecionado.
+             Padrão: dataIni replica em dataFim. << / >> ficam abaixo da inicial. -->
+        <div class="cb-mov-periodo">
+          <div class="cb-periodo-ini">
+            <input type="date" id="movDataIni" class="cb-input cb-input-sm cb-input-data" />
+            <div class="cb-periodo-setas">
+              <button type="button" id="movPrevDay" class="cb-btn-mini-nav" title="Dia anterior">&lt;&lt;</button>
+              <button type="button" id="movNextDay" class="cb-btn-mini-nav" title="Dia seguinte">&gt;&gt;</button>
+            </div>
+          </div>
+          <span class="cb-sep">a</span>
+          <input type="date" id="movDataFim" class="cb-input cb-input-sm cb-input-data" />
+        </div>
         <button id="btnAtualizarReqs" class="cb-btn cb-btn-icon" title="Atualizar">
           <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
         </button>
@@ -155,19 +160,15 @@
         <div class="cb-tipo-pills">
           <label class="cb-pill">
             <input type="radio" name="cbTipo" value="INTERNA_FROTA" checked />
-            <span><i class="ph ph-van"></i> Frota própria</span>
+            <span><i class="ph ph-van"></i> Veículos</span>
           </label>
           <label class="cb-pill">
             <input type="radio" name="cbTipo" value="INTERNA_MAQUINARIO" />
-            <span><i class="ph ph-tractor"></i> Maquinário fazenda</span>
-          </label>
-          <label class="cb-pill">
-            <input type="radio" name="cbTipo" value="EXTERNA_FRETE" />
-            <span><i class="ph ph-truck"></i> Veículo de freteiro</span>
+            <span><i class="ph ph-tractor"></i> Maquinário</span>
           </label>
           <label class="cb-pill cb-pill--externo">
             <input type="radio" name="cbTipo" value="EXTERNA_POSTO" />
-            <span><i class="ph ph-globe"></i> Posto externo</span>
+            <span><i class="ph ph-globe"></i> Posto Externo</span>
           </label>
         </div>
         <div class="cb-hint cb-hint-externo hidden" id="reqExternoAviso">
@@ -198,7 +199,7 @@
         <div id="reqVeiculoHint" class="cb-hint"></div>
       </div>
 
-      <!-- Combustível + Qtd + Vlr Unit (single item — usado em INTERNA_*/EXTERNA_FRETE) -->
+      <!-- Combustível + Qtd + Vlr Unit (single item — usado em INTERNA_FROTA / INTERNA_MAQUINARIO) -->
       <div class="cb-form-row cb-form-row-grid" id="reqProdutoSingleWrap">
         <div style="flex: 1; position: relative;">
           <label class="cb-label" for="reqProdutoVis">Combustível *</label>
@@ -243,7 +244,7 @@
         <div class="cb-total-nota" id="reqExtTotalCalculado">Total da Nota: <strong>R$ 0,00</strong></div>
       </div>
 
-      <!-- Medidores (Mai/2026 — todos opcionais; escondidos em EXTERNA_FRETE) -->
+      <!-- Medidores (Mai/2026 — todos opcionais) -->
       <div class="cb-form-row cb-form-row-grid" id="reqMedidoresWrap">
         <div style="flex: 1;">
           <label class="cb-label" for="reqHodometroKm">Hodômetro do veículo (km)</label>
@@ -255,7 +256,7 @@
         </div>
       </div>
 
-      <!-- Data do abastecimento (Mai/2026) — só requisição interna (FROTA / MAQUINARIO / EXTERNA_FRETE).
+      <!-- Data do abastecimento (Mai/2026) — só requisição interna (FROTA / MAQUINARIO).
            Em EXTERNA_POSTO já existe campo dedicado em reqExternoDatasWrap. -->
       <div class="cb-form-row" id="reqDtNegWrap">
         <label class="cb-label" for="reqDtNeg">Data</label>
@@ -284,12 +285,6 @@
         <input type="text" id="reqTipVendaVis" class="cb-input" placeholder="Buscar tipo de negociação…" autocomplete="off" />
         <input type="hidden" id="reqTipVendaCod" />
         <div id="reqTipVendaDD" class="cb-dropdown dropdown-abs"></div>
-      </div>
-
-      <!-- Doc de frete (só EXTERNA_FRETE) -->
-      <div class="cb-form-row hidden" id="reqDocFreteWrap">
-        <label class="cb-label" for="reqDocFrete">Documento do frete *</label>
-        <input type="text" id="reqDocFrete" class="cb-input" placeholder="CT-e, manifesto ou referência" maxlength="50" />
       </div>
 
       <!-- Doc + datas do externo (só EXTERNA_POSTO) -->
@@ -495,5 +490,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'sankhya_integration/combustivel.js' %}?v=19"></script>
+<script src="{% static 'sankhya_integration/combustivel.js' %}?v=27"></script>
 {% endblock %}

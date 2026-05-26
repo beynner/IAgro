@@ -11,6 +11,7 @@ from .services.oracle_conn import (
     consultar_vinculos_de_lote,
     atribuir_lote_item_pedido,
     desvincular_lote_item_pedido,
+    zerar_fracao_lote_banco,
     consultar_candidatos_pedido_para_nota,
     inserir_vinculo_manual_pedido_nota,
     remover_vinculo_manual_pedido_nota,
@@ -4218,6 +4219,50 @@ def api_rastreio_desvincular_lote(request: HttpRequest) -> JsonResponse:
         return JsonResponse(res)
     except Exception as e:
         logger.exception("Erro em api_rastreio_desvincular_lote")
+        return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('rastreio')
+def api_rastreio_zerar_fracao(request: HttpRequest) -> JsonResponse:
+    """Mai/2026 (2026-05-26) — Zera fração residual de um lote criando
+    TGFCAB TOP 33 (Avaria de Ajuste) automática.
+
+    Caso de uso: pedido pediu 19 kg, operação enviou 20 kg (caixa cheia)
+    e o lote ficou com 1 kg fantasma. Operador chama esse endpoint pelo
+    botão "Zerar fração" do card de lote.
+
+    Trava (defesa em profundidade): só zera quando saldo <= 1% da qtd que
+    entrou no lote (TOP 11 origem). Avarias maiores devem usar fluxo TOP 30.
+
+    Body JSON: {codprod, codagregacao}
+    """
+    dados = _get_json_payload(request)
+    if not dados:
+        return JsonResponse({"ok": False, "error": "JSON inválido"}, status=400)
+
+    codprod      = _converter_para_inteiro(dados.get('codprod'))
+    codagregacao = (dados.get('codagregacao') or '').strip()
+
+    if not codprod or not codagregacao:
+        return JsonResponse(
+            {"ok": False, "error": "codprod e codagregacao são obrigatórios"},
+            status=400,
+        )
+
+    try:
+        res = zerar_fracao_lote_banco(
+            codprod=codprod,
+            codagregacao=codagregacao,
+            codusu=request.session.get('codusu'),
+            nomeusu=request.session.get('nomeusu') or '',
+        )
+        if not res.get('ok'):
+            res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao zerar fração')
+            return JsonResponse(res, status=400)
+        return JsonResponse(res)
+    except Exception as e:
+        logger.exception("Erro em api_rastreio_zerar_fracao")
         return JsonResponse({"ok": False, "error": humanizar_erro_oracle(e)}, status=500)
 
 

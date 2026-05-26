@@ -558,7 +558,7 @@ class CriarRequisicaoServiceTest(TestCase):
         4) MAX(CODEMP) → 1
         """
         cursor.fetchone.side_effect = [
-            (1, 'S'),                         # TGFVEI: (CODPARC, PROPRIO)
+            (1, 'S', 'ABC1234'),                         # TGFVEI: (CODPARC, PROPRIO)
             (200400, 'DIESEL S10', 'LT'),     # TGFPRO: (CODGRUPOPROD, DESCRPROD, CODVOL)
             (5000.0,),                        # SALDO_COMBUSTIVEL: QTD_DISPONIVEL
             (1,),                             # MAX(CODEMP)
@@ -641,7 +641,7 @@ class CriarRequisicaoServiceTest(TestCase):
         conn_ctx, conn, cursor = _conn_cursor_mock()
         mock_conn.return_value = conn_ctx
         cursor.fetchone.side_effect = [
-            (1, 'S'),                         # TGFVEI
+            (1, 'S', 'ABC1234'),                         # TGFVEI
             (200400, 'DIESEL S10', 'LT'),     # TGFPRO
             (5000.0,),                        # SALDO
             (1,),                             # MAX(CODEMP)
@@ -671,7 +671,7 @@ class CriarRequisicaoServiceTest(TestCase):
         conn_ctx, conn, cursor = _conn_cursor_mock()
         mock_conn.return_value = conn_ctx
         cursor.fetchone.side_effect = [
-            (1, 'S'),
+            (1, 'S', 'ABC1234'),
             (200400, 'DIESEL S10', 'LT'),
             (5000.0,),
             (1,),
@@ -703,7 +703,7 @@ class CriarRequisicaoServiceTest(TestCase):
         mock_conn.return_value = conn_ctx
         # TGFVEI: PROPRIO='S' (necessário pra INTERNA_MAQUINARIO)
         cursor.fetchone.side_effect = [
-            (1, 'S'), (200400, 'DIESEL S10', 'LT'),
+            (1, 'S', 'ABC1234'), (200400, 'DIESEL S10', 'LT'),
             (5000.0,), (1,),
         ]
         cursor.var.return_value.getvalue.return_value = 42
@@ -730,7 +730,7 @@ class CriarRequisicaoServiceTest(TestCase):
         qtd_pedida = saldo_ini_s10 + 100  # garantidamente acima do disponível
 
         cursor.fetchone.side_effect = [
-            (1, 'S'),                         # TGFVEI ok
+            (1, 'S', 'ABC1234'),                         # TGFVEI ok
             (200400, 'DIESEL S10', 'LT'),     # TGFPRO ok
             (0.0,),                           # saldo na view: 0 (sem entrada IAgro)
         ]
@@ -763,7 +763,7 @@ class CriarRequisicaoServiceTest(TestCase):
         conn_ctx, conn, cursor = _conn_cursor_mock()
         mock_conn.return_value = conn_ctx
         cursor.fetchone.side_effect = [
-            (1, 'S'),                         # TGFVEI
+            (1, 'S', 'ABC1234'),                         # TGFVEI
             (200400, 'DIESEL S10', 'LT'),     # TGFPRO (CODPROD=392)
             (0.0,),                           # saldo view = 0 (sem entrada IAgro)
             (1,),                             # MAX(CODEMP) = 1
@@ -792,7 +792,7 @@ class CriarRequisicaoServiceTest(TestCase):
         conn_ctx, conn, cursor = _conn_cursor_mock()
         mock_conn.return_value = conn_ctx
         cursor.fetchone.side_effect = [
-            (1, 'S'),                         # TGFVEI ok
+            (1, 'S', 'ABC1234'),                         # TGFVEI ok
             (200400, 'GASOLINA', 'LT'),       # TGFPRO ok (CODPROD=391 — sem tanque)
         ]
 
@@ -827,12 +827,12 @@ class EditarRequisicaoServiceTest(TestCase):
         # Mai/2026 (B11): SELECT do estado atual ganhou 2 colunas extras
         # (REQ_CODPARC, REQ_NUFIN_GERADO) entre AD_REQ DOC/OBS e TGFITE.
         cursor.fetchone.side_effect = [
-            ('P', 1, 10100,                                    # TGFCAB (STATUS, CODPARC, CODCENCUS)
+            ('P', 1, 10100, None,                              # TGFCAB (STATUS, CODPARC, CODCENCUS, DTNEG)
              'INTERNA_FROTA', 5, 50000.0, 5000.0,              # AD_REQ (TIPO, VEI, HOD, HOR)
              None, None,                                       # AD_REQ (DOC, OBS)
              None, None,                                       # AD_REQ (CODPARC, NUFIN_GERADO)
              1, 392, 200.0, 0.0, 'LT'),                        # TGFITE (SEQ, CODPROD, QTD, VLU, CODVOL)
-            (1, 'S'),                                          # TGFVEI ok
+            (1, 'S', 'ABC1234'),                                          # TGFVEI ok
             (200400, 'DIESEL S10', 'LT'),                      # TGFPRO ok
             (4500.0,),                                         # saldo view
         ]
@@ -855,7 +855,7 @@ class EditarRequisicaoServiceTest(TestCase):
         conn_ctx, conn, cursor = _conn_cursor_mock()
         mock_conn.return_value = conn_ctx
         cursor.fetchone.return_value = (
-            'L', 1, 10100,                                     # STATUSNOTA='L'
+            'L', 1, 10100, None,                               # STATUSNOTA='L' + DTNEG
             'INTERNA_FROTA', 5, 50000.0, 5000.0,
             None, None,
             None, None,                                        # AD_REQ (CODPARC, NUFIN_GERADO)
@@ -874,7 +874,7 @@ class EditarRequisicaoServiceTest(TestCase):
         conn_ctx, conn, cursor = _conn_cursor_mock()
         mock_conn.return_value = conn_ctx
         cursor.fetchone.return_value = (
-            'E', 1, 10100,
+            'E', 1, 10100, None,                               # STATUSNOTA='E' + DTNEG
             'INTERNA_FROTA', 5, 50000.0, 5000.0,
             None, None,
             None, None,
@@ -909,12 +909,12 @@ class EditarRequisicaoServiceTest(TestCase):
         conn_ctx, conn, cursor = _conn_cursor_mock()
         mock_conn.return_value = conn_ctx
         cursor.fetchone.side_effect = [
-            ('P', 1, 10100,
+            ('P', 1, 10100, None,                              # +DTNEG (B2 Mai/2026)
              'INTERNA_FROTA', 5, 50000.0, 5000.0,
              None, None,
              None, None,                                       # AD_REQ (CODPARC, NUFIN_GERADO)
              1, 392, 200.0, 0.0, 'LT'),
-            (1, 'S'),                                          # TGFVEI ok
+            (1, 'S', 'ABC1234'),                                          # TGFVEI ok
             (200400, 'DIESEL S10', 'LT'),                      # TGFPRO ok
             (50.0,),                                           # saldo view = 50 LT
         ]
@@ -1151,6 +1151,137 @@ class ConsumoPorVeiculoServiceTest(TestCase):
         self.assertEqual(r['totais']['h_total'], 10.0)
         self.assertEqual(r['totais']['consumo_medio_lth'], 5.0)
         self.assertIsNone(r['totais']['consumo_medio_kmlt'])
+
+    # =========================================================================
+    # Mai/2026 (2026-05-26): separação Diesel vs ARLA no cálculo de consumo
+    # =========================================================================
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_arla_no_meio_nao_interfere_no_kmlt_do_diesel(self, mock_conn):
+        """Cenário operacional real: motorista abastece Diesel, depois ARLA
+        no meio, depois Diesel de novo. O km/L tem que ser calculado entre
+        os 2 Diesels consecutivos — IGNORANDO o ARLA no meio.
+
+        Diesel 1: hod 100.000, qtd 200 LT
+        ARLA   : hod 100.500, qtd 10 LT  (no meio, deve ser ignorado pro km/L Diesel)
+        Diesel 2: hod 102.000, qtd 250 LT
+
+        km percorridos (Diesel) = 102.000 - 100.000 = 2.000 km
+        consumo_kmlt = 2.000 / 200 = 10 km/L (não 0,4 km/L que daria se usasse ARLA)
+        """
+        from sankhya_integration.services.oracle_conn import consultar_consumo_por_veiculo
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        cursor.fetchone.return_value = (
+            5, 'NLM6688', 'VOLVO/VM', 'CAVALO', 26, 'AGROMIL', 'S',
+        )
+        cursor.fetchall.return_value = [
+            (101, None, date(2026, 5, 1), 'L', 1400.0, 'INTERNA_FROTA',
+             100000.0, None, None, None, 392, 'DIESEL S10', 200.0, 'LT', 1400.0),
+            (150, None, date(2026, 5, 5), 'L', 90.0, 'INTERNA_FROTA',
+             100500.0, None, None, None, 1374, 'ARLA 32', 10.0, 'LT', 90.0),
+            (102, None, date(2026, 5, 10), 'L', 1750.0, 'INTERNA_FROTA',
+             102000.0, None, None, None, 392, 'DIESEL S10', 250.0, 'LT', 1750.0),
+        ]
+
+        r = consultar_consumo_por_veiculo(5, date_start='2026-05-01', date_end='2026-05-31')
+
+        # 3 abastecimentos
+        self.assertEqual(r['totais']['qtd_abastecimentos'], 3)
+        # Diesel 1 (referência, sem consumo)
+        self.assertEqual(r['abastecimentos'][0]['categoria'], 'DIESEL')
+        self.assertIsNone(r['abastecimentos'][0]['consumo_kmlt'])
+        # ARLA no meio — categoria correta e SEM consumo_kmlt do Diesel
+        self.assertEqual(r['abastecimentos'][1]['categoria'], 'ARLA')
+        self.assertIsNone(r['abastecimentos'][1]['consumo_kmlt'],
+                          "ARLA não deve calcular consumo do Diesel.")
+        # Diesel 2 — consumo calculado contra Diesel 1 (ARLA ignorado)
+        self.assertEqual(r['abastecimentos'][2]['categoria'], 'DIESEL')
+        self.assertEqual(r['abastecimentos'][2]['km_percorridos'], 2000.0)
+        self.assertEqual(r['abastecimentos'][2]['consumo_kmlt'], 10.0,
+                         "km/L Diesel deve usar SÓ os Diesels consecutivos.")
+        # Totais
+        self.assertEqual(r['totais']['total_diesel'], 450.0)
+        self.assertEqual(r['totais']['total_arla'], 10.0)
+        self.assertEqual(r['totais']['km_total'], 2000.0)
+        self.assertEqual(r['totais']['consumo_medio_kmlt'], 10.0)
+        # ARLA / Diesel %
+        self.assertAlmostEqual(r['totais']['arla_pct_diesel'], 2.22, places=2)
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_arla_consecutivos_calculam_consumo_proprio(self, mock_conn):
+        """Média do ARLA: km/L do ARLA é calculado entre 2 abastecimentos
+        consecutivos DE ARLA, ignorando Diesel no meio.
+
+        ARLA 1: hod 100.500, qtd 10 LT
+        Diesel: hod 101.000, qtd 100 LT (meio — não afeta ARLA)
+        ARLA 2: hod 105.500, qtd 12 LT
+
+        km ARLA = 105.500 - 100.500 = 5.000 km
+        consumo ARLA = 5.000 / 10 = 500 km/L
+        """
+        from sankhya_integration.services.oracle_conn import consultar_consumo_por_veiculo
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        cursor.fetchone.return_value = (
+            5, 'NLM6688', 'VOLVO/VM', 'CAVALO', 26, 'AGROMIL', 'S',
+        )
+        cursor.fetchall.return_value = [
+            (201, None, date(2026, 5, 1), 'L', 90.0, 'INTERNA_FROTA',
+             100500.0, None, None, None, 1374, 'ARLA 32', 10.0, 'LT', 90.0),
+            (202, None, date(2026, 5, 5), 'L', 700.0, 'INTERNA_FROTA',
+             101000.0, None, None, None, 392, 'DIESEL S10', 100.0, 'LT', 700.0),
+            (203, None, date(2026, 5, 15), 'L', 108.0, 'INTERNA_FROTA',
+             105500.0, None, None, None, 1374, 'ARLA 32', 12.0, 'LT', 108.0),
+        ]
+
+        r = consultar_consumo_por_veiculo(5, date_start='2026-05-01', date_end='2026-05-31')
+
+        # ARLA 1: sem consumo (referência)
+        self.assertEqual(r['abastecimentos'][0]['categoria'], 'ARLA')
+        self.assertIsNone(r['abastecimentos'][0]['consumo_kmlt'])
+        # Diesel no meio: tem categoria DIESEL mas sem consumo (não há Diesel anterior)
+        self.assertEqual(r['abastecimentos'][1]['categoria'], 'DIESEL')
+        # ARLA 2: consumo contra ARLA 1
+        self.assertEqual(r['abastecimentos'][2]['categoria'], 'ARLA')
+        self.assertEqual(r['abastecimentos'][2]['km_percorridos'], 5000.0)
+        self.assertEqual(r['abastecimentos'][2]['consumo_kmlt'], 500.0)
+        # Totais separados
+        self.assertEqual(r['totais']['total_arla'], 22.0)
+        self.assertEqual(r['totais']['total_diesel'], 100.0)
+        self.assertEqual(r['totais']['km_total_arla'], 5000.0)
+        self.assertEqual(r['totais']['consumo_medio_kmlt_arla'], 500.0)
+        # Não deve haver km/L de Diesel (só 1 abastecimento de Diesel, sem par)
+        self.assertIsNone(r['totais']['consumo_medio_kmlt'])
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_so_diesel_arla_nao_aparece_nos_totais(self, mock_conn):
+        """Regressão: cenário só com Diesel preserva o comportamento legado."""
+        from sankhya_integration.services.oracle_conn import consultar_consumo_por_veiculo
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        cursor.fetchone.return_value = (
+            5, 'NLM6688', 'VOLVO/VM', 'CAVALO', 26, 'AGROMIL', 'S',
+        )
+        cursor.fetchall.return_value = [
+            (101, None, date(2026, 5, 1), 'L', 1400.0, 'INTERNA_FROTA',
+             100000.0, None, None, None, 392, 'DIESEL S10', 200.0, 'LT', 1400.0),
+            (102, None, date(2026, 5, 10), 'L', 1750.0, 'INTERNA_FROTA',
+             102000.0, None, None, None, 392, 'DIESEL S10', 250.0, 'LT', 1750.0),
+        ]
+
+        r = consultar_consumo_por_veiculo(5, date_start='2026-05-01', date_end='2026-05-31')
+
+        self.assertEqual(r['totais']['total_arla'], 0.0)
+        # Sem ARLA mas com Diesel → 0% (não None, que seria "indefinido")
+        self.assertEqual(r['totais']['arla_pct_diesel'], 0.0)
+        self.assertIsNone(r['totais']['consumo_medio_kmlt_arla'])
+        self.assertEqual(r['totais']['km_total_arla'], 0.0)
+        # Diesel continua funcionando
+        self.assertEqual(r['totais']['consumo_medio_kmlt'], 10.0)
 
 
 # ---------------------------------------------------------------------------
@@ -1390,13 +1521,13 @@ class EditarRequisicaoExternoTest(TestCase):
         mock_conn.return_value = conn_ctx
         # Estado inicial + DHBAIXA NULL + TGFVEI ok + TGFPRO ok + DTNEG/DTVENC do TGFFIN
         cursor.fetchone.side_effect = [
-            ('L', 100, 10100,                                  # STATUS='L' + CODPARC=posto + CODCENCUS
+            ('L', 100, 10100, None,                            # STATUS='L' + CODPARC=posto + CODCENCUS + DTNEG (B2)
              'EXTERNA_POSTO', 5, 152000.0, None,               # AD_REQ TIPO/VEI/HOD/HOR
              'NF 12345', None,                                 # AD_REQ DOC/OBS
              100, 555000,                                      # AD_REQ CODPARC + NUFIN_GERADO
              1, 392, 60.0, 6.20, 'LT'),                        # TGFITE
             (None,),                                           # DHBAIXA = NULL (financeiro em aberto)
-            (1, 'S'),                                          # TGFVEI ok
+            (1, 'S', 'ABC1234'),                                          # TGFVEI ok
             (200400, 'DIESEL S10', 'LT'),                      # TGFPRO ok
             # Não consulta saldo (externo); próxima fetchone é DTNEG/DTVENC do TGFFIN
             (date(2026, 5, 13), date(2026, 5, 13)),            # à vista
@@ -1421,7 +1552,7 @@ class EditarRequisicaoExternoTest(TestCase):
         conn_ctx, conn, cursor = _conn_cursor_mock()
         mock_conn.return_value = conn_ctx
         cursor.fetchone.side_effect = [
-            ('L', 100, 10100,
+            ('L', 100, 10100, None,                            # +DTNEG (B2)
              'EXTERNA_POSTO', 5, 152000.0, None,
              'NF 12345', None,
              100, 555000,
@@ -1442,7 +1573,7 @@ class EditarRequisicaoExternoTest(TestCase):
         conn_ctx, conn, cursor = _conn_cursor_mock()
         mock_conn.return_value = conn_ctx
         cursor.fetchone.side_effect = [
-            ('P', 1, 10100,
+            ('P', 1, 10100, None,                              # +DTNEG (B2)
              'INTERNA_FROTA', 5, 50000.0, 5000.0,
              None, None,
              None, None,
@@ -1459,12 +1590,14 @@ class EditarRequisicaoExternoTest(TestCase):
 class ExcluirRequisicaoExternoTest(TestCase):
     """B12 — adaptação Mai/2026: EXTERNA_POSTO deleta TGFFIN antes do TGFCAB."""
 
+    @patch('sankhya_integration.services.oracle_conn.consultar_tgffin_renegociado')
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
-    def test_externo_deleta_tgffin_em_cascata(self, mock_conn):
+    def test_externo_deleta_tgffin_em_cascata(self, mock_conn, mock_reneg):
         from sankhya_integration.services.oracle_conn import excluir_requisicao_combustivel_banco
 
         conn_ctx, conn, cursor = _conn_cursor_mock()
         mock_conn.return_value = conn_ctx
+        mock_reneg.return_value = False  # B3 — não renegociado
         # (STATUSNOTA, TIPO, NUFIN_GERADO), depois DHBAIXA
         cursor.fetchone.side_effect = [
             ('L', 'EXTERNA_POSTO', 555000),
@@ -1481,12 +1614,14 @@ class ExcluirRequisicaoExternoTest(TestCase):
         self.assertTrue(delete_fin,
             "EXTERNA_POSTO deve deletar TGFFIN antes do TGFCAB.")
 
+    @patch('sankhya_integration.services.oracle_conn.consultar_tgffin_renegociado')
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
-    def test_externo_bloqueia_se_tgffin_baixado(self, mock_conn):
+    def test_externo_bloqueia_se_tgffin_baixado(self, mock_conn, mock_reneg):
         from sankhya_integration.services.oracle_conn import excluir_requisicao_combustivel_banco
 
         conn_ctx, conn, cursor = _conn_cursor_mock()
         mock_conn.return_value = conn_ctx
+        mock_reneg.return_value = False  # NURENEG passa, mas DHBAIXA trava
         cursor.fetchone.side_effect = [
             ('L', 'EXTERNA_POSTO', 555000),
             (date(2026, 5, 14),),                              # baixado
@@ -1877,3 +2012,889 @@ class ApiPrazoTipVendaTest(TestCase):
         mock_prz.return_value = None
         response = self.client.get(self.url, {'codtipvenda': '999'})
         self.assertEqual(response.status_code, 404)
+
+
+class ProximaDataFechamentoDecendialTest(TestCase):
+    """A2 (Mai/2026 — 2026-05-26) — helper Python puro do ciclo decendial
+    do financeiro Agromil pra abastecimento de veículo de terceiro.
+    """
+
+    def setUp(self):
+        from sankhya_integration.services.oracle_conn import (
+            proxima_data_fechamento_decendial,
+        )
+        self.fn = proxima_data_fechamento_decendial
+
+    def test_dia_5_vence_dia_10_mesmo_mes(self):
+        import datetime
+        r = self.fn(datetime.date(2026, 6, 5))
+        self.assertEqual(r, datetime.date(2026, 6, 10))
+
+    def test_dia_10_vence_no_proprio_dia_10(self):
+        import datetime
+        r = self.fn(datetime.date(2026, 6, 10))
+        self.assertEqual(r, datetime.date(2026, 6, 10))
+
+    def test_dia_15_vence_dia_20(self):
+        import datetime
+        r = self.fn(datetime.date(2026, 6, 15))
+        self.assertEqual(r, datetime.date(2026, 6, 20))
+
+    def test_dia_20_vence_no_proprio_dia_20(self):
+        import datetime
+        r = self.fn(datetime.date(2026, 6, 20))
+        self.assertEqual(r, datetime.date(2026, 6, 20))
+
+    def test_dia_22_vence_no_ultimo_dia_do_mes(self):
+        import datetime
+        # Junho tem 30 dias
+        r = self.fn(datetime.date(2026, 6, 22))
+        self.assertEqual(r, datetime.date(2026, 6, 30))
+
+    def test_dia_30_em_mes_de_31_vence_dia_31(self):
+        import datetime
+        # Julho tem 31 dias — abastecimento dia 30 vence dia 31
+        r = self.fn(datetime.date(2026, 7, 30))
+        self.assertEqual(r, datetime.date(2026, 7, 31))
+
+    def test_fevereiro_nao_bissexto_28(self):
+        import datetime
+        # 2026 nao e bissexto -> fevereiro tem 28 dias
+        r = self.fn(datetime.date(2026, 2, 25))
+        self.assertEqual(r, datetime.date(2026, 2, 28))
+
+    def test_fevereiro_bissexto_29(self):
+        import datetime
+        # 2028 e bissexto -> fevereiro tem 29 dias
+        r = self.fn(datetime.date(2028, 2, 25))
+        self.assertEqual(r, datetime.date(2028, 2, 29))
+
+    def test_aceita_datetime_e_converte_para_date(self):
+        import datetime
+        r = self.fn(datetime.datetime(2026, 6, 5, 14, 30))
+        self.assertEqual(r, datetime.date(2026, 6, 10))
+        self.assertIsInstance(r, datetime.date)
+
+    def test_none_usa_hoje(self):
+        import datetime
+        r = self.fn(None)
+        hoje = datetime.date.today()
+        self.assertIsInstance(r, datetime.date)
+        self.assertEqual(r.month, hoje.month)
+        self.assertEqual(r.year, hoje.year)
+
+
+class ConsultarTgffinRenegociadoTest(TestCase):
+    """A3 (Mai/2026 — 2026-05-26) — verifica trava de renegociacao via
+    `TGFFIN.NURENEG IS NOT NULL`.
+    """
+
+    def setUp(self):
+        from sankhya_integration.services.oracle_conn import (
+            consultar_tgffin_renegociado,
+        )
+        self.fn = consultar_tgffin_renegociado
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_nufin_nulo_retorna_false_sem_query(self, mock_conn):
+        self.assertFalse(self.fn(None))
+        self.assertFalse(self.fn(0))
+        mock_conn.assert_not_called()
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_nufin_nao_existe_retorna_false(self, mock_conn):
+        cur = MagicMock()
+        cur.fetchone.return_value = None
+        ctx = MagicMock()
+        ctx.cursor.return_value = cur
+        mock_conn.return_value.__enter__.return_value = ctx
+        self.assertFalse(self.fn(99999))
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_nureneg_null_retorna_false(self, mock_conn):
+        cur = MagicMock()
+        cur.fetchone.return_value = (None,)
+        ctx = MagicMock()
+        ctx.cursor.return_value = cur
+        mock_conn.return_value.__enter__.return_value = ctx
+        self.assertFalse(self.fn(123))
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_nureneg_positivo_retorna_true(self, mock_conn):
+        cur = MagicMock()
+        cur.fetchone.return_value = (2456,)
+        ctx = MagicMock()
+        ctx.cursor.return_value = cur
+        mock_conn.return_value.__enter__.return_value = ctx
+        self.assertTrue(self.fn(268041))
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_nureneg_negativo_tambem_indica_renegociacao(self, mock_conn):
+        # Smoke real (Mai/2026) mostrou que NURENEG pode ser negativo (-838,
+        # -925) e ainda assim significa "tocado por renegociacao".
+        cur = MagicMock()
+        cur.fetchone.return_value = (-838,)
+        ctx = MagicMock()
+        ctx.cursor.return_value = cur
+        mock_conn.return_value.__enter__.return_value = ctx
+        self.assertTrue(self.fn(252297))
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_excecao_oracle_devolve_false_tolerante(self, mock_conn):
+        # Falha NAO derruba o caller — retorna False
+        mock_conn.side_effect = Exception('boom')
+        self.assertFalse(self.fn(123))
+
+
+class CriarRequisicaoTerceiroTest(TestCase):
+    """B1 (Mai/2026 — 2026-05-26) — quando o veiculo e de terceiro
+    (TGFVEI.PROPRIO='N'), criar_requisicao_combustivel_banco deve gerar
+    automaticamente um TGFFIN de receita contra o parceiro do veiculo,
+    com DTVENC pelo ciclo decendial (1/10/20/fim-do-mes) e auditar
+    NUFIN em AD_REQUISICAO_COMBUSTIVEL.NUFIN_GERADO + CODPARC.
+    """
+
+    def _setup_cursor_terceiro(self, cursor, codparc_vei=789, nufin=99000, placa='ABC1234'):
+        """Sequencia de fetchone esperada quando PROPRIO='N':
+        1) TGFVEI lookup -> (codparc_vei, 'N', placa)
+        2) TGFPRO lookup -> produto combustivel
+        3) SALDO_COMBUSTIVEL -> 5000 LT disponivel
+        4) MAX(CODEMP) -> 1
+        5) MAX(NUFIN)+1 -> nufin (so quando PROPRIO='N')
+        """
+        cursor.fetchone.side_effect = [
+            (codparc_vei, 'N', placa),
+            (200400, 'DIESEL S10', 'LT'),
+            (5000.0,),
+            (1,),
+            (nufin,),
+        ]
+        cursor.var.return_value.getvalue.return_value = 42
+
+    def _localizar_execute(self, cursor, prefixo_sql):
+        """Retorna o `params` da primeira chamada `cursor.execute(sql, params)`
+        cujo SQL comeca por `prefixo_sql`. Util pra inspecionar o INSERT TGFFIN
+        sem depender de assertNumChamadas exato."""
+        for call in cursor.execute.call_args_list:
+            args, kwargs = call
+            sql_arg = (args[0] if args else kwargs.get('sql') or '').strip().upper()
+            if sql_arg.startswith(prefixo_sql.upper()):
+                params = args[1] if len(args) > 1 else kwargs
+                return sql_arg, params
+        return None, None
+
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_terceiro_gera_tgffin_com_vlrunit_explicito(
+        self, mock_conn, mock_cab, mock_item, mock_rec
+    ):
+        """PROPRIO='N' + vlrunit explicito -> gera TGFFIN com receita."""
+        from sankhya_integration.services.oracle_conn import criar_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        self._setup_cursor_terceiro(cursor)
+        mock_cab.return_value = {'ok': True, 'nunota': 12345}
+        mock_item.return_value = {'ok': True, 'nunota': 12345, 'sequencia': 1}
+        mock_rec.return_value = {'ok': True}
+
+        resultado = criar_requisicao_combustivel_banco({
+            'codveiculo': 5, 'codprod': 392, 'qtd': 100.0,
+            'vlrunit': 7.50,
+            'tipo': 'INTERNA_FROTA', 'codcencus': 10100,
+            'dtneg': '2026-06-15',
+        }, codusu=1, nomeusu='Teste')
+
+        self.assertTrue(resultado['ok'], f"Inesperado: {resultado}")
+        self.assertEqual(resultado['proprio'], 'N')
+        self.assertEqual(resultado['nufin'], 99000)
+        # INSERT TGFFIN deve ter sido executado
+        sql_fin, params_fin = self._localizar_execute(cursor, 'INSERT INTO TGFFIN')
+        self.assertIsNotNone(sql_fin, "INSERT TGFFIN nao foi executado em PROPRIO='N'")
+        # Campos chave
+        self.assertEqual(params_fin['nat'], 10040800, "CODNAT deve ser receita abastecimento")
+        self.assertEqual(params_fin['cus'], 10100, "CODCENCUS = comercializacao fixo")
+        self.assertEqual(params_fin['parc'], 789, "CODPARC = TGFVEI.CODPARC do terceiro")
+        self.assertAlmostEqual(params_fin['vlr'], 750.0, places=2,
+                                msg="VLRDESDOB = qtd * vlrunit")
+
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_terceiro_dtvenc_decendial_dia_15_vai_para_20(
+        self, mock_conn, mock_cab, mock_item, mock_rec
+    ):
+        """DTVENC deve cair no proximo dia de fechamento (1/10/20/fim-mes)."""
+        from sankhya_integration.services.oracle_conn import criar_requisicao_combustivel_banco
+        import datetime
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        self._setup_cursor_terceiro(cursor)
+        mock_cab.return_value = {'ok': True, 'nunota': 12345}
+        mock_item.return_value = {'ok': True, 'nunota': 12345, 'sequencia': 1}
+        mock_rec.return_value = {'ok': True}
+
+        criar_requisicao_combustivel_banco({
+            'codveiculo': 5, 'codprod': 392, 'qtd': 100.0,
+            'vlrunit': 7.50,
+            'tipo': 'INTERNA_FROTA', 'codcencus': 10100,
+            'dtneg': '2026-06-15',  # dia 15 -> vence dia 20
+        }, codusu=1, nomeusu='Teste')
+
+        _, params_fin = self._localizar_execute(cursor, 'INSERT INTO TGFFIN')
+        self.assertEqual(
+            params_fin['dtvenc'],
+            datetime.date(2026, 6, 20),
+            "DTVENC deve cair em 20/06 quando DTNEG=15/06",
+        )
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_terceiro_sem_codparc_no_veiculo_bloqueia(self, mock_conn):
+        """TGFVEI.CODPARC nulo num veiculo de terceiro -> erro humanizado."""
+        from sankhya_integration.services.oracle_conn import criar_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        cursor.fetchone.return_value = (None, 'N', 'XYZ9999')  # CODPARC=None, PROPRIO='N', PLACA
+
+        resultado = criar_requisicao_combustivel_banco({
+            'codveiculo': 5, 'codprod': 392, 'qtd': 100.0,
+            'vlrunit': 7.50,
+            'tipo': 'INTERNA_FROTA', 'codcencus': 10100,
+        }, codusu=1, nomeusu='Teste')
+
+        self.assertFalse(resultado['ok'])
+        self.assertIn('parceiro', resultado['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.consultar_ultimo_preco_combustivel')
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_terceiro_resolve_vlrunit_via_ultimo_preco(
+        self, mock_conn, mock_cab, mock_item, mock_rec, mock_preco
+    ):
+        """PROPRIO='N' + vlrunit=0 -> backend busca ultimo preco do TOP 10."""
+        from sankhya_integration.services.oracle_conn import criar_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        self._setup_cursor_terceiro(cursor)
+        mock_cab.return_value = {'ok': True, 'nunota': 12345}
+        mock_item.return_value = {'ok': True, 'nunota': 12345, 'sequencia': 1}
+        mock_rec.return_value = {'ok': True}
+        mock_preco.return_value = {'vlrunit': 7.5, 'dtneg': '2026-05-01', 'nunota': 999}
+
+        resultado = criar_requisicao_combustivel_banco({
+            'codveiculo': 5, 'codprod': 392, 'qtd': 100.0,
+            # SEM vlrunit
+            'tipo': 'INTERNA_FROTA', 'codcencus': 10100,
+        }, codusu=1, nomeusu='Teste')
+
+        self.assertTrue(resultado['ok'])
+        mock_preco.assert_called_once_with(392)
+        # TGFFIN tem que usar o preco recuperado
+        _, params_fin = self._localizar_execute(cursor, 'INSERT INTO TGFFIN')
+        self.assertAlmostEqual(params_fin['vlr'], 750.0, places=2)
+
+    @patch('sankhya_integration.services.oracle_conn.consultar_ultimo_preco_combustivel')
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_terceiro_falha_quando_nao_consegue_resolver_preco(
+        self, mock_conn, mock_cab, mock_item, mock_rec, mock_preco
+    ):
+        """PROPRIO='N' + vlrunit=0 + sem TOP 10 anterior -> erro humanizado."""
+        from sankhya_integration.services.oracle_conn import criar_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        # Sequencia ate o ponto de falha (sem MAX(NUFIN) — funcao para antes)
+        cursor.fetchone.side_effect = [
+            (789, 'N', 'XYZ5678'),                       # TGFVEI
+            (200400, 'DIESEL S10', 'LT'),     # TGFPRO
+            (5000.0,),                        # SALDO
+            (1,),                             # MAX(CODEMP)
+        ]
+        cursor.var.return_value.getvalue.return_value = 42
+        mock_cab.return_value = {'ok': True, 'nunota': 12345}
+        mock_preco.return_value = None  # sem preco anterior
+
+        resultado = criar_requisicao_combustivel_banco({
+            'codveiculo': 5, 'codprod': 392, 'qtd': 100.0,
+            'tipo': 'INTERNA_FROTA', 'codcencus': 10100,
+        }, codusu=1, nomeusu='Teste')
+
+        self.assertFalse(resultado['ok'])
+        self.assertIn('preço', resultado['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_proprio_NAO_gera_tgffin(self, mock_conn, mock_cab, mock_item, mock_rec):
+        """Regressao critica: PROPRIO='S' nao deve gerar TGFFIN."""
+        from sankhya_integration.services.oracle_conn import criar_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        # PROPRIO='S' — sem step de MAX(NUFIN)
+        cursor.fetchone.side_effect = [
+            (1, 'S', 'ABC1234'),
+            (200400, 'DIESEL S10', 'LT'),
+            (5000.0,),
+            (1,),
+        ]
+        cursor.var.return_value.getvalue.return_value = 42
+        mock_cab.return_value = {'ok': True, 'nunota': 12345}
+        mock_item.return_value = {'ok': True, 'nunota': 12345, 'sequencia': 1}
+        mock_rec.return_value = {'ok': True}
+
+        resultado = criar_requisicao_combustivel_banco({
+            'codveiculo': 5, 'codprod': 392, 'qtd': 500,
+            'tipo': 'INTERNA_FROTA', 'codcencus': 10100,
+            'hodometro_km': 142536, 'horimetro_h': 32451,
+        }, codusu=1, nomeusu='Teste')
+
+        self.assertTrue(resultado['ok'])
+        self.assertEqual(resultado['proprio'], 'S')
+        self.assertIsNone(resultado['nufin'])
+        # INSERT TGFFIN NAO deve estar nas chamadas
+        sql_fin, _ = self._localizar_execute(cursor, 'INSERT INTO TGFFIN')
+        self.assertIsNone(sql_fin, "TGFFIN nao deve ser criado em PROPRIO='S'")
+
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_ad_req_grava_nufin_e_codparc_em_terceiro(
+        self, mock_conn, mock_cab, mock_item, mock_rec
+    ):
+        """AD_REQ.NUFIN_GERADO e .CODPARC preenchidos quando PROPRIO='N'."""
+        from sankhya_integration.services.oracle_conn import criar_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        self._setup_cursor_terceiro(cursor, codparc_vei=789, nufin=99000)
+        mock_cab.return_value = {'ok': True, 'nunota': 12345}
+        mock_item.return_value = {'ok': True, 'nunota': 12345, 'sequencia': 1}
+        mock_rec.return_value = {'ok': True}
+
+        criar_requisicao_combustivel_banco({
+            'codveiculo': 5, 'codprod': 392, 'qtd': 100.0,
+            'vlrunit': 7.50,
+            'tipo': 'INTERNA_FROTA', 'codcencus': 10100,
+        }, codusu=1, nomeusu='Teste')
+
+        sql_req, params_req = self._localizar_execute(
+            cursor, 'INSERT INTO AD_REQUISICAO_COMBUSTIVEL'
+        )
+        self.assertIsNotNone(sql_req)
+        self.assertEqual(params_req['cp_terceiro'], 789)
+        self.assertEqual(params_req['nufin_gerado'], 99000)
+
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_ad_req_nao_grava_codparc_nem_nufin_em_proprio(
+        self, mock_conn, mock_cab, mock_item, mock_rec
+    ):
+        """Regressao: AD_REQ.CODPARC e NUFIN_GERADO ficam NULL quando PROPRIO='S'."""
+        from sankhya_integration.services.oracle_conn import criar_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        cursor.fetchone.side_effect = [
+            (1, 'S', 'ABC1234'),
+            (200400, 'DIESEL S10', 'LT'),
+            (5000.0,),
+            (1,),
+        ]
+        cursor.var.return_value.getvalue.return_value = 42
+        mock_cab.return_value = {'ok': True, 'nunota': 12345}
+        mock_item.return_value = {'ok': True, 'nunota': 12345, 'sequencia': 1}
+        mock_rec.return_value = {'ok': True}
+
+        criar_requisicao_combustivel_banco({
+            'codveiculo': 5, 'codprod': 392, 'qtd': 500,
+            'tipo': 'INTERNA_FROTA', 'codcencus': 10100,
+            'hodometro_km': 142536, 'horimetro_h': 32451,
+        }, codusu=1, nomeusu='Teste')
+
+        sql_req, params_req = self._localizar_execute(
+            cursor, 'INSERT INTO AD_REQUISICAO_COMBUSTIVEL'
+        )
+        self.assertIsNotNone(sql_req)
+        self.assertIsNone(params_req['cp_terceiro'])
+        self.assertIsNone(params_req['nufin_gerado'])
+
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_historico_tgffin_inclui_qtd_produto_e_placa(
+        self, mock_conn, mock_cab, mock_item, mock_rec
+    ):
+        """HISTORICO do TGFFIN segue formato:
+        'Abastecimento {Combustivel} / {qtd} {UN} (R${preco}) - {PLACA}'."""
+        from sankhya_integration.services.oracle_conn import criar_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        self._setup_cursor_terceiro(cursor, placa='JFO 5H79')
+        mock_cab.return_value = {'ok': True, 'nunota': 12345}
+        mock_item.return_value = {'ok': True, 'nunota': 12345, 'sequencia': 1}
+        mock_rec.return_value = {'ok': True}
+
+        criar_requisicao_combustivel_banco({
+            'codveiculo': 5, 'codprod': 392, 'qtd': 50.0,
+            'vlrunit': 6.26,
+            'tipo': 'INTERNA_FROTA', 'codcencus': 10100,
+        }, codusu=1, nomeusu='Teste')
+
+        _, params_fin = self._localizar_execute(cursor, 'INSERT INTO TGFFIN')
+        self.assertEqual(
+            params_fin['hist'],
+            'Abastecimento Diesel S10 / 50 LT (R$6,26) - JFO5H79',
+        )
+
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_terceiro_vale_tambem_em_maquinario(
+        self, mock_conn, mock_cab, mock_item, mock_rec
+    ):
+        """Confirmacao: PROPRIO='N' em INTERNA_MAQUINARIO tambem gera TGFFIN
+        (qualquer terceiro consumindo combustivel interno entra na regra)."""
+        from sankhya_integration.services.oracle_conn import criar_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        self._setup_cursor_terceiro(cursor)
+        mock_cab.return_value = {'ok': True, 'nunota': 12345}
+        mock_item.return_value = {'ok': True, 'nunota': 12345, 'sequencia': 1}
+        mock_rec.return_value = {'ok': True}
+
+        resultado = criar_requisicao_combustivel_banco({
+            'codveiculo': 5, 'codprod': 392, 'qtd': 100.0,
+            'vlrunit': 7.50,
+            'tipo': 'INTERNA_MAQUINARIO', 'codcencus': 10100,
+        }, codusu=1, nomeusu='Teste')
+
+        self.assertTrue(resultado['ok'])
+        self.assertEqual(resultado['proprio'], 'N')
+        self.assertEqual(resultado['nufin'], 99000)
+        sql_fin, _ = self._localizar_execute(cursor, 'INSERT INTO TGFFIN')
+        self.assertIsNotNone(sql_fin)
+
+
+class EditarRequisicaoTerceiroTest(TestCase):
+    """B2 (Mai/2026 — 2026-05-26) — idempotencia do TGFFIN em
+    editar_requisicao_combustivel_banco. 5 cenarios:
+      A: NUFIN nulo + PROPRIO='N'           -> CRIA TGFFIN retroativo
+      B: NUFIN preenchido + PROPRIO='N'     -> UPDATE TGFFIN proporcional
+      C: NUFIN renegociado + PROPRIO='N'    -> BLOQUEIA
+      D: NUFIN preenchido + PROPRIO='S'     -> DELETE TGFFIN (era terceiro)
+      F: NUFIN nulo + PROPRIO='S'           -> nada (regressao do caminho atual)
+    """
+
+    def _localizar_execute(self, cursor, prefixo_sql):
+        for call in cursor.execute.call_args_list:
+            args, kwargs = call
+            sql_arg = (args[0] if args else kwargs.get('sql') or '').strip().upper()
+            if sql_arg.startswith(prefixo_sql.upper()):
+                params = args[1] if len(args) > 1 else kwargs
+                return sql_arg, params
+        return None, None
+
+    def _localizar_executes(self, cursor, prefixo_sql):
+        """Igual a _localizar_execute, mas devolve todos os matches (lista)."""
+        out = []
+        for call in cursor.execute.call_args_list:
+            args, kwargs = call
+            sql_arg = (args[0] if args else kwargs.get('sql') or '').strip().upper()
+            if sql_arg.startswith(prefixo_sql.upper()):
+                params = args[1] if len(args) > 1 else kwargs
+                out.append((sql_arg, params))
+        return out
+
+    # --- CASO A: requisicao antiga sem TGFFIN, veiculo terceiro -> CRIA ---
+    @patch('sankhya_integration.services.oracle_conn.consultar_tgffin_renegociado')
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_caso_A_cria_tgffin_retroativo(self, mock_conn, mock_rec, mock_reneg):
+        """Requisicao antiga (pre-B1) + veiculo terceiro -> editar cria
+        TGFFIN retroativo (caso real do operador)."""
+        from sankhya_integration.services.oracle_conn import editar_requisicao_combustivel_banco
+        import datetime
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        mock_rec.return_value = {'ok': True}
+        mock_reneg.return_value = False  # so chamado em caminhos com NUFIN
+
+        # Estado inicial: NUFIN_GERADO=None (caso A)
+        cursor.fetchone.side_effect = [
+            # SELECT inicial estado da requisicao
+            ('P', 1, 10100, datetime.datetime(2026, 6, 15, 10, 0),  # +DTNEG (B2) = 15/06 -> decendial = 20/06
+             'INTERNA_FROTA', 5, 50000.0, 5000.0,
+             None, None,
+             None, None,                                       # AD_REQ (CODPARC=None, NUFIN_GERADO=None)
+             1, 392, 200.0, 7.50, 'LT'),
+            (789, 'N', 'XYZ5678'),                                         # TGFVEI: CODPARC=789, PROPRIO='N'
+            (200400, 'DIESEL S10', 'LT'),                      # TGFPRO
+            (5000.0,),                                         # saldo view
+            (1,),                                              # CODEMP do TGFCAB (caso A precisa ler)
+            (99500,),                                          # MAX(NUFIN)+1 (caso A INSERT TGFFIN)
+        ]
+
+        resultado = editar_requisicao_combustivel_banco(
+            nunota=112209,
+            dados={'qtd': 100.0, 'vlrunit': 7.50},
+            codusu=1, nomeusu='Teste',
+        )
+
+        self.assertTrue(resultado['ok'], f"Inesperado: {resultado}")
+        self.assertEqual(resultado['proprio'], 'N')
+        self.assertEqual(resultado['nufin'], 99500, "Deveria gerar NUFIN novo")
+        # INSERT TGFFIN deve estar nas chamadas
+        sql_fin, params_fin = self._localizar_execute(cursor, 'INSERT INTO TGFFIN')
+        self.assertIsNotNone(sql_fin, "TGFFIN deve ser criado em caso A")
+        self.assertEqual(params_fin['parc'], 789, "CODPARC do TGFFIN = TGFVEI.CODPARC")
+        self.assertEqual(params_fin['nat'], 10040800)
+        self.assertEqual(params_fin['cus'], 10100)
+        self.assertAlmostEqual(params_fin['vlr'], 750.0, places=2)
+        # DTVENC decendial — 15/06 cai em 20/06
+        self.assertEqual(
+            params_fin['dtvenc'], datetime.date(2026, 6, 20),
+            "DTVENC = decendial(15/06) = 20/06",
+        )
+        # AD_REQ atualizado com NUFIN_GERADO + CODPARC
+        updates_req = self._localizar_executes(
+            cursor, 'UPDATE AD_REQUISICAO_COMBUSTIVEL'
+        )
+        # Sera multiplos UPDATEs em AD_REQ (um pelo fluxo padrao + um pelo bloco novo)
+        # Pelo menos um deve carregar nufin
+        found = any('nf' in (p or {}) and (p or {}).get('nf') == 99500 for _, p in updates_req)
+        self.assertTrue(found, "UPDATE AD_REQ deve setar NUFIN_GERADO")
+
+    # --- CASO B: NUFIN preenchido + terceiro -> UPDATE ---
+    @patch('sankhya_integration.services.oracle_conn.consultar_tgffin_renegociado')
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_caso_B_update_tgffin_proporcional(self, mock_conn, mock_rec, mock_reneg):
+        from sankhya_integration.services.oracle_conn import editar_requisicao_combustivel_banco
+        import datetime
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        mock_rec.return_value = {'ok': True}
+        mock_reneg.return_value = False  # NAO renegociado
+
+        cursor.fetchone.side_effect = [
+            ('P', 789, 10100, datetime.datetime(2026, 6, 22, 10, 0),  # DTNEG=22/06 -> decendial=30/06
+             'INTERNA_FROTA', 5, 50000.0, 5000.0,
+             None, None,
+             789, 99500,                                       # AD_REQ (CODPARC=789, NUFIN_GERADO=99500)
+             1, 392, 100.0, 7.50, 'LT'),
+            (789, 'N', 'XYZ5678'),                                         # TGFVEI
+            (200400, 'DIESEL S10', 'LT'),                      # TGFPRO
+            (5000.0,),                                         # saldo view
+        ]
+
+        resultado = editar_requisicao_combustivel_banco(
+            nunota=112209,
+            dados={'qtd': 150.0, 'vlrunit': 7.50},               # qtd nova
+            codusu=1, nomeusu='Teste',
+        )
+
+        self.assertTrue(resultado['ok'], f"Inesperado: {resultado}")
+        self.assertEqual(resultado['nufin'], 99500, "Mesmo NUFIN preservado")
+        # NAO deve criar TGFFIN
+        sql_fin_ins, _ = self._localizar_execute(cursor, 'INSERT INTO TGFFIN')
+        self.assertIsNone(sql_fin_ins, "Caso B nao cria NUFIN novo")
+        # DEVE atualizar TGFFIN
+        sql_fin_upd, params_upd = self._localizar_execute(cursor, 'UPDATE TGFFIN')
+        self.assertIsNotNone(sql_fin_upd, "Caso B deve UPDATE TGFFIN")
+        self.assertEqual(params_upd['nf'], 99500)
+        self.assertAlmostEqual(params_upd['vlr'], 1125.0, places=2,
+                                msg="VLRDESDOB = 150 * 7.50 = 1125")
+        # DTVENC = decendial(22/06) = 30/06 (último dia do mês)
+        self.assertEqual(
+            params_upd['dtv'], datetime.date(2026, 6, 30),
+            "DTVENC = decendial(22/06) = 30/06",
+        )
+
+    # --- CASO C: NUFIN renegociado -> BLOQUEIA ---
+    @patch('sankhya_integration.services.oracle_conn.consultar_tgffin_renegociado')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_caso_C_bloqueia_renegociado(self, mock_conn, mock_reneg):
+        from sankhya_integration.services.oracle_conn import editar_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        mock_reneg.return_value = True  # RENEGOCIADO -> trava
+
+        cursor.fetchone.side_effect = [
+            ('P', 789, 10100, None,
+             'INTERNA_FROTA', 5, 50000.0, 5000.0,
+             None, None,
+             789, 99500,                                       # NUFIN_GERADO=99500
+             1, 392, 100.0, 7.50, 'LT'),
+        ]
+
+        resultado = editar_requisicao_combustivel_banco(
+            nunota=112209,
+            dados={'qtd': 150.0, 'vlrunit': 7.50},
+            codusu=1, nomeusu='Teste',
+        )
+
+        self.assertFalse(resultado['ok'])
+        self.assertIn('renegociad', resultado['error'].lower())
+        # NAO deve haver UPDATE/INSERT no TGFFIN (a funcao bloqueia antes)
+        sql_fin_ins, _ = self._localizar_execute(cursor, 'INSERT INTO TGFFIN')
+        sql_fin_upd, _ = self._localizar_execute(cursor, 'UPDATE TGFFIN')
+        sql_fin_del, _ = self._localizar_execute(cursor, 'DELETE FROM TGFFIN')
+        self.assertIsNone(sql_fin_ins)
+        self.assertIsNone(sql_fin_upd)
+        self.assertIsNone(sql_fin_del)
+        # Confirma que A3 foi chamado
+        mock_reneg.assert_called_once_with(99500)
+
+    # --- CASO D: NUFIN preenchido + veiculo virou proprio -> DELETE ---
+    @patch('sankhya_integration.services.oracle_conn.consultar_tgffin_renegociado')
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_caso_D_delete_tgffin_quando_vira_proprio(
+        self, mock_conn, mock_rec, mock_reneg
+    ):
+        from sankhya_integration.services.oracle_conn import editar_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        mock_rec.return_value = {'ok': True}
+        mock_reneg.return_value = False
+
+        cursor.fetchone.side_effect = [
+            ('P', 789, 10100, None,
+             'INTERNA_FROTA', 5, 50000.0, 5000.0,
+             None, None,
+             789, 99500,                                       # NUFIN_GERADO=99500
+             1, 392, 100.0, 7.50, 'LT'),
+            (1, 'S', 'ABC1234'),                                          # TGFVEI: agora PROPRIO='S'!
+            (200400, 'DIESEL S10', 'LT'),                      # TGFPRO
+            (5000.0,),                                         # saldo view
+        ]
+
+        resultado = editar_requisicao_combustivel_banco(
+            nunota=112209,
+            dados={'qtd': 100.0, 'codveiculo': 5},
+            codusu=1, nomeusu='Teste',
+        )
+
+        self.assertTrue(resultado['ok'], f"Inesperado: {resultado}")
+        self.assertEqual(resultado['proprio'], 'S')
+        self.assertIsNone(resultado['nufin'], "TGFFIN foi deletado")
+        # DELETE TGFFIN deve estar nas chamadas
+        sql_del, params_del = self._localizar_execute(cursor, 'DELETE FROM TGFFIN')
+        self.assertIsNotNone(sql_del)
+        self.assertEqual(params_del['nf'], 99500)
+        # AD_REQ deve ter NUFIN_GERADO=NULL setado
+        updates_req = self._localizar_executes(
+            cursor, 'UPDATE AD_REQUISICAO_COMBUSTIVEL'
+        )
+        found = any(
+            'NUFIN_GERADO = NULL' in sql for sql, _ in updates_req
+        )
+        self.assertTrue(found, "AD_REQ deve zerar NUFIN_GERADO no caso D")
+
+    # --- CASO F: NUFIN nulo + proprio='S' -> nada (regressao) ---
+    @patch('sankhya_integration.services.oracle_conn.consultar_tgffin_renegociado')
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_caso_F_proprio_sem_tgffin_nao_muda_nada(
+        self, mock_conn, mock_rec, mock_reneg
+    ):
+        """Regressao: PROPRIO='S' sem NUFIN nao deve gerar nem deletar nada
+        (caminho original preservado pra frota propria)."""
+        from sankhya_integration.services.oracle_conn import editar_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        mock_rec.return_value = {'ok': True}
+        mock_reneg.return_value = False
+
+        cursor.fetchone.side_effect = [
+            ('P', 1, 10100, None,
+             'INTERNA_FROTA', 5, 50000.0, 5000.0,
+             None, None,
+             None, None,                                       # AD_REQ sem NUFIN
+             1, 392, 100.0, 7.50, 'LT'),
+            (1, 'S', 'ABC1234'),                                          # TGFVEI proprio
+            (200400, 'DIESEL S10', 'LT'),
+            (5000.0,),
+        ]
+
+        resultado = editar_requisicao_combustivel_banco(
+            nunota=112209,
+            dados={'qtd': 150.0},
+            codusu=1, nomeusu='Teste',
+        )
+
+        self.assertTrue(resultado['ok'])
+        self.assertEqual(resultado['proprio'], 'S')
+        self.assertIsNone(resultado['nufin'])
+        # Nenhuma operacao TGFFIN
+        for prefixo in ('INSERT INTO TGFFIN', 'UPDATE TGFFIN', 'DELETE FROM TGFFIN'):
+            sql, _ = self._localizar_execute(cursor, prefixo)
+            self.assertIsNone(sql, f"PROPRIO='S' sem NUFIN nao deveria executar {prefixo}")
+
+    # --- Validacao: veiculo terceiro sem CODPARC bloqueia ---
+    @patch('sankhya_integration.services.oracle_conn.consultar_tgffin_renegociado')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_bloqueia_terceiro_sem_codparc_no_veiculo(self, mock_conn, mock_reneg):
+        from sankhya_integration.services.oracle_conn import editar_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        mock_reneg.return_value = False
+
+        cursor.fetchone.side_effect = [
+            ('P', 1, 10100, None,
+             'INTERNA_FROTA', 5, 50000.0, 5000.0,
+             None, None,
+             None, None,
+             1, 392, 100.0, 7.50, 'LT'),
+            (None, 'N', None),                                       # TGFVEI: CODPARC=NULL + PROPRIO=N
+        ]
+
+        resultado = editar_requisicao_combustivel_banco(
+            nunota=112209,
+            dados={'qtd': 100.0},
+            codusu=1, nomeusu='Teste',
+        )
+
+        self.assertFalse(resultado['ok'])
+        self.assertIn('parceiro', resultado['error'].lower())
+
+
+class ExcluirRequisicaoTerceiroTest(TestCase):
+    """B3 (Mai/2026 — 2026-05-26) — excluir requisicao interna de terceiro
+    deve apagar TGFFIN junto. Trava NURENEG universal. Cenarios:
+      - interno terceiro com NUFIN -> DELETE TGFFIN + DELETE cascata
+      - interno terceiro com NUFIN renegociado -> BLOQUEIA
+      - interno proprio sem NUFIN -> NAO deleta TGFFIN (regressao)
+      - externo renegociado -> BLOQUEIA (trava universal cobre externo tambem)
+    """
+
+    def _executa_sqls(self, cursor):
+        return [str(call.args[0]).upper() for call in cursor.execute.call_args_list]
+
+    @patch('sankhya_integration.services.oracle_conn.consultar_tgffin_renegociado')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_interno_terceiro_deleta_tgffin_em_cascata(self, mock_conn, mock_reneg):
+        from sankhya_integration.services.oracle_conn import excluir_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        mock_reneg.return_value = False
+        # Estado: interno (NAO externo, STATUSNOTA='P') com NUFIN_GERADO populado
+        cursor.fetchone.side_effect = [
+            ('P', 'INTERNA_FROTA', 99500),
+        ]
+
+        resultado = excluir_requisicao_combustivel_banco(
+            nunota=112209, motivo='cancelar lancamento errado',
+            codusu=1, nomeusu='ANDRE',
+        )
+
+        self.assertTrue(resultado['ok'], f"Falhou: {resultado}")
+        self.assertEqual(resultado['nufin_excluido'], 99500)
+        # NURENEG checado
+        mock_reneg.assert_called_once_with(99500)
+        # DELETE TGFFIN deve estar nas chamadas
+        sqls = self._executa_sqls(cursor)
+        self.assertTrue(any('DELETE FROM TGFFIN' in s for s in sqls),
+                        "Interno terceiro deve deletar TGFFIN em cascata.")
+        # DELETE TGFCAB tambem
+        self.assertTrue(any('DELETE FROM TGFCAB' in s for s in sqls))
+
+    @patch('sankhya_integration.services.oracle_conn.consultar_tgffin_renegociado')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_interno_terceiro_bloqueia_se_renegociado(self, mock_conn, mock_reneg):
+        from sankhya_integration.services.oracle_conn import excluir_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        mock_reneg.return_value = True  # RENEGOCIADO -> trava
+        cursor.fetchone.side_effect = [
+            ('P', 'INTERNA_FROTA', 99500),
+        ]
+
+        resultado = excluir_requisicao_combustivel_banco(
+            nunota=112209, motivo='tentando excluir',
+            codusu=1, nomeusu='Teste',
+        )
+
+        self.assertFalse(resultado['ok'])
+        self.assertIn('renegociad', resultado['error'].lower())
+        # Nenhum DELETE deve ter rolado
+        sqls = self._executa_sqls(cursor)
+        for op in ('DELETE FROM TGFFIN', 'DELETE FROM TGFITE',
+                   'DELETE FROM TGFCAB', 'DELETE FROM AD_REQUISICAO_COMBUSTIVEL'):
+            self.assertFalse(any(op in s for s in sqls),
+                              f"{op} nao deve ocorrer em NUFIN renegociado.")
+
+    @patch('sankhya_integration.services.oracle_conn.consultar_tgffin_renegociado')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_interno_proprio_sem_nufin_nao_deleta_tgffin(self, mock_conn, mock_reneg):
+        """Regressao: interno proprio (sem NUFIN gerado) nao deve tentar
+        deletar TGFFIN."""
+        from sankhya_integration.services.oracle_conn import excluir_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        cursor.fetchone.side_effect = [
+            ('P', 'INTERNA_FROTA', None),                      # SEM NUFIN
+        ]
+
+        resultado = excluir_requisicao_combustivel_banco(
+            nunota=112209, motivo='cancelar',
+            codusu=1, nomeusu='ANDRE',
+        )
+
+        self.assertTrue(resultado['ok'])
+        self.assertIsNone(resultado['nufin_excluido'])
+        # NURENEG nao deve ser chamado (early-exit em NUFIN nulo)
+        mock_reneg.assert_not_called()
+        sqls = self._executa_sqls(cursor)
+        self.assertFalse(any('DELETE FROM TGFFIN' in s for s in sqls),
+                          "Sem NUFIN nao deveria executar DELETE em TGFFIN.")
+
+    @patch('sankhya_integration.services.oracle_conn.consultar_tgffin_renegociado')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_externo_renegociado_tambem_eh_bloqueado(self, mock_conn, mock_reneg):
+        """Trava NURENEG vale tambem pra externo (defesa adicional sobre DHBAIXA)."""
+        from sankhya_integration.services.oracle_conn import excluir_requisicao_combustivel_banco
+
+        conn_ctx, conn, cursor = _conn_cursor_mock()
+        mock_conn.return_value = conn_ctx
+        mock_reneg.return_value = True  # renegociado
+        cursor.fetchone.side_effect = [
+            ('L', 'EXTERNA_POSTO', 555000),
+        ]
+
+        resultado = excluir_requisicao_combustivel_banco(
+            nunota=200001, motivo='tentando',
+            codusu=1, nomeusu='Teste',
+        )
+
+        self.assertFalse(resultado['ok'])
+        self.assertIn('renegociad', resultado['error'].lower())

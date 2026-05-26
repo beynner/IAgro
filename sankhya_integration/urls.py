@@ -196,6 +196,8 @@ urlpatterns = [
     # vive no pedido mesmo após faturamento; nota TOP 35/37 não é tocada)
     path('rastreio/api/atribuir-lote/',           views.api_rastreio_atribuir_lote,           name='api_rastreio_atribuir_lote'),
     path('rastreio/api/desvincular-lote/',        views.api_rastreio_desvincular_lote,        name='api_rastreio_desvincular_lote'),
+    # Zerar fração residual do lote (Mai/2026 — 2026-05-26): cria TOP 33 quando saldo ≤ 1% do qtd_entrada
+    path('rastreio/api/zerar-fracao/',            views.api_rastreio_zerar_fracao,            name='api_rastreio_zerar_fracao'),
     # Vínculo manual pedido↔nota (Leva A Mai/2026): quando TGFVAR não foi populado
     path('rastreio/api/vinculo/candidatos/',          views.api_rastreio_vinculo_candidatos,           name='api_rastreio_vinculo_candidatos'),
     path('rastreio/api/vinculo/criar/',               views.api_rastreio_vinculo_criar,                name='api_rastreio_vinculo_criar'),

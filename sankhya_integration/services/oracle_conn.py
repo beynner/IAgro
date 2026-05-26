@@ -4293,6 +4293,221 @@ def upsert_avaria_top30_lote(
     return {'ok': True, 'nunota_30': int(nunota_30)}
 
 
+# Tolerância (%) usada por `zerar_fracao_lote_banco` pra travar contra abuso.
+# 1% da qtd que entrou no lote (TOP 11 origem). Lote de 1000 kg → tolerância
+# 10 kg; lote de 50 kg → tolerância 0,5 kg. Naturalmente adaptativo.
+TOLERANCIA_FRACAO_LOTE_PCT = 0.01
+
+
+def zerar_fracao_lote_banco(
+    codprod: int,
+    codagregacao: str,
+    codusu: int,
+    nomeusu: str,
+) -> dict:
+    """Mai/2026 (2026-05-26) — Zera saldo residual de um lote criando
+    TGFCAB TOP 33 (Avaria de Ajuste, CODNAT 20010200) automática.
+
+    Caso de uso: o pedido pede 19 kg, operação envia 20 kg (caixa cheia)
+    e o sistema desconta só 19 — lote fica com 1 kg fantasma. Operador
+    chama essa função pelo botão "Zerar fração" do card e o saldo zera.
+
+    Trava: só zera quando `qtd_disponivel <= qtd_entrada × TOLERANCIA_FRACAO_LOTE_PCT`
+    (default 1%). Pra avarias maiores, operador usa fluxo TOP 30 avulso
+    do módulo Venda.
+
+    Estrutura criada (igual `upsert_avaria_top30_lote` mas pra TOP 33):
+      - TGFCAB TOP 33 STATUSNOTA='L' direto, CODNAT 20010200
+      - 1 TGFITE com CODPROD + CODAGREGACAO preservado (rastreabilidade)
+      - VLRUNIT do vale TOP 13 (custo médio do lote) pra documentação contábil
+
+    Audit: `ZERAR_FRACAO_LOTE` em AD_AUDITORIA_GERAL.
+
+    Retorna:
+      {'ok': True, 'nunota_33': int, 'qtd_zerada': float, 'tolerancia_kg': float}
+      {'ok': False, 'error': str}
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada'}
+
+    if not codagregacao or not codprod:
+        return {'ok': False, 'error': 'codprod e codagregacao obrigatórios'}
+
+    codprod = int(codprod)
+    codagregacao = str(codagregacao).strip()
+
+    from datetime import date as _date
+
+    with obter_conexao_oracle() as conn:
+        cur = conn.cursor()
+        try:
+            # 1. Lê saldo + qtd_entrada do lote via view real (não cache,
+            # pra ter dado fresco) — campos QTD_DISPONIVEL e QTD_ENTRADA
+            cur.execute(
+                """
+                SELECT SUM(QTD_DISPONIVEL), SUM(QTD_ENTRADA), MAX(NUNOTA_ORIGEM)
+                  FROM SANKHYA.ANDRE_IAGRO_SALDO_LOTE
+                 WHERE CODPROD = :p AND CODAGREGACAO = :l
+                """,
+                p=codprod, l=codagregacao,
+            )
+            row = cur.fetchone()
+            if not row or row[0] is None:
+                return {'ok': False, 'error':
+                    f'Lote {codagregacao} (produto {codprod}) não encontrado.'}
+            qtd_disponivel = float(row[0] or 0)
+            qtd_entrada    = float(row[1] or 0)
+            nunota_origem  = int(row[2]) if row[2] is not None else None
+
+            if qtd_entrada <= 0:
+                return {'ok': False, 'error':
+                    f'Lote {codagregacao} sem qtd de entrada — não é possível calcular tolerância.'}
+            if qtd_disponivel <= 0:
+                return {'ok': False, 'error':
+                    f'Lote {codagregacao} já está zerado (saldo {qtd_disponivel:.3f}).'}
+
+            tolerancia_kg = qtd_entrada * TOLERANCIA_FRACAO_LOTE_PCT
+            if qtd_disponivel > tolerancia_kg:
+                return {'ok': False, 'error':
+                    f'Saldo {qtd_disponivel:.3f} kg está acima da tolerância '
+                    f'({tolerancia_kg:.3f} kg = 1% de {qtd_entrada:.0f} kg). '
+                    f'Use TOP 30 avulsa pra avaria maior.'}
+
+            if not nunota_origem:
+                return {'ok': False, 'error':
+                    f'Lote {codagregacao} sem NUNOTA_ORIGEM (TOP 11) — '
+                    f'não dá pra herdar dados do cabeçalho.'}
+
+            # 2. Lê dados de origem (TOP 11) pra herdar CODEMP/CODPARC/CODTIPVENDA
+            cur.execute(
+                """
+                SELECT c.CODEMP, c.CODPARC, c.CODCENCUS, c.DTNEG, c.CODTIPVENDA,
+                       i.CODVOL, NVL(i.PESO, 1)
+                  FROM TGFCAB c
+                  JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+                 WHERE c.NUNOTA = :n11 AND c.CODTIPOPER = 11
+                   AND c.STATUSNOTA <> 'E'
+                   AND i.CODPROD = :prod AND i.CODAGREGACAO = :lote
+                   AND ROWNUM = 1
+                """,
+                n11=nunota_origem, prod=codprod, lote=codagregacao,
+            )
+            row_orig = cur.fetchone()
+            if not row_orig:
+                return {'ok': False, 'error':
+                    f'Item TOP 11 origem do lote {codagregacao} não encontrado.'}
+            codemp, codparc, codcencus, dtneg, codtipvenda_origem, codvol, peso_caixa = row_orig
+
+            # 3. Cria cabeçalho TGFCAB TOP 33
+            codtipvenda_efetiva = int(codtipvenda_origem) if codtipvenda_origem else 11
+            dados_cab_33 = {
+                'CODEMP': codemp,
+                'CODPARC': codparc,
+                'CODNAT': CODNAT_POR_TOP[33],
+                'CODCENCUS': codcencus or 10100,
+                'DTNEG': _date.today().strftime('%d/%m/%Y'),
+                'CODTIPOPER': 33,
+                'CODTIPVENDA': codtipvenda_efetiva,
+                'STATUSNOTA': 'L',
+                'PENDENTE': 'N',
+                'AD_NUMPEDIDOORIG': nunota_origem,
+                'OBSERVACAO': f'Ajuste de fração do lote {codagregacao} ({qtd_disponivel:.3f} kg)',
+            }
+            res_cab = inserir_cabecalho_nota_banco(
+                dados_cab_33, conexao_existente=conn,
+            )
+            if not res_cab.get('ok'):
+                conn.rollback()
+                return {'ok': False, 'error':
+                    f'Falha ao criar TGFCAB TOP 33: {res_cab.get("error")}'}
+            nunota_33 = int(res_cab['nunota'])
+
+            # 4. Lê preço do vale TOP 13 do lote pra documentar custo da perda
+            cur.execute(
+                """
+                SELECT NVL(i13.VLRUNIT, 0)
+                  FROM TGFITE i13
+                  JOIN TGFCAB c13 ON c13.NUNOTA = i13.NUNOTA
+                                 AND c13.CODTIPOPER = 13
+                                 AND c13.STATUSNOTA <> 'E'
+                 WHERE i13.CODPROD = :prod AND i13.CODAGREGACAO = :lote
+                   AND ROWNUM = 1
+                """,
+                prod=codprod, lote=codagregacao,
+            )
+            row_preco = cur.fetchone()
+            vlrunit_kg = float(row_preco[0]) if row_preco and row_preco[0] else 0.0
+            vlrtot = round(qtd_disponivel * vlrunit_kg, 2)
+
+            # 5. INSERT item da avaria (CODAGREGACAO preservado pra rastreio)
+            dados_item = {
+                'NUNOTA': nunota_33,
+                'CODPROD': codprod,
+                'CODAGREGACAO': codagregacao,
+                'QTDNEG': qtd_disponivel,
+                'CODVOL': codvol or 'KG',
+                'VLRUNIT': vlrunit_kg,
+                'VLRTOT': vlrtot,
+                'AD_NUMPEDIDOORIG': nunota_origem,
+            }
+            res_item = inserir_item_nota_banco(
+                dados_item, gerar_lote_auto=False, conexao_existente=conn,
+            )
+            if not res_item.get('ok'):
+                conn.rollback()
+                return {'ok': False, 'error':
+                    f'Falha ao criar TGFITE TOP 33: {res_item.get("error")}'}
+
+            recalcular_totais_nota_banco(nunota_33, conexao_existente=conn)
+
+            conn.commit()
+        except Exception as exc:
+            try: conn.rollback()
+            except Exception: pass
+            logger.exception("Falha em zerar_fracao_lote_banco")
+            return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+    # Pós-commit (tolerantes a falha)
+    try:
+        invalidar_cache_rastreio()
+    except Exception:
+        logger.warning("Cache Rastreio não invalidado pós ZERAR_FRACAO_LOTE NUNOTA=%s", nunota_33)
+
+    try:
+        registrar_auditoria(
+            modulo='rastreio',
+            operacao='ZERAR_FRACAO_LOTE',
+            tabela_alvo='TGFCAB',
+            registro_id=f'TOP33:{nunota_33}:{codagregacao}:{codprod}',
+            codusu=codusu,
+            nomeusu=nomeusu,
+            snapshot_depois={
+                'nunota_33': nunota_33,
+                'codprod': codprod,
+                'codagregacao': codagregacao,
+                'qtd_zerada': qtd_disponivel,
+                'qtd_entrada_lote': qtd_entrada,
+                'tolerancia_kg': tolerancia_kg,
+                'vlrtot_documentado': vlrtot,
+            },
+            observacao=(
+                f'Zerou fração de {qtd_disponivel:.3f} kg do lote {codagregacao} '
+                f'via TOP 33 (tolerância 1% = {tolerancia_kg:.3f} kg de '
+                f'{qtd_entrada:.0f} kg que entraram).'
+            ),
+        )
+    except Exception:
+        logger.warning("Audit ZERAR_FRACAO_LOTE falhou nunota_33=%s lote=%s",
+                       nunota_33, codagregacao)
+
+    return {
+        'ok': True,
+        'nunota_33': nunota_33,
+        'qtd_zerada': qtd_disponivel,
+        'tolerancia_kg': tolerancia_kg,
+    }
+
+
 def remover_avaria_top30_lote(
     nunota_origem: int,
     codprod: int,
@@ -4724,6 +4939,7 @@ def desfaturar_comercial_banco(nunota_13: int) -> dict:
 # ------------------------------------------------------------------
 CODNAT_POR_TOP = {
     30: 20010200,  # Avaria interna (perda no estoque) — DESCRNAT "AVARIA"
+    33: 20010200,  # Avaria de ajuste (fração de lote) — DESCRNAT "AVARIA" (Mai/2026 — 2026-05-26)
     34: 10010100,  # Pedido de Venda
     35: 10010100,  # Venda com NFe
     36: 10020100,  # Devolução de venda — DESCRNAT "DEVOLUCAO DE VENDA"
@@ -9198,18 +9414,35 @@ def consultar_consumo_por_veiculo(codveiculo: int, date_start: str = None, date_
 
         rows = cur.fetchall()
 
-    # Monta abastecimentos + calcula consumo entre consecutivos
-    abastecimentos = []
-    hod_anterior = None
-    hor_anterior = None
-    qtd_anterior = None
+    # Monta abastecimentos + calcula consumo entre consecutivos.
+    # Mai/2026 (2026-05-26): tracking SEPARADO por categoria de combustível.
+    # ARLA não move o veículo — não pode entrar no km/L do Diesel.
+    #   - DIESEL (392 + 1373): km/L do veículo
+    #   - ARLA (1374): consumo próprio (litros + % sobre Diesel)
+    #   - Outros codprods (gasolina/óleo): contam só nos totais financeiros
+    CODPRODS_DIESEL = {392, 1373}
+    CODPROD_ARLA = 1374
 
-    total_litros = 0.0
+    abastecimentos = []
+
+    # Referências por categoria
+    hod_ant_diesel = None
+    hor_ant_diesel = None
+    qtd_ant_diesel = None
+    hod_ant_arla = None
+    qtd_ant_arla = None
+
+    total_litros = 0.0   # todos os combustíveis (compat)
+    total_diesel = 0.0
+    total_arla = 0.0
     total_vlr = 0.0
     km_total = 0.0
+    km_total_arla = 0.0
     h_total = 0.0
     soma_kmlt = 0.0
     n_kmlt = 0
+    soma_kmlt_arla = 0.0
+    n_kmlt_arla = 0
     soma_lth = 0.0
     n_lth = 0
 
@@ -9230,27 +9463,45 @@ def consultar_consumo_por_veiculo(codveiculo: int, date_start: str = None, date_
         codvol   = r[13] or 'LT'
         vlrtot   = float(r[14] or 0)
 
+        # Categoriza
+        if codprod in CODPRODS_DIESEL:
+            categoria = 'DIESEL'
+        elif codprod == CODPROD_ARLA:
+            categoria = 'ARLA'
+        else:
+            categoria = 'OUTRO'
+
         km_perc = None
         h_trab = None
         consumo_kmlt = None
         consumo_lth = None
 
-        # Consumo entre o ATUAL e o ANTERIOR. A qtd ANTERIOR foi consumida
-        # pra rodar até aqui.
-        if qtd_anterior and qtd_anterior > 0:
-            if hod is not None and hod_anterior is not None and hod > hod_anterior:
-                km_perc = hod - hod_anterior
-                consumo_kmlt = km_perc / qtd_anterior
+        # Consumo entre ATUAL e ANTERIOR — calculado APENAS dentro da mesma
+        # categoria (Diesel↔Diesel ou ARLA↔ARLA). ARLA não move o veículo no
+        # km/L do Diesel, e Diesel não consome ARLA — métricas independentes.
+        if categoria == 'DIESEL' and qtd_ant_diesel and qtd_ant_diesel > 0:
+            if hod is not None and hod_ant_diesel is not None and hod > hod_ant_diesel:
+                km_perc = hod - hod_ant_diesel
+                consumo_kmlt = km_perc / qtd_ant_diesel
                 km_total += km_perc
                 soma_kmlt += consumo_kmlt
                 n_kmlt += 1
-            if hor is not None and hor_anterior is not None and hor > hor_anterior:
-                h_trab = hor - hor_anterior
+            if hor is not None and hor_ant_diesel is not None and hor > hor_ant_diesel:
+                h_trab = hor - hor_ant_diesel
                 if h_trab > 0:
-                    consumo_lth = qtd_anterior / h_trab
+                    consumo_lth = qtd_ant_diesel / h_trab
                     h_total += h_trab
                     soma_lth += consumo_lth
                     n_lth += 1
+        elif categoria == 'ARLA' and qtd_ant_arla and qtd_ant_arla > 0:
+            # km/L do ARLA — quantos km cada litro de ARLA rendeu entre dois
+            # abastecimentos consecutivos de ARLA.
+            if hod is not None and hod_ant_arla is not None and hod > hod_ant_arla:
+                km_perc = hod - hod_ant_arla
+                consumo_kmlt = km_perc / qtd_ant_arla
+                km_total_arla += km_perc
+                soma_kmlt_arla += consumo_kmlt
+                n_kmlt_arla += 1
 
         abastecimentos.append({
             'nunota': nunota,
@@ -9260,6 +9511,7 @@ def consultar_consumo_por_veiculo(codveiculo: int, date_start: str = None, date_
             'tipo': tipo_req,
             'codprod': codprod,
             'descrprod': descrp,
+            'categoria': categoria,
             'qtd': qtd,
             'codvol': codvol,
             'vlrtot': vlrtot,
@@ -9276,10 +9528,18 @@ def consultar_consumo_por_veiculo(codveiculo: int, date_start: str = None, date_
 
         total_litros += qtd
         total_vlr += vlrtot
-        # Atualiza referência pro próximo
-        if hod is not None: hod_anterior = hod
-        if hor is not None: hor_anterior = hor
-        qtd_anterior = qtd
+        if categoria == 'DIESEL':
+            total_diesel += qtd
+            # Atualiza referência pro próximo Diesel
+            if hod is not None: hod_ant_diesel = hod
+            if hor is not None: hor_ant_diesel = hor
+            qtd_ant_diesel = qtd
+        elif categoria == 'ARLA':
+            total_arla += qtd
+            # Atualiza referência pro próximo ARLA
+            if hod is not None: hod_ant_arla = hod
+            qtd_ant_arla = qtd
+        # OUTRO: não trackeia
 
     from datetime import datetime as _dt
     try:
@@ -9288,14 +9548,26 @@ def consultar_consumo_por_veiculo(codveiculo: int, date_start: str = None, date_
     except Exception:
         dias = None
 
+    # Mai/2026 (2026-05-26): métricas separadas por categoria.
+    # `consumo_medio_kmlt` (Diesel) e `consumo_medio_lth` (Diesel/máquina) ficam
+    # com o nome legado pra não quebrar consumidores. ARLA tem campos próprios.
+    arla_pct = None
+    if total_diesel > 0:
+        arla_pct = round((total_arla / total_diesel) * 100, 2)
+
     totais = {
         'qtd_abastecimentos': len(abastecimentos),
-        'total_litros': round(total_litros, 2),
+        'total_litros': round(total_litros, 2),           # todos combustíveis (compat)
+        'total_diesel': round(total_diesel, 2),
+        'total_arla':   round(total_arla, 2),
+        'arla_pct_diesel': arla_pct,                      # % ARLA sobre Diesel (~3-5% esperado)
         'total_vlr': round(total_vlr, 2),
-        'km_total': round(km_total, 2),
+        'km_total': round(km_total, 2),                   # km cobertos por Diesel
+        'km_total_arla': round(km_total_arla, 2),         # km cobertos por ARLA
         'h_total': round(h_total, 2),
-        'consumo_medio_kmlt': round(soma_kmlt / n_kmlt, 2) if n_kmlt else None,
-        'consumo_medio_lth':  round(soma_lth  / n_lth,  2) if n_lth  else None,
+        'consumo_medio_kmlt':      round(soma_kmlt      / n_kmlt,      2) if n_kmlt      else None,
+        'consumo_medio_kmlt_arla': round(soma_kmlt_arla / n_kmlt_arla, 2) if n_kmlt_arla else None,
+        'consumo_medio_lth':       round(soma_lth       / n_lth,       2) if n_lth       else None,
         'periodo_dias': dias,
     }
 
@@ -9586,21 +9858,26 @@ def criar_requisicao_combustivel_banco(dados: dict, codusu: int, nomeusu: str = 
 
             # 2. Veículo + trava PROPRIO ↔ TIPO
             cur.execute("""
-                SELECT v.CODPARC, v.PROPRIO
+                SELECT v.CODPARC, v.PROPRIO, v.PLACA
                 FROM TGFVEI v
                 WHERE v.CODVEICULO = :cv AND v.ATIVO = 'S'
             """, cv=codveiculo)
             row_vei = cur.fetchone()
             if not row_vei:
                 return {'ok': False, 'error': f'Veículo {codveiculo} não encontrado ou inativo.'}
-            codparc_vei, proprio_vei = row_vei
+            codparc_vei, proprio_vei, placa_vei = row_vei
 
             if tipo == 'EXTERNA_FRETE' and proprio_vei != 'N':
                 return {'ok': False, 'error':
                     'Tipo EXTERNA_FRETE exige veículo de terceiro (TGFVEI.PROPRIO=N).'}
-            if tipo in ('INTERNA_FROTA', 'INTERNA_MAQUINARIO') and proprio_vei != 'S':
+            # B1 (Mai/2026 — 2026-05-26): INTERNA_FROTA/INTERNA_MAQUINARIO aceita
+            # AMBOS PROPRIO='S' e PROPRIO='N'. Terceiro abastecendo do tanque
+            # interno gera TGFFIN automático (receita contra o parceiro do veículo).
+            # Trava antiga (`proprio_vei != 'S'` bloqueando) foi relaxada.
+            if tipo in ('INTERNA_FROTA', 'INTERNA_MAQUINARIO') and proprio_vei == 'N' and not codparc_vei:
                 return {'ok': False, 'error':
-                    'Tipo interno exige veículo próprio (TGFVEI.PROPRIO=S).'}
+                    f'Veículo {codveiculo} é de terceiro mas não tem parceiro '
+                    f'cadastrado em TGFVEI. Atualize o cadastro antes de lançar.'}
 
             # 3. Produto deve ser combustível (CODGRUPOPROD=11)
             cur.execute("""
@@ -9655,12 +9932,12 @@ def criar_requisicao_combustivel_banco(dados: dict, codusu: int, nomeusu: str = 
             dtneg_payload = (dados.get('dtneg') or '').strip()
             if dtneg_payload:
                 try:
-                    _d = _date.fromisoformat(dtneg_payload)
-                    dtneg_str = _d.strftime('%d/%m/%Y')
+                    dtneg_date = _date.fromisoformat(dtneg_payload)
                 except (ValueError, TypeError):
-                    dtneg_str = hoje.strftime('%d/%m/%Y')
+                    dtneg_date = hoje
             else:
-                dtneg_str = hoje.strftime('%d/%m/%Y')
+                dtneg_date = hoje
+            dtneg_str = dtneg_date.strftime('%d/%m/%Y')
 
             cab_resp = inserir_cabecalho_nota_banco({
                 'CODEMP':       codemp,
@@ -9680,6 +9957,18 @@ def criar_requisicao_combustivel_banco(dados: dict, codusu: int, nomeusu: str = 
 
             # 7. INSERT TGFITE — CODAGREGACAO=NULL (segregação)
             vlrunit = float(dados.get('vlrunit') or 0)
+            # B1 (Mai/2026 — 2026-05-26): pra terceiro (PROPRIO='N'), preço é
+            # obrigatório (vai gerar TGFFIN). Frontend já preenche via auto-fill,
+            # mas backend é a defesa final — busca o último TOP 10 se vier vazio.
+            if proprio_vei == 'N' and vlrunit <= 0:
+                preco_info = consultar_ultimo_preco_combustivel(codprod)
+                if preco_info and float(preco_info.get('vlrunit') or 0) > 0:
+                    vlrunit = float(preco_info['vlrunit'])
+                else:
+                    return {'ok': False, 'error':
+                        f'Não foi possível resolver o preço de {descrprod}. '
+                        f'Lance uma entrada TOP 10 antes ou digite o valor '
+                        f'manualmente no modal.'}
             item_resp = inserir_item_nota_banco({
                 'NUNOTA':       nunota,
                 'CODPROD':      codprod,
@@ -9694,29 +9983,99 @@ def criar_requisicao_combustivel_banco(dados: dict, codusu: int, nomeusu: str = 
 
             recalcular_totais_nota_banco(nunota, conexao_existente=conn)
 
-            # 8. INSERT AD_REQUISICAO_COMBUSTIVEL (B4 Mai/2026: hodometro + horimetro
+            # 8. B1 (Mai/2026 — 2026-05-26): veículo de terceiro (PROPRIO='N')
+            # gera TGFFIN auto de RECEITA contra o parceiro do veículo.
+            # DTVENC pelo ciclo decendial (1/10/20/fim-do-mês). TGFFIN nasce em
+            # aberto — operador da finança baixa no Sankhya no dia do acerto.
+            nufin_gerado = None
+            if proprio_vei == 'N':
+                vlr_tgffin = round(qtd * vlrunit, 2)
+                dtvenc_decendial = proxima_data_fechamento_decendial(dtneg_date)
+                cur.execute("SELECT NVL(MAX(NUFIN), 0) + 1 FROM TGFFIN")
+                nufin_gerado = int(cur.fetchone()[0])
+                # Formato (Mai/2026 — 2026-05-26):
+                #   "Abastecimento {Combustivel} / {qtd} {UN} (R${preço}) - {PLACA}"
+                # Ex: "Abastecimento Diesel S10 / 50 LT (R$6,26) - JFO5H79"
+                qtd_fmt = f"{qtd:g}"
+                descr_fmt = (descrprod or '')[:50].title()
+                codvol_fmt = (codvol or 'LT').upper()
+                preco_fmt = f"R${float(vlrunit):.2f}".replace('.', ',')
+                placa_fmt = (placa_vei or '').strip().replace(' ', '') or str(codveiculo)
+                historico = (
+                    f"Abastecimento {descr_fmt} / {qtd_fmt} {codvol_fmt} "
+                    f"({preco_fmt}) - {placa_fmt}"
+                )[:255]
+                cur.execute("""
+                    INSERT INTO TGFFIN (
+                        NUFIN, NUNOTA, NUMNOTA, CODEMP, CODPARC, CODNAT, CODCENCUS,
+                        CODTIPOPER, DHTIPOPER, CODBCO, CODCTABCOINT, CODTIPTIT,
+                        CODMOEDA, CODPROJ, CODVEND, CODVEICULO,
+                        DTNEG, DHMOV, DTALTER, DTENTSAI,
+                        DTVENCINIC, DTVENC, DTPRAZO,
+                        VLRDESDOB, VLRBAIXA,
+                        DESDOBRAMENTO, SEQUENCIA,
+                        RECDESP, PROVISAO, AUTORIZADO,
+                        ISSRETIDO, IRFRETIDO, INSSRETIDO, RATEADO,
+                        ORIGEM, TIPMARCCHEQ,
+                        TIPMULTA, TIPJURO,
+                        CODTIPOPERBAIXA, DHTIPOPERBAIXA,
+                        HISTORICO, VLRPROV, NUMCONTRATO, ORDEMCARGA, CODUSU,
+                        DHBAIXA, CODEMPBAIXA, CODUSUBAIXA
+                    ) VALUES (
+                        :nufin, :nunota, :numnota, :emp, :parc, :nat, :cus,
+                        1, TO_DATE('01/01/2004','DD/MM/YYYY'), 70, 1, 2,
+                        0, 0, 0, :cv,
+                        :dtneg, SYSDATE, SYSDATE, :dtneg,
+                        :dtneg, :dtvenc, :dtvenc,
+                        :vlr, 0,
+                        '1', 1,
+                        1, 'N', 'N',
+                        'N', 'S', 'N', 'N',
+                        'E', 'I',
+                        1, 1,
+                        0, TO_DATE('01/01/1998','DD/MM/YYYY'),
+                        :hist, 0, 0, 0, :usr,
+                        NULL, NULL, NULL
+                    )
+                """, {
+                    'nufin': nufin_gerado, 'nunota': nunota, 'numnota': nunota,
+                    'emp': codemp, 'parc': codparc_vei,
+                    'nat': 10040800,   # Receita de Abastecimento (fixo)
+                    'cus': 10100,      # Comercialização (fixo)
+                    'cv': codveiculo,
+                    'dtneg': dtneg_date, 'dtvenc': dtvenc_decendial,
+                    'vlr': vlr_tgffin,
+                    'hist': historico,
+                    'usr': int(codusu),
+                })
+
+            # 9. INSERT AD_REQUISICAO_COMBUSTIVEL (B4 Mai/2026: hodometro + horimetro
             # separados; obrigatórios em frota própria, opcionais em maquinário, NULL
-            # em freteiro)
+            # em freteiro). B1 (Mai/2026 — 2026-05-26): NUFIN_GERADO + CODPARC
+            # preenchidos quando proprio_vei='N'.
+            cp_terceiro = codparc_vei if proprio_vei == 'N' else None
             req_id_var = cur.var(int)
             cur.execute("""
                 INSERT INTO AD_REQUISICAO_COMBUSTIVEL (
-                    ID, NUNOTA, TIPO, CODVEICULO,
+                    ID, NUNOTA, TIPO, CODVEICULO, CODPARC,
                     HODOMETRO_KM, HORIMETRO_H,
-                    DOC_FRETE_REF, OBSERVACAO,
+                    DOC_FRETE_REF, OBSERVACAO, NUFIN_GERADO,
                     CODUSU, NOMEUSU
                 ) VALUES (
-                    SEQ_AD_REQUISICAO_COMBUSTIVEL.NEXTVAL, :nun, :tipo, :cv,
+                    SEQ_AD_REQUISICAO_COMBUSTIVEL.NEXTVAL, :nun, :tipo, :cv, :cp_terceiro,
                     :hod_km, :hor_h,
-                    :doc_frete, :obs,
+                    :doc_frete, :obs, :nufin_gerado,
                     :codusu, :nomeusu
                 )
                 RETURNING ID INTO :req_id
             """, {
                 'nun': nunota, 'tipo': tipo, 'cv': codveiculo,
+                'cp_terceiro': cp_terceiro,
                 'hod_km': hodometro_km,
                 'hor_h':  horimetro_h,
                 'doc_frete': doc_frete or None,
                 'obs': (dados.get('observacao') or '')[:500] or None,
+                'nufin_gerado': nufin_gerado,
                 'codusu': int(codusu), 'nomeusu': (nomeusu or '')[:60] or None,
                 'req_id': req_id_var,
             })
@@ -9725,9 +10084,18 @@ def criar_requisicao_combustivel_banco(dados: dict, codusu: int, nomeusu: str = 
                 req_id = req_id[0]
 
             conn.commit()
-            logger.info("Requisição combustível criada: NUNOTA=%s req_id=%s veículo=%s qtd=%s",
-                        nunota, req_id, codveiculo, qtd)
-            return {'ok': True, 'nunota': nunota, 'requisicao_id': int(req_id)}
+            logger.info(
+                "Requisição combustível criada: NUNOTA=%s req_id=%s veículo=%s "
+                "qtd=%s proprio=%s nufin=%s",
+                nunota, req_id, codveiculo, qtd, proprio_vei, nufin_gerado,
+            )
+            return {
+                'ok': True,
+                'nunota': nunota,
+                'requisicao_id': int(req_id),
+                'nufin': nufin_gerado,
+                'proprio': proprio_vei,
+            }
 
     except Exception as exc:
         logger.exception("Falha em criar_requisicao_combustivel_banco")
@@ -9766,7 +10134,7 @@ def editar_requisicao_combustivel_banco(nunota: int, dados: dict, codusu: int, n
             # pra suportar EXTERNA_POSTO Mai/2026 + DHBAIXA do TGFFIN pra trava de
             # edição de externos já baixados)
             cur.execute("""
-                SELECT c.STATUSNOTA, c.CODPARC, c.CODCENCUS,
+                SELECT c.STATUSNOTA, c.CODPARC, c.CODCENCUS, c.DTNEG,
                        r.TIPO, r.CODVEICULO, r.HODOMETRO_KM, r.HORIMETRO_H,
                        r.DOC_FRETE_REF, r.OBSERVACAO,
                        r.CODPARC, r.NUFIN_GERADO,
@@ -9779,13 +10147,25 @@ def editar_requisicao_combustivel_banco(nunota: int, dados: dict, codusu: int, n
             row = cur.fetchone()
             if not row:
                 return {'ok': False, 'error': f'Requisição {nunota} não encontrada.'}
-            (statusnota, cab_codparc, cab_codcencus,
+            (statusnota, cab_codparc, cab_codcencus, cab_dtneg,
              req_tipo, req_codveiculo, req_hod, req_hor,
              req_doc, req_obs,
              req_codparc_atual, req_nufin_gerado,
              ite_seq, ite_codprod, ite_qtd, ite_vlu, ite_codvol) = row
 
             eh_externo_atual = (req_tipo == 'EXTERNA_POSTO')
+
+            # B2 (Mai/2026 — 2026-05-26): trava de renegociação — se o TGFFIN
+            # gerado automaticamente pelo IAgro foi tocado por operação de
+            # renegociação no Sankhya (NURENEG IS NOT NULL), IAgro não mexe
+            # mais (UPDATE/DELETE). Vale só pra interno (externo já tem trava
+            # DHBAIXA mais restritiva). Detalhes em consultar_tgffin_renegociado.
+            if req_nufin_gerado and not eh_externo_atual:
+                if consultar_tgffin_renegociado(int(req_nufin_gerado)):
+                    return {'ok': False, 'error':
+                        f'Financeiro NUFIN={int(req_nufin_gerado)} já foi '
+                        f'renegociado pelo Sankhya. Edite ou estorne pelo ERP '
+                        f'antes de alterar essa requisição.'}
 
             # Tipos internos: STATUSNOTA='L' bloqueia (Sankhya confirma).
             # EXTERNA_POSTO: nasce com STATUSNOTA='L' direto — não bloqueia por status,
@@ -9887,19 +10267,23 @@ def editar_requisicao_combustivel_banco(nunota: int, dados: dict, codusu: int, n
             # 3. Veículo + trava PROPRIO ↔ TIPO (só para internos+EXTERNA_FRETE).
             # EXTERNA_POSTO aceita qualquer veículo ativo (própria ou terceiro).
             cur.execute("""
-                SELECT v.CODPARC, v.PROPRIO
+                SELECT v.CODPARC, v.PROPRIO, v.PLACA
                 FROM TGFVEI v WHERE v.CODVEICULO = :cv AND v.ATIVO = 'S'
             """, cv=codveiculo)
             row_vei = cur.fetchone()
             if not row_vei:
                 return {'ok': False, 'error': f'Veículo {codveiculo} não encontrado ou inativo.'}
-            codparc_vei_novo, proprio_vei = row_vei
+            codparc_vei_novo, proprio_vei, placa_vei = row_vei
             if tipo == 'EXTERNA_FRETE' and proprio_vei != 'N':
                 return {'ok': False, 'error':
                     'Tipo EXTERNA_FRETE exige veículo de terceiro (PROPRIO=N).'}
-            if tipo in ('INTERNA_FROTA', 'INTERNA_MAQUINARIO') and proprio_vei != 'S':
+            # B2 (Mai/2026 — 2026-05-26): INTERNA_FROTA/INTERNA_MAQUINARIO
+            # aceita AMBOS PROPRIO='S' e 'N'. PROPRIO='N' aciona idempotência
+            # do TGFFIN automático (gera/atualiza/deleta conforme estado anterior).
+            if tipo in ('INTERNA_FROTA', 'INTERNA_MAQUINARIO') and proprio_vei == 'N' and not codparc_vei_novo:
                 return {'ok': False, 'error':
-                    'Tipo interno exige veículo próprio (PROPRIO=S).'}
+                    f'Veículo {codveiculo} é de terceiro mas não tem parceiro '
+                    f'cadastrado em TGFVEI. Atualize o cadastro antes de editar.'}
 
             # 4. Produto deve ser combustível
             cur.execute("""
@@ -10098,6 +10482,158 @@ def editar_requisicao_combustivel_banco(nunota: int, dados: dict, codusu: int, n
             # 9. Recalcula totais do cabeçalho
             recalcular_totais_nota_banco(nunota, conexao_existente=conn)
 
+            # 9.1. B2 (Mai/2026 — 2026-05-26): idempotência do TGFFIN
+            # automático em requisição interna (Veículos/Maquinário).
+            # Decide entre CRIA / UPDATE / DELETE conforme:
+            #   (NUFIN_GERADO anterior × proprio_vei novo)
+            # Casos C/E (renegociado) já foram bloqueados no início.
+            nufin_resultante = req_nufin_gerado
+            if not eh_externo_novo:
+                # Resolve vlrunit defensivamente quando vamos mexer em TGFFIN
+                # (casos A e B). Frontend tenta auto-fill, mas backend cobre.
+                _precisa_resolver_preco = (
+                    proprio_vei == 'N' and (
+                        req_nufin_gerado  # caso B (update)
+                        or not req_nufin_gerado  # caso A (cria)
+                    )
+                )
+                if _precisa_resolver_preco and vlrunit <= 0:
+                    preco_info = consultar_ultimo_preco_combustivel(codprod)
+                    if preco_info and float(preco_info.get('vlrunit') or 0) > 0:
+                        vlrunit = float(preco_info['vlrunit'])
+                    else:
+                        return {'ok': False, 'error':
+                            f'Não foi possível resolver o preço de {descrprod}. '
+                            f'Lance uma entrada TOP 10 antes ou digite o valor '
+                            f'manualmente no modal.'}
+
+                # DTNEG referência pro decendial: prioriza payload, senão
+                # preserva DTNEG atual do TGFCAB (lido no SELECT inicial).
+                if dtneg_obj:
+                    dtneg_ref = dtneg_obj
+                elif cab_dtneg:
+                    dtneg_ref = cab_dtneg.date() if hasattr(cab_dtneg, 'date') else cab_dtneg
+                else:
+                    dtneg_ref = _date.today()
+                # Formato (Mai/2026 — 2026-05-26):
+                #   "Abastecimento {Combustivel} / {qtd} {UN} (R${preço}) - {PLACA}"
+                # Ex: "Abastecimento Diesel S10 / 50 LT (R$6,26) - JFO5H79"
+                qtd_fmt = f"{qtd_nova:g}"
+                descr_fmt = (descrprod or '')[:50].title()
+                codvol_fmt = (codvol or 'LT').upper()
+                preco_fmt = f"R${float(vlrunit):.2f}".replace('.', ',')
+                placa_fmt = (placa_vei or '').strip().replace(' ', '') or str(codveiculo)
+                historico = (
+                    f"Abastecimento {descr_fmt} / {qtd_fmt} {codvol_fmt} "
+                    f"({preco_fmt}) - {placa_fmt}"
+                )[:255]
+
+                if req_nufin_gerado and proprio_vei == 'N':
+                    # Caso B — UPDATE proporcional
+                    vlr_tgffin = round(qtd_nova * vlrunit, 2)
+                    dtvenc = proxima_data_fechamento_decendial(dtneg_ref)
+                    cur.execute("""
+                        UPDATE TGFFIN
+                           SET CODPARC = :p, CODCENCUS = 10100, CODNAT = 10040800,
+                               VLRDESDOB = :vlr, VLRBAIXA = 0,
+                               DTVENCINIC = :dtv, DTVENC = :dtv, DTPRAZO = :dtv,
+                               HISTORICO = :hist,
+                               DHMOV = SYSDATE, DTALTER = SYSDATE
+                         WHERE NUFIN = :nf
+                    """, {
+                        'p': codparc_vei_novo,
+                        'vlr': vlr_tgffin,
+                        'dtv': dtvenc,
+                        'hist': historico,
+                        'nf': int(req_nufin_gerado),
+                    })
+                    # Garante AD_REQ.CODPARC sincronizado (se operador trocou
+                    # de terceiro pra outro terceiro, atualiza).
+                    cur.execute("""
+                        UPDATE AD_REQUISICAO_COMBUSTIVEL
+                           SET CODPARC = :cp
+                         WHERE NUNOTA = :n
+                    """, cp=codparc_vei_novo, n=nunota)
+                    nufin_resultante = int(req_nufin_gerado)
+
+                elif req_nufin_gerado and proprio_vei == 'S':
+                    # Caso D — DELETE (veículo virou próprio na edição)
+                    cur.execute(
+                        "DELETE FROM TGFFIN WHERE NUFIN = :nf",
+                        nf=int(req_nufin_gerado),
+                    )
+                    cur.execute("""
+                        UPDATE AD_REQUISICAO_COMBUSTIVEL
+                           SET NUFIN_GERADO = NULL, CODPARC = NULL
+                         WHERE NUNOTA = :n
+                    """, n=nunota)
+                    nufin_resultante = None
+
+                elif not req_nufin_gerado and proprio_vei == 'N':
+                    # Caso A — CRIA TGFFIN retroativo (típico: requisição
+                    # antiga pré-B1 sendo editada pela 1ª vez)
+                    # CODEMP do cabeçalho atual
+                    cur.execute(
+                        "SELECT CODEMP FROM TGFCAB WHERE NUNOTA = :n",
+                        n=nunota,
+                    )
+                    r_emp = cur.fetchone()
+                    codemp_atual = int(r_emp[0]) if r_emp and r_emp[0] else 1
+                    vlr_tgffin = round(qtd_nova * vlrunit, 2)
+                    dtvenc = proxima_data_fechamento_decendial(dtneg_ref)
+                    cur.execute("SELECT NVL(MAX(NUFIN), 0) + 1 FROM TGFFIN")
+                    novo_nufin = int(cur.fetchone()[0])
+                    cur.execute("""
+                        INSERT INTO TGFFIN (
+                            NUFIN, NUNOTA, NUMNOTA, CODEMP, CODPARC, CODNAT, CODCENCUS,
+                            CODTIPOPER, DHTIPOPER, CODBCO, CODCTABCOINT, CODTIPTIT,
+                            CODMOEDA, CODPROJ, CODVEND, CODVEICULO,
+                            DTNEG, DHMOV, DTALTER, DTENTSAI,
+                            DTVENCINIC, DTVENC, DTPRAZO,
+                            VLRDESDOB, VLRBAIXA,
+                            DESDOBRAMENTO, SEQUENCIA,
+                            RECDESP, PROVISAO, AUTORIZADO,
+                            ISSRETIDO, IRFRETIDO, INSSRETIDO, RATEADO,
+                            ORIGEM, TIPMARCCHEQ,
+                            TIPMULTA, TIPJURO,
+                            CODTIPOPERBAIXA, DHTIPOPERBAIXA,
+                            HISTORICO, VLRPROV, NUMCONTRATO, ORDEMCARGA, CODUSU,
+                            DHBAIXA, CODEMPBAIXA, CODUSUBAIXA
+                        ) VALUES (
+                            :nufin, :nunota, :numnota, :emp, :parc, :nat, :cus,
+                            1, TO_DATE('01/01/2004','DD/MM/YYYY'), 70, 1, 2,
+                            0, 0, 0, :cv,
+                            :dtneg, SYSDATE, SYSDATE, :dtneg,
+                            :dtneg, :dtvenc, :dtvenc,
+                            :vlr, 0,
+                            '1', 1,
+                            1, 'N', 'N',
+                            'N', 'S', 'N', 'N',
+                            'E', 'I',
+                            1, 1,
+                            0, TO_DATE('01/01/1998','DD/MM/YYYY'),
+                            :hist, 0, 0, 0, :usr,
+                            NULL, NULL, NULL
+                        )
+                    """, {
+                        'nufin': novo_nufin, 'nunota': nunota, 'numnota': nunota,
+                        'emp': codemp_atual, 'parc': codparc_vei_novo,
+                        'nat': 10040800, 'cus': 10100,
+                        'cv': codveiculo,
+                        'dtneg': dtneg_ref, 'dtvenc': dtvenc,
+                        'vlr': vlr_tgffin,
+                        'hist': historico,
+                        'usr': int(codusu),
+                    })
+                    cur.execute("""
+                        UPDATE AD_REQUISICAO_COMBUSTIVEL
+                           SET NUFIN_GERADO = :nf, CODPARC = :cp
+                         WHERE NUNOTA = :n
+                    """, nf=novo_nufin, cp=codparc_vei_novo, n=nunota)
+                    nufin_resultante = novo_nufin
+                # Caso F (não tem NUFIN + proprio='S'): nada — preserva o
+                # comportamento original.
+
             # 10. EXTERNA_POSTO: refletir mudanças no TGFFIN (CODPARC, VLRDESDOB,
             #     VLRBAIXA, HISTORICO, CODCENCUS) — sempre que NUFIN_GERADO existir
             #     e ainda não estiver baixado (DHBAIXA NULL já validado no início).
@@ -10140,9 +10676,16 @@ def editar_requisicao_combustivel_banco(nunota: int, dados: dict, codusu: int, n
                 })
 
             conn.commit()
-            logger.info("Requisição combustível NUNOTA=%s editada (codusu=%s)",
-                        nunota, codusu)
-            return {'ok': True, 'nunota': nunota}
+            logger.info(
+                "Requisição combustível NUNOTA=%s editada (codusu=%s proprio=%s nufin=%s)",
+                nunota, codusu, proprio_vei, nufin_resultante,
+            )
+            return {
+                'ok': True,
+                'nunota': nunota,
+                'nufin': nufin_resultante,
+                'proprio': proprio_vei,
+            }
 
     except Exception as exc:
         logger.exception("Falha em editar_requisicao_combustivel_banco")
@@ -10208,6 +10751,14 @@ def excluir_requisicao_combustivel_banco(nunota: int, motivo: str, codusu: int, 
             if statusnota == 'L' and not eh_externo:
                 return {'ok': False, 'error':
                     'Requisição já confirmada no Sankhya — estorno deve ser feito no ERP.'}
+            # B3 (Mai/2026 — 2026-05-26): trava de renegociação universal —
+            # qualquer NUFIN gerado automaticamente pelo IAgro (interno terceiro
+            # ou externo) não pode ser apagado se foi renegociado no Sankhya
+            # (TGFFIN.NURENEG IS NOT NULL).
+            if req_nufin_gerado and consultar_tgffin_renegociado(int(req_nufin_gerado)):
+                return {'ok': False, 'error':
+                    f'Financeiro NUFIN={int(req_nufin_gerado)} já foi renegociado '
+                    f'pelo Sankhya. Estorne a renegociação no ERP antes de excluir.'}
             if eh_externo and req_nufin_gerado:
                 cur.execute(
                     "SELECT DHBAIXA FROM TGFFIN WHERE NUFIN = :nf",
@@ -10233,9 +10784,12 @@ def excluir_requisicao_combustivel_banco(nunota: int, motivo: str, codusu: int, 
                 n=nunota,
             )
 
-            # 4. EXTERNA_POSTO: DELETE do TGFFIN gerado (despesa contra o posto).
+            # 4. DELETE do TGFFIN gerado pelo IAgro (qualquer fonte: externo
+            # despesa contra posto OU interno terceiro receita contra freteiro).
+            # Mai/2026 (B3 — 2026-05-26): cobertura ampliada — antes só externo.
             # Deve vir ANTES do DELETE de TGFCAB porque TGFFIN.NUNOTA aponta pra cá.
-            if eh_externo and req_nufin_gerado:
+            # Travas (STATUSNOTA, NURENEG, DHBAIXA) já validaram acima.
+            if req_nufin_gerado:
                 cur.execute(
                     "DELETE FROM TGFFIN WHERE NUFIN = :nf",
                     nf=int(req_nufin_gerado),
@@ -10253,10 +10807,14 @@ def excluir_requisicao_combustivel_banco(nunota: int, motivo: str, codusu: int, 
 
             conn.commit()
             logger.info(
-                "Requisição combustível NUNOTA=%s DELETE físico concluído (tipo=%s)",
-                nunota, req_tipo,
+                "Requisição combustível NUNOTA=%s DELETE físico concluído (tipo=%s nufin=%s)",
+                nunota, req_tipo, req_nufin_gerado,
             )
-            return {'ok': True, 'nunota': nunota}
+            return {
+                'ok': True,
+                'nunota': nunota,
+                'nufin_excluido': int(req_nufin_gerado) if req_nufin_gerado else None,
+            }
 
     except Exception as exc:
         logger.exception("Falha em excluir_requisicao_combustivel_banco")
@@ -11005,6 +11563,82 @@ def consultar_prazo_tipvenda(codtipvenda: int):
             'descrtipvenda': descr,
             'baseprazo': prazo,
         }
+
+
+def proxima_data_fechamento_decendial(dtneg):
+    """Mai/2026 — calcula DTVENC pela regra decendial do financeiro Agromil.
+
+    Acerto de combustível com freteiros (veículos PROPRIO='N') é decendial:
+    dia 10, 20 e último dia do mês. DTVENC = próximo dia desses >= DTNEG.
+
+    Regra:
+      dia  1..10  → DTVENC = dia 10 do mês corrente
+      dia 11..20  → DTVENC = dia 20 do mês corrente
+      dia 21..fim → DTVENC = último dia do mês corrente (28/29/30/31)
+
+    Operador no fechamento real ajusta caso a caso. IAgro só sugere DTVENC
+    coerente com o ciclo pra o financeiro não precisar editar todo lançamento.
+
+    Args:
+        dtneg: datetime.date OU datetime.datetime OU None (default = hoje)
+
+    Returns:
+        datetime.date — DTVENC sugerida
+    """
+    import datetime
+    import calendar
+    if dtneg is None:
+        dtneg = datetime.date.today()
+    if isinstance(dtneg, datetime.datetime):
+        dtneg = dtneg.date()
+    dia = dtneg.day
+    if dia <= 10:
+        return datetime.date(dtneg.year, dtneg.month, 10)
+    if dia <= 20:
+        return datetime.date(dtneg.year, dtneg.month, 20)
+    ultimo = calendar.monthrange(dtneg.year, dtneg.month)[1]
+    return datetime.date(dtneg.year, dtneg.month, ultimo)
+
+
+def consultar_tgffin_renegociado(nufin: int) -> bool:
+    """Mai/2026 — retorna True se o TGFFIN foi tocado por uma operação de
+    renegociação Sankhya. Usado pra travar UPDATE/DELETE em TGFFIN gerado
+    automaticamente pelo IAgro (módulo Combustível, abastecimento de veículo
+    de terceiro).
+
+    Regra: `TGFFIN.NURENEG IS NOT NULL` ⇒ renegociado (validado via smoke em
+    2026-05-26: ~58% do TGFFIN da Agromil tem NURENEG preenchido; pode ser
+    positivo ou negativo, não é FK pra TGFFIN — é nº de lote/operação de
+    renegociação. Independente do sinal, presença significa que o financeiro
+    foi reorganizado pelo módulo de renegociação do Sankhya).
+
+    NÃO usar `PARCRENEG` pra essa decisão: PARCRENEG é "parcela X/Y" do
+    desdobramento normal (ex: 1/1, 2/3, 5/10), não tem nada a ver com
+    renegociação.
+
+    Args:
+        nufin: número do financeiro
+
+    Returns:
+        bool — True se renegociado; False se livre OU se NUFIN não existe
+    """
+    if not nufin:
+        return False
+    nufin = int(nufin)
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT NURENEG FROM TGFFIN WHERE NUFIN = :n",
+                n=nufin,
+            )
+            row = cur.fetchone()
+            if not row:
+                return False
+            return row[0] is not None
+    except Exception:
+        logger.exception("Falha consultando NURENEG do NUFIN=%s", nufin)
+        return False
 
 
 def consultar_preco_tabela(codparc: int, codprod: int, dtneg=None) -> dict:

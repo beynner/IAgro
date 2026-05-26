@@ -891,6 +891,24 @@ document.addEventListener('DOMContentLoaded', function () {
                    </button>`
                 : '';
 
+            // Mai/2026 (2026-05-26): badge "fração" — saldo residual abaixo
+            // da tolerância de 1% da qtd que entrou no lote. Botão "Zerar fração"
+            // cria avaria TOP 33 automática. Sem virar lote completamente esgotado.
+            const qtdEntrada = Number(l.qtd_entrada || 0);
+            const TOLERANCIA_FRACAO_PCT = 0.01;
+            const ehFracao = qtdEntrada > 0
+                && Number(qtd) > 0
+                && Number(qtd) <= qtdEntrada * TOLERANCIA_FRACAO_PCT;
+            const badgeFracao = ehFracao
+                ? `<span class="badge-fracao-lote" title="Sobra residual de ${fmtQtd(qtd)} (≤1% dos ${fmtQtd(qtdEntrada)} que entraram). Provavelmente caixa cheia foi enviada e essa fração é fantasma."><i class="ph ph-package"></i> fração</span>`
+                : '';
+            const zerarBtn = ehFracao
+                ? `<button class="btn-zerar-fracao btn-acao-linha" title="Zerar fração: cria avaria TOP 33 com ${fmtQtd(qtd)} e remove o lote da listagem" type="button">
+                       <i class="ph ph-broom" aria-hidden="true"></i>
+                   </button>`
+                : '';
+            if (ehFracao) card.classList.add('lote-fracao');
+
             // Layout em 1 linha: produto · parceiro · lote · data · qtd · armar · olho
             card.innerHTML = `
                 <span class="col-prod"  title="${escapeHtml(l.descrprod)}">
@@ -903,12 +921,22 @@ document.addEventListener('DOMContentLoaded', function () {
                     ${escapeHtml(l.codagregacao)}
                 </span>
                 <span class="col-data">${escapeHtml(l.dtneg_origem || '')} ${badgeIdade}</span>
-                <span class="col-qtd">${fmtQtd(qtd)} ${badgeEncaixa}</span>
+                <span class="col-qtd">${fmtQtd(qtd)} ${badgeEncaixa} ${badgeFracao}</span>
+                ${zerarBtn}
                 ${armarBtn}
                 <button class="btn-olho btn-acao-linha" title="Ver pedidos/vendas que usam este lote" type="button">
                     <i class="ph ph-eye" aria-hidden="true"></i>
                 </button>
             `;
+
+            // Click no botão "Zerar fração" (Mai/2026 — 2026-05-26)
+            const zerarEl = card.querySelector('.btn-zerar-fracao');
+            if (zerarEl) {
+                zerarEl.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    zerarFracaoDoLote(l);
+                });
+            }
 
             // Click no olho → modal com pedidos/vendas que usam este lote
             const olhoEl = card.querySelector('.btn-olho');
@@ -1634,6 +1662,50 @@ document.addEventListener('DOMContentLoaded', function () {
         _salvarPrefs();
         renderLotes();
         renderPedidos();
+    }
+
+    /**
+     * Mai/2026 (2026-05-26): zera fração residual do lote criando TGFCAB
+     * TOP 33 (Avaria de Ajuste). Backend valida tolerância de 1% — saldo
+     * acima é recusado. Pós-sucesso: lote some da lista (saldo zerado).
+     */
+    async function zerarFracaoDoLote(lote) {
+        const qtdTxt = fmtQtd(lote.qtd_disponivel);
+        const ok = await IAgro.confirmarAcao({
+            titulo: 'Zerar fração do lote',
+            mensagem: `Vai criar avaria TOP 33 com <strong>${qtdTxt}</strong> de ` +
+                      `<strong>${escapeHtml(lote.descrprod)}</strong> ` +
+                      `(lote ${escapeHtml(lote.codagregacao)}). ` +
+                      `Esse lote sai da listagem após confirmar.`,
+            tipo: 'aviso',
+        });
+        if (!ok) return;
+        try {
+            const resp = await IAgro.postJSON('/sankhya/rastreio/api/zerar-fracao/', {
+                codprod: lote.codprod,
+                codagregacao: lote.codagregacao,
+            });
+            const data = resp.body || {};
+            if (!resp.ok || !data.ok) {
+                IAgro.showToast(data.error || `Falha ao zerar fração (HTTP ${resp.status})`, 'error');
+                return;
+            }
+            IAgro.showToast(
+                `Fração zerada: ${qtdTxt} de ${lote.descrprod} → TOP 33 NUNOTA ${data.nunota_33}`,
+                'success',
+            );
+            // Se o lote zerado era o "armado", desarma
+            if (loteArmado && loteArmado.codagregacao === lote.codagregacao) {
+                loteArmado = null;
+                _salvarPrefs();
+                atualizarBarArmado();
+            }
+            // Reflete na tela — lote some por saldo = 0
+            await carregarLotes(true);
+        } catch (err) {
+            console.error('zerarFracaoDoLote', err);
+            IAgro.showToast('Falha de conexão ao zerar fração.', 'error');
+        }
     }
 
     function atualizarBarArmado() {

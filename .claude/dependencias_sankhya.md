@@ -816,6 +816,7 @@ CODTIPOPER = {
     13:  'VALE',                        # Vale de Compra (Comercial, gera TGFFIN)
     26:  'CLASSIFICACAO',               # Classificação confirmada (hortifrúti)
     30:  'AVARIA_INTERNA',              # Perda no estoque (venda interna)
+    33:  'AVARIA_DE_AJUSTE',            # Ajuste de fração de lote (Mai/2026 — 2026-05-26)
     34:  'PEDIDO_VENDA',                # Pedido de Venda (em aberto)
     35:  'VENDA_NIFE',                  # Venda com NFe (faturada)
     36:  'DEVOLUCAO_VENDA',             # Devolução de venda
@@ -823,6 +824,13 @@ CODTIPOPER = {
     53:  'REQUISICAO_INTERNA',          # Requisição interna (combustível, TIPMOV='Q')
 }
 ```
+
+**TOP 33 — Avaria de Ajuste** (Mai/2026 — 2026-05-26):
+- Confirmada via smoke real (`SELECT * FROM TGFTOP WHERE CODTIPOPER=33`)
+- `DESCROPER='AVARIA DE AJUSTE'`, `TIPMOV='V'`, `ATIVO='S'`, `DHALTER=2020-03-02`
+- Uso histórico: **269 notas** TOP 33 já criadas pelo Sankhya nativo
+- Usada pela IAgro em `zerar_fracao_lote_banco` (módulo Rastreio) — destina-se a ajustes contábeis de fração residual de lote (caixa cheia enviada vs pedido fracionário)
+- TGFITE TOP 33 nativa Sankhya tem `CODAGREGACAO=NULL` em 100% dos casos históricos; IAgro **força CODAGREGACAO preservado** pra rastreabilidade
 
 ### 6.2 STATUSNOTA (Estados da Nota)
 
@@ -842,6 +850,7 @@ CODNAT_POR_TOP = {
     13: 10010100,   # Vale
     26: 10010100,   # Classificação
     30: 20010200,   # Avaria interna (DESCRNAT "AVARIA")
+    33: 20010200,   # Avaria de ajuste (DESCRNAT "AVARIA", mesma da 30) — Mai/2026 — 2026-05-26
     34: 10010100,   # Pedido de Venda
     35: 10010100,   # Venda com NFe
     36: 10020100,   # Devolução de venda (DESCRNAT "DEVOLUCAO DE VENDA")
@@ -849,6 +858,8 @@ CODNAT_POR_TOP = {
     53: 30070200,   # Requisição interna (Combustível)
 }
 ```
+
+**CODNAT 10040800 — Receita de Abastecimento** (Mai/2026 — 2026-05-26): novo CODNAT introduzido em uso pelo IAgro pra TGFFIN automático de **veículos de terceiro** (B1 do módulo Combustível). Quando `TGFVEI.PROPRIO='N'`, criar requisição interna gera TGFFIN com este CODNAT + `RECDESP=+1` (receita a receber do freteiro) + `CODCENCUS=10100` (Comercialização). Vide [`modules/combustivel.md`](modules/combustivel.md) → "TGFFIN automático pra veículos de terceiro".
 
 ### 6.4 CODGRUPO (Grupos de Usuário)
 

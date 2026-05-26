@@ -6,6 +6,179 @@ Controle integral de estoque de combustível: compra (TOP 10 + TGFFIN em aberto)
 
 ---
 
+## 💰 TGFFIN automático pra veículos de terceiro (Mai/2026 — 2026-05-26)
+
+Veículos cadastrados em `TGFVEI` com `PROPRIO='N'` (freteiros, cooperados, maquinário alugado) abastecem do nosso tanque interno mas o financeiro ficava sem rastro. Agora o IAgro gera TGFFIN automático contra o parceiro do veículo a cada requisição.
+
+### Detecção automática (operador não escolhe)
+
+| TGFVEI.PROPRIO | TGFITE.PESO/qtd | Comportamento |
+|---|---|---|
+| `S` (próprio) | normal | **Sem TGFFIN** — comportamento atual preservado |
+| `N` (terceiro) | normal | **Gera TGFFIN** auto + AD_REQ.NUFIN_GERADO populado |
+
+Tipo `EXTERNA_FRETE` foi **removido da UI** desde 2026-05-26. Operador escolhe apenas:
+- **Veículos** (`TIPMOV='INTERNA_FROTA'` no banco)
+- **Maquinário** (`INTERNA_MAQUINARIO`)
+- **Posto Externo** (`EXTERNA_POSTO`)
+
+Backend ainda aceita `EXTERNA_FRETE` por compatibilidade (não usado).
+
+### TGFFIN modelo
+
+Quando `PROPRIO='N'`:
+
+| Campo | Valor |
+|---|---|
+| `CODNAT` | `10040800` (Receita de Abastecimento — DESCRNAT no Sankhya da Agromil) |
+| `CODCENCUS` | `10100` (Comercialização — fixo) |
+| `CODPARC` | `TGFVEI.CODPARC` (parceiro/freteiro do veículo) |
+| `CODVEICULO` | passa o veículo pra rastreio |
+| `RECDESP` | `+1` (receita a receber do freteiro) |
+| `VLRDESDOB` | `qtd × vlrunit` (preço do TOP 10 mais recente como base) |
+| `DTVENC` | `proxima_data_fechamento_decendial(DTNEG)` (ver abaixo) |
+| `ORIGEM` | `E` (entrada de nota — exigido pelo trigger TRG_INC_TGFFIN quando NUNOTA preenchido) |
+| `STATUSNOTA` | em aberto (`DHBAIXA=NULL, VLRBAIXA=0, CODTIPOPERBAIXA=0`) — operador da finança baixa no Sankhya quando descontar do pagamento |
+| `HISTORICO` | `"Abastecimento Diesel S10 / 50 LT (R$6,26) - JFO5H79"` (combustível + qtd + preço + placa) |
+
+### Ciclo decendial pra DTVENC
+
+Helper `proxima_data_fechamento_decendial(dtneg)` em `oracle_conn.py`:
+
+```
+dia 1..10  → DTVENC = dia 10 do mês corrente
+dia 11..20 → DTVENC = dia 20 do mês corrente
+dia 21..fim → DTVENC = último dia do mês (28/29/30/31)
+```
+
+Alinha com o ciclo de acerto Agromil↔freteiros (3 fechamentos por mês). Financeiro só precisa ajustar caso a caso quando vier vencimento atípico.
+
+### Trava NURENEG
+
+`TGFFIN.NURENEG IS NOT NULL` ⇒ financeiro foi tocado por operação de renegociação do Sankhya ⇒ IAgro **não mexe mais** (UPDATE/DELETE). Defesa universal aplicada em B2 (editar) e B3 (excluir). Smoke confirmou semântica: 58% dos TGFFIN da Agromil têm NURENEG (positivo ou negativo — ambos indicam "tocado por renegociação"). Helper `consultar_tgffin_renegociado(nufin)` em `oracle_conn.py`.
+
+### Cenários de edição (B2 — idempotência completa)
+
+`editar_requisicao_combustivel_banco` decide automaticamente conforme estado anterior × estado novo:
+
+| Caso | NUFIN_GERADO anterior | PROPRIO veículo atual | NURENEG | Ação |
+|---|:-:|:-:|:-:|---|
+| **A** | NULL | `N` | — | **CRIA TGFFIN** retroativo (típico: requisições antigas pré-B1) |
+| **B** | preenchido | `N` | NULL | **UPDATE TGFFIN** proporcional (valor + DTVENC) |
+| **C** | preenchido | `N` | NOT NULL | **BLOQUEIA** ("Financeiro NUFIN=X já foi renegociado…") |
+| **D** | preenchido | `S` | NULL | **DELETE TGFFIN** (veículo virou próprio na edição) |
+| **E** | preenchido | `S` | NOT NULL | **BLOQUEIA** (mesma msg do C) |
+| **F** | NULL | `S` | — | nada (preserva fluxo de próprio) |
+
+Caso típico do operador: requisição antiga (pré-B1) sem TGFFIN ganha um automaticamente ao primeiro UPDATE (caso A).
+
+### Exclusão (B3) — DELETE universal
+
+`excluir_requisicao_combustivel_banco` deleta TGFFIN sempre que `NUFIN_GERADO` preenchido (interno terceiro **ou** externo). Trava NURENEG aplicada antes do DELETE. Sem alteração no fluxo de próprio.
+
+### Cadastro pré-requisito
+
+Antes de usar, operador deve cadastrar em `TGFVEI`:
+- `PROPRIO = 'N'`
+- `CODPARC` preenchido (freteiro/parceiro)
+
+Sem CODPARC, IAgro bloqueia com erro humanizado `"Veículo X é de terceiro mas não tem parceiro cadastrado em TGFVEI. Atualize o cadastro antes de lançar."`. Vale igual pra Veículos e Maquinário terceiros.
+
+---
+
+## 📊 Média de consumo Diesel vs ARLA separada (Mai/2026 — 2026-05-26)
+
+Antes, o cálculo de km/L misturava todos os abastecimentos do veículo na ordem cronológica. Como ARLA (codprod 1374) não move o veículo, qualquer ARLA entre 2 Diesels distorcia o cálculo (km dividido por qtd de ARLA = número absurdo). Agora tracking **independente por categoria**.
+
+### Categorias
+
+| Categoria | CODPRODs | km/L calculado |
+|---|---|---|
+| **DIESEL** | 392 (S10), 1373 (S500) | Entre 2 Diesels consecutivos do mesmo veículo |
+| **ARLA** | 1374 | Entre 2 ARLAs consecutivos do mesmo veículo |
+| **OUTRO** | Gasolina, óleo, etc | Não trackeia (só entra em `total_vlr`) |
+
+### Métricas no resumo do detalhe do veículo
+
+7 cards independentes:
+
+| Diesel (verde) | ARLA (âmbar) |
+|---|---|
+| Diesel total (LT) | ARLA total (LT) |
+| Consumo Diesel (km/L) — destaque | Consumo ARLA (km/L) |
+|  | ARLA / Diesel (%) — esperado 3-5% |
+
+Plus: Abastecimentos, Distância (km do Diesel), Valor total no período.
+
+### Tabela Movimentações — célula "Média"
+
+Cada linha mostra a média do abastecimento correspondente:
+- **Linha Diesel**: `X km/L` em verde Agromil
+- **Linha ARLA**: `X km/L⁽ARLA⁾` em âmbar (visualmente distinta)
+- **Linha sem trackeio** (1º abastecimento de cada categoria, ou produtos OUTRO): `—`
+
+### Tests cobrindo 3 cenários
+
+- ARLA no meio NÃO interfere no km/L Diesel
+- ARLAs consecutivos calculam km/L próprio (ignora Diesel no meio)
+- Cenário só com Diesel: regressão, `total_arla=0`, `arla_pct=0%`, `consumo_medio_kmlt_arla=None`
+
+---
+
+## 🗓 Filtro de datas no card Movimentações (Mai/2026 — 2026-05-26)
+
+Antes: filtro de período ficava no header do detalhe do veículo (select "Últimos N dias"). Agora vive no card Movimentações e serve **tanto** pra listagem geral **quanto** pro detalhe do veículo selecionado.
+
+### Layout
+
+```
+[<<]  [Data Inicial]  a  [Data Final]  [>>]
+```
+
+- Setas `<<` `>>` recuam/avançam 1 dia em **ambos** os campos
+- Ao digitar Data Inicial → replica **sempre** em Data Final (operador ajusta dataFim depois se quiser range maior)
+- Default ao abrir: **mês atual** (dia 1 → hoje)
+
+### Helpers JS
+
+| Helper | Função |
+|---|---|
+| `_hojeIso()` | `YYYY-MM-DD` de hoje |
+| `_primeiroDiaMesIso()` | `YYYY-MM-01` do mês corrente |
+| `_shiftIso(iso, delta)` | Avança/recua N dias preservando timezone |
+
+Padrão consolidado em [`conventions.md`](../conventions.md) → "Período data inicial → data final + navegação dia-a-dia".
+
+---
+
+## 🔍 Pesquisa de veículos + lista expandida (Mai/2026 — 2026-05-26)
+
+### Header da lista de veículos — 1 linha
+
+```
+[🚚 Veículos]  [🔍 Buscar placa, modelo ou parceiro…]  [Frota | Maquinário]
+```
+
+Campo de pesquisa filtra (case/acento-insensitive, debounce 200ms):
+- `TGFVEI.PLACA`
+- `TGFVEI.MARCAMODELO`
+- `TGFVEI.ESPECIETIPO`
+- `TGFPAR.NOMEPARC` (do parceiro do veículo)
+
+Empty state contextual: `"Nenhum veículo de frota bate com 'XYZ'."` quando filtro ativo.
+
+### Lista expandida até o limite
+
+Antes: `max-height: 320px` fixo cortava a lista na metade do card. Agora flex column com `flex: 1; min-height: 0; overflow: auto` no grid + ajustes nas wrappers pai (`.cb-veiculos-area`, `#veiculosListaWrap`, `.cb-col-estoque > .cb-card-body`). Scroll só no grid, header e tanques ficam fixos.
+
+### Outros ajustes da sessão
+
+- Filtro Status (`<select id="filtroStatus">`) removido do card Movimentações — operador raramente usava.
+- Campo VLRUNIT do modal Nova Requisição virou **editável** (era readonly em internos). Auto-fill do último preço TOP 10 continua, mas operador pode sobrescrever.
+- Tabela "Produtos inseridos" do modal de Entrada ganhou `<colgroup>` com larguras explícitas — coluna Avaria forn. expandida (input 95→120px), Produto fluida pega o resto.
+
+---
+
 ## ⚠ Mudança crítica de TOP (Mai/2026, 2026-05-13)
 
 **TOP 26 → TOP 53** em todo o módulo. TOP 26 é exclusiva da Classificação de mercadoria (hortifrúti); requisições internas e abastecimentos externos do módulo Combustível usam **TOP 53 — REQUISIÇÃO INTERNA** (`TIPMOV='Q'`, ativa).

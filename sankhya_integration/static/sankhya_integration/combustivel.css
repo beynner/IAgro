@@ -79,6 +79,18 @@
     padding: 0;
 }
 
+/* Mai/2026 (2026-05-26): Estoque tem layout interno flex (tanques fixos + área
+   de veículos expandida). overflow: hidden no card-body delega scroll pro
+   .cb-veiculos-grid (lista de veículos). */
+.cb-col-estoque > .cb-card-body {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.cb-col-estoque > .cb-card-body > .cb-tanques-wrap {
+    flex: 0 0 auto;
+}
+
 /* ====== Inputs / Botões ====== */
 
 .cb-input {
@@ -432,6 +444,55 @@
 .cb-veiculos-area {
     border-top: 1px solid var(--cb-borda);
     padding: 12px 14px 14px 14px;
+    /* Mai/2026 (2026-05-26): expande até o fim do card de Estoque pra lista
+       de veículos não ficar com altura fixa cortada na metade. */
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Modo LISTA — header (toggle COM/MAQ) + busca + grid expandido */
+#veiculosListaWrap {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+#veiculosDetalheWrap {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+}
+
+/* Pesquisa de veículo (placa/modelo/parceiro) — Mai/2026 — 2026-05-26 */
+.cb-veiculos-busca {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    max-width: 320px;
+    display: flex;
+    align-items: center;
+}
+.cb-veiculos-busca .cb-veiculos-busca-icone {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--cb-muted);
+    font-size: 14px;
+    line-height: 1;
+    pointer-events: none;
+    z-index: 2;
+}
+.cb-veiculos-busca .cb-veiculos-busca-input {
+    padding-left: 32px !important;
+    padding-right: 10px !important;
+    height: 28px;
+    width: 100%;
+    max-width: none;
+    position: relative;
+    z-index: 1;
 }
 
 .cb-veiculos-header {
@@ -439,6 +500,8 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 10px;
+    gap: 10px;
+    flex-wrap: nowrap;
 }
 
 .cb-veiculos-title {
@@ -480,8 +543,11 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
-    max-height: 320px;
+    /* Mai/2026 (2026-05-26): expande até o limite do card (era max-height 320px). */
+    flex: 1;
+    min-height: 0;
     overflow: auto;
+    align-content: start;
 }
 
 .cb-veiculo-card {
@@ -562,8 +628,65 @@
 
 .cb-detalhe-periodo {
     display: flex;
-    align-items: center;
+    align-items: flex-start;   /* alinha topos — setas ficam abaixo da ini */
     gap: 6px;
+}
+
+/* Mai/2026 (2026-05-26): filtro de datas movido pro card de Movimentações.
+   Mesmo layout: dataIni + (<< >>) juntos embaixo · "a" · dataFim. */
+.cb-mov-periodo {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+/* Mai/2026 (2026-05-26): padrão Entrada — dataIni com setas << >> juntas
+   embaixo dela; dataFim sozinha à direita. */
+.cb-periodo-ini {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.cb-periodo-setas {
+    display: flex;
+    gap: 4px;
+}
+.cb-btn-mini-nav {
+    height: 22px;
+    flex: 1;          /* divide largura do dateInput entre << e >> */
+    padding: 0 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--cb-muted);
+    transition: all 0.15s ease;
+}
+.cb-btn-mini-nav:hover {
+    background: #f3f5f7;
+    border-color: var(--cb-primary);
+    color: var(--cb-primary);
+}
+.cb-input-data {
+    width: 130px;
+    max-width: 130px;
+    height: 26px;
+    font-size: 11px;
+}
+.cb-detalhe-periodo .cb-sep,
+.cb-mov-periodo .cb-sep {
+    color: var(--cb-muted);
+    font-size: 11px;
+    padding: 6px 2px 0 2px;     /* alinhamento com a data ini */
+}
+
+/* No header de Movimentações (cb-card-actions é flex row align center) o
+   bloco com setas embaixo precisa "estourar" pra baixo sem empurrar os
+   demais filtros. align-self start ancora no topo. */
+.cb-card-actions .cb-mov-periodo {
+    align-self: flex-start;
 }
 
 .cb-detalhe-foto {
@@ -704,6 +827,19 @@
     color: var(--cb-accent);
 }
 
+/* Mai/2026 (2026-05-26): cards de ARLA — âmbar pra distinguir de Diesel.
+   Diesel ocupa o destaque verde Agromil; ARLA fica como métrica auxiliar. */
+.cb-detalhe-metric--arla {
+    background: #fef9c3;
+    border-color: #fde68a;
+}
+.cb-detalhe-metric--arla .cb-detalhe-metric-label {
+    color: #92400e;
+}
+.cb-detalhe-metric--arla .cb-detalhe-metric-valor {
+    color: #b45309;
+}
+
 /* ====== Ações na listagem de movimentações ====== */
 
 .cb-acoes-cell {
@@ -793,6 +929,18 @@
 .cb-rel-consumo-destaque {
     font-weight: 600;
     color: var(--cb-primary);
+}
+
+/* Mai/2026 (2026-05-26): célula "Média" da tabela quando o abastecimento é
+   ARLA — âmbar pra distinguir do Diesel verde. */
+.cb-rel-consumo-arla {
+    font-weight: 600;
+    color: #b45309;
+}
+.cb-rel-consumo-arla sup {
+    font-size: 9px;
+    margin-left: 2px;
+    opacity: 0.8;
 }
 
 .cb-btn-acao:disabled {

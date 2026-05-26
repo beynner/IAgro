@@ -16,6 +16,7 @@ A alocação de lote a pedido é feita gravando `CODAGREGACAO` no `TGFITE` do pe
 - Listar pedidos abertos (TOP 34) com falta por produto
 - Vincular lote → item de pedido (atribuição parcial ou total via SPLIT)
 - Desvincular lote (remove `CODAGREGACAO`)
+- **Zerar fração residual** do lote (Mai/2026 — 2026-05-26) → cria TGFCAB TOP 33
 - Filtro cruzado bidirecional (lote ↔ pedido)
 - Drag & drop de lote em produto-linha
 - Modais de vínculos (👁 nas linhas)
@@ -145,6 +146,7 @@ maior que 10 min.
 | `consultar_dados_etiqueta_pedido(nunota, codprod=None, pesos_overrides=None)` | Leitura — JOIN TGFCAB+TGFITE+TGFPAR+TGFPRO+TSIEMP. Inclui só linhas com `CODAGREGACAO != NULL`. **Mai/2026 (2026-05-16):** retorna `peso_resolvido` por linha em cascata — override do operador → `TGFITE.PESO` próprio → DISTINCT `PESO` da TOP 26 do mesmo lote. Se TOP 26 tem 2+ pesos, marca `precisa_escolha=True` |
 | `consultar_pesos_classificacao_lote(codagregacao)` | **Nova (Mai/2026 — 2026-05-16).** `SELECT DISTINCT PESO FROM TGFITE i JOIN TGFCAB c WHERE c.CODTIPOPER=26 AND c.STATUSNOTA<>'E' AND i.CODAGREGACAO=:l AND i.PESO>0 ORDER BY PESO DESC`. Cacheada por lote dentro de `consultar_dados_etiqueta_pedido` |
 | `calcular_qtd_etiquetas(qtd_kg, peso_caixa_kg)` | `math.ceil(qtd/peso)`. Retorna 0 se algum for ≤ 0 — frontend bloqueia impressão |
+| `zerar_fracao_lote_banco(codprod, codagregacao, codusu, nomeusu)` | **Mai/2026 — 2026-05-26 (Cat B aplicada).** Cria TGFCAB TOP 33 (Avaria de Ajuste, CODNAT 20010200) zerando saldo residual do lote. Trava: só zera quando `saldo <= qtd_entrada × 1%`. TGFITE preserva `CODAGREGACAO`. Audit `ZERAR_FRACAO_LOTE`. Vide seção "Zerar fração do lote — TOP 33" abaixo |
 
 ---
 
@@ -157,6 +159,102 @@ maior que 10 min.
 **Validação de saldo entre empresas:** soma saldo `(CODPROD, CODAGREGACAO)` globalmente, sem filtrar por `CODEMP`. Permite vincular lote da empresa A em pedido da empresa B (decisão explícita do usuário).
 
 **Recalcula `VLRNOTA` / `QTDVOL`** via `recalcular_totais_nota_banco`.
+
+---
+
+## Zerar fração do lote — TOP 33 (Mai/2026 — 2026-05-26)
+
+Operação rotineira: pedido pede **19 kg** de tomate, operação envia **20 kg** (caixa cheia), sistema desconta 19 kg → lote fica com **1 kg fantasma** de saldo. Tela poluída com resíduos que não existem fisicamente. Botão **broom** (vassoura) no card de lote zera essa fração criando uma avaria contábil rastreada.
+
+### Detecção
+
+Frontend calcula `ehFracao` no render dos cards de lote:
+
+```js
+ehFracao = qtd_disponivel > 0
+        && qtd_disponivel <= qtd_entrada × 1%
+```
+
+`qtd_entrada` vem da view `AD_SALDO_LOTE_CACHE` (qtd que entrou na TOP 11 origem do lote). Tolerância **1% naturalmente proporcional** ao volume:
+
+| Tamanho do lote | Tolerância |
+|---|---|
+| 1000 kg | 10 kg |
+| 500 kg | 5 kg |
+| 100 kg | 1 kg |
+| 50 kg | 0,5 kg |
+
+Card com fração mostra badge âmbar `📦 fração` + classe `.lote-fracao` (borda esquerda âmbar) + botão broom.
+
+### Trava no backend (defesa em profundidade)
+
+`zerar_fracao_lote_banco` valida `qtd_disponivel <= qtd_entrada × 0.01` **antes** de criar TOP 33. Se acima da tolerância (ex: 5 kg de lote 100 kg = 5%), recusa com:
+
+```
+"Saldo X kg está acima da tolerância (Y kg = 1% de Z kg).
+ Use TOP 30 avulsa pra avaria maior."
+```
+
+### TGFCAB TOP 33 — Avaria de Ajuste
+
+Smoke validou em Mai/2026 (2026-05-26) que TOP 33 já existe no Sankhya da Agromil:
+
+| Campo | Valor |
+|---|---|
+| `CODTIPOPER` | 33 |
+| `DESCROPER` | `'AVARIA DE AJUSTE'` |
+| `TIPMOV` | `'V'` (saída) |
+| `ATIVO` | `'S'` |
+| `CODNAT` mais usado | **20010200** (DESCRNAT `'AVARIA'`, mesmo da TOP 30) |
+| Uso histórico | 269 notas (uso real Sankhya nativo) |
+
+Diferença da TOP 30: TOP 30 é avaria de **perda comercial** (saiu mas estragou); TOP 33 é **ajuste contábil** (diferença pequena entre o que o sistema diz e o físico). Mesma natureza, semântica diferente.
+
+### Estrutura criada
+
+```python
+def zerar_fracao_lote_banco(codprod, codagregacao, codusu, nomeusu) -> dict:
+    """
+    1. SELECT qtd_disponivel + qtd_entrada da view AD_SALDO_LOTE_CACHE
+    2. Valida saldo <= entrada × 1% (defesa em profundidade)
+    3. SELECT cabeçalho TOP 11 origem (herda CODEMP, CODPARC, CODTIPVENDA, etc)
+    4. SELECT VLRUNIT do vale TOP 13 (custo médio do lote)
+    5. INSERT TGFCAB TOP 33 STATUSNOTA='L' direto
+       CODNAT=20010200, CODTIPVENDA herdada (trigger TRG_INC_TGFCAB exige)
+       AD_NUMPEDIDOORIG = NUNOTA TOP 11 (rastreabilidade)
+       OBSERVACAO = 'Ajuste de fração do lote XXX (Y kg)'
+    6. INSERT TGFITE com CODAGREGACAO preservado
+       QTDNEG = saldo residual
+       VLRUNIT = VLRUNIT do vale TOP 13 (documenta custo da perda)
+       VLRTOT = saldo × VLRUNIT
+    7. recalcular_totais_nota_banco
+    8. Invalida cache Rastreio
+    9. Audit ZERAR_FRACAO_LOTE em AD_AUDITORIA_GERAL
+    """
+```
+
+**Importante**: TGFITE TOP 33 nativa Sankhya tem `CODAGREGACAO = NULL` em 100% dos casos históricos. IAgro **força CODAGREGACAO preservado** pra manter rastreabilidade ponta-a-ponta — mesmo padrão da TOP 30 automática.
+
+### Endpoint + frontend
+
+| Componente | Detalhe |
+|---|---|
+| `POST /sankhya/rastreio/api/zerar-fracao/` | Body `{codprod, codagregacao}`. `@exige_grupo('rastreio')` |
+| Badge `📦 fração` | `<span class="badge-fracao-lote">` âmbar inline na coluna QTD |
+| Botão broom | `<button class="btn-zerar-fracao">` com ícone `ph-broom` |
+| Modal de confirmação | Via `IAgro.confirmarAcao({tipo: 'aviso'})` mostrando qtd + produto + lote |
+| `zerarFracaoDoLote(lote)` | Handler JS: POST → toast verde → `carregarLotes(true)` (lote some) |
+| `CODNAT_POR_TOP[33] = 20010200` | Adicionado ao dict canônico em `oracle_conn.py` |
+| `TOLERANCIA_FRACAO_LOTE_PCT = 0.01` | Constante de módulo em `oracle_conn.py` |
+
+### Manual, não automático
+
+**Operador decide caso a caso**:
+- Cada zerada é uma decisão humana auditada (`ZERAR_FRACAO_LOTE` em `AD_AUDITORIA_GERAL` registra quem zerou e quando).
+- Reversível mentalmente — se a regra de tolerância de 1% se mostrar errada nos primeiros dias, basta evitar clicar.
+- Sem perigo de zerar lote legítimo que tinha 1,5 kg esperando próximo pedido.
+
+Se aparecer demanda de automatizar depois (após 1-2 meses de uso), criar cron opcional vira trabalho pequeno.
 
 ---
 

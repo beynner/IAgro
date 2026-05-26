@@ -50,15 +50,28 @@
         return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     }
 
+    // Mai/2026 (2026-05-26): categorização de combustível.
+    // Diesel (392 S10, 1373 S500) → km/L do veículo
+    // ARLA (1374) → km/L do ARLA (métrica separada — não interfere no Diesel)
+    // Outros codprods → não trackeia consumo (gasolina rara, óleo etc)
+    const CODPRODS_DIESEL = new Set([392, 1373]);
+    const CODPROD_ARLA = 1374;
+    function _categoriaCombustivel(codprod) {
+        const cp = parseInt(codprod, 10);
+        if (CODPRODS_DIESEL.has(cp)) return 'DIESEL';
+        if (cp === CODPROD_ARLA) return 'ARLA';
+        return 'OUTRO';
+    }
+
     /**
      * Calcula consumo (km percorridos + km/L) entre abastecimentos
-     * consecutivos do MESMO veículo. Funciona pra requisições internas e
-     * externas (ambas têm hodometro_km na metadata da requisição).
+     * consecutivos da MESMA categoria de combustível do MESMO veículo.
+     * ARLA não interfere no km/L do Diesel (e vice-versa).
      *
-     * Estratégia: agrupa por codveiculo → ordena ASC por dtneg+nunota →
-     * pra cada item idx>=1, km = hod[idx] - hod[idx-1] e consumo = km / qtd[idx-1]
-     * (a qtd anterior foi consumida pra rodar até o atual). Retorna mapa
-     * chave → {km_percorridos, kmlt} indexado por `${nunota}-${sequencia}`.
+     * Estratégia: agrupa por `(codveiculo, categoria)` → ordena ASC por
+     * dtneg+nunota → pra cada item idx>=1, km = hod[idx] - hod[idx-1] e
+     * consumo = km / qtd[idx-1]. Retorna mapa chave → {km_percorridos, kmlt,
+     * categoria} indexado por `${nunota}-${sequencia}`.
      */
     function _calcularConsumoMov(items) {
         const grupos = {};
@@ -67,8 +80,11 @@
             const cv = r.codveiculo;
             const hod = parseFloat(r.hodometro_km);
             if (!cv || !hod || hod <= 0) return;
-            if (!grupos[cv]) grupos[cv] = [];
-            grupos[cv].push({
+            const categoria = _categoriaCombustivel(it.codprod);
+            if (categoria === 'OUTRO') return;     // não trackeia
+            const key = `${cv}-${categoria}`;
+            if (!grupos[key]) grupos[key] = { categoria, arr: [] };
+            grupos[key].arr.push({
                 chave: `${it.nunota}-${it.sequencia || 0}`,
                 dtneg: it.dtneg || '',
                 nunota: it.nunota,
@@ -77,18 +93,19 @@
             });
         });
         const out = {};
-        Object.values(grupos).forEach(arr => {
-            arr.sort((a, b) => {
+        Object.values(grupos).forEach(g => {
+            g.arr.sort((a, b) => {
                 if (a.dtneg !== b.dtneg) return a.dtneg.localeCompare(b.dtneg);
                 return a.nunota - b.nunota;
             });
-            for (let i = 1; i < arr.length; i++) {
-                const km = arr[i].hod - arr[i - 1].hod;
-                const qtdAnt = arr[i - 1].qtd;
+            for (let i = 1; i < g.arr.length; i++) {
+                const km = g.arr[i].hod - g.arr[i - 1].hod;
+                const qtdAnt = g.arr[i - 1].qtd;
                 if (km > 0) {
-                    out[arr[i].chave] = {
+                    out[g.arr[i].chave] = {
                         km_percorridos: km,
                         kmlt: qtdAnt > 0 ? (km / qtdAnt) : null,
+                        categoria: g.categoria,
                     };
                 }
             }
@@ -100,7 +117,6 @@
         switch (tipo) {
             case 'INTERNA_FROTA':       return 'cb-badge cb-badge-frota';
             case 'INTERNA_MAQUINARIO':  return 'cb-badge cb-badge-maquina';
-            case 'EXTERNA_FRETE':       return 'cb-badge cb-badge-frete';
             case 'EXTERNA_POSTO':       return 'cb-badge cb-badge-externo';
             default:                    return 'cb-badge';
         }
@@ -108,9 +124,8 @@
 
     function rotuloTipo(tipo) {
         switch (tipo) {
-            case 'INTERNA_FROTA':       return 'Frota';
+            case 'INTERNA_FROTA':       return 'Veículo';
             case 'INTERNA_MAQUINARIO':  return 'Máquina';
-            case 'EXTERNA_FRETE':       return 'Freteiro';
             case 'EXTERNA_POSTO':       return '<i class="ph ph-globe"></i> Externo';
             default:                    return '—';
         }
@@ -394,11 +409,12 @@
 
         const params = new URLSearchParams();
         const mov    = document.getElementById('filtroMov').value;
-        const status = document.getElementById('filtroStatus').value;
         const tipo   = document.getElementById('filtroTipo').value;
-        if (mov)    params.set('mov', mov);
-        if (status) params.set('status', status);
-        if (tipo)   params.set('tipo', tipo);
+        if (mov)  params.set('mov', mov);
+        if (tipo) params.set('tipo', tipo);
+        // Mai/2026 (2026-05-26): filtro de datas global do card
+        if (movDataIni) params.set('date_start', movDataIni);
+        if (movDataFim) params.set('date_end',   movDataFim);
         params.set('limit', '100');
 
         try {
@@ -473,9 +489,18 @@
                 const celKm = consumo
                     ? `<td class="cb-right">${formatNumero(consumo.km_percorridos, 0)} km</td>`
                     : '<td class="cb-right cb-muted">—</td>';
-                const celMedia = consumo && consumo.kmlt
-                    ? `<td class="cb-right cb-rel-consumo-destaque">${formatNumero(consumo.kmlt, 2)} km/L</td>`
-                    : '<td class="cb-right cb-muted">—</td>';
+                // Mai/2026 (2026-05-26): Diesel verde Agromil (destaque), ARLA âmbar
+                // (métrica separada — visualmente distinta pra operador não confundir).
+                let celMedia;
+                if (consumo && consumo.kmlt) {
+                    if (consumo.categoria === 'ARLA') {
+                        celMedia = `<td class="cb-right cb-rel-consumo-arla" title="Consumo de ARLA (separado do Diesel)">${formatNumero(consumo.kmlt, 2)} km/L<sup>ARLA</sup></td>`;
+                    } else {
+                        celMedia = `<td class="cb-right cb-rel-consumo-destaque">${formatNumero(consumo.kmlt, 2)} km/L</td>`;
+                    }
+                } else {
+                    celMedia = '<td class="cb-right cb-muted">—</td>';
+                }
 
                 return `
                     <tr data-nunota="${it.nunota}" data-tipo="${it.tipo_movimento}">
@@ -704,7 +729,7 @@
     function _limparModalReq() {
         document.querySelector('input[name="cbTipo"][value="INTERNA_FROTA"]').checked = true;
         ['reqVeiculoVis','reqVeiculoCod','reqProdutoVis','reqProdutoCod','reqQtd',
-         'reqVlrUnit','reqHodometroKm','reqHorimetroH','reqCencusVis','reqCencusCod','reqDocFrete','reqObs',
+         'reqVlrUnit','reqHodometroKm','reqHorimetroH','reqCencusVis','reqCencusCod','reqObs',
          'reqPostoVis','reqPostoCod','reqExternoDoc','reqExternoDtNeg','reqExternoDtVenc',
          'reqNaturezaVis','reqNaturezaCod','reqTipVendaVis','reqTipVendaCod','reqDtNeg']
             .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
@@ -747,7 +772,6 @@
         requisicaoEditandoNunota = null;
         _limparModalReq();
         _atualizarHeaderModalReq();
-        atualizarDocFreteVisivel();
         atualizarMedidorPorTipo();
         atualizarExternoVisivel();
         atualizarDtNegInternaVisivel();
@@ -782,7 +806,6 @@
             const tipo = req.TIPO || 'INTERNA_FROTA';
             const radio = document.querySelector(`input[name="cbTipo"][value="${tipo}"]`);
             if (radio) radio.checked = true;
-            atualizarDocFreteVisivel();
             atualizarMedidorPorTipo();
             atualizarExternoVisivel();
             atualizarDtNegInternaVisivel();
@@ -877,9 +900,8 @@
                 document.getElementById('reqNaturezaVis').value = String(cab.CODNAT);
             }
 
-            // Doc frete + observação
-            if (req.DOC_FRETE_REF) document.getElementById('reqDocFrete').value = req.DOC_FRETE_REF;
-            if (cab.OBSERVACAO)    document.getElementById('reqObs').value      = cab.OBSERVACAO;
+            // Observação
+            if (cab.OBSERVACAO) document.getElementById('reqObs').value = cab.OBSERVACAO;
         } catch (err) {
             IAgro.showToast('Falha de conexão ao carregar requisição.', 'error');
             fecharModalNovaReq();
@@ -895,23 +917,9 @@
         return r ? r.value : 'INTERNA_FROTA';
     }
 
-    function atualizarDocFreteVisivel() {
-        const wrap = document.getElementById('reqDocFreteWrap');
-        if (tipoSelecionado() === 'EXTERNA_FRETE') wrap.classList.remove('hidden');
-        else wrap.classList.add('hidden');
-    }
-
     function atualizarMedidorPorTipo() {
-        const tipo = tipoSelecionado();
+        // Mai/2026: hodômetro/horímetro opcionais em todos os tipos — sempre visíveis.
         const wrap = document.getElementById('reqMedidoresWrap');
-        // Mai/2026: hodômetro/horímetro opcionais em todos os tipos.
-        // EXTERNA_FRETE: campos escondidos (veículo terceiro, sem rastreamento).
-        if (tipo === 'EXTERNA_FRETE') {
-            wrap.classList.add('hidden');
-            document.getElementById('reqHodometroKm').value = '';
-            document.getElementById('reqHorimetroH').value = '';
-            return;
-        }
         wrap.classList.remove('hidden');
     }
 
@@ -949,13 +957,13 @@
             }
         }
 
-        // Mai/2026: campo Valor Unit. (single, interno) é READONLY — puxa do
-        // último abastecimento de estoque.
+        // Mai/2026 (2026-05-26): campo Valor Unit. editável (operador pode
+        // sobrescrever o auto-fill do último abastecimento). Antes era readonly.
         const vlrUnitInp = document.getElementById('reqVlrUnit');
         if (vlrUnitInp) {
-            vlrUnitInp.readOnly = true;
-            vlrUnitInp.title = 'Preço travado — puxado do último abastecimento de estoque';
-            vlrUnitInp.style.background = '#f1f5f9';
+            vlrUnitInp.readOnly = false;
+            vlrUnitInp.title = 'Auto-preenchido com o último preço. Pode editar.';
+            vlrUnitInp.style.background = '';
         }
 
         // Quando entra em externo, default datas = hoje (à vista)
@@ -1139,13 +1147,10 @@
                 erros.push('Há item(ns) com qtd, valor unit. ou valor total em branco. Preencha os 3 (digite 2 e o terceiro calcula).');
             }
         } else {
-            // Single-item (interno ou EXTERNA_FRETE)
+            // Single-item (INTERNA_FROTA / INTERNA_MAQUINARIO)
             if (!document.getElementById('reqProdutoCod').value) erros.push('Selecione um combustível.');
             const qtd = parseFloat(document.getElementById('reqQtd').value || '0');
             if (!qtd || qtd <= 0) erros.push('Informe a quantidade.');
-            if (tipo === 'EXTERNA_FRETE' && !document.getElementById('reqDocFrete').value.trim()) {
-                erros.push('Documento do frete obrigatório.');
-            }
             // Mai/2026: hodômetro/horímetro opcionais em todos os tipos.
         }
         return erros;
@@ -1199,7 +1204,6 @@
             payload.codprod = parseInt(document.getElementById('reqProdutoCod').value, 10);
             payload.qtd     = parseFloat(document.getElementById('reqQtd').value);
             payload.vlrunit = parseFloat(document.getElementById('reqVlrUnit').value || '0') || null;
-            payload.doc_frete_ref = document.getElementById('reqDocFrete').value.trim() || null;
         }
 
         const btn = document.getElementById('btnConfirmarReq');
@@ -1251,7 +1255,12 @@
     let veiculosCarregados = [];      // todos os veículos próprios
     let veiculosFiltro = 'COM';        // COM | MAQ
     let veiculoDetalheCodvei = null;   // null = modo lista; int = modo detalhe
-    let veiculoDetalhePeriodo = 30;    // dias
+    let veiculoTextoBusca  = '';       // pesquisa por placa/modelo/parceiro (Mai/2026 — 2026-05-26)
+    // Mai/2026 (2026-05-26): filtro de datas vive no card Movimentações e
+    // serve TANTO pra listagem geral quanto pro detalhe do veículo.
+    // Convenção: ao alterar dataIni, replica em dataFim (igual Entrada).
+    let movDataIni = null;  // 'YYYY-MM-DD'
+    let movDataFim = null;  // 'YYYY-MM-DD'
 
     // Heurística COM vs MAQ via ESPECIETIPO (Mai/2026 — TGFVEI.TIPOMEDICAO está NULL)
     const PALAVRAS_MAQ = ['TRATOR', 'COLHEIT', 'MAQUINA', 'PULVERIZ', 'ROCADEIR', 'ROÇADEIR', 'PLANTADEIR'];
@@ -1320,11 +1329,28 @@
     function renderVeiculosLista() {
         const grid = document.getElementById('veiculosGrid');
         if (!grid) return;
-        const lista = veiculosCarregados.filter(v => v._categoria === veiculosFiltro);
+        let lista = veiculosCarregados.filter(v => v._categoria === veiculosFiltro);
+        // Mai/2026 (2026-05-26): pesquisa por placa, modelo ou nome do parceiro.
+        // Case/acento-insensitive. Casa qualquer um dos campos.
+        const termo = (veiculoTextoBusca || '').trim().toLowerCase();
+        if (termo) {
+            const norm = (s) => String(s || '').toLowerCase().normalize('NFD')
+                .replace(/[̀-ͯ]/g, '');
+            const t = norm(termo);
+            lista = lista.filter(v =>
+                norm(v.placa).includes(t)
+                || norm(v.marcamodelo).includes(t)
+                || norm(v.especietipo).includes(t)
+                || norm(v.nomeparc).includes(t)
+            );
+        }
         if (lista.length === 0) {
             const rotulo = veiculosFiltro === 'MAQ' ? 'maquinário' : 'frota';
+            const msg = termo
+                ? `Nenhum veículo de ${rotulo} bate com "${termo}".`
+                : `Nenhum veículo de ${rotulo} cadastrado.`;
             grid.innerHTML = `<div class="cb-empty" style="padding: 24px 14px; grid-column: 1 / -1;">
-                Nenhum veículo de ${rotulo} cadastrado.
+                ${msg}
             </div>`;
             return;
         }
@@ -1366,18 +1392,41 @@
         renderVeiculosLista();
     }
 
-    function _datasPeriodo(dias) {
-        const fim = new Date();
-        const ini = new Date(fim.getTime() - dias * 86400000);
-        return {
-            inicio: ini.toISOString().slice(0, 10),
-            fim:    fim.toISOString().slice(0, 10),
-        };
+    function _hojeIso() {
+        const d = new Date();
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${dd}`;
+    }
+
+    function _primeiroDiaMesIso() {
+        // Default ao abrir o card: do dia 1 do mês corrente até hoje
+        const d = new Date();
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        return `${y}-${m}-01`;
+    }
+
+    function _shiftIso(iso, deltaDias) {
+        // Mai/2026 (2026-05-26): navegação dia-a-dia (<< / >>) no detalhe veículo
+        try {
+            let d = iso ? new Date(iso + 'T12:00:00') : new Date();
+            if (isNaN(d.getTime())) d = new Date();
+            d.setDate(d.getDate() + deltaDias);
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${dd}`;
+        } catch (_) {
+            return iso || _hojeIso();
+        }
     }
 
     async function selecionarVeiculo(codveiculo) {
         veiculoDetalheCodvei = codveiculo;
-        // Troca pra modo detalhe
+        // Troca pra modo detalhe — datas vêm do filtro de Movimentações
+        // (não resetamos pra preservar o que operador já tinha escolhido).
         document.getElementById('veiculosListaWrap').classList.add('hidden');
         document.getElementById('veiculosDetalheWrap').classList.remove('hidden');
         await carregarDetalheVeiculo();
@@ -1385,7 +1434,8 @@
 
     async function carregarDetalheVeiculo() {
         if (!veiculoDetalheCodvei) return;
-        const { inicio, fim } = _datasPeriodo(veiculoDetalhePeriodo);
+        const inicio = movDataIni || _hojeIso();
+        const fim    = movDataFim || inicio;
         const params = new URLSearchParams({
             codveiculo: String(veiculoDetalheCodvei),
             date_start: inicio,
@@ -1429,12 +1479,25 @@
                 </div>
             `;
 
-            // Resumo (cards de métricas)
-            const consumoMedio = tot.consumo_medio_kmlt !== null && tot.consumo_medio_kmlt !== undefined
+            // Resumo (cards de métricas) — Mai/2026 (2026-05-26): Diesel e ARLA
+            // têm consumo SEPARADO. ARLA não move o veículo, mas o gasto importa.
+            const consumoDiesel = tot.consumo_medio_kmlt !== null && tot.consumo_medio_kmlt !== undefined
                 ? formatNumero(tot.consumo_medio_kmlt, 2) + ' km/L'
                 : (tot.consumo_medio_lth !== null && tot.consumo_medio_lth !== undefined
                     ? formatNumero(tot.consumo_medio_lth, 2) + ' L/h'
                     : '—');
+            const consumoArla = tot.consumo_medio_kmlt_arla !== null && tot.consumo_medio_kmlt_arla !== undefined
+                ? formatNumero(tot.consumo_medio_kmlt_arla, 2) + ' km/L'
+                : '—';
+            const arlaPctLabel = tot.arla_pct_diesel !== null && tot.arla_pct_diesel !== undefined
+                ? formatNumero(tot.arla_pct_diesel, 1) + '%'
+                : '—';
+            const totalDieselLabel = tot.total_diesel > 0
+                ? formatNumero(tot.total_diesel, 0) + ' LT'
+                : '—';
+            const totalArlaLabel = tot.total_arla > 0
+                ? formatNumero(tot.total_arla, 0) + ' LT'
+                : '—';
             const distLabel = tot.km_total > 0
                 ? formatNumero(tot.km_total, 0) + ' km'
                 : (tot.h_total > 0 ? formatNumero(tot.h_total, 1) + ' h' : '—');
@@ -1444,16 +1507,28 @@
                     <div class="cb-detalhe-metric-valor">${tot.qtd_abastecimentos || 0}</div>
                 </div>
                 <div class="cb-detalhe-metric">
-                    <div class="cb-detalhe-metric-label">Litros</div>
-                    <div class="cb-detalhe-metric-valor">${formatNumero(tot.total_litros, 0)} LT</div>
-                </div>
-                <div class="cb-detalhe-metric">
                     <div class="cb-detalhe-metric-label">Distância</div>
                     <div class="cb-detalhe-metric-valor">${distLabel}</div>
                 </div>
+                <div class="cb-detalhe-metric">
+                    <div class="cb-detalhe-metric-label">Diesel total</div>
+                    <div class="cb-detalhe-metric-valor">${totalDieselLabel}</div>
+                </div>
                 <div class="cb-detalhe-metric cb-detalhe-metric--destaque">
-                    <div class="cb-detalhe-metric-label">Consumo médio</div>
-                    <div class="cb-detalhe-metric-valor">${consumoMedio}</div>
+                    <div class="cb-detalhe-metric-label">Consumo Diesel</div>
+                    <div class="cb-detalhe-metric-valor">${consumoDiesel}</div>
+                </div>
+                <div class="cb-detalhe-metric cb-detalhe-metric--arla">
+                    <div class="cb-detalhe-metric-label">ARLA total</div>
+                    <div class="cb-detalhe-metric-valor">${totalArlaLabel}</div>
+                </div>
+                <div class="cb-detalhe-metric cb-detalhe-metric--arla">
+                    <div class="cb-detalhe-metric-label">Consumo ARLA</div>
+                    <div class="cb-detalhe-metric-valor">${consumoArla}</div>
+                </div>
+                <div class="cb-detalhe-metric cb-detalhe-metric--arla">
+                    <div class="cb-detalhe-metric-label">ARLA / Diesel</div>
+                    <div class="cb-detalhe-metric-valor">${arlaPctLabel}</div>
                 </div>
                 <div class="cb-detalhe-metric" style="grid-column: 1 / -1;">
                     <div class="cb-detalhe-metric-label">Valor total no período</div>
@@ -2086,9 +2161,9 @@
         document.getElementById('btnNovaEntrada').addEventListener('click', abrirModalNovaEntrada);
 
         if (window.IAgro && IAgro.wireFilterAuto) {
-            IAgro.wireFilterAuto(['filtroMov', 'filtroStatus', 'filtroTipo'], carregarMovimentacoes);
+            IAgro.wireFilterAuto(['filtroMov', 'filtroTipo'], carregarMovimentacoes);
         } else {
-            ['filtroMov','filtroStatus','filtroTipo'].forEach(id =>
+            ['filtroMov','filtroTipo'].forEach(id =>
                 document.getElementById(id).addEventListener('change', carregarMovimentacoes));
         }
 
@@ -2098,7 +2173,6 @@
         document.getElementById('btnConfirmarReq').addEventListener('click', enviarRequisicao);
         document.querySelectorAll('input[name="cbTipo"]').forEach(r => {
             r.addEventListener('change', () => {
-                atualizarDocFreteVisivel();
                 atualizarMedidorPorTipo();
                 atualizarExternoVisivel();
                 atualizarDtNegInternaVisivel();
@@ -2241,10 +2315,62 @@
             btn.addEventListener('click', () => _aplicarToggle(btn.dataset.filtro));
         });
         document.getElementById('btnVoltarVeiculos').addEventListener('click', voltarParaListaVeiculos);
-        document.getElementById('detPeriodo').addEventListener('change', (e) => {
-            veiculoDetalhePeriodo = parseInt(e.target.value, 10) || 30;
-            carregarDetalheVeiculo();
-        });
+
+        // Mai/2026 (2026-05-26): filtro de datas vive no card Movimentações
+        // e serve TANTO pra listagem geral quanto pro detalhe do veículo
+        // (carregarMovimentacoes decide internamente).
+        // Padrão (vide conventions.md): dataIni → replica em dataFim. <<>> avança 1 dia.
+        const movIni  = document.getElementById('movDataIni');
+        const movFim  = document.getElementById('movDataFim');
+        const movPrev = document.getElementById('movPrevDay');
+        const movNext = document.getElementById('movNextDay');
+        // Mai/2026 (2026-05-26): default ao abrir a página = MÊS ATUAL
+        // (dia 1 do mês corrente até hoje). Operador ajusta dataIni com setas
+        // ou digita uma data específica pra filtrar 1 dia só.
+        const _bootIni = _primeiroDiaMesIso();
+        const _bootFim = _hojeIso();
+        movDataIni = _bootIni;
+        movDataFim = _bootFim;
+        if (movIni) movIni.value = _bootIni;
+        if (movFim) movFim.value = _bootFim;
+        if (movIni && movFim) {
+            // SEMPRE replica dataIni em dataFim. Operador ajusta dataFim
+            // depois se quiser range maior.
+            movIni.addEventListener('change', () => {
+                const v = movIni.value;
+                if (!v) return;
+                movDataIni = v;
+                movFim.value = v;
+                movDataFim = v;
+                carregarMovimentacoes();
+            });
+            movFim.addEventListener('change', () => {
+                const v = movFim.value;
+                if (!v) return;
+                movDataFim = v;
+                carregarMovimentacoes();
+            });
+        }
+        const shiftMov = (delta) => {
+            const novoIni = _shiftIso(movDataIni || _hojeIso(), delta);
+            movDataIni = novoIni;
+            movDataFim = novoIni;
+            if (movIni) movIni.value = novoIni;
+            if (movFim) movFim.value = novoIni;
+            carregarMovimentacoes();
+        };
+        if (movPrev) movPrev.addEventListener('click', (e) => { e.preventDefault(); shiftMov(-1); });
+        if (movNext) movNext.addEventListener('click', (e) => { e.preventDefault(); shiftMov(1); });
+
+        // Mai/2026 (2026-05-26): pesquisa por placa/modelo/parceiro
+        const inpBusca = document.getElementById('filtroVeiculoTxt');
+        if (inpBusca) {
+            const aplicarBusca = IAgro.debounce((v) => {
+                veiculoTextoBusca = (v || '').trim();
+                renderVeiculosLista();
+            }, 200);
+            inpBusca.addEventListener('input', (e) => aplicarBusca(e.target.value));
+        }
 
         // Typeaheads
         montarTypeaheadVeiculo();
