@@ -68,6 +68,679 @@ Visível só pra grupos Diretoria (`1`) e Suporte (`6`):
 
 ---
 
+## 📱 Redesign Mobile app-like (Mai/2026 — 2026-05-26/27)
+
+Estratégia pra módulos terem fluxo mobile próprio (não só responsivo) — PWA-ready. Módulos com redesign até hoje: **Entrada** e **Classificação**.
+
+### Arquitetura — 2 containers paralelos no HTML
+
+```html
+<div class="{modulo}-portal">
+  <div class="{modulo}-desktop">  <!-- layout original preservado -->
+    ...
+  </div>
+  <div class="{modulo}-mobile">    <!-- novo layout mobile-first -->
+    <section class="m-screen m-screen--lista is-active">...</section>
+    <section class="m-screen m-screen--detalhe">...</section>
+    ...
+    <div class="m-sheet" data-sheet="filtros">...</div>
+    <nav class="m-bottom-nav">...</nav>
+    <button class="m-fab">...</button>
+  </div>
+</div>
+```
+
+CSS controla visibilidade via media query escopada:
+
+```css
+.{modulo}-mobile { display: none; }
+.{modulo}-desktop { display: flex; ... }
+
+@media (max-width: 900px) {
+  body[data-active-module="{modulo}"] .{modulo}-desktop { display: none !important; }
+  body[data-active-module="{modulo}"] .{modulo}-mobile { display: block; }
+  body[data-active-module="{modulo}"] .content-header,
+  body[data-active-module="{modulo}"] .ia-footer-inline { display: none; }
+  body[data-active-module="{modulo}"] .main-layout { padding: 0 !important; overflow: hidden !important; }
+}
+```
+
+### Classes `.m-*` padrão (paleta compartilhada via tokens)
+
+| Classe | Função |
+|---|---|
+| `.m-screen` | Tela full-screen empilhada (1 visível por vez via `.is-active`). Transição `translateX 0.28s` |
+| `.m-screen-header` | Header sticky 48px com back/title/actions |
+| `.m-screen-body` | Body scrollável (overflow-y: auto + safe-area padding-bottom) |
+| `.m-iconbtn` | Botão de ícone redondo 40px (touch target Apple guideline) |
+| `.m-iconbtn--danger` | Variante vermelha (excluir) |
+| `.m-card-nota` | Card 1 linha 26px altura — avatar circular 20px + nome + meta + chevron |
+| `.m-card-nota-wrap` | Wrapper que esconde os botões de swipe (`.m-card-nota__swipe-edit` + `.m-card-nota__swipe-del`) atrás |
+| `.m-card-nota__swipe-edit` | Botão swipe **editar** revelado à esquerda (azul `#2563eb`, 44px, `ph-pencil-simple`) |
+| `.m-card-nota__swipe-del` | Botão swipe **excluir** revelado à direita (vermelho `var(--m-danger)`, 44px, `ph-trash`) |
+| `.m-card-item` / `.m-card-item-wrap` | Versão pra cards de item da tela 2 — wrapper esconde só `.m-card-item__swipe-del` (44px) |
+| `.m-card-item__swipe-del` | Botão swipe **excluir** item (vermelho, 44px) |
+| `.m-stat` | Bloco label+valor dentro do card body (Peso, Qtd, etc) |
+| `.m-stat--right` | Variante alinhada à direita (usada na Qtd do card-item — Peso à esquerda, Qtd à direita) |
+| `.m-fab` | Floating action button 48px verde Agromil (primary, ação positiva: novo) |
+| `.m-fab--secondary` | Variante 42px azul `#2563eb` posicionada 12px acima do FAB principal. Ícone `ph-arrows-clockwise` (Atualizar) com classe `.is-loading` aplica spinner via `@keyframes m-spin 0.8s linear infinite` |
+| `.m-bottom-nav` | Nav fixo bottom 52px com `.m-bottom-nav__item` (ícone Phosphor + label) |
+| `.m-sheet` | Bottom sheet com `.m-sheet__backdrop` + `.m-sheet__content` slide-up |
+| `.m-sheet__content--tall` | Variante 92vh (forms longos) |
+| `.m-field-input` | Input grande 42px (touch-first). **`font-size: 16px` obrigatório** (iOS faz zoom abaixo) |
+| `.m-field-input--lg` | Variante 52px (input destaque) |
+| `.m-field-input.is-invalid` | Borda vermelha + fundo `var(--m-danger-soft)` |
+| `.m-toggle-row` | Container dos botões Sim/Não (escopo: usar seletor específico, **não `document.querySelector('.m-toggle-row')`** porque há ≥1 no DOM se houver telas múltiplas) |
+| `.m-toggle-btn` | Botão de toggle binário — `.is-active` muda pra verde Agromil |
+| `.m-toggle-row.is-invalid .m-toggle-btn` | Variante toda vermelha quando classifica obrigatória não selecionada |
+| `.m-btn-primary` | Botão principal 46px verde Agromil |
+| `.m-btn-secondary` | Botão secundário 48px transparente com borda |
+| `.m-empty-state` | Estado vazio centralizado com ícone + texto |
+| `.m-user-badge` | Badge do usuário no header das **telas principais** (lista) de cada módulo. **Pílula verde claro** (`#f0f5ec` fundo, `#4a633a` texto uppercase) com `ph-user` + nome — mesma identidade visual do `.user-badge-inline` do desktop (global.css). Some em telas internas |
+| `.m-logout-link` | Link "Sair" vermelho ao lado do badge. Pendant do `.btn-logout-inline` do desktop. URL `{% url 'logout' %}` |
+
+### Padronização de ícones Phosphor (regra única — não improvisar)
+
+Mesma família que o desktop (regular + fill), mas com mapeamento fixo por ação no mobile:
+
+| Ação | Ícone Phosphor | Cor / contexto |
+|---|---|---|
+| **Adicionar / Novo** (FAB primário) | `ph-plus` | verde Agromil |
+| **Atualizar / Refresh** (FAB secundário) | `ph-arrows-clockwise` **(plural, 2 setas)** | azul `#2563eb` |
+| **Editar** (swipe / botão lápis) | `ph-pencil-simple` | azul `#2563eb` |
+| **Excluir** (swipe / lixeira) | `ph-trash` | vermelho `var(--m-danger)` |
+| **Voltar** (header de tela) | `ph-arrow-left` | herda |
+| **Fechar** (sheet / modal) | `ph-x` | herda |
+| **Confirmar / OK** | `ph-check-circle` | verde |
+| **Atenção / Avaria** | `ph-warning` | âmbar |
+| **Lista / Notas** (bottom nav) | `ph-list-checks` | herda |
+| **Buscar** (bottom nav) | `ph-magnifying-glass` | herda |
+| **Filtros** (bottom nav) | `ph-funnel` | herda |
+| **Mais opções** (bottom nav) | `ph-dots-three` | herda |
+| **Hambúrguer / sidebar** | `ph-list` | herda |
+| **QR / Scan** (em breve) | `ph-qr-code` | herda |
+| **Spinner / carregando** | qualquer ícone + classe `.is-loading` (aplica `m-spin` animation) | — |
+
+**Erro recorrente que sai do padrão**: `ph-arrow-clockwise` (singular) NÃO existe ou é diferente — usar `ph-arrows-clockwise` (plural com 2 setas) pra "Atualizar".
+
+### Tokens (via `:root` no escopo `.{modulo}-mobile`)
+
+```css
+--m-bg:            #f8fafc;
+--m-surface:       #ffffff;
+--m-border:        #e5e7eb;
+--m-border-soft:   #f1f5f9;
+--m-text:          #1f2937;
+--m-text-muted:    #6b7280;
+--m-primary:       #5e7e4a;    /* verde Agromil */
+--m-primary-dark:  #4a6e3e;
+--m-primary-soft:  #eaf0e8;
+--m-warning:       #d97706;
+--m-warning-soft:  #fff7ed;
+--m-danger:        #dc2626;
+--m-danger-soft:   #fef2f2;
+--m-success:       #16a34a;
+--m-radius-sm:     7px;
+--m-shadow:        0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+--m-header-h:      48px;
+--m-bottom-nav-h:  52px;
+--m-touch-target:  40px;
+```
+
+### JS — arquivo separado `{modulo}_mobile.js`
+
+- Auto-ativação só se `window.matchMedia('(max-width: 900px)').matches`
+- Estado interno em closure (não polui `window`)
+- Reusa endpoints existentes do desktop (zero novo endpoint)
+- Pra cada sheet, padrão `openSheet(name)` / `closeSheet(name)`
+- Pra cada tela, padrão `pushScreen(name)` / `popScreen()` com `history.pushState` (back button Android funciona)
+
+### Gestos touch
+
+- **Swipe-to-back** — `touchstart`/`touchmove`/`touchend` com threshold 35% da largura ou velocidade > 0.5px/ms. Detecta eixo dominante nos primeiros 10px (cancela se vertical pra deixar scroll funcionar)
+- **Swipe-to-edit + delete** nos cards — arrasta esquerda revela botões escondidos atrás:
+  - **Cards de NOTA** (tela 1): 2 botões = **88px** (44 editar azul + 44 excluir vermelho). Threshold pra abrir: **44px** (50% do total)
+  - **Cards de ITEM** (tela 2): 1 botão = **44px** (excluir vermelho). Threshold: **22px**
+  - Constantes JS: `SWIPE_REVEAL_NOTAS = 88` · `SWIPE_REVEAL_PX = 44` · `SWIPE_TRIGGER_PX = 22`
+  - Botões com largura **44px** (touch target mínimo Apple guideline), ícone interno **16px**
+  - Estado de abertura: `card.dataset.swipeOpen = '1'` + `card.style.transform = 'translateX(-N px)'`
+
+### Reset automático do swipe ao navegar
+
+**Crítico pra UX limpa**: swipes abertos **devem fechar automaticamente** ao mudar de tela ou abrir bottom sheet. Sem isso, operador volta pra lista e vê "lixeira/lápis presos" de uma navegação anterior.
+
+Padrão: função `fecharTodosSwipesNotas()` que itera `[data-swipe-open="1"]` e reseta `transform` + `dataset.swipeOpen`. Hooks de chamada:
+
+```js
+function setActiveScreen(name) {
+    fecharTodosSwipesNotas();  // ← qualquer pushScreen/popScreen limpa
+    /* ... */
+}
+function openSheet(name) {
+    fecharTodosSwipesNotas();  // ← abrir Nova nota / Cabeçalho / Itens limpa
+    /* ... */
+}
+```
+
+### Paridade com desktop — checklist
+
+Antes de implementar mobile de novo módulo, **fazer levantamento exaustivo do desktop** (template + JS + views.py) e documentar regras a replicar. Sem isso, o mobile sai com bugs que o desktop resolveu há meses (paridade ↑ → retrabalho ↓). Padrão usado na Entrada Mobile:
+
+1. **Cabeçalho órfão** — quando criar cabeçalho mas fechar sem add item, deletar automático
+2. **Trava `apenas_checar`** antes do confirm em qualquer delete (item + nota)
+3. **Editar via tap** no card (abre **mesmo sheet de inserir** em modo EDIT, não tela separada)
+4. **Modo EDIT trava campos imutáveis**: Produto + toggles Classifica ficam `disabled = true` com `title` explicativo (paridade desktop entrada.js:1625-1634)
+5. **Validação visual** com `.is-invalid` em campos errados (TODOS de uma vez, não 1 por vez)
+6. **Vale lock 409 handling** específico (`handleValeLockedError(status, body)`)
+7. **Cálculos automáticos**:
+   - **QTDNEG sempre = qtd × peso** quando ambos > 0 (mesmo em vol=KG — paridade desktop entrada.js:2269). NÃO usar `vol === 'KG' ? qtd : qtd × peso`
+   - Inverso ao editar: `qtdExibida = peso > 0 ? qtdNeg / peso : qtdNeg`
+   - Vol != CX e peso vazio → força peso = 1 (paridade desktop checkVolumeClassification)
+8. **Detecção de duplicação** (CODPROD+CODVOL) com confirm — em modo EDIT ignora própria linha
+9. **Atalhos teclado** (Enter em Qtd/Peso/Produto dispara Adicionar/Salvar)
+10. **Flag `cabecalho_excluido`** após delete último item → fecha sheet + reload
+11. **Avaria fornecedor inline** (auto-save no blur, só em não-classificáveis)
+12. **`Concluir` do sheet NÃO faz reload** quando há tela 2 carregada (`ESTADO_NOTA.nunota`) — só recarrega itens da nota atual. Reload só em cenário "Nova nota" (sem tela 2)
+
+Vide [`modules/entrada.md`](modules/entrada.md) → "Paridade completa com web" pra tabela com links pros números de linha do desktop.
+
+### Nome do usuário + Sair no header (tela principal de cada módulo)
+
+Pendant do `user-badge-inline` + `btn-logout-inline` do desktop. **Regra**: aparecem **apenas na primeira tela** de cada módulo mobile (lista/dashboard). Somem em telas internas (detalhe, item, etc) — ali o foco visual é o conteúdo da operação. Visual idêntico ao Painel/desktop: pílula verde claro `#f0f5ec` com texto verde escuro `#4a633a` uppercase + link "Sair" vermelho ao lado.
+
+Padrão estrutural no `<header class="m-screen-header">` da tela `data-screen="lista"`:
+
+```html
+<header class="m-screen-header">
+    <button class="m-iconbtn m-sidebar-toggle">...</button>
+    <h1 class="m-screen-title">{Módulo}</h1>
+    <div class="m-user-badge" title="{{ request.session.nomeusu|default:'Usuário' }}">
+        <i class="ph ph-user" aria-hidden="true"></i>
+        <span>{{ request.session.nomeusu|default:'Usuário' }}</span>
+    </div>
+    <a href="{% url 'logout' %}" class="m-logout-link" title="Encerrar sessão">Sair</a>
+</header>
+```
+
+Badge truncado em 100px com `text-overflow: ellipsis`. Em telas internas, manter o spacer original ou usar botões de ação.
+
+### Display de quantidade em cards de item
+
+Padrão fixo nos cards de item (tela 2 — detalhe da nota). **Peso à esquerda, Qtd à direita** (`.m-stat--right` no segundo `.m-stat`):
+
+```
+PESO/<codvol>                                     QTD
+23 kg                              100 cx / 2.300 kg
+```
+
+- **Label dinâmica**: `Peso/<codvol.toLowerCase()>` — ex: `Peso/cx`, `Peso/sc`, `Peso/bd`
+- **Valor Qtd**:
+  - Quando `peso > 0` E `codvol != 'KG'`: `<qtdUnidades> <CODVOL> / <totalKg> KG` (ex: "100 CX / 2.300 KG", "100 SC / 1.000 KG")
+  - Quando `peso = 0` OU `codvol = 'KG'`: só `<totalKg> KG`
+- **Status icon no header**: só aparece em **OK** (`ph-check-circle` verde). Em pendente, **sem ícone** (não usar `ph-clock`)
+
+### iOS Safari — pegadinhas
+
+- **Zoom em inputs**: type=number/text com `font-size < 16px` faz iOS dar zoom ao focar. Solução: **`font-size: 16px` mínimo** em `.m-field-input` (NÃO usar 14px ou menor mesmo que pareça grande visualmente)
+- **type=number rejeita vírgula**: `input.value = '23,5'` em `type=number` fica vazio silenciosamente. Sempre usar `String(num)` com ponto separador. Pra exibir formatado, usar `toLocaleString('pt-BR')` SÓ em campos `type=text` readonly (ex: "Total kg calculado")
+- **`dblclick` não dispara em touch**: usar [`IAgro.onDoubleActivate`](../sankhya_integration/static/sankhya_integration/iagro_helpers.js) (vide [`gotchas.md`](gotchas.md))
+- **`100vh` cobre footer** (barra inferior dinâmica do Safari): usar `100dvh` com fallback `100vh`
+- **`env(safe-area-inset-bottom)` exige `viewport-fit=cover`** no meta tag (já está em base.html)
+
+### IDs do DOM — evitar duplicação entre telas
+
+`document.getElementById(id)` retorna apenas o **primeiro** elemento. Quando o template mobile tem várias telas com mesma classe/id, `getElementById` pega só uma — bug silencioso difícil de detectar.
+
+**Convenção**:
+- Cada tela/contexto usa prefixo próprio: `m_item*` (sheet de inserir), `m_conf_*` (tela conferir item), `m_edit*` (sheet cabeçalho), `m_filtro*` (sheet filtros)
+- Antes de adicionar campo novo, **conferir IDs duplicados**:
+
+```python
+import re
+from collections import Counter
+with open('templates/.../arquivo.html', encoding='utf-8') as f:
+    ids = re.findall(r'id="([^"]+)"', f.read())
+dup = [(k,v) for k,v in Counter(ids).items() if v > 1]
+print('Duplicados:', dup or '(nenhum)')
+```
+
+Validar após cada PR que toque HTML mobile.
+
+### Listeners pra inputs
+
+Em `type=number`, eventos podem ser flaky entre dispositivos. Sempre registrar combo:
+
+```js
+['campo1', 'campo2'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', recalc);
+    el.addEventListener('change', recalc);
+    el.addEventListener('blur', recalc);
+    el.addEventListener('keyup', recalc);
+});
+```
+
+### Versionamento de cache (anti-cache mobile)
+
+Toda mudança em CSS ou JS mobile **deve bumpar** `?v=N` no template — sem isso, browser mobile servirá versão antiga e debug parece "fix não aplicou":
+
+```html
+<link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}?v=35">
+<script src="{% static 'sankhya_integration/entrada_mobile.js' %}?v=27" defer></script>
+```
+
+Sequência atual da Entrada Mobile (Mai/2026 — 2026-05-27): CSS `?v=35` · JS `?v=27`. Bumpar cada PR.
+
+### Restart NSSM obrigatório após mudança no JS/CSS
+
+NSSM cacheia template Django. Restart sempre + hard refresh no celular (Ctrl+Shift+R no DevTools mobile ou limpar cache do site no Safari iOS).
+
+### Lista infinita com scroll listener
+
+Listas mobile que cabem mais que o viewport (Entrada com 50+ notas) usam paginação infinita ancorada na paginação server-side da view desktop.
+
+**Setup**:
+1. View renderiza `data-current-page="N"` e `data-has-next="0|1"` no container do desktop (`#notasList`)
+2. JS mobile lê esses attrs no boot (`lerEstadoPaginacao()`)
+3. Após `hidratarListaNotas()`, cria sentinela visual no fim:
+
+```js
+function renderSentinela() {
+    var lista = document.getElementById('m_notasList');
+    var sent = document.getElementById('m_listaSentinela');
+    if (sent) sent.remove();
+    if (!pgInfinita.hasNext) return;
+    var temBusca = searchInput && searchInput.value.trim();
+    if (temBusca && autoPaginarIters >= AUTO_PAGINAR_MAX) return;
+    sent = document.createElement('div');
+    sent.id = 'm_listaSentinela';
+    sent.className = 'm-lista-sentinela';
+    sent.innerHTML = '<i class="ph ph-spinner"></i><span>Carregando mais…</span>';
+    lista.appendChild(sent);
+}
+```
+
+4. **Scroll listener no container** (1× no boot) dispara `carregarMaisNotas()` quando operador rola pra baixo + chega perto do fim:
+
+```js
+function setupScrollPaginar() {
+    var scrollArea = document.getElementById('m_listaScroll');
+    var lastScrollTop = 0;
+    scrollArea.addEventListener('scroll', function () {
+        if (pgInfinita.carregando || !pgInfinita.hasNext) return;
+        var st = scrollArea.scrollTop;
+        if (st <= lastScrollTop) { lastScrollTop = st; return; }   // só scroll pra baixo
+        lastScrollTop = st;
+        var threshold = scrollArea.scrollHeight - scrollArea.clientHeight - 200;
+        if (st >= threshold) carregarMaisNotas();
+    }, { passive: true });
+}
+```
+
+5. `carregarMaisNotas()` faz `fetch(window.location.pathname + window.location.search + '&page=' + N+1)` — preserva filtros atuais. Parseia HTML retornado: `new DOMParser().parseFromString(html, 'text/html')`, extrai `#notasTable tbody tr.row--click` + atualiza `pgInfinita.hasNext` do novo `#notasList`
+6. Appenda cards mobile **antes** da sentinela (que sempre fica no fim)
+7. Re-chama `renderSentinela()` — recria/remove conforme `hasNext`
+
+**CSS sentinela**:
+```css
+.{modulo}-mobile .m-lista-sentinela {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 12px 18px;
+    color: var(--m-text-muted);
+    font-size: 12px;
+    font-weight: 600;
+}
+.{modulo}-mobile .m-lista-sentinela i {
+    font-size: 18px;
+    animation: m-spin 0.8s linear infinite;
+}
+```
+
+### Por que NÃO usar IntersectionObserver
+
+Tentativa inicial usou `IntersectionObserver` com `rootMargin: 200px`. **Cascata infinita** descoberta em 2026-05-27: cada nova sentinela aparecia já dentro do viewport (porque o append não desloca o scrollTop), observer detectava intersect e disparava imediatamente — operador deixava aberto e o server tomava 90+ requests em <60s.
+
+Scroll listener resolve porque:
+- Só dispara em **evento real de scroll** (operador roda o dedo)
+- Compara com `lastScrollTop` pra ignorar scroll pra cima
+- Threshold `scrollHeight - clientHeight - 200` calculado a cada evento (não bate "trigger zone" permanente)
+
+### Badge "filtros ativos" no bottom nav
+
+Quando há filtro aplicado (data, parceiro, produto, etc.) — bolinha vermelha + ícone verde Agromil no item de Filtros do bottom nav. Operador identifica de relance que tem filtro mascarando a lista.
+
+```js
+function temFiltroAtivo() {
+    var nomes = ['start', 'end', 'nunota_ini', 'codparc', 'fabricante'];
+    for (var i = 0; i < nomes.length; i++) {
+        var el = getDesktopFormInput(nomes[i]);
+        if (el && el.value && String(el.value).trim() !== '') return true;
+    }
+    return false;
+}
+
+function atualizarBadgeFiltros() {
+    var navBtn = document.querySelector('.m-bottom-nav__item[data-nav="filtros"]');
+    if (!navBtn) return;
+    navBtn.classList.toggle('has-filtros-ativos', temFiltroAtivo());
+}
+```
+
+Chamar `atualizarBadgeFiltros()` no fim de `hidratarListaNotas()`. CSS:
+
+```css
+.{modulo}-mobile .m-bottom-nav__item { position: relative; }   /* pra ::after */
+.{modulo}-mobile .m-bottom-nav__item.has-filtros-ativos { color: var(--m-primary); }
+.{modulo}-mobile .m-bottom-nav__item.has-filtros-ativos i::before { font-family: 'Phosphor-Fill'; }
+.{modulo}-mobile .m-bottom-nav__item.has-filtros-ativos::after {
+    content: '';
+    position: absolute;
+    top: 6px; right: 22%;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--m-danger);
+    box-shadow: 0 0 0 2px var(--m-surface);
+}
+```
+
+### Replicar data inicial em data final (sempre, no iPhone)
+
+Padrão "operador olha 1 dia só por default; quem quer range muda dataFim depois". Implementação ingênua faz `if (dataFim.value < dataIni.value) replicar` — **falha no iPhone** quando dataFim já tem valor anterior preenchido (não atualiza).
+
+**Fix**: replicar **sempre**, sem comparação. Também registrar `input` além de `change` (iOS dispara `change` só quando picker fecha):
+
+```js
+var replicar = function (e) {
+    var v = (e && e.target ? e.target.value : inputIni.value) || '';
+    if (v) inputFim.value = v;
+};
+inputIni.addEventListener('change', replicar);
+inputIni.addEventListener('input', replicar);
+```
+
+Operador que quiser range manual altera dataFim depois — o handler dela não dispara nada em ini.
+
+### Busca server-side ágil (recomendado) + trava de 90 dias
+
+**Decisão Mai/2026 — 2026-05-27**: busca client-side com auto-paginação foi **descontinuada** após operadores reportarem que resultados apareciam progressivamente (cada página com delay) e bases grandes ficavam parcialmente fora do limite. Solução final é server-side em **1 fetch único** com debounce curto.
+
+**Backend (Cat B — modifica query existente)**:
+
+`listar_notas_compra_paginado` em `oracle_conn.py` ganhou param `q` opcional:
+
+```python
+if kwargs.get('q'):
+    where.append(
+        "(UPPER(p.NOMEPARC) LIKE :q "
+        "  OR TO_CHAR(c.NUNOTA) LIKE :q "
+        "  OR TO_CHAR(c.NUMNOTA) LIKE :q)"
+    )
+    binds['q'] = f"%{str(kwargs['q']).strip().upper()}%"
+```
+
+Bate em **nome do parceiro OU NUNOTA OR NUMNOTA** — operador digita texto ou número. View `view_portal_entradas` passa adiante via `params['q']`.
+
+**Trava de 90 dias por default**:
+
+```python
+raw_days = request.GET.get("days")
+has_dates = bool(request.GET.get("start")) or bool(request.GET.get("end"))
+if raw_days is None:
+    days_val = None if has_dates else 90   # ← default 90 dias
+else:
+    rd = raw_days.strip().lower()
+    days_val = None if rd in ("all", "todos", "*", "") else _converter_para_inteiro(raw_days)
+```
+
+Operador que precisa histórico maior **abre o filtro** e seta `days=N` ou `start/end` — override explícito desliga a trava.
+
+**Frontend mobile**:
+
+```js
+var buscaFetchToken = 0;
+
+searchInput.addEventListener('input', function () {
+    clearTimeout(t);
+    var termo = searchInput.value.trim();
+    t = setTimeout(function () { buscarServerSide(termo); }, 250);
+});
+
+function buscarServerSide(termo) {
+    var meuToken = ++buscaFetchToken;
+    var params = new URLSearchParams(window.location.search);
+    if (termo) params.set('q', termo); else params.delete('q');
+    params.set('page', '1');
+    var url = window.location.pathname + '?' + params.toString();
+
+    // Spinner instantâneo de "Buscando…"
+    // ...
+
+    fetch(url).then(r => r.text()).then(function (html) {
+        if (meuToken !== buscaFetchToken) return;   // resposta obsoleta — descarta
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var rows = doc.querySelectorAll('#notasTable tbody tr.row--click');
+        substituirCardsNotas(rows);   // REPLACE (não append)
+        atualizarBadgeFiltros();
+    });
+}
+```
+
+**Token de race**: quando operador digita rápido (350ms entre tecladas), múltiplos fetches podem disparar em sequência. `buscaFetchToken` incrementa a cada nova chamada — apenas a última response passa pelo `if (meuToken !== buscaFetchToken) return`. Outras são descartadas.
+
+**Vantagens vs client-side**:
+
+| Aspecto | Client-side (descontinuado) | Server-side (atual) |
+|---|---|---|
+| Tempo até primeiro resultado | ~3s (puxa 20 páginas progressivo) | ~200ms (1 fetch) |
+| Cobertura | Limitada a 1000 notas (20 × 50) | Base inteira (com trava 90d) |
+| Resultados aparecem | Aos poucos (progressivo) | Todos de uma vez |
+| Carga no server | 20 requests | 1 request |
+| Carga no cliente | 1000 cards no DOM | Só matches no DOM |
+
+**Quando manter client-side**: nunca pra listas grandes. Pra listas pequenas (sempre <100 itens, sem paginação) client-side ainda funciona — mas adicionar server-side é igualmente simples.
+
+**Placeholder informativo** no `m_search`: sempre comunicar a janela default da busca pra operador não buscar histórico amplo achando que está olhando tudo. Exemplo: `placeholder="Buscar fornecedor ou pedido (últimos 90 dias)"`. Quando default for diferente (ex: outro módulo com 30 dias), refletir no texto.
+
+**Cuidado com sentinela presa**: `renderSentinela` deve checar tanto `hasNext` quanto o limite de auto-paginar — senão quando atinge `AUTO_PAGINAR_MAX` mas o server ainda tem páginas, o spinner fica girando sem nada disparar:
+
+```js
+function renderSentinela() {
+    var sent = document.getElementById('m_listaSentinela');
+    if (sent) sent.remove();
+    if (!pgInfinita.hasNext) return;   // fim natural
+    var temBusca = searchInput && searchInput.value.trim();
+    if (temBusca && autoPaginarIters >= AUTO_PAGINAR_MAX) return;   // limite atingido
+    // ...cria sentinela
+}
+```
+
+### Filtro client-side: esconder o wrapper, não só o card
+
+Quando há busca/filtro client-side (campo `m_search` na lista), o handler que esconde linhas deve esconder o **wrapper** `.m-card-nota-wrap` (ou equivalente), não só o `.m-card-nota`. Senão os botões absolutos do swipe (`__swipe-edit` + `__swipe-del`) ficam pendurados no DOM.
+
+```js
+function filtrarCards() {
+    var q = normalizar(searchInput.value);
+    document.querySelectorAll('#m_notasList .m-card-nota').forEach(function (card) {
+        var match = !q || normalizar(card.dataset.parc).indexOf(q) >= 0;
+        var wrap = card.closest('.m-card-nota-wrap') || card;
+        wrap.style.display = match ? '' : 'none';   // ← wrapper, não só card
+    });
+}
+```
+
+### Bottom sheets — estrutura HTML padrão
+
+Todos os bottom sheets seguem essa estrutura:
+
+```html
+<div class="m-sheet" data-sheet="{nome}" aria-hidden="true">
+    <div class="m-sheet__backdrop" data-close-sheet></div>
+    <div class="m-sheet__content" role="dialog" aria-label="{Título}">
+        <div class="m-sheet__handle"></div>
+        <header class="m-sheet__header">
+            <h2>{Título}</h2>
+            <button type="button" class="m-iconbtn" data-close-sheet aria-label="Fechar">
+                <i class="ph ph-x" aria-hidden="true"></i>
+            </button>
+        </header>
+        <div class="m-sheet__body">{form/conteúdo}</div>
+        <footer class="m-sheet__footer">
+            <button class="m-btn-primary" id="m_xyzConcluir">
+                <i class="ph ph-check"></i> Concluir
+            </button>
+        </footer>
+    </div>
+</div>
+```
+
+- **Variante alta** (forms longos): adicionar classe `m-sheet__content--tall` (92vh em vez de auto)
+- **Toggle**: `aria-hidden="false"` abre, `"true"` fecha. Helper `openSheet(name)` / `closeSheet(name)`
+- **Backdrop click** fecha (via `data-close-sheet`)
+- **Botão X no header** fecha (via `data-close-sheet`)
+- **Botão Concluir no footer** fecha + opcionalmente recarrega lista
+
+### Bottom nav — 4 itens fixos
+
+Toda tela principal (lista) tem bottom nav. Itens padrão:
+
+| Item | Ícone | Ação |
+|---|---|---|
+| Notas / Lotes / Vendas (depende do módulo) | `ph-list-checks` | Tela atual (`.is-active`) |
+| Buscar | `ph-magnifying-glass` | Foca o `m_search` (campo de busca já no topo) |
+| Filtros | `ph-funnel` | Abre `m-sheet[data-sheet="filtros"]` |
+| Mais | `ph-dots-three` | Reservado pra opções secundárias |
+
+```html
+<nav class="m-bottom-nav">
+    <button class="m-bottom-nav__item is-active" data-nav="lista">
+        <i class="ph ph-list-checks"></i><span>Notas</span>
+    </button>
+    <button class="m-bottom-nav__item" data-nav="buscar">
+        <i class="ph ph-magnifying-glass"></i><span>Buscar</span>
+    </button>
+    <button class="m-bottom-nav__item" data-nav="filtros">
+        <i class="ph ph-funnel"></i><span>Filtros</span>
+    </button>
+    <button class="m-bottom-nav__item" data-nav="mais">
+        <i class="ph ph-dots-three"></i><span>Mais</span>
+    </button>
+</nav>
+```
+
+### Constantes JS reusáveis (copiar entre módulos)
+
+```js
+// Swipe
+var SWIPE_REVEAL_NOTAS = 88;    // 2 botões (edit + del) 44px cada
+var SWIPE_REVEAL_PX    = 44;    // 1 botão (só del) — usado em cards de item
+var SWIPE_TRIGGER_PX   = 22;    // 50% do menor reveal
+
+// Helpers comuns
+function getCsrf() { /* ... */ }
+function parseBR(s) { /* trim + ',' → '.' + parseFloat */ }
+function fmtBr(v) { /* toLocaleString pt-BR 2 casas */ }
+function escapeHtml(s) { /* &lt;, &gt;, ... */ }
+function normalizar(s) { /* lowercase + NFD + remove acentos */ }
+function mostrarToast(msg, tipo) { /* usa IAgro.showToast com fallback alert */ }
+function handleValeLockedError(status, body) { /* trata 409 vale.locked */ }
+
+// Navegação stack
+function pushScreen(name) { /* history.pushState + setActiveScreen */ }
+function popScreen() { /* setActiveScreen anterior */ }
+function popToRoot() { /* reset pra 'lista' */ }
+```
+
+### Checklist passo-a-passo pra novo módulo mobile
+
+Pra começar mobile de um módulo novo (ex: Rastreio, Venda, Combustível), seguir esta sequência. Cada step é cumulativo.
+
+**Step 0 — Levantamento de paridade desktop** (antes de tocar código)
+
+- Listar todas as funções do JS desktop do módulo
+- Identificar regras/travas: locks, validações, auto-cura, anti-duplicação, atalhos teclado, modos edit
+- Mapear endpoints usados (não criar novos pra mobile — reusar)
+- Listar campos do form principal + tabela de itens (se houver)
+- Criar tabela `desktop ↔ mobile` em [`modules/{modulo}.md`](modules/) com links pros números de linha
+
+**Step 1 — HTML dual containers**
+
+- Em `{modulo}.html`, dentro do `{% block content %}`:
+  - Envolver tudo em `<div class="{modulo}-portal">`
+  - Container desktop: `<div class="{modulo}-desktop">...</div>` (conteúdo existente intacto)
+  - Container mobile: `<div class="{modulo}-mobile">` com `<section class="m-screen" data-screen="lista">` etc.
+- Header da tela `lista` com hambúrguer + título + `.m-user-badge` + `.m-logout-link`
+- Headers de telas internas (detalhe/item) sem badge — só botão back
+
+**Step 2 — CSS mobile-first**
+
+- No `{modulo}.css`, adicionar bloco `REDESIGN MOBILE-FIRST` no fim
+- `:root` no escopo `.{modulo}-mobile` com tokens `--m-*` (copiar da Entrada)
+- Classes `.m-*` reusadas (não duplicar — usar as do entrada.css se já existem)
+- Media query escopada por `body[data-active-module="{modulo}"]`
+
+**Step 3 — JS separado**
+
+- Criar `{modulo}_mobile.js` (~600-1300 linhas dependendo da complexidade)
+- IIFE com estado em closure
+- Auto-ativação: `if (!window.matchMedia('(max-width: 900px)').matches) return;`
+- Reusar constantes/helpers acima
+- Reusar endpoints do desktop (zero novos)
+
+**Step 4 — Cache busting**
+
+- `<link>` CSS: `?v=N`
+- `<script>` JS: `?v=N`
+- Bumpar a cada commit que toque CSS/JS
+
+**Step 5 — Validação anti-bugs**
+
+Antes de declarar pronto, rodar:
+
+```bash
+# Detectar IDs duplicados
+python -c "import re; from collections import Counter; \
+ids = re.findall(r'id=\"([^\"]+)\"', open('templates/.../X.html', encoding='utf-8').read()); \
+print('Duplicados:', [(k,v) for k,v in Counter(ids).items() if v > 1] or 'OK')"
+
+# Detectar comentários Django multi-line
+python -c "import re; txt = open('templates/.../X.html', encoding='utf-8').read(); \
+p = re.compile(r'\{#.*?#\}', re.DOTALL); \
+print([f'L{txt[:m.start()].count(chr(10))+1}' for m in p.finditer(txt) if chr(10) in m.group()] or 'OK')"
+
+# Django check
+python manage.py check
+```
+
+**Step 6 — Testes manuais no DevTools mobile**
+
+- Toggle device toolbar (Ctrl+Shift+M) → iPhone 12
+- Navegar pelo fluxo principal
+- Testar gestos: swipe-to-back, swipe-to-edit/delete
+- Testar filtro de busca + verificar que swipes não vazam
+- Testar `Concluir` voltando pra tela anterior (não tela inicial)
+- Testar input de qtd/peso → verificar Total kg calculado
+- Testar modo edit (click no card de item) — Produto + Classifica devem estar disabled
+- Conferir badge "👤 USER" + Sair no header da lista
+
+**Step 7 — Restart NSSM + teste em iPhone real**
+
+- `nssm.exe restart IAgro`
+- Hard refresh no celular (limpar dados do site no Safari iOS)
+- Confirmar: zoom em inputs (não deve fazer), safe-area inferior, swipes 44px, fluxo end-to-end
+
+**Step 8 — Documentação**
+
+- Atualizar `modules/{modulo}.md` com tabela de paridade (links pros números de linha desktop)
+- Atualizar `CLAUDE.md` com bullets resumindo entregas
+- Se houver gotcha nova, adicionar em `gotchas.md`
+
+---
+
 ## Responsivo (Mai/2026 — sweep aplicado em todos os módulos)
 
 Breakpoints padronizados:

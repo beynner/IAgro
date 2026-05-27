@@ -538,6 +538,55 @@ Saldo validado individualmente por lote — falha em 1 reverte tudo (atomicidade
 
 Detalhes técnicos em [`modules/venda.md`](.claude/modules/venda.md).
 
+### 📱 Redesign Mobile app-like — Entrada + Classificação (Mai/2026 — 2026-05-27)
+
+Início do trabalho de tornar o IAgro um **PWA-ready** (Progressive Web App): operador acessa do celular e parece app nativo. Estratégia: HTML único com 2 containers paralelos (`.entrada-desktop` + `.entrada-mobile`), escopados por `body[data-active-module="X"]`. CSS mobile-first com seletores prefixados `.m-*`. JS separado em arquivos `_mobile.js` que só ativam em viewport ≤900px.
+
+**Entrada (1ª implementação completa — Mai/2026 — 2026-05-27)**:
+- 3 telas ativas + 3 bottom sheets ([entrada.html](sankhya_integration/templates/sankhya_integration/entrada.html), [entrada_mobile.js](sankhya_integration/static/sankhya_integration/entrada_mobile.js)). Tela "Conferir item" (m_conf_*) preservada no HTML/JS mas desabilitada na navegação — reimplementação futura
+- Navegação stack com back button do Android + swipe-to-back gesture (touch direita)
+- Bottom nav 4 itens (Notas · Buscar · Filtros · Mais) — Filtros via bottom sheet
+- **2 FABs por tela** (Lista + Detalhe): `m_fabNova/m_fabItem` verde 48px (`ph-plus`) + secundário azul 42px (`ph-arrows-clockwise`) acima
+- Cards 1 linha (26px altura, ~22 cards visíveis em viewport de 720px)
+- **Swipe-to-edit + delete** nos cards de nota: 2 botões 44px (88px total) — EDITAR cabeçalho azul (`ph-pencil-simple`) + EXCLUIR vermelho (`ph-trash`). Cards de item: 1 botão 44px (excluir)
+- **Reset automático de swipes** ao navegar (setActiveScreen) ou abrir sheet (openSheet) → `fecharTodosSwipesNotas()`
+- **Display de itens** padronizado: Peso à esquerda + Qtd à direita. Qtd no formato `<unidades> <CODVOL> / <totalKg> KG` quando peso>0 (ex: "100 CX / 2.300 KG"). Label dinâmica `Peso/<codvol.toLowerCase()>`
+- **Click no card de item** abre o sheet de Itens em modo EDIT (mesma tela de inserir, não tela separada) — Produto + toggles Classifica `disabled` em edit pra preservar rastreabilidade
+- **Concluir sheet de itens**: volta tela 2 (detalhe) sem reload se há nota carregada — só `carregarItens(...)`. Reload só em cenário "Nova nota" sem tela 2
+- **Padronização ícones Phosphor**: `ph-plus` (add), `ph-arrows-clockwise` (atualizar, plural com 2 setas), `ph-pencil-simple` (editar), `ph-trash` (excluir), `ph-arrow-left` (voltar), `ph-x` (fechar), `ph-check-circle` (OK), `ph-warning` (avaria)
+- **iOS Safari**: `font-size: 16px` em inputs (evita zoom), `type=number + String(num)` com ponto (rejeita vírgula), `100dvh` com fallback `100vh`, `viewport-fit=cover`
+- **Paridade total com web** validada via levantamento exaustivo:
+  - **Auto-cura cabeçalho órfão** — fechar sheet sem itens dispara DELETE automático
+  - **Trava `apenas_checar`** antes do confirm de delete (item + nota)
+  - **Editar item via tap** no card (modo edit, botão "Adicionar" vira "Salvar", Produto+Classifica disabled)
+  - **Avaria fornecedor inline** (só em não-classificáveis) com auto-save no blur
+  - **Vol != CX força peso=1** + blur no Vol vazio restaura "CX"
+  - **Campos inválidos com borda vermelha** (`.is-invalid`) — seletor escopado pra evitar pegar `.m-toggle-row` de outra tela
+  - **Vale lock 409 handling** específico (`handleValeLockedError`)
+  - **Detecção de duplicação** (CODPROD+CODVOL) com confirm — em modo EDIT ignora própria linha
+  - **Enter dispara Adicionar/Salvar** em qtd/peso/produto
+  - **`cabecalho_excluido` flag** após deletar último item
+  - **Editar cabeçalho de nota existente** com fetch via `?ajax_header=1` — acessível também pelo swipe lápis azul na tela 1
+  - **QTDNEG = qtd × peso** sempre quando ambos > 0 (paridade desktop entrada.js:2269)
+  - **Filtro client-side** esconde wrapper inteiro (não só card) — evita botões swipe pendurados
+  - **User badge + Sair** no header da tela principal — pílula verde `#f0f5ec` + link Sair vermelho (pendant do `.user-badge-inline` do desktop). Some em telas internas
+  - **Lista infinita** via **scroll listener** em `m_listaScroll` (NÃO IntersectionObserver — cascata infinita comprovada com 94 requests em 60s). Dispara `carregarMaisNotas()` em scroll real pra baixo + threshold 200px do fim. Estado lido do `data-current-page`/`data-has-next` do `#notasList` server-rendered. Auto-paginar com busca tem `setTimeout 250ms` entre iterações + flag cancelável
+  - **Badge "filtros ativos"** no bottom nav (item Filtros) — ícone verde Agromil fill + bolinha vermelha quando algum filtro está aplicado
+  - **Data inicial → final replica SEMPRE** (sem comparar) + `input` listener além de `change` (iOS Safari só dispara `change` quando picker fecha; sem `input` listener, replicação falha no iPhone)
+  - **Busca server-side ágil** (Mai/2026 — 2026-05-27, Cat B aplicada): `listar_notas_compra_paginado` ganhou param `q` que aplica `LIKE` em NOMEPARC OR NUNOTA OR NUMNOTA. Mobile faz fetch `?q=...` em 1 chamada com debounce 250ms, replace dos cards (não append). Token de race (`buscaFetchToken`) descarta respostas obsoletas quando operador digita rápido. **Trava 90 dias por default**: `view_portal_entradas` aplica `days=90` quando operador não passa filtro de data explícito — pra histórico maior, abrir filtro e setar `days=N`/`start`/`end`. Auto-paginar client-side com `AUTO_PAGINAR_*` foi removido (descontinuado — era progressivo, lento, não cobria base inteira)
+- **Checklist completo passo-a-passo** pra implementar mobile de novo módulo registrado em [`conventions.md`](.claude/conventions.md) → "Checklist passo-a-passo pra novo módulo mobile" — usar como receita pra próximas implementações (Rastreio, Venda, Combustível, etc.)
+
+**Classificação (2ª implementação Mai/2026 — 2026-05-26)**:
+- 2 telas + 2 bottom sheets ([classificacao.html](sankhya_integration/templates/sankhya_integration/classificacao.html), [classificacao_mobile.js](sankhya_integration/static/sankhya_integration/classificacao_mobile.js))
+- Cards de lote com cor de status (verde Finalizada · âmbar Classificando · vermelho A Classificar)
+- Detalhe do lote: hero + grid 4 cards (In natura/Classificado/Descarte/Estoque com kg e %)
+- Toggle "Classificação Finalizada" (POST `/sankhya/item/toggle_status/`)
+- Bottom sheet Descarte (+/− com input + toggle Adicionar/Subtrair → POST `/sankhya/item/update_descarte_lote/`)
+- Filtros: status chips (✓ Finalizada / ✓ Classificando / ✓ A Classificar) + data ini/fim com `<<` `>>` + Pedido + Produto (fabricante) + Parceiro + Lote
+- Adicionar/editar classificação **redireciona pro editor desktop** — fluxo complexo demais pra reimplementar no mobile (modal `modalClassify` tem Origem + Planificar + Salvar com SQL preview)
+
+**Limpeza arquitetural**: removidas todas as referências à página `/sankhya/compras/central/` que foi removida no início do projeto mas deixou código morto espalhado. View `view_central_compras` agora retorna 410 Gone (mantém só o ramo `?ajax_header=1` usado pra editar cabeçalho). 7 arquivos afetados — vide [`gotchas.md`](.claude/gotchas.md) → "Página compras/central foi removida".
+
 ### Backlog planejado
 
 - **Módulo Relatórios — MVP entregue em 2026-05-17** com 5 relatórios funcionando. Restam **20 relatórios** mapeados no backlog (6 eixos: Financeiro / Vendas / Compras-Estoque / Rastreio-WMS / Combustível-Frota / Auditoria-Produtividade) aguardando feedback operacional pra priorizar próximas iterações. Export Excel/PDF intencionalmente fora do MVP. Detalhes em [`roadmap.md`](.claude/roadmap.md) → "Módulo Relatórios — Backlog planejado" e em [`modules/relatorios.md`](.claude/modules/relatorios.md).

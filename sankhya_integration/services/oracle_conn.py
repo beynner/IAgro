@@ -1384,6 +1384,18 @@ def listar_notas_compra_paginado(limite: int = 50, offset: int = 0, **kwargs):
         )
         binds['fab'] = f"%{str(kwargs['fabricante']).upper()}%"
 
+    # Mai/2026 (2026-05-27) — Busca livre `q` (mobile m_search).
+    # Aceita texto OU número. Bate em NOMEPARC, NUNOTA ou NUMNOTA via OR.
+    # Server-side filtering pra evitar baixar 20 páginas pra filtrar 3
+    # notas no cliente — operador digita, response retorna só matches.
+    if kwargs.get('q'):
+        where.append(
+            "(UPPER(p.NOMEPARC) LIKE :q "
+            "  OR TO_CHAR(c.NUNOTA) LIKE :q "
+            "  OR TO_CHAR(c.NUMNOTA) LIKE :q)"
+        )
+        binds['q'] = f"%{str(kwargs['q']).strip().upper()}%"
+
     sql_base = (
         "SELECT c.NUNOTA, c.NUMNOTA, c.DTNEG, c.CODPARC, p.NOMEPARC, NVL(SUM(i.VLRTOT),0) VLRTOTAL "
         "  FROM TGFCAB c "

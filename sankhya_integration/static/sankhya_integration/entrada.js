@@ -17,8 +17,7 @@
         VOL_SEARCH: '/sankhya/vol/search/',
         NOTA_DELETE: '/sankhya/nota/delete/',
         NOTA_CHECK_CLASS: '/sankhya/nota/check-classificacao/',
-        NOTA_DIAGNOSE: '/sankhya/nota/diagnose/',
-        CENTRAL_AJAX: '/sankhya/compras/central/'
+        NOTA_DIAGNOSE: '/sankhya/nota/diagnose/'
     };
 
     // Utilitário para debounce (evita múltiplas chamadas enquanto digita)
@@ -197,9 +196,8 @@
         if (typeof showItemsModal === 'function') showItemsModal(nunota);
       }catch(e){
         console.error('Modal open failed', e);
-        try { IAOverlay.show(); window.location.href = `${API_URLS.CENTRAL_AJAX}?nunota=${encodeURIComponent(nunota)}`; } catch (e2) { console.warn('Navigation fallback failed', e2); }
       }
-    }, { delegateSelector: 'tr[data-central-url]' });
+    }, { delegateSelector: 'tr[data-nunota]' });
 
     // Navegação por teclado (setas) na lista de notas
     function getRows(){ return Array.from(tbl.querySelectorAll('tbody tr.row--click')); }
@@ -942,10 +940,10 @@
     }
     
     function pickTopSel(){
-      const el = topList.querySelector('.dd-item.active') || topList.querySelector('.dd-item');
-      if (!el) return;
-      const cod = el.getAttribute('data-cod');
-      window.location.href = `${API_URLS.CENTRAL_AJAX}?codtipoper=${encodeURIComponent(cod)}`;
+      // Página "compras central" foi removida; agora a criação de nota vai pelo
+      // modal #cabModal direto. Fecha o topModal e abre o cab.
+      try { closeTopModal(); } catch (e) { /* ignore */ }
+      try { showCabModal(); } catch (e) { /* ignore */ }
     }
     
     topSearch?.addEventListener('keydown', (e)=>{
@@ -958,9 +956,9 @@
     topList?.addEventListener('click', (e)=>{
       const el = e.target.closest('[data-cod]');
       if(!el) return;
-      const cod = el.getAttribute('data-cod');
-      try{ IAOverlay.show(); }catch(e){ console.warn('Overlay failed', e); }
-      window.location.href = `${API_URLS.CENTRAL_AJAX}?codtipoper=${encodeURIComponent(cod)}`;
+      // Página central removida — abre o modal de cabeçalho direto
+      try { closeTopModal(); } catch (err) { /* ignore */ }
+      try { showCabModal(); } catch (err) { /* ignore */ }
     });
     
     // --- Novo: Modal de Cabeçalho (Portal) ---
@@ -1003,7 +1001,7 @@
       }
       // Try to fetch header data from central by requesting the compras_central endpoint and parsing values
       try{
-        const url = `${API_URLS.CENTRAL_AJAX}?nunota=${encodeURIComponent(nunota)}&ajax_header=1`;
+        const url = `/sankhya/compras/central/?nunota=${encodeURIComponent(nunota)}&ajax_header=1`;
         const r = await fetch(url, { credentials: 'same-origin' });
         if (r.ok){
           const j = await r.json().catch(()=>null);

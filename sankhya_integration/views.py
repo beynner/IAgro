@@ -785,8 +785,15 @@ def view_portal_entradas(request: HttpRequest) -> HttpResponse:
     lote = (raw_lote or "").strip()
     if lote.lower() in ("", "none", "null"): lote = None
     
+    # Mai/2026 (2026-05-27) — Trava de 90 dias por default. Se operador não
+    # passar `?days=N`, `?days=all` ou `?start=...&end=...` explícitos, força
+    # janela dos últimos 90 dias. Razão: base grande (>4700 notas) tornava
+    # lista infinita inútil — agora carrega só recente; pra histórico maior,
+    # operador abre filtro e seta datas/days.
     raw_days = request.GET.get("days")
-    if raw_days is None: days_val = None
+    has_dates = bool(request.GET.get("start")) or bool(request.GET.get("end"))
+    if raw_days is None:
+        days_val = None if has_dates else 90
     else:
         rd = (raw_days or "").strip().lower()
         if rd in ("all", "todos", "*", "tudo", ""): days_val = None
@@ -803,6 +810,9 @@ def view_portal_entradas(request: HttpRequest) -> HttpResponse:
         # padrão alinhado com o Comercial. Antes vinha como `codprod` int e
         # era silenciosamente ignorado pelo service.
         "fabricante": (request.GET.get("fabricante") or "").strip() or None,
+        # Mai/2026 (2026-05-27) — busca livre do campo `m_search` do mobile
+        # (NOMEPARC OR NUNOTA OR NUMNOTA via LIKE). Server-side ágil.
+        "q": (request.GET.get("q") or "").strip() or None,
     }
     
     try: pagina = int(request.GET.get("page", 1))
@@ -859,10 +869,7 @@ def view_central_compras(request: HttpRequest) -> HttpResponse:
     nunota_req = request.GET.get("nunota")
     try: nunota_val = int(nunota_req) if nunota_req not in (None, "", "None", "none", "null") else None
     except ValueError: nunota_val = None
-    
-    itens = listar_itens_por_nota(nunota_val) if nunota_val else []
-    valor_total = sum((row[8] or 0) for row in itens) if itens else 0
-    
+
     hoje_iso = _date.today().isoformat()
     form_padrao = {
         'codemp': '10',
@@ -936,18 +943,18 @@ def view_central_compras(request: HttpRequest) -> HttpResponse:
 
         return JsonResponse({'form': resposta_form})
 
-    contexto = {
-        "nunota": nunota_val,
-        "itens": itens,
-        "vtotal": valor_total,
-        "form": form_padrao,
-        "write_enabled": verificar_permissao_escrita(),
-    }
-    return render(request, "sankhya_integration/compras_central.html", contexto)
+    # Página HTML "compras central" foi removida em refator do início do projeto.
+    # Endpoint mantém apenas o ramo AJAX (?ajax_header=1) usado pelo modal de
+    # edição de cabeçalho da Entrada. Acessos diretos retornam 410 Gone.
+    return JsonResponse({
+        "ok": False,
+        "error": "Página removida. Use /sankhya/compras/portal/."
+    }, status=410)
 
 def api_salvar_novo_cabecalho(request: HttpRequest) -> HttpResponse:
     """Cria um novo cabeçalho (Nota nova) usando dados do Modal Cabeçalho."""
-    if request.method != 'POST': return view_central_compras(request)
+    if request.method != 'POST':
+        return JsonResponse({"ok": False, "error": "Use POST"}, status=405)
 
     dados_json = _get_json_payload(request)
     def_get = lambda nome, def_val='': (dados_json.get(nome) or request.POST.get(nome) or def_val)
@@ -969,22 +976,10 @@ def api_salvar_novo_cabecalho(request: HttpRequest) -> HttpResponse:
     try:
         plano = inserir_cabecalho_nota_banco(payload_banco, simulacao=False)
         plano['ok'] = plano.get('executed', False)
-
-        # Se foi uma chamada via Javascript Modal
-        if dados_json or request.META.get('HTTP_X_REQUESTED_WITH') == 'XMLHttpRequest':
-            return JsonResponse(plano, status=200 if plano['ok'] else 400)
-
-        # Se for um POST clássico de formulário (Legado)
-        if plano.get('executed') and plano.get('nunota'):
-            return redirect(f"/sankhya/compras/central/?nunota={plano['nunota']}")
-
+        return JsonResponse(plano, status=200 if plano['ok'] else 400)
     except Exception as e:
         logger.exception("Erro ao salvar o cabeçalho novo")
-        if dados_json or request.META.get('HTTP_X_REQUESTED_WITH') == 'XMLHttpRequest':
-            return JsonResponse({'ok': False, 'error': str(e)}, status=500)
-
-    # Fallback caso falhe
-    return render(request, "sankhya_integration/compras_central.html", {'write_enabled': verificar_permissao_escrita()})
+        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
 
 def api_atualizar_cabecalho_existente(request: HttpRequest) -> JsonResponse:
     """Atualiza as informações de uma nota que já existe (Botão Editar Cabeçalho)."""

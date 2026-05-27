@@ -120,6 +120,55 @@ SELECT c.NUNOTA, NVL(i.AD_QTDAVARIA, 0)
 
 ---
 
+## 📱 Redesign Mobile app-like (Mai/2026 — 2026-05-26)
+
+Mesma arquitetura da Entrada Mobile: HTML único com 2 containers paralelos (`.classificacao-desktop` + `.classificacao-mobile`), escopados por `body[data-active-module="classificacao"]` em viewport ≤900px. Desktop preservado 100% intacto.
+
+### Estrutura mobile
+
+| Componente | Arquivo |
+|---|---|
+| Template | `classificacao.html` — bloco `.classificacao-mobile` com 2 telas + 2 bottom sheets |
+| CSS | `classificacao.css` — bloco "REDESIGN MOBILE-FIRST — Classificação" |
+| JS | `classificacao_mobile.js` (~600 linhas) — só ativa ≤900px |
+
+### 2 telas mobile
+
+1. **Lista de lotes** — cards 1 linha (26px altura) com cor de status:
+   - 🟢 Verde — Classificação Finalizada
+   - 🟡 Âmbar — Classificando (em andamento)
+   - 🔴 Vermelho — A Classificar (pendente)
+2. **Detalhe do lote** — hero (Fornecedor / Produto / Pedido + Data) · grid 4 cards de resumo (In natura · Classificado · Descarte · Estoque com kg e %) · toggle "Classificação Finalizada" · lista de produtos classificados read-only · FAB redireciona pro editor desktop
+
+### 2 bottom sheets
+
+- **Filtros** — Status chips (Finalizada/Classificando/A Classificar com ícone colorido) + Data ini/fim com `<<` `>>` + Pedido + Produto (typeahead fabricante) + Parceiro (typeahead CODPARC) + Lote (texto)
+- **Descarte** — input numérico grande + toggle "+ Adicionar / − Subtrair" + Confirmar → POST `/sankhya/item/update_descarte_lote/`
+
+### Backend reusado (zero novo endpoint)
+
+| Endpoint | Uso |
+|---|---|
+| `GET /sankhya/compras/classificacao/api/lotes/` | Lista paginada com filtros e status |
+| `GET /sankhya/lote/consultar/?lote=X` | Detalhe completo (entradas + classificações + resumo) |
+| `POST /sankhya/item/toggle_status/` | Toggle finalizada |
+| `POST /sankhya/item/update_descarte_lote/` | Atualizar descarte |
+
+### Decisão pragmática
+
+**Adicionar nova classificação** e **editar item classificado** continuam redirecionando pro editor desktop com `?open=items&sel=LOTE`. Razão: o modal `modalClassify` tem fluxo complexo (Origem + Planificar + Salvar com SQL preview + múltiplas saídas) — replicar fielmente em mobile é trabalho grande. A visualização mobile já entrega ~80% do valor (operador de doca confere status dos lotes, lança descarte, fecha classificação no celular).
+
+### Features herdadas da Entrada Mobile
+
+- Navegação stack com back button do Android
+- Swipe-to-back (gesto touch direita) na tela 2
+- Bottom nav (Lotes / Buscar / Filtros / Mais)
+- Search client-side filtra por produto/parceiro/lote
+- Hambúrguer abre sidebar IAgro global
+- Toast verde/vermelho via `IAgro.showToast`
+
+---
+
 ## Frontend
 
 - **Template:** `classificacao.html`

@@ -19,7 +19,6 @@ python manage.py runserver
 ## Rotas principais
 - `/sankhya/` (index)
 - `/sankhya/compras/portal/`
-- `/sankhya/compras/central/`
 
 ## Observações
 - Operações de Salvar/Excluir estão desabilitadas por política (read-only).

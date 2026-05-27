@@ -625,3 +625,1286 @@ table { width: 100%; border-collapse: collapse; table-layout: fixed; }
     text-align: right;
     width: 44px;
 }
+
+/* ==========================================================================
+   ★ REDESIGN MOBILE-FIRST (Mai/2026) — Fase 1 (estrutura visual)
+   ==========================================================================
+   ESCOPO: aplica APENAS em body[data-active-module="entrada"] porque
+   entrada.css é carregado globalmente pelo base.html (gotcha legado).
+
+   FUNCIONAMENTO:
+   - Desktop (≥901px): .entrada-mobile escondido, .entrada-desktop ativo
+   - Mobile  (≤900px): .entrada-desktop escondido, .entrada-mobile ativo
+                       + esconde content-header/footer da base + modais desktop
+
+   Estado: estrutura visual; JS de navegação stack vem na Fase 2.
+   ========================================================================== */
+
+/* === Portal wrapper === */
+.entrada-portal {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+}
+
+/* Default: layout desktop visível */
+.entrada-mobile { display: none; }
+.entrada-desktop {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+}
+
+/* ==========================================================================
+   ATIVAÇÃO MOBILE (≤900px) — só dentro do módulo Entrada
+   ========================================================================== */
+@media (max-width: 900px) {
+    body[data-active-module="entrada"] .entrada-desktop { display: none !important; }
+    body[data-active-module="entrada"] .entrada-mobile  { display: block; }
+
+    /* Esconde chrome da base.html em mobile pro módulo Entrada usar
+       headers próprios por tela */
+    body[data-active-module="entrada"] .content-header   { display: none; }
+    body[data-active-module="entrada"] .ia-footer-inline { display: none; }
+    body[data-active-module="entrada"] .main-layout {
+        padding: 0 !important;
+        overflow: hidden !important;
+    }
+    body[data-active-module="entrada"] .app-content {
+        height: 100vh;
+        height: 100dvh;
+    }
+
+    /* Modais desktop (cabModal, cabItemsModal, topModal, rodapeModal)
+       ficam ocultos em mobile — o redesign mobile usa bottom sheets próprios */
+    body[data-active-module="entrada"] #cabModal,
+    body[data-active-module="entrada"] #cabItemsModal,
+    body[data-active-module="entrada"] #topModal,
+    body[data-active-module="entrada"] #rodapeModal {
+        display: none !important;
+    }
+}
+
+/* ==========================================================================
+   TOKENS — paleta e dimensões do redesign mobile
+   ========================================================================== */
+.entrada-mobile {
+    --m-bg:            #f8fafc;
+    --m-surface:       #ffffff;
+    --m-border:        #e5e7eb;
+    --m-border-soft:   #f1f5f9;
+    --m-text:          #1f2937;
+    --m-text-muted:    #6b7280;
+    --m-primary:       #5e7e4a;    /* verde Agromil */
+    --m-primary-dark:  #4a6e3e;
+    --m-primary-soft:  #eaf0e8;
+    --m-warning:       #d97706;
+    --m-warning-soft:  #fff7ed;
+    --m-danger:        #dc2626;
+    --m-danger-soft:   #fef2f2;
+    --m-success:       #16a34a;
+    --m-radius:        10px;
+    --m-radius-sm:     7px;
+    --m-shadow:        0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --m-shadow-lg:     0 8px 24px rgba(0,0,0,0.12);
+    --m-header-h:      48px;
+    --m-bottom-nav-h:  52px;
+    --m-touch-target:  40px;
+
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    background: var(--m-bg);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ==========================================================================
+   TELAS (screen stack) — uma tela ativa por vez
+   Padrão: tela 1 visível, outras translateX(100%). is-active = transform 0.
+   ========================================================================== */
+.entrada-mobile .m-screen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--m-bg);
+    transform: translateX(100%);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.28s ease, opacity 0.18s ease;
+    z-index: 1;
+}
+.entrada-mobile .m-screen.is-active {
+    transform: translateX(0);
+    opacity: 1;
+    pointer-events: auto;
+    z-index: 2;
+}
+
+/* ==========================================================================
+   HEADER DA TELA (56px sticky top)
+   ========================================================================== */
+.entrada-mobile .m-screen-header {
+    flex: 0 0 var(--m-header-h);
+    height: var(--m-header-h);
+    display: flex;
+    align-items: center;
+    padding: 0 4px;
+    background: var(--m-surface);
+    border-bottom: 1px solid var(--m-border-soft);
+    gap: 2px;
+    z-index: 5;
+}
+.entrada-mobile .m-screen-title {
+    flex: 1;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--m-text);
+    margin: 0;
+    text-transform: none;
+    letter-spacing: -0.01em;
+    padding: 0 6px;
+}
+.entrada-mobile .m-screen-title-block {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    padding: 0 4px;
+}
+.entrada-mobile .m-screen-title-block .m-screen-title {
+    font-size: 14px;
+    padding: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.entrada-mobile .m-screen-subtitle {
+    font-size: 10px;
+    color: var(--m-text-muted);
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.entrada-mobile .m-iconbtn {
+    width: var(--m-touch-target);
+    height: var(--m-touch-target);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    color: var(--m-text);
+    cursor: pointer;
+    font-size: 19px;
+    transition: background 0.15s ease;
+    padding: 0;
+    flex: 0 0 auto;
+}
+.entrada-mobile .m-iconbtn:hover { background: rgba(0,0,0,0.05); }
+.entrada-mobile .m-iconbtn:active { background: rgba(0,0,0,0.1); }
+.entrada-mobile .m-iconbtn:disabled,
+.entrada-mobile .m-iconbtn--reserved {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+.entrada-mobile .m-iconbtn--danger { color: var(--m-danger); }
+.entrada-mobile .m-iconbtn--danger:hover { background: var(--m-danger-soft); }
+
+/* Spacer no header pra manter o título alinhado quando não tem botão à direita */
+.entrada-mobile .m-screen-header-spacer {
+    width: var(--m-touch-target);
+    flex: 0 0 auto;
+}
+.entrada-mobile .m-iconbtn[hidden] { display: none; }
+
+/* Badge do usuário no header das telas principais (lista de cada módulo).
+   Mesmo visual do .user-badge-inline do desktop (global.css): pílula verde
+   claro com texto uppercase. Some nas telas internas (detalhe/item). */
+.entrada-mobile .m-user-badge {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 9px;
+    background: #f0f5ec;
+    border-radius: 14px;
+    color: #4a633a;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    max-width: 100px;
+    overflow: hidden;
+}
+.entrada-mobile .m-user-badge i {
+    font-size: 12px;
+    color: #4a633a;
+    flex: 0 0 auto;
+}
+.entrada-mobile .m-user-badge span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Link "Sair" ao lado do badge — vermelho, pendant do .btn-logout-inline */
+.entrada-mobile .m-logout-link {
+    flex: 0 0 auto;
+    color: var(--m-danger);
+    text-decoration: none;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background 0.15s ease;
+}
+.entrada-mobile .m-logout-link:active { background: var(--m-danger-soft); }
+
+/* ==========================================================================
+   BODY SCROLLÁVEL DA TELA
+   ========================================================================== */
+.entrada-mobile .m-screen-body {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 8px 10px;
+    padding-bottom: calc(var(--m-bottom-nav-h) + 80px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ==========================================================================
+   SEARCH BAR (tela 1)
+   ========================================================================== */
+.entrada-mobile .m-search-bar {
+    position: relative;
+    margin: 8px 10px 0;
+    flex: 0 0 auto;
+}
+.entrada-mobile .m-search-icon {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--m-text-muted);
+    font-size: 15px;
+    pointer-events: none;
+}
+.entrada-mobile .m-search-bar input[type="search"] {
+    width: 100%;
+    height: 36px;
+    padding: 0 14px 0 34px;
+    border: 1px solid var(--m-border);
+    border-radius: 18px;
+    background: var(--m-surface);
+    font-size: 13px;
+    color: var(--m-text);
+    outline: none;
+    box-sizing: border-box;
+    -webkit-appearance: none;
+}
+.entrada-mobile .m-search-bar input[type="search"]:focus {
+    border-color: var(--m-primary);
+    box-shadow: 0 0 0 3px rgba(94,126,74,0.15);
+}
+/* Esconde ✕ nativo do search no Safari */
+.entrada-mobile .m-search-bar input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+}
+
+/* ==========================================================================
+   CARDS DE NOTA (tela 1)
+   ========================================================================== */
+.entrada-mobile .m-notas-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 4px;
+}
+
+/* Sentinela no fim da lista — IntersectionObserver dispara carregarMaisNotas */
+.entrada-mobile .m-lista-sentinela {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 12px 18px;
+    color: var(--m-text-muted);
+    font-size: 12px;
+    font-weight: 600;
+}
+.entrada-mobile .m-lista-sentinela i {
+    font-size: 18px;
+    animation: m-spin 0.8s linear infinite;
+}
+/* Wrapper externo do card — guarda o botão de delete escondido à direita */
+.entrada-mobile .m-card-nota-wrap {
+    position: relative;
+    border-radius: 5px;
+    overflow: hidden;
+    height: 26px;
+}
+/* Botões escondidos atrás do card — revelados ao arrastar pra esquerda.
+   Ordem visual (esquerda→direita): EDITAR (azul) | EXCLUIR (vermelho).
+   Card desliza 88px (44+44) revelando os dois. 44px = touch target mínimo. */
+.entrada-mobile .m-card-nota__swipe-del,
+.entrada-mobile .m-card-nota__swipe-edit {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 44px;
+    color: #fff;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 0;
+}
+.entrada-mobile .m-card-nota__swipe-edit {
+    right: 44px;
+    background: #2563eb; /* azul */
+}
+.entrada-mobile .m-card-nota__swipe-edit:active { background: #1d4ed8; }
+.entrada-mobile .m-card-nota__swipe-del {
+    right: 0;
+    background: var(--m-danger);
+}
+.entrada-mobile .m-card-nota__swipe-del i,
+.entrada-mobile .m-card-nota__swipe-edit i { font-size: 16px; line-height: 1; }
+.entrada-mobile .m-card-nota__swipe-del:active { background: #991b1b; }
+
+.entrada-mobile .m-card-nota {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 7px;
+    height: 26px;
+    background: var(--m-surface);
+    border-radius: 5px;
+    border-left: 3px solid var(--m-border);
+    box-shadow: var(--m-shadow);
+    cursor: pointer;
+    transition: transform 0.18s cubic-bezier(0.32, 0.72, 0, 1);
+    overflow: hidden;
+    position: relative;
+    z-index: 1;
+    will-change: transform;
+}
+.entrada-mobile .m-card-nota.is-swiping { transition: none; }
+.entrada-mobile .m-card-nota:active {
+    transform: scale(0.98);
+}
+.entrada-mobile .m-card-nota--ok       { border-left-color: var(--m-primary); }
+.entrada-mobile .m-card-nota--pendente { border-left-color: var(--m-warning); }
+.entrada-mobile .m-card-nota--alerta   { border-left-color: var(--m-danger); }
+
+.entrada-mobile .m-card-nota__avatar {
+    flex: 0 0 20px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 9.5px;
+    text-transform: uppercase;
+}
+.entrada-mobile .m-card-nota--ok .m-card-nota__avatar {
+    background: linear-gradient(135deg, #6f8b60 0%, #4a6e3e 100%);
+}
+.entrada-mobile .m-card-nota--pendente .m-card-nota__avatar {
+    background: linear-gradient(135deg, #fbbf24 0%, #d97706 100%);
+}
+.entrada-mobile .m-card-nota--alerta .m-card-nota__avatar {
+    background: linear-gradient(135deg, #f87171 0%, #dc2626 100%);
+}
+
+/* Layout em UMA linha — nome flex 1, pedido + data + chevron à direita */
+.entrada-mobile .m-card-nota__nome {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--m-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+    line-height: 1;
+}
+.entrada-mobile .m-card-nota__pedido {
+    font-size: 10px;
+    color: var(--m-text-muted);
+    flex: 0 0 auto;
+    font-weight: 500;
+    white-space: nowrap;
+}
+.entrada-mobile .m-card-nota__data {
+    font-size: 10px;
+    color: var(--m-text-muted);
+    flex: 0 0 auto;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.entrada-mobile .m-card-nota__avaria-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--m-danger);
+    padding: 0 4px;
+    background: var(--m-danger-soft);
+    border-radius: 3px;
+    flex: 0 0 auto;
+}
+.entrada-mobile .m-card-nota__chevron {
+    color: #cbd5e1;
+    font-size: 11px;
+    flex: 0 0 auto;
+}
+
+/* ==========================================================================
+   CARDS DE ITEM (tela 2)
+   ========================================================================== */
+.entrada-mobile .m-itens-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+/* Wrapper de swipe-to-delete pros cards de item (tela 2 — detalhe da nota).
+   Mesma técnica dos cards de nota: botão escondido atrás, card desliza pra
+   esquerda revelando-o. */
+.entrada-mobile .m-card-item-wrap {
+    position: relative;
+    border-radius: var(--m-radius);
+    overflow: hidden;
+}
+.entrada-mobile .m-card-item__swipe-del {
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 44px;
+    background: var(--m-danger);
+    color: #fff;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 0;
+}
+.entrada-mobile .m-card-item__swipe-del i { font-size: 16px; line-height: 1; }
+.entrada-mobile .m-card-item__swipe-del:active { background: #991b1b; }
+
+.entrada-mobile .m-card-item {
+    position: relative;
+    background: var(--m-surface);
+    border-radius: var(--m-radius);
+    border-left: 3px solid var(--m-border);
+    padding: 8px 11px;
+    box-shadow: var(--m-shadow);
+    cursor: pointer;
+    transition: transform 0.22s ease, background 0.12s ease;
+    z-index: 1;
+    will-change: transform;
+}
+.entrada-mobile .m-card-item.is-swiping { transition: none; }
+.entrada-mobile .m-card-item:active { background: var(--m-border-soft); }
+.entrada-mobile .m-card-item--ok       { border-left-color: var(--m-primary); }
+.entrada-mobile .m-card-item--pendente { border-left-color: var(--m-warning); }
+.entrada-mobile .m-card-item--alerta   { border-left-color: var(--m-danger); }
+
+.entrada-mobile .m-card-item__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 5px;
+}
+.entrada-mobile .m-card-item__nome {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--m-text);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.entrada-mobile .m-card-item__status-icon {
+    font-size: 18px;
+    flex: 0 0 auto;
+}
+.entrada-mobile .m-card-item--ok       .m-card-item__status-icon { color: var(--m-primary); }
+.entrada-mobile .m-card-item--pendente .m-card-item__status-icon { color: var(--m-warning); }
+.entrada-mobile .m-card-item--alerta   .m-card-item__status-icon { color: var(--m-danger); }
+
+.entrada-mobile .m-card-item__body {
+    display: flex;
+    gap: 14px;
+}
+.entrada-mobile .m-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1;
+    min-width: 0;
+}
+/* Variante alinhada à direita — usada no card de item: Peso à esquerda, Qtd à direita */
+.entrada-mobile .m-stat--right {
+    align-items: flex-end;
+    text-align: right;
+}
+.entrada-mobile .m-stat-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    color: var(--m-text-muted);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+.entrada-mobile .m-stat-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--m-text);
+    font-variant-numeric: tabular-nums;
+}
+.entrada-mobile .m-card-item__lote {
+    margin-top: 5px;
+    font-size: 10px;
+    color: var(--m-text-muted);
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    background: var(--m-border-soft);
+    padding: 1px 6px;
+    border-radius: 3px;
+    display: inline-block;
+}
+
+/* ==========================================================================
+   TELA 3 — CONFERIR ITEM (a mais usada do módulo)
+   ========================================================================== */
+.entrada-mobile .m-item-edit {
+    padding: 12px 14px;
+    padding-bottom: 90px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.entrada-mobile .m-item-hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 0 0 4px;
+    gap: 3px;
+}
+.entrada-mobile .m-item-hero__avatar {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--m-primary) 0%, var(--m-primary-dark) 100%);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 22px;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    box-shadow: 0 4px 12px rgba(94,126,74,0.25);
+}
+.entrada-mobile .m-item-hero__nome {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--m-text);
+    margin: 0;
+    letter-spacing: -0.01em;
+    text-align: center;
+}
+.entrada-mobile .m-item-hero__meta {
+    font-size: 12px;
+    color: var(--m-text-muted);
+    margin: 0;
+}
+.entrada-mobile .m-item-hero__lote {
+    font-size: 10px;
+    color: var(--m-text-muted);
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    margin: 3px 0 0;
+    background: var(--m-border-soft);
+    padding: 2px 8px;
+    border-radius: 3px;
+}
+
+.entrada-mobile .m-field-block {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.entrada-mobile .m-field-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--m-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.entrada-mobile .m-field-block--avaria .m-field-label { color: var(--m-warning); }
+.entrada-mobile .m-field-input {
+    width: 100%;
+    height: 42px;
+    padding: 0 12px;
+    border: 1.5px solid var(--m-border);
+    border-radius: var(--m-radius-sm);
+    background: var(--m-surface);
+    /* iOS Safari faz zoom em focus quando font-size < 16px. Mantém 16px pra
+       evitar o efeito desagradável de zoom (paridade web/desktop). */
+    font-size: 16px;
+    color: var(--m-text);
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    -webkit-appearance: none;
+    font-family: inherit;
+}
+.entrada-mobile .m-field-input--lg {
+    height: 52px;
+    font-size: 21px;
+    font-weight: 700;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    padding: 0 16px;
+}
+.entrada-mobile .m-field-input--avaria {
+    background: var(--m-warning-soft);
+    border-color: #fbd38d;
+}
+.entrada-mobile .m-field-input:focus {
+    border-color: var(--m-primary);
+    box-shadow: 0 0 0 3px rgba(94,126,74,0.15);
+}
+/* Validação visual de campo obrigatório (paridade .invalid do desktop) */
+.entrada-mobile .m-field-input.is-invalid {
+    border-color: var(--m-danger) !important;
+    background-color: var(--m-danger-soft) !important;
+    color: var(--m-danger) !important;
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15) !important;
+}
+.entrada-mobile .m-toggle-row.is-invalid .m-toggle-btn {
+    border-color: var(--m-danger) !important;
+    background-color: var(--m-danger-soft) !important;
+    color: var(--m-danger) !important;
+}
+.entrada-mobile .m-field-input--avaria:focus {
+    border-color: var(--m-warning);
+    box-shadow: 0 0 0 3px rgba(217,119,6,0.2);
+}
+.entrada-mobile .m-field-textarea {
+    height: auto;
+    min-height: 80px;
+    padding: 12px 14px;
+    font-size: 14px;
+    resize: vertical;
+    line-height: 1.4;
+}
+.entrada-mobile .m-field-hint {
+    font-size: 11px;
+    color: var(--m-text-muted);
+    margin: 2px 0 0;
+}
+.entrada-mobile .m-field-row {
+    display: flex;
+    gap: 10px;
+}
+.entrada-mobile .m-field-row > .m-field-block { flex: 1; min-width: 0; }
+.entrada-mobile .m-field-row > .m-field-block:first-child { flex: 2; }
+
+/* Esconde spinners dos input number */
+.entrada-mobile .m-field-input[type="number"] { -moz-appearance: textfield; }
+.entrada-mobile .m-field-input[type="number"]::-webkit-outer-spin-button,
+.entrada-mobile .m-field-input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.entrada-mobile .m-toggle-row {
+    display: flex;
+    gap: 6px;
+}
+.entrada-mobile .m-toggle-btn {
+    flex: 1;
+    height: 38px;
+    border: 1.5px solid var(--m-border);
+    background: var(--m-surface);
+    border-radius: var(--m-radius-sm);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--m-text);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: inherit;
+}
+.entrada-mobile .m-toggle-btn:hover { background: var(--m-border-soft); }
+.entrada-mobile .m-toggle-btn.is-active {
+    background: var(--m-primary);
+    color: #fff;
+    border-color: var(--m-primary);
+}
+
+/* ==========================================================================
+   BOTTOM ACTION — botão sticky bottom (usado na tela 3)
+   ========================================================================== */
+.entrada-mobile .m-bottom-action {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: var(--m-surface);
+    border-top: 1px solid var(--m-border);
+    z-index: 4;
+}
+.entrada-mobile .m-btn-primary {
+    width: 100%;
+    height: 46px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: var(--m-primary);
+    color: #fff;
+    border: none;
+    border-radius: var(--m-radius-sm);
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.12s ease;
+    font-family: inherit;
+}
+.entrada-mobile .m-btn-primary i { font-size: 17px; }
+.entrada-mobile .m-btn-primary:hover { background: var(--m-primary-dark); }
+.entrada-mobile .m-btn-primary:active { transform: scale(0.98); }
+.entrada-mobile .m-btn-secondary {
+    flex: 1;
+    height: 48px;
+    background: transparent;
+    color: var(--m-text);
+    border: 1.5px solid var(--m-border);
+    border-radius: var(--m-radius-sm);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+}
+.entrada-mobile .m-btn-secondary:hover { background: var(--m-border-soft); }
+
+/* ==========================================================================
+   FAB — Floating Action Button
+   ========================================================================== */
+.entrada-mobile .m-fab {
+    position: absolute;
+    right: 14px;
+    bottom: calc(var(--m-bottom-nav-h) + 12px + env(safe-area-inset-bottom, 0px));
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--m-primary);
+    color: #fff;
+    border: none;
+    box-shadow: 0 4px 14px rgba(94,126,74,0.4), 0 2px 4px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 23px;
+    cursor: pointer;
+    z-index: 8;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.entrada-mobile .m-fab:hover {
+    background: var(--m-primary-dark);
+    box-shadow: 0 6px 18px rgba(94,126,74,0.5), 0 2px 4px rgba(0,0,0,0.1);
+}
+.entrada-mobile .m-fab:active { transform: scale(0.92); }
+
+/* FAB secundário (Atualizar) — posicionado acima do FAB principal, azul */
+.entrada-mobile .m-fab--secondary {
+    bottom: calc(var(--m-bottom-nav-h) + 12px + 48px + 12px + env(safe-area-inset-bottom, 0px));
+    width: 42px; height: 42px;
+    font-size: 19px;
+    background: #2563eb;        /* azul */
+    color: #fff;
+    border: none;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4), 0 2px 4px rgba(0,0,0,0.1);
+}
+.entrada-mobile .m-fab--secondary:hover {
+    background: #1d4ed8;
+    box-shadow: 0 6px 18px rgba(37, 99, 235, 0.5), 0 2px 4px rgba(0,0,0,0.1);
+}
+.entrada-mobile .m-fab--secondary.is-loading i {
+    animation: m-spin 0.8s linear infinite;
+}
+@keyframes m-spin { to { transform: rotate(360deg); } }
+
+/* ==========================================================================
+   BOTTOM NAV
+   ========================================================================== */
+.entrada-mobile .m-bottom-nav {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: calc(var(--m-bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+    background: var(--m-surface);
+    border-top: 1px solid var(--m-border);
+    display: flex;
+    align-items: stretch;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    z-index: 6;
+    box-shadow: 0 -2px 8px rgba(0,0,0,0.04);
+}
+.entrada-mobile .m-bottom-nav__item {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    background: transparent;
+    border: none;
+    color: var(--m-text-muted);
+    font-size: 9.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color 0.15s ease;
+    padding: 4px 2px;
+    font-family: inherit;
+}
+.entrada-mobile .m-bottom-nav__item i { font-size: 19px; line-height: 1; }
+.entrada-mobile .m-bottom-nav__item.is-active { color: var(--m-primary); }
+.entrada-mobile .m-bottom-nav__item.is-active i::before { font-family: 'Phosphor-Fill'; }
+.entrada-mobile .m-bottom-nav__item:active { background: rgba(0,0,0,0.05); }
+/* Badge "tem filtro aplicado" — muda cor do ícone+label pra verde Agromil
+   + bolinha vermelha no canto, indicando estado ativo dos filtros */
+.entrada-mobile .m-bottom-nav__item.has-filtros-ativos { color: var(--m-primary); }
+.entrada-mobile .m-bottom-nav__item.has-filtros-ativos i::before { font-family: 'Phosphor-Fill'; }
+.entrada-mobile .m-bottom-nav__item.has-filtros-ativos::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    right: 22%;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--m-danger);
+    box-shadow: 0 0 0 2px var(--m-surface);
+}
+
+/* Em telas que têm bottom-action sticky (tela 3), some o bottom-nav */
+.entrada-mobile:has(.m-screen--item.is-active) .m-bottom-nav { display: none; }
+.entrada-mobile:has(.m-screen--item.is-active) .m-fab { display: none; }
+
+/* ==========================================================================
+   BOTTOM SHEETS
+   ========================================================================== */
+.entrada-mobile .m-sheet {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    pointer-events: none;
+}
+.entrada-mobile .m-sheet[aria-hidden="false"] { pointer-events: auto; }
+.entrada-mobile .m-sheet__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0);
+    transition: background 0.25s ease;
+}
+.entrada-mobile .m-sheet[aria-hidden="false"] .m-sheet__backdrop {
+    background: rgba(0,0,0,0.45);
+}
+.entrada-mobile .m-sheet__content {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--m-surface);
+    border-radius: 16px 16px 0 0;
+    max-height: 80vh;
+    max-height: 80dvh;
+    display: flex;
+    flex-direction: column;
+    transform: translateY(100%);
+    transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+    box-shadow: 0 -8px 24px rgba(0,0,0,0.18);
+}
+.entrada-mobile .m-sheet[aria-hidden="false"] .m-sheet__content { transform: translateY(0); }
+.entrada-mobile .m-sheet__content--tall {
+    max-height: 92vh;
+    max-height: 92dvh;
+    height: 92vh;
+    height: 92dvh;
+}
+.entrada-mobile .m-sheet__handle {
+    width: 36px;
+    height: 4px;
+    background: #cbd5e1;
+    border-radius: 2px;
+    margin: 8px auto 4px;
+    flex: 0 0 auto;
+}
+.entrada-mobile .m-sheet__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px 12px 16px;
+    border-bottom: 1px solid var(--m-border-soft);
+    flex: 0 0 auto;
+}
+.entrada-mobile .m-sheet__header h2 {
+    font-size: 17px;
+    font-weight: 700;
+    margin: 0;
+    color: var(--m-text);
+    text-transform: none;
+}
+.entrada-mobile .m-sheet__body {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+.entrada-mobile .m-sheet__footer {
+    display: flex;
+    gap: 10px;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--m-border-soft);
+    flex: 0 0 auto;
+}
+.entrada-mobile .m-sheet__footer .m-btn-primary { flex: 1; height: 48px; font-size: 15px; }
+
+/* Chips de filtro */
+.entrada-mobile .m-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.entrada-mobile .m-chip {
+    display: inline-flex;
+    align-items: center;
+    height: 36px;
+    padding: 0 14px;
+    background: var(--m-surface);
+    border: 1.5px solid var(--m-border);
+    border-radius: 18px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--m-text);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: inherit;
+}
+.entrada-mobile .m-chip:hover { background: var(--m-border-soft); }
+.entrada-mobile .m-chip.is-active {
+    background: var(--m-primary);
+    color: #fff;
+    border-color: var(--m-primary);
+}
+
+/* Sheet "Itens da Nota" — adicionar/listar itens (espelha #cabItemsCard desktop) */
+.entrada-mobile .m-sheet__header-title {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; gap: 1px;
+}
+.entrada-mobile .m-sheet__header-title h2 {
+    font-size: 16px; font-weight: 700; margin: 0; color: var(--m-text);
+    text-transform: none;
+}
+.entrada-mobile .m-sheet__header-sub {
+    font-size: 11px; color: var(--m-text-muted); font-weight: 500;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.entrada-mobile .m-itens-actions {
+    display: flex; gap: 8px; margin-top: 4px;
+}
+.entrada-mobile .m-itens-actions .m-btn-secondary { flex: 0 0 auto; height: 42px; padding: 0 14px; }
+.entrada-mobile .m-itens-actions .m-btn-primary { flex: 1; height: 42px; }
+
+.entrada-mobile .m-itens-divider {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin: 14px 0 6px;
+    font-size: 11px; font-weight: 700; color: var(--m-text-muted);
+    text-transform: uppercase; letter-spacing: 0.04em;
+}
+.entrada-mobile .m-itens-count {
+    background: var(--m-border-soft); color: var(--m-text);
+    padding: 1px 7px; border-radius: 10px; font-size: 10.5px;
+}
+
+.entrada-mobile .m-itens-inseridos {
+    display: flex; flex-direction: column; gap: 4px;
+}
+.entrada-mobile .m-iteminserido {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px;
+    background: var(--m-surface);
+    border-radius: var(--m-radius-sm);
+    box-shadow: var(--m-shadow);
+    cursor: pointer;
+}
+.entrada-mobile .m-iteminserido__info {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; gap: 1px;
+    line-height: 1.15;
+}
+.entrada-mobile .m-iteminserido__nome {
+    font-size: 12px; font-weight: 700; color: var(--m-text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.entrada-mobile .m-iteminserido__meta {
+    font-size: 10px; color: var(--m-text-muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.entrada-mobile .m-iteminserido__qtd {
+    font-size: 12.5px; font-weight: 800; color: var(--m-primary);
+    flex: 0 0 auto; font-variant-numeric: tabular-nums; text-align: right;
+}
+.entrada-mobile .m-iteminserido__qtd small {
+    display: block; font-size: 9.5px; color: var(--m-text-muted);
+    font-weight: 600;
+}
+.entrada-mobile .m-iteminserido__del {
+    flex: 0 0 auto;
+    width: 30px; height: 30px;
+    background: transparent; border: none;
+    color: var(--m-danger);
+    cursor: pointer; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+}
+.entrada-mobile .m-iteminserido__del:hover { background: var(--m-danger-soft); }
+
+/* Avaria inline na linha do item — espelha entrada.css avaria-forn-* */
+.entrada-mobile .m-iteminserido__avaria-wrap {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 4px;
+}
+.entrada-mobile .m-iteminserido__avaria-label {
+    font-size: 9.5px; color: var(--m-text-muted);
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.entrada-mobile .m-iteminserido__avaria {
+    width: 80px; height: 26px;
+    padding: 0 8px; text-align: right;
+    border: 1px solid var(--m-border); border-radius: 4px;
+    background: #fffaf0; font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    -moz-appearance: textfield;
+}
+.entrada-mobile .m-iteminserido__avaria::-webkit-outer-spin-button,
+.entrada-mobile .m-iteminserido__avaria::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.entrada-mobile .m-iteminserido__avaria:focus {
+    outline: none; border-color: var(--m-warning);
+    box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.2);
+}
+.entrada-mobile .m-iteminserido__avaria--saving { border-color: var(--m-warning); background: var(--m-warning-soft); }
+.entrada-mobile .m-iteminserido__avaria--saved {
+    border-color: var(--m-success); background: #f0fdf4;
+    box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.18);
+}
+.entrada-mobile .m-iteminserido__avaria--error {
+    border-color: var(--m-danger); background: var(--m-danger-soft);
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15);
+}
+.entrada-mobile .m-iteminserido__avaria-disabled {
+    font-size: 11px; color: var(--m-text-muted); font-style: italic;
+}
+
+/* Sheet de cabeçalho — card de visualização */
+.entrada-mobile .m-cabec-card {
+    background: var(--m-border-soft);
+    border-radius: var(--m-radius-sm);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.entrada-mobile .m-cabec-card__row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+}
+.entrada-mobile .m-cabec-card__label {
+    font-size: 11px;
+    color: var(--m-text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex: 0 0 auto;
+}
+.entrada-mobile .m-cabec-card__value {
+    font-size: 13px;
+    color: var(--m-text);
+    font-weight: 700;
+    text-align: right;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.entrada-mobile .m-sheet-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    background: #eff6ff;
+    border-left: 3px solid #3b82f6;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #1e40af;
+    margin: 0;
+    line-height: 1.4;
+}
+.entrada-mobile .m-sheet-hint i { font-size: 16px; flex: 0 0 auto; margin-top: 1px; }
+
+/* Botão primário em loading state */
+.entrada-mobile .m-btn-primary.is-loading {
+    opacity: 0.7;
+    pointer-events: none;
+    cursor: wait;
+}
+.entrada-mobile .m-btn-primary.is-loading::before {
+    content: '';
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    margin-right: 6px;
+    display: inline-block;
+}
+
+/* Filtros — período inline (data ini a data fim) */
+.entrada-mobile .m-filter-period {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.entrada-mobile .m-filter-period .m-field-input {
+    flex: 1;
+    height: 36px;
+    font-size: 13px;
+    padding: 0 8px;
+}
+.entrada-mobile .m-filter-period .m-sep {
+    font-size: 12px;
+    color: var(--m-text-muted);
+    font-weight: 600;
+    flex: 0 0 auto;
+}
+.entrada-mobile .m-filter-day-nav {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+}
+.entrada-mobile .m-filter-day-nav .m-chip {
+    flex: 1;
+    justify-content: center;
+    height: 32px;
+    font-size: 11.5px;
+    gap: 3px;
+}
+.entrada-mobile .m-filter-day-nav .m-chip i { font-size: 13px; }
+
+/* Typeahead dentro do bottom sheet */
+.entrada-mobile .m-typeahead {
+    position: relative;
+}
+.entrada-mobile .m-dropdown {
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-radius: var(--m-radius-sm);
+    max-height: 220px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    z-index: 30;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+}
+.entrada-mobile .m-dropdown[hidden] { display: none; }
+.entrada-mobile .m-dropdown-item {
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--m-text);
+    cursor: pointer;
+    border-bottom: 1px solid var(--m-border-soft);
+    line-height: 1.3;
+}
+.entrada-mobile .m-dropdown-item:last-child { border-bottom: none; }
+.entrada-mobile .m-dropdown-item:hover,
+.entrada-mobile .m-dropdown-item.is-active {
+    background: var(--m-primary-soft);
+}
+.entrada-mobile .m-dropdown-item__sec {
+    font-size: 11px;
+    color: var(--m-text-muted);
+    display: block;
+    margin-top: 1px;
+}
+.entrada-mobile .m-dropdown-empty {
+    padding: 12px;
+    font-size: 12px;
+    color: var(--m-text-muted);
+    text-align: center;
+}
+
+/* Empty state */
+.entrada-mobile .m-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--m-text-muted);
+    gap: 12px;
+}
+.entrada-mobile .m-empty-state i { font-size: 56px; color: #cbd5e1; }
+.entrada-mobile .m-empty-state p { font-size: 14px; margin: 0; }
+
+/* ==========================================================================
+   AJUSTES PARA SMARTPHONES MUITO ESTREITOS (≤375px)
+   Mantém valores apertados — só comprime padding horizontal pra não cortar texto
+   ========================================================================== */
+@media (max-width: 375px) {
+    .entrada-mobile .m-screen-body { padding: 6px 6px; }
+    .entrada-mobile .m-search-bar { margin: 6px 6px 0; }
+    .entrada-mobile .m-card-nota { padding: 2px 6px; gap: 6px; }
+    .entrada-mobile .m-card-nota__avatar { flex: 0 0 20px; width: 20px; height: 20px; font-size: 9.5px; }
+    .entrada-mobile .m-card-nota__nome { font-size: 11.5px; }
+    .entrada-mobile .m-card-nota__meta { font-size: 9px; }
+    .entrada-mobile .m-card-nota__data { font-size: 8.5px; }
+}

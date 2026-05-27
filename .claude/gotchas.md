@@ -4,6 +4,209 @@ Lista de pegadinhas que **já causaram bugs** ou que podem causar se tocadas sem
 
 ---
 
+## Página `compras/central/` foi removida — só ramo AJAX vivo (Mai/2026 — 2026-05-27)
+
+A página `/sankhya/compras/central/` (template `compras_central.html`) foi **removida no início do projeto** quando o fluxo migrou pra modais no Portal. O template **não existe** no projeto, mas o código deixou referências mortas espalhadas em vários lugares — descoberto quando o redesign mobile da Entrada tentou redirecionar pra essa URL e quebrou com `TemplateDoesNotExist`.
+
+**Limpeza aplicada (Mai/2026 — 2026-05-27):**
+- `view_central_compras` (views.py) — agora retorna **410 Gone** quando acessada como página HTML; mantém só o ramo `?ajax_header=1` (JSON) que o desktop usa pra preencher o modal de edição de cabeçalho
+- `api_salvar_novo_cabecalho` — removidos `redirect(/compras/central/?nunota=)` e `render(compras_central.html)` mortos; agora retorna JSON em todos os casos
+- `entrada.html` — `<a id="btnNew" href="/sankhya/compras/central/?codtipoper=11">` → `<button id="btnNew" type="button">` (JS já interceptava o click e abria `#cabModal` direto)
+- `entrada.html` — `data-central-url="..."` removido das `<tr class="row--click">`
+- `entrada.js` — `CENTRAL_AJAX` removido do `API_URLS`. 3 navegações `window.location.href = API_URLS.CENTRAL_AJAX...` substituídas por `closeTopModal() + showCabModal()` direto. Mantém URL hardcoded `?ajax_header=1` pra fetch da edição
+- `entrada_mobile.js` — handler do `m_btnCabecAbrirCentral` removido (botão "Abrir editor" do bottom sheet de cabeçalho substituído por edição inline com `?ajax_header=1`)
+- `README.md` — linha `/sankhya/compras/central/` das rotas principais removida
+
+**Endpoints que CONTINUAM funcionais e devem ser preservados:**
+- `POST /sankhya/compras/central/salvar/` → `api_salvar_novo_cabecalho` — POST funcional usado pelo `entrada.js` (HEADER_SAVE), `classificacao.js`, `entrada_mobile.js` (sheet Nova Nota)
+- `GET /sankhya/compras/central/?nunota=X&ajax_header=1` → retorna JSON com dados do cabeçalho pra preencher modais (paridade Entrada Desktop e Mobile)
+
+**Lição**: ao remover features grandes, **fazer grep cego pelas referências** depois do refactor. Código morto pode ficar latente por meses até quebrar — o redesign mobile só revelou o bug porque tentou seguir a URL que o desktop interceptava via JS antes de navegar.
+
+---
+
+## Redesign Mobile — armadilhas conhecidas (Mai/2026 — 2026-05-27)
+
+### Comentários Django `{# #}` são single-line — multi-line vaza no HTML
+
+Comentário Django `{# ... #}` **só funciona em uma linha**. Quebrar em múltiplas linhas faz o Django parar de tratar como comment e vazar todo o texto literalmente no output HTML.
+
+Já aconteceu **4+ vezes** neste projeto (`base.html` antes, e `entrada.html` durante o redesign mobile da Entrada). Operador sempre relata texto aleatório vazando no canto da tela. **REGRA DURA**:
+
+- ❌ NUNCA escrever `{# ... #}` que abrange ≥ 2 linhas
+- ✅ Pra documentação inline em template: usar `{% comment %}...{% endcomment %}`
+- ✅ Pra notas curtas: `{# linha única #}` em uma única linha física
+- ✅ Idealmente: **não documentar em template** — nomes de classes/IDs já indicam estrutura, e doc estruturada vive em `.claude/*.md`
+
+**Validador automático** (rodar antes de cada PR mobile):
+
+```bash
+python -c "import re; txt=open('templates/.../X.html',encoding='utf-8').read(); p=re.compile(r'\{#.*?#\}', re.DOTALL); print([f'L{txt[:m.start()].count(chr(10))+1}: {m.group()[:60]}' for m in p.finditer(txt) if chr(10) in m.group()] or 'OK')"
+```
+
+### Override em `@media (max-width: 375px)` pode esconder compactação
+
+Bug real durante o redesign mobile da Entrada: o bloco `@media (max-width: 375px)` no fim do `entrada.css` tinha valores **maiores** (`padding: 10px 12px`, `avatar 38px`, `font 14px`) que sobrescreviam toda a compactação principal. Como a maioria dos celulares (iPhone SE 375px, Galaxy 360px, iPhone 12 mini 375px) cai nessa media query, **ela vencia silenciosamente** e o operador via cards grandes mesmo após várias rodadas de "diminui mais".
+
+**Lição**: ao usar `@media (max-width: 375px)` ou similar pra ajustar viewports estreitos, sempre verificar se os valores estão **MENORES** que os principais — caso contrário a regra vira override desnecessário. Idealmente nem ter esse bloco — deixa o mobile-first padrão valer pra todos os tamanhos.
+
+### Campo removido do HTML mas JS ainda lê → `Cannot read properties of null`
+
+Aconteceu no redesign mobile da Entrada: removi o campo `m_novaNF` do template (quando ajustei pra paridade exata com `#cabModal` desktop que não tem NF), mas esqueci de remover `var nf = $m('m_novaNF').value.trim();` no JS. O click no Salvar quebrava com `Cannot read properties of null (reading 'value')`.
+
+**Padrão a aplicar**: quando remover um input do HTML, fazer **grep do ID** no JS e remover todas as referências. Não dá pra confiar só em "testar a página" porque o erro só aparece no fluxo de salvar (que ninguém testa toda vez).
+
+### IDs duplicados no DOM mobile — `getElementById` retorna só o primeiro
+
+Quando o template mobile tem **várias telas no DOM ao mesmo tempo** (cada `<section class="m-screen">`), é fácil duplicar IDs sem perceber porque só uma tela é visível por vez. `document.getElementById('m_itemPeso')` retorna **sempre o primeiro** do DOM — se for o de uma tela escondida, vai parecer que listeners não disparam, cálculo retorna 0, valor não popula, etc.
+
+**Bugs reais dessa categoria** descobertos em 2026-05-27:
+1. **`m_itemPeso` duplicado**: tela 3 "Conferir item" (oculta) + sheet "Itens-nota" (ativo). `recalcTotalItem` lia o oculto → peso=0 sempre → Total mostrava só Qtd
+2. **`.m-toggle-row` querySelector**: pegava o primeiro do DOM (tela 3) → `.is-invalid` não aplicava no sheet de Itens visível → botões Sim/Não não ficavam vermelhos
+
+**Convenção pra evitar**: prefixos por tela/contexto:
+- `m_item*` → sheet de Itens (inserir/editar produto)
+- `m_conf_*` → tela "Conferir item"
+- `m_edit*` → sheet de Cabeçalho (editar nota)
+- `m_filtro*` → sheet de Filtros
+- `m_nova*` → sheet de Nova nota
+
+Antes de adicionar campo novo, validar IDs duplicados:
+
+```python
+import re
+from collections import Counter
+with open('templates/.../arquivo.html', encoding='utf-8') as f:
+    ids = re.findall(r'id="([^"]+)"', f.read())
+dup = [(k,v) for k,v in Counter(ids).items() if v > 1]
+print('Duplicados:', dup or '(nenhum)')
+```
+
+Pra coleções de classe (`.m-toggle-row`, `.m-card-item`, etc) usar **seletor escopado**: nunca `document.querySelector('.m-toggle-row')` direto, sempre âncora a partir de algo único da tela (ex: `document.querySelector('.m-toggle-btn[data-classifica-item]').closest('.m-toggle-row')`).
+
+### iOS Safari faz zoom em inputs com `font-size < 16px`
+
+Comportamento nativo do Safari iOS: ao focar input com `font-size` menor que 16px, browser dá zoom (acessibilidade). UX desagradável — operador vê a página "pular" toda vez que toca num campo.
+
+**Fix**: `font-size: 16px` mínimo em `.m-field-input` e variantes. Mesmo que pareça grande visualmente, em mobile o cálculo de altura de linha + padding compensa.
+
+Documentado em [`conventions.md`](conventions.md) → "iOS Safari — pegadinhas".
+
+### `input[type=number]` rejeita strings com vírgula
+
+Quando JS faz `input.value = '23,5'` num `type=number`, o browser **silenciosamente seta valor vazio** porque a vírgula não é separador decimal válido pra type=number (que segue padrão JS/JSON com `.`).
+
+Bug real (2026-05-27): `abrirEditItem` no mobile preenchia Peso/Qtd com `String(num).replace('.', ',')` (legado de quando inputs eram type=text). Resultado: campos ficavam vazios em modo edit, operador via "só Produto e Vol preencheram".
+
+**Fix**: sempre `String(num)` com ponto. Pra exibir formatado em pt-BR, usar `toLocaleString('pt-BR')` apenas em campos `type=text` (readonly de display, ex: "Total kg calculado").
+
+### Swipe-to-edit/delete fica "preso" se não resetar entre navegações
+
+Operador arrasta card pra revelar botões. Sem clicar nos botões, navega pra outra tela. Volta pra lista → cards continuam com `transform: translateX(...)` aplicado e `data-swipe-open="1"`. Visual quebrado.
+
+**Fix**: função `fecharTodosSwipesNotas()` que itera todos `[data-swipe-open="1"]` e zera transform + dataset. Chamada em:
+- `setActiveScreen(name)` — cobre push/pop/popToRoot
+- `openSheet(name)` — cobre Nova Nota / Cabeçalho / Itens
+
+Sem essas duas chamadas, swipes ficam "presos" entre navegações.
+
+### Restart NSSM obrigatório após mudança no template Django
+
+NSSM cacheia templates Django. Mudança no `.html` não reflete automaticamente — precisa `nssm.exe restart IAgro` (já documentado em outro gotcha mas vale reforçar pro contexto mobile, porque o operador testa hard refresh no celular e nada muda).
+
+### iOS Safari — `change` em `<input type="date">` dispara só quando picker fecha
+
+No iPhone, ao tocar num `<input type="date">` abre o picker nativo. Operador escolhe data. **`change` event** só dispara quando ele aperta "Pronto/OK" — não a cada rotação dos spinners. No DevTools mobile do Chrome (emulação), `change` dispara mais agressivamente, mascarando o bug.
+
+Sintoma típico: handler que depende de `change` (ex: replicar data inicial em data final) funciona no simulador mas falha no iPhone real.
+
+**Fix**: registrar `input` listener **além** de `change`:
+
+```js
+inputIni.addEventListener('change', replicar);
+inputIni.addEventListener('input', replicar);
+```
+
+Mais broadly: pra inputs type=date/datetime-local no mobile, sempre combo `change + input`.
+
+### IntersectionObserver em lista infinita faz cascata quando append não desloca scroll
+
+Tentativa inicial de lista infinita usou `IntersectionObserver` com `rootMargin: '200px'` numa sentinela no fim da lista. Funciona em listas onde o append empurra a sentinela pra fora do viewport. Mas se o operador rola até o fim e a sentinela permanece visível (cards anexados acima dela não deslocam o scroll), **observer fica em loop**: detecta intersect → chama carregarMais → render append → nova sentinela cai dentro do viewport de novo → detecta intersect → carregarMais → ...
+
+Bug real (2026-05-27): operador deixou aberto sem buscar, server tomou 94 requests `?page=2..94` em ~60s. Tive que parar o servidor.
+
+**Fix**: substituir por **scroll listener tradicional** com comparação `lastScrollTop`:
+
+```js
+scrollArea.addEventListener('scroll', function () {
+    if (pgInfinita.carregando || !pgInfinita.hasNext) return;
+    var st = scrollArea.scrollTop;
+    if (st <= lastScrollTop) { lastScrollTop = st; return; }   // ignora scroll pra cima
+    lastScrollTop = st;
+    var threshold = scrollArea.scrollHeight - scrollArea.clientHeight - 200;
+    if (st >= threshold) carregarMaisNotas();
+}, { passive: true });
+```
+
+Vantagens:
+- Só dispara em scroll **real** do operador
+- Ignora scroll pra cima (`st <= lastScrollTop`)
+- Threshold recalculado a cada evento (não tem "trigger zone" permanente)
+- Sem callback após append silencioso
+
+E se for fazer auto-paginação com busca (loop sem scroll), adicionar `setTimeout` entre iterações + flag cancelável quando operador limpa busca:
+
+```js
+var autoPaginarTimer = null;
+function autoPaginarComBusca() {
+    if (autoPaginarTimer) clearTimeout(autoPaginarTimer);
+    /* ... guards ... */
+    autoPaginarIters++;
+    autoPaginarTimer = setTimeout(function () {
+        /* re-checa antes de disparar */
+        carregarMaisNotas();
+    }, 250);
+}
+```
+
+### Filtro client-side esconde só o card — botões de swipe ficam pendurados
+
+Cards com swipe-to-edit/delete têm estrutura wrapper > botões absolutos + article visível:
+
+```html
+<div class="m-card-nota-wrap">
+    <button class="m-card-nota__swipe-edit">...</button>
+    <button class="m-card-nota__swipe-del">...</button>
+    <article class="m-card-nota">...</article>
+</div>
+```
+
+Quando o filtro do campo de busca esconde via `card.style.display = 'none'`, **só o article some** — os botões absolutos (que vivem fora do article, dentro do wrapper) continuam visíveis no DOM, criando linhas de "lápis + lixeira" pendurados sem card por trás. Visual quebrado relatado em 2026-05-27.
+
+**Fix**: sempre esconder o **wrapper inteiro**:
+
+```js
+var wrap = card.closest('.m-card-nota-wrap') || card;
+wrap.style.display = match ? '' : 'none';
+```
+
+Vale pra qualquer filtro futuro (data, parceiro, status) que esconda linhas em lista com swipe.
+
+### Cache de browser mobile — sempre bumpar `?v=N`
+
+Mobile (especialmente iPhone Safari) agressivo no cache de CSS/JS. Sem `?v=N` bump explícito no template, browser pode servir arquivo velho mesmo após hard refresh.
+
+Padrão obrigatório a cada PR:
+
+```html
+<link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}?v=35">
+<script src="{% static 'sankhya_integration/entrada_mobile.js' %}?v=27" defer></script>
+```
+
+Sequência atual da Entrada Mobile (Mai/2026 — 2026-05-27): CSS `?v=35` · JS `?v=27`. Bumpar a cada mudança.
+
+---
+
 ## Linter aponta `rapidfuzz` como módulo ausente — falso positivo
 
 Quando o Antigravity (ou outro IDE) está com **interpreter setado para o Python do sistema** (ex: `C:\Users\ANDRE\AppData\Local\Programs\Python\Python313\`) ao invés do venv do projeto (`.venv\Scripts\python.exe`), o linter olha apenas as packages do Python sistema — onde `rapidfuzz` (e demais deps do `requirements.txt`) **não estão instaladas**.

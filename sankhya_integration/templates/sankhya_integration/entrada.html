@@ -6,135 +6,682 @@
 
 {% block extra_css %}
   <meta name="app-version" content="{{ APP_VERSION }}">
-  <link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}?v=15">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}?v=38">
 {% endblock %}
 
 {% block header_title %}ENTRADA IAGRO{% endblock %}
 
 {% block content %}
-  <div class="entrada-grid">
-  <aside class="panel">
-    <header>Filtros</header>
-    <div class="filters-actions">
-      </div>
-    <form id="filtersForm" class="filters-grid compras-filters-grid">
-        <div>
-          <label>Data da negociação</label>
-          <div class="filters-range" style="align-items: flex-start;">
-            <div style="display:flex; flex-direction:column; gap:4px;">
-              <input type="date" name="start" value="{{ params.date_start|default:'' }}" />
-              <div style="display:flex; gap:4px;">
-                <button type="button" id="btnPrevDay" class="btn-mini-nav" title="Dia anterior">&lt;&lt;</button>
-                <button type="button" id="btnNextDay" class="btn-mini-nav" title="Dia seguinte">&gt;&gt;</button>
+  <div class="entrada-portal">
+
+  <div class="entrada-desktop">
+    <div class="entrada-grid">
+    <aside class="panel">
+      <header>Filtros</header>
+      <div class="filters-actions">
+        </div>
+      <form id="filtersForm" class="filters-grid compras-filters-grid">
+          <div>
+            <label>Data da negociação</label>
+            <div class="filters-range" style="align-items: flex-start;">
+              <div style="display:flex; flex-direction:column; gap:4px;">
+                <input type="date" name="start" value="{{ params.date_start|default:'' }}" />
+                <div style="display:flex; gap:4px;">
+                  <button type="button" id="btnPrevDay" class="btn-mini-nav" title="Dia anterior">&lt;&lt;</button>
+                  <button type="button" id="btnNextDay" class="btn-mini-nav" title="Dia seguinte">&gt;&gt;</button>
+                </div>
+              </div>
+              <div class="sep" style="margin-top:10px;">a</div>
+              <input type="date" name="end" value="{{ params.date_end|default:'' }}" />
+            </div>
+          </div>
+          <div>
+            <label>Pedido/Vale (Crachá)</label>
+            <input type="number" name="nunota_ini" value="{{ params.nunota_ini|default:'' }}" />
+          </div>
+          <div>
+            <div>
+              <label>Produto</label>
+              <div class="pos-rel">
+                <input type="hidden" name="fabricante" id="fabricanteHidden" value="{{ params.fabricante|default:'' }}" />
+                <input type="text" id="prodSearch" placeholder="Pesquisar produto" autocomplete="off" class="full-width" value="{{ params.fabricante|default:'' }}" />
+                <div id="prodDropdown" class="dropdown-abs"></div>
               </div>
             </div>
-            <div class="sep" style="margin-top:10px;">a</div>
-            <input type="date" name="end" value="{{ params.date_end|default:'' }}" />
           </div>
-        </div>
-        <div>
-          <label>Pedido/Vale (Crachá)</label>
-          <input type="number" name="nunota_ini" value="{{ params.nunota_ini|default:'' }}" />
-        </div>
-        <div>
           <div>
-            <label>Produto</label>
+            <label>Parceiro</label>
             <div class="pos-rel">
-              <input type="hidden" name="fabricante" id="fabricanteHidden" value="{{ params.fabricante|default:'' }}" />
-              <input type="text" id="prodSearch" placeholder="Pesquisar produto" autocomplete="off" class="full-width" value="{{ params.fabricante|default:'' }}" />
-              <div id="prodDropdown" class="dropdown-abs"></div>
+              <input type="hidden" name="codparc" id="codparc" value="{{ params.codparc|default:'' }}" />
+              <input type="text" id="parcSearch" placeholder="Código ou nome do parceiro" autocomplete="off" class="full-width" value="{% if parc_display %}{{ parc_display }}{% elif params.codparc %}{{ params.codparc }}{% endif %}" />
+              <div id="parcDropdown" class="dropdown-abs"></div>
             </div>
           </div>
+
+          <input type="hidden" name="days" value="{{ params.days|default:'' }}" />
+      </form>
+
+      <div id="filtrosAtivos" class="iagro-filtros-ativos">
+        <div id="filtrosAtivosChips" class="iagro-filtros-ativos-chips"></div>
+      </div>
+
+      <div class="filters-footer">
+        <button type="button" id="btnUpdate" class="btn btn-update">Atualizar</button>
+        <button type="button" id="btnClear" class="btn btn-clear">Limpar</button>
+      </div>
+    </aside>
+
+    <section class="rightcol">
+      <div class="toolbar-top">
+        <button class="icon-btn" type="button" title="Novo lançamento" id="btnNew">
+          <i class="ph ph-plus icon" aria-hidden="true"></i>
+        </button>
+        <button class="icon-btn" id="btnDeleteNota" type="button" title="Excluir nota selecionada" disabled>
+          <i class="ph ph-trash icon" aria-hidden="true"></i>
+        </button>
+        <button class="icon-btn" type="button" title="Imprimir" id="btnPrint" disabled aria-disabled="true" tabindex="-1">
+          <i class="ph ph-printer icon" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="panel panel--results">
+        <header>Notas / Pedidos</header>
+        <div class="list" id="notasList" data-current-page="{{ page|default:1 }}" data-has-next="{% if has_next %}1{% else %}0{% endif %}" data-page-size="50">
+            <table id="notasTable" class="ia-selectable-table">
+            <colgroup>
+              <col class="col-w-90">  <col class="col-w-110"> <col class="col-w-auto">  </colgroup>
+            <thead>
+              <tr>
+                <th>Pedido</th>
+                <th>Data</th>
+                <th>Parceiro</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for nunota, nronota, dtneg, codparc, nomeparc, vtotal in notas %}
+              <tr class="row--click" data-nunota="{{ nunota }}">
+                <td>{{ nunota }}</td>
+                <td>{{ dtneg|date:"d/m/Y" }}</td>
+                <td>{{ nomeparc }}</td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="5">Nenhuma nota encontrada.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
-        <div>
-          <label>Parceiro</label>
-          <div class="pos-rel">
-            <input type="hidden" name="codparc" id="codparc" value="{{ params.codparc|default:'' }}" />
-            <input type="text" id="parcSearch" placeholder="Código ou nome do parceiro" autocomplete="off" class="full-width" value="{% if parc_display %}{{ parc_display }}{% elif params.codparc %}{{ params.codparc }}{% endif %}" />
-            <div id="parcDropdown" class="dropdown-abs"></div>
+      </div>
+
+      <div class="panel panel--items">
+        <header>Itens da Nota {{ sel }}</header>
+        <div class="items">
+          <table class="ia-selectable-table">
+            <thead>
+              <tr>
+                <th>Lote</th>
+                <th>Cód</th>
+                <th>Produto</th>
+                <th>Unid</th>
+                <th>Qtd</th>
+                <th>Peso</th>
+                <th>Classifica</th>
+                <th>Vlr Unit</th>
+                <th>Total kg</th>
+                <th>Obs</th>
+              </tr>
+            </thead>
+            <tbody id="panelItemsBody">
+              <tr><td colspan="10" class="ia-placeholder">Selecione uma nota para ver os itens</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+    </div>
+  </div>{# /.entrada-desktop #}
+
+  <div class="entrada-mobile">
+
+    {# ===== TELA 1: Lista de Notas ===== #}
+    <section class="m-screen m-screen--lista is-active" data-screen="lista">
+      <header class="m-screen-header">
+        <button type="button" class="m-iconbtn m-screen-back" data-back aria-label="Voltar" hidden>
+          <i class="ph ph-arrow-left" aria-hidden="true"></i>
+        </button>
+        <button type="button" class="m-iconbtn m-sidebar-toggle" aria-label="Abrir menu IAgro" data-sidebar-toggle>
+          <i class="ph ph-list" aria-hidden="true"></i>
+        </button>
+        <h1 class="m-screen-title">Entrada</h1>
+        <div class="m-user-badge" title="{{ request.session.nomeusu|default:'Usuário' }}">
+          <i class="ph ph-user" aria-hidden="true"></i>
+          <span>{{ request.session.nomeusu|default:'Usuário' }}</span>
+        </div>
+        <a href="{% url 'logout' %}" class="m-logout-link" title="Encerrar sessão">Sair</a>
+      </header>
+
+      <div class="m-search-bar">
+        <i class="ph ph-magnifying-glass m-search-icon" aria-hidden="true"></i>
+        <input type="search" id="m_search" placeholder="Buscar fornecedor ou pedido (últimos 90 dias)" inputmode="search" autocomplete="off" />
+      </div>
+
+      <div class="m-screen-body" id="m_listaScroll">
+        <div class="m-notas-list" id="m_notasList">
+          {# Cards renderizados pelo JS na Fase 2. Mock visual abaixo. #}
+
+          <article class="m-card-nota m-card-nota--ok" data-nunota-mock="MOCK_OK">
+            <div class="m-card-nota__avatar" data-letra="D">D</div>
+            <span class="m-card-nota__nome">DEBORA HORTIFRUTI</span>
+            <span class="m-card-nota__pedido">Pedido 4521</span>
+            <span class="m-card-nota__data">22/05</span>
+            <i class="ph ph-caret-right m-card-nota__chevron" aria-hidden="true"></i>
+          </article>
+
+          <article class="m-card-nota m-card-nota--pendente" data-nunota-mock="MOCK_PEND">
+            <div class="m-card-nota__avatar" data-letra="J">J</div>
+            <span class="m-card-nota__nome">JOSE DO ALHO</span>
+            <span class="m-card-nota__pedido">Pedido 4520</span>
+            <span class="m-card-nota__data">22/05</span>
+            <i class="ph ph-caret-right m-card-nota__chevron" aria-hidden="true"></i>
+          </article>
+
+          <article class="m-card-nota m-card-nota--alerta" data-nunota-mock="MOCK_AVAR">
+            <div class="m-card-nota__avatar" data-letra="B">B</div>
+            <span class="m-card-nota__nome">BRUNO PIMENTAS</span>
+            <span class="m-card-nota__pedido">Pedido 4519</span>
+            <span class="m-card-nota__avaria-tag">
+              <i class="ph ph-warning" aria-hidden="true"></i> 2
+            </span>
+            <span class="m-card-nota__data">21/05</span>
+            <i class="ph ph-caret-right m-card-nota__chevron" aria-hidden="true"></i>
+          </article>
+
+          {# Placeholder skeleton enquanto carrega na Fase 2 (oculto inicialmente) #}
+          <div class="m-empty-state" id="m_listaEmpty" hidden>
+            <i class="ph ph-tray" aria-hidden="true"></i>
+            <p>Nenhuma nota no período.</p>
           </div>
         </div>
-                  
-        <input type="hidden" name="days" value="{{ params.days|default:'' }}" />
-    </form>
+      </div>
 
-    <!-- Mai/2026 — Chips de filtros ativos (padronizado com Venda) -->
-    <div id="filtrosAtivos" class="iagro-filtros-ativos">
-      <div id="filtrosAtivosChips" class="iagro-filtros-ativos-chips"></div>
-    </div>
-
-    <div class="filters-footer">
-      <button type="button" id="btnUpdate" class="btn btn-update">Atualizar</button>
-      <button type="button" id="btnClear" class="btn btn-clear">Limpar</button>
-    </div>
-  </aside>
-
-  <section class="rightcol">
-    <div class="toolbar-top">
-      <a class="icon-btn" title="Novo lançamento" href="/sankhya/compras/central/?codtipoper=11" id="btnNew">
-        <i class="ph ph-plus icon" aria-hidden="true"></i>
-      </a>
-      <button class="icon-btn" id="btnDeleteNota" type="button" title="Excluir nota selecionada" disabled>
-        <i class="ph ph-trash icon" aria-hidden="true"></i>
+      <button type="button" class="m-fab m-fab--secondary" id="m_fabAtualizar" aria-label="Atualizar">
+        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
       </button>
-      <button class="icon-btn" type="button" title="Imprimir" id="btnPrint" disabled aria-disabled="true" tabindex="-1">
-        <i class="ph ph-printer icon" aria-hidden="true"></i>
+      <button type="button" class="m-fab" id="m_fabNova" aria-label="Nova nota">
+        <i class="ph ph-plus" aria-hidden="true"></i>
       </button>
-    </div>
-    <div class="panel panel--results">
-      <header>Notas / Pedidos</header>
-      <div class="list" id="notasList" data-current-page="{{ page|default:1 }}" data-has-next="{% if has_next %}1{% else %}0{% endif %}" data-page-size="50">
-          <table id="notasTable" class="ia-selectable-table">
-          <colgroup>
-            <col class="col-w-90">  <col class="col-w-110"> <col class="col-w-auto">  </colgroup>
-          <thead>
-            <tr>
-              <th>Pedido</th>
-              <th>Data</th>
-              <th>Parceiro</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for nunota, nronota, dtneg, codparc, nomeparc, vtotal in notas %}
-            <tr class="row--click" data-nunota="{{ nunota }}" data-central-url="/sankhya/compras/central/?nunota={{ nunota }}">
-              <td>{{ nunota }}</td>
-              <td>{{ dtneg|date:"d/m/Y" }}</td>
-              <td>{{ nomeparc }}</td>
-            </tr>
-            {% empty %}
-            <tr><td colspan="5">Nenhuma nota encontrada.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+    </section>
+
+    {# ===== TELA 2: Detalhe da Nota (itens) ===== #}
+    <section class="m-screen m-screen--detalhe" data-screen="detalhe">
+      <header class="m-screen-header">
+        <button type="button" class="m-iconbtn" data-back-to="lista" aria-label="Voltar">
+          <i class="ph ph-arrow-left" aria-hidden="true"></i>
+        </button>
+        <div class="m-screen-title-block">
+          <h1 class="m-screen-title" id="m_detalheNome">—</h1>
+          <span class="m-screen-subtitle" id="m_detalheMeta">NF — · 0 itens · 0% conf</span>
+        </div>
+        <button type="button" class="m-iconbtn m-iconbtn--danger" id="m_btnExcluirNota" aria-label="Excluir nota">
+          <i class="ph ph-trash" aria-hidden="true"></i>
+        </button>
+        <button type="button" class="m-iconbtn" data-open-sheet="cabec" aria-label="Editar cabeçalho">
+          <i class="ph ph-pencil-simple" aria-hidden="true"></i>
+        </button>
+      </header>
+
+      <div class="m-screen-body">
+        <div class="m-itens-list" id="m_itensList">
+          {# Cards renderizados na Fase 2. Mock visual abaixo. #}
+
+          <article class="m-card-item m-card-item--ok">
+            <div class="m-card-item__head">
+              <span class="m-card-item__nome">CENOURA EXTRA</span>
+              <i class="ph ph-check-circle m-card-item__status-icon" aria-hidden="true"></i>
+            </div>
+            <div class="m-card-item__body">
+              <div class="m-stat">
+                <span class="m-stat-label">Conferido</span>
+                <span class="m-stat-value">20kg / 20kg</span>
+              </div>
+              <div class="m-stat">
+                <span class="m-stat-label">Peso/cx</span>
+                <span class="m-stat-value">18,5 kg</span>
+              </div>
+            </div>
+            <div class="m-card-item__lote">Lote 4521S01D260522</div>
+          </article>
+
+          <article class="m-card-item m-card-item--pendente">
+            <div class="m-card-item__head">
+              <span class="m-card-item__nome">BATATA INGLESA</span>
+              <i class="ph ph-clock m-card-item__status-icon" aria-hidden="true"></i>
+            </div>
+            <div class="m-card-item__body">
+              <div class="m-stat">
+                <span class="m-stat-label">Pendente</span>
+                <span class="m-stat-value">0kg / 30kg</span>
+              </div>
+              <div class="m-stat">
+                <span class="m-stat-label">Peso/cx</span>
+                <span class="m-stat-value">—</span>
+              </div>
+            </div>
+            <div class="m-card-item__lote">Lote 4521S02D260522</div>
+          </article>
+
+          <article class="m-card-item m-card-item--alerta">
+            <div class="m-card-item__head">
+              <span class="m-card-item__nome">TOMATE SALADA</span>
+              <i class="ph ph-warning m-card-item__status-icon" aria-hidden="true"></i>
+            </div>
+            <div class="m-card-item__body">
+              <div class="m-stat">
+                <span class="m-stat-label">Conferido</span>
+                <span class="m-stat-value">10kg / 15kg</span>
+              </div>
+              <div class="m-stat">
+                <span class="m-stat-label">Avaria</span>
+                <span class="m-stat-value">2 kg</span>
+              </div>
+            </div>
+            <div class="m-card-item__lote">Lote 4521S03D260522</div>
+          </article>
+        </div>
+      </div>
+
+      <button type="button" class="m-fab m-fab--secondary" id="m_fabAtualizarItens" aria-label="Atualizar itens">
+        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+      </button>
+      <button type="button" class="m-fab" id="m_fabItem" aria-label="Novo item">
+        <i class="ph ph-plus" aria-hidden="true"></i>
+      </button>
+    </section>
+
+    {# ===== TELA 3: Conferir Item (a mais usada) ===== #}
+    <section class="m-screen m-screen--item" data-screen="item">
+      <header class="m-screen-header">
+        <button type="button" class="m-iconbtn" data-back-to="detalhe" aria-label="Voltar">
+          <i class="ph ph-arrow-left" aria-hidden="true"></i>
+        </button>
+        <div class="m-screen-title-block">
+          <h1 class="m-screen-title" id="m_conf_pos">Item 2 de 8</h1>
+        </div>
+        <button type="button" class="m-iconbtn m-iconbtn--reserved" aria-label="Scan código de barras (em breve)" disabled title="Em breve (fase 2)">
+          <i class="ph ph-qr-code" aria-hidden="true"></i>
+        </button>
+      </header>
+
+      <div class="m-screen-body m-item-edit">
+        <div class="m-item-hero">
+          <div class="m-item-hero__avatar" data-letra="C">C</div>
+          <h2 class="m-item-hero__nome" id="m_conf_nome">CENOURA EXTRA</h2>
+          <p class="m-item-hero__meta">
+            <span id="m_conf_qtdneg">Negociada: 20 kg</span>
+          </p>
+          <p class="m-item-hero__lote" id="m_conf_lote">Lote 4521S01D260522</p>
+        </div>
+
+        <div class="m-field-block">
+          <label for="m_conf_qtd" class="m-field-label">
+            Qtd conferida (kg)
+          </label>
+          <input
+            type="number"
+            id="m_conf_qtd"
+            class="m-field-input m-field-input--lg"
+            inputmode="decimal"
+            step="0.001"
+            placeholder="0,000"
+          />
+        </div>
+
+        <div class="m-field-block">
+          <label for="m_conf_peso" class="m-field-label">
+            Peso da caixa (kg)
+          </label>
+          <input
+            type="number"
+            id="m_conf_peso"
+            class="m-field-input m-field-input--lg"
+            inputmode="decimal"
+            step="0.001"
+            placeholder="0,000"
+          />
+        </div>
+
+        <div class="m-field-block m-field-block--avaria">
+          <label for="m_conf_avaria" class="m-field-label">
+            <i class="ph ph-warning" aria-hidden="true"></i>
+            Avaria do fornecedor (kg)
+          </label>
+          <input
+            type="number"
+            id="m_conf_avaria"
+            class="m-field-input m-field-input--lg m-field-input--avaria"
+            inputmode="decimal"
+            step="0.001"
+            placeholder="0"
+          />
+          <p class="m-field-hint">Só pra produtos não-classificáveis</p>
+        </div>
+
+        <div class="m-field-block">
+          <label for="m_conf_classifica" class="m-field-label">Classifica?</label>
+          <div class="m-toggle-row">
+            <button type="button" class="m-toggle-btn" data-classifica="S">Sim</button>
+            <button type="button" class="m-toggle-btn" data-classifica="N">Não</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="m-bottom-action">
+        <button type="button" class="m-btn-primary" id="m_btnSalvarProximo">
+          <span>Salvar e próximo</span>
+          <i class="ph ph-arrow-right" aria-hidden="true"></i>
+        </button>
+      </div>
+    </section>
+
+    {# ===== BOTTOM NAV (sub-navegação do módulo Entrada) ===== #}
+    <nav class="m-bottom-nav" aria-label="Navegação do módulo">
+      <button type="button" class="m-bottom-nav__item is-active" data-nav="lista">
+        <i class="ph ph-list-checks" aria-hidden="true"></i>
+        <span>Notas</span>
+      </button>
+      <button type="button" class="m-bottom-nav__item" data-nav="buscar">
+        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+        <span>Buscar</span>
+      </button>
+      <button type="button" class="m-bottom-nav__item" data-nav="filtros" data-open-sheet="filtros">
+        <i class="ph ph-funnel" aria-hidden="true"></i>
+        <span>Filtros</span>
+      </button>
+      <button type="button" class="m-bottom-nav__item" data-nav="mais" data-sidebar-toggle>
+        <i class="ph ph-dots-three-outline" aria-hidden="true"></i>
+        <span>Mais</span>
+      </button>
+    </nav>
+
+    {# ===== BOTTOM SHEET — Filtros ===== #}
+    <div class="m-sheet" data-sheet="filtros" aria-hidden="true">
+      <div class="m-sheet__backdrop" data-close-sheet></div>
+      <div class="m-sheet__content m-sheet__content--tall" role="dialog" aria-label="Filtros">
+        <div class="m-sheet__handle"></div>
+        <header class="m-sheet__header">
+          <h2>Filtros</h2>
+          <button type="button" class="m-iconbtn" data-close-sheet aria-label="Fechar">
+            <i class="ph ph-x" aria-hidden="true"></i>
+          </button>
+        </header>
+        <div class="m-sheet__body">
+
+          <div class="m-field-block">
+            <label class="m-field-label">Data da negociação</label>
+            <div class="m-filter-period">
+              <input type="date" id="m_filtroStart" class="m-field-input" />
+              <span class="m-sep">a</span>
+              <input type="date" id="m_filtroEnd" class="m-field-input" />
+            </div>
+            <div class="m-filter-day-nav">
+              <button type="button" class="m-chip" id="m_btnPrevDay" title="Dia anterior">
+                <i class="ph ph-caret-double-left" aria-hidden="true"></i> Dia anterior
+              </button>
+              <button type="button" class="m-chip" id="m_btnNextDay" title="Próximo dia">
+                Próximo dia <i class="ph ph-caret-double-right" aria-hidden="true"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_filtroPedido">Pedido/Vale (Crachá)</label>
+            <input type="number" id="m_filtroPedido" class="m-field-input" inputmode="numeric" placeholder="Nº do pedido" />
+          </div>
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_filtroProduto">Produto</label>
+            <div class="m-typeahead">
+              <input type="hidden" id="m_filtroFabricanteHidden" />
+              <input type="text" id="m_filtroProduto" class="m-field-input" autocomplete="off" placeholder="Pesquisar produto" />
+              <div id="m_filtroProdutoDropdown" class="m-dropdown" hidden></div>
+            </div>
+          </div>
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_filtroParceiro">Parceiro</label>
+            <div class="m-typeahead">
+              <input type="hidden" id="m_filtroCodparcHidden" />
+              <input type="text" id="m_filtroParceiro" class="m-field-input" autocomplete="off" placeholder="Código ou nome do parceiro" />
+              <div id="m_filtroParceiroDropdown" class="m-dropdown" hidden></div>
+            </div>
+          </div>
+
+        </div>
+        <footer class="m-sheet__footer">
+          <button type="button" class="m-btn-secondary" id="m_btnLimparFiltros">Limpar</button>
+          <button type="button" class="m-btn-primary" id="m_btnAplicarFiltros">Aplicar</button>
+        </footer>
       </div>
     </div>
 
-    <div class="panel panel--items">
-      <header>Itens da Nota {{ sel }}</header>
-      <div class="items">
-        <table class="ia-selectable-table">
-          <thead>
-            <tr>
-              <th>Lote</th>
-              <th>Cód</th>
-              <th>Produto</th>
-              <th>Unid</th>
-              <th>Qtd</th>
-              <th>Peso</th>
-              <th>Classifica</th>
-              <th>Vlr Unit</th>
-              <th>Total kg</th>
-              <th>Obs</th>
-            </tr>
-          </thead>
-          <tbody id="panelItemsBody">
-            <tr><td colspan="10" class="ia-placeholder">Selecione uma nota para ver os itens</td></tr>
-          </tbody>
-        </table>
+    {# ===== BOTTOM SHEET — Editar Cabeçalho ===== #}
+    <div class="m-sheet" data-sheet="nova-nota" aria-hidden="true">
+      <div class="m-sheet__backdrop" data-close-sheet></div>
+      <div class="m-sheet__content m-sheet__content--tall" role="dialog" aria-label="Nova nota">
+        <div class="m-sheet__handle"></div>
+        <header class="m-sheet__header">
+          <h2>Nova nota de compra</h2>
+          <button type="button" class="m-iconbtn" data-close-sheet aria-label="Fechar">
+            <i class="ph ph-x" aria-hidden="true"></i>
+          </button>
+        </header>
+        <div class="m-sheet__body">
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_novaEmpresa">Empresa</label>
+            <input type="text" id="m_novaEmpresa" class="m-field-input" value="10 — HORTIFRUTI SEMEAR" readonly />
+            <input type="hidden" id="m_novaCodempHidden" value="10" />
+          </div>
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_novaParceiro">Parceiro *</label>
+            <div class="m-typeahead">
+              <input type="hidden" id="m_novaCodparcHidden" />
+              <input type="text" id="m_novaParceiro" class="m-field-input" autocomplete="off" placeholder="Código ou nome" />
+              <div id="m_novaParceiroDropdown" class="m-dropdown" hidden></div>
+            </div>
+          </div>
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_novaData">Dt. Neg. *</label>
+            <input type="date" id="m_novaData" class="m-field-input" />
+          </div>
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_novaTop">Tipo Operação</label>
+            <input type="text" id="m_novaTop" class="m-field-input" value="11 — Pedido de Compra" readonly />
+            <input type="hidden" id="m_novaCodtipoperHidden" value="11" />
+          </div>
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_novaNat">Natureza</label>
+            <input type="text" id="m_novaNat" class="m-field-input" value="20010100 — Produtos para Venda" readonly />
+            <input type="hidden" id="m_novaCodnatHidden" value="20010100" />
+          </div>
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_novaCencus">Centro Resultado</label>
+            <input type="text" id="m_novaCencus" class="m-field-input" value="10100 — Comercialização" readonly />
+            <input type="hidden" id="m_novaCodcencusHidden" value="10100" />
+          </div>
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_novaObs">Observação</label>
+            <textarea id="m_novaObs" class="m-field-input m-field-textarea" rows="3" placeholder="Notas livres"></textarea>
+          </div>
+
+          <p class="m-sheet-hint">
+            <i class="ph ph-info" aria-hidden="true"></i>
+            Após criar a nota, ela vai aparecer na lista — toque nela pra adicionar itens.
+          </p>
+
+        </div>
+        <footer class="m-sheet__footer">
+          <button type="button" class="m-btn-secondary" data-close-sheet>Cancelar</button>
+          <button type="button" class="m-btn-primary" id="m_btnNovaSalvar">
+            <i class="ph ph-floppy-disk" aria-hidden="true"></i>
+            Salvar
+          </button>
+        </footer>
       </div>
     </div>
-  </section>
-  </div>
+
+    <div class="m-sheet" data-sheet="itens-nota" aria-hidden="true">
+      <div class="m-sheet__backdrop" data-close-itens-sheet></div>
+      <div class="m-sheet__content m-sheet__content--tall" role="dialog" aria-label="Itens da nota">
+        <div class="m-sheet__handle"></div>
+        <header class="m-sheet__header">
+          <div class="m-sheet__header-title">
+            <h2 id="m_itensSheetTitulo">Itens — Nota</h2>
+            <span class="m-sheet__header-sub" id="m_itensSheetSub">—</span>
+          </div>
+          <button type="button" class="m-iconbtn" data-close-itens-sheet aria-label="Fechar">
+            <i class="ph ph-x" aria-hidden="true"></i>
+          </button>
+        </header>
+
+        <div class="m-sheet__body">
+
+          <input type="hidden" id="m_itens_nunota" />
+          <input type="hidden" id="m_item_seq_edit" />
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_itemProd">Produto *</label>
+            <div class="m-typeahead">
+              <input type="hidden" id="m_itemProdHidden" />
+              <input type="text" id="m_itemProd" class="m-field-input" autocomplete="off" placeholder="cod ou descrição" />
+              <div id="m_itemProdDropdown" class="m-dropdown" hidden></div>
+            </div>
+          </div>
+
+          <div class="m-field-row">
+            <div class="m-field-block">
+              <label class="m-field-label" for="m_itemVol">Vol *</label>
+              <input type="text" id="m_itemVol" class="m-field-input" value="CX" />
+            </div>
+            <div class="m-field-block">
+              <label class="m-field-label" for="m_itemQtd">Qtd *</label>
+              <input type="number" id="m_itemQtd" class="m-field-input" inputmode="decimal" step="0.001" />
+            </div>
+            <div class="m-field-block">
+              <label class="m-field-label" for="m_itemPeso">Peso *</label>
+              <input type="number" id="m_itemPeso" class="m-field-input" inputmode="decimal" step="0.001" />
+            </div>
+          </div>
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_itemTotal">Total KG (calculado)</label>
+            <input type="text" id="m_itemTotal" class="m-field-input m-field-input--lg" readonly placeholder="0,000" />
+          </div>
+
+          <div class="m-field-block">
+            <label class="m-field-label">Classifica? *</label>
+            <div class="m-toggle-row">
+              <button type="button" class="m-toggle-btn" data-classifica-item="S">Sim</button>
+              <button type="button" class="m-toggle-btn" data-classifica-item="N">Não</button>
+            </div>
+          </div>
+
+          <div class="m-itens-actions">
+            <button type="button" class="m-btn-secondary" id="m_itemClearForm">Limpar</button>
+            <button type="button" class="m-btn-primary" id="m_itemAddBtn">
+              <i class="ph ph-plus" aria-hidden="true"></i>
+              <span id="m_itemAddBtnLabel">Adicionar</span>
+            </button>
+          </div>
+
+          <div class="m-itens-divider">
+            <span>Inseridos</span>
+            <span class="m-itens-count" id="m_itensCount">0</span>
+          </div>
+
+          <div class="m-itens-inseridos" id="m_itensInseridosList">
+            <div class="m-empty-state">
+              <i class="ph ph-tray" aria-hidden="true"></i>
+              <p>Nenhum item ainda.</p>
+            </div>
+          </div>
+
+        </div>
+
+        <footer class="m-sheet__footer">
+          <button type="button" class="m-btn-primary" id="m_itensSheetFechar">
+            <i class="ph ph-check" aria-hidden="true"></i>
+            Concluir
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <div class="m-sheet" data-sheet="cabec" aria-hidden="true">
+      <div class="m-sheet__backdrop" data-close-sheet></div>
+      <div class="m-sheet__content m-sheet__content--tall" role="dialog" aria-label="Editar cabeçalho">
+        <div class="m-sheet__handle"></div>
+        <header class="m-sheet__header">
+          <h2>Cabeçalho da nota</h2>
+          <button type="button" class="m-iconbtn" data-close-sheet aria-label="Fechar">
+            <i class="ph ph-x" aria-hidden="true"></i>
+          </button>
+        </header>
+        <div class="m-sheet__body">
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_editEmpresa">Empresa</label>
+            <input type="text" id="m_editEmpresa" class="m-field-input" readonly />
+          </div>
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_editParceiro">Parceiro</label>
+            <input type="text" id="m_editParceiro" class="m-field-input" readonly title="Parceiro não pode ser alterado na edição." />
+          </div>
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_editData">Dt. Neg.</label>
+            <input type="date" id="m_editData" class="m-field-input" />
+          </div>
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_editTop">Tipo Operação</label>
+            <input type="text" id="m_editTop" class="m-field-input" readonly />
+          </div>
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_editNat">Natureza</label>
+            <input type="text" id="m_editNat" class="m-field-input" readonly />
+          </div>
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_editCencus">Centro Resultado</label>
+            <input type="text" id="m_editCencus" class="m-field-input" readonly />
+          </div>
+
+          <div class="m-field-block">
+            <label class="m-field-label" for="m_editObs">Observação</label>
+            <textarea id="m_editObs" class="m-field-input m-field-textarea" rows="3"></textarea>
+          </div>
+
+        </div>
+        <footer class="m-sheet__footer">
+          <button type="button" class="m-btn-secondary" data-close-sheet>Cancelar</button>
+          <button type="button" class="m-btn-primary" id="m_btnEditCabecSalvar">
+            <i class="ph ph-floppy-disk" aria-hidden="true"></i>
+            Salvar
+          </button>
+        </footer>
+      </div>
+    </div>
+
+  </div>{# /.entrada-mobile #}
+
+  </div>{# /.entrada-portal #}
 
   <div id="cabModal" class="modal-overlay">
     <div id="cabCard" class="modal-card small offscreen-left z71">
@@ -234,7 +781,7 @@
             </div>
           </div>
           <div class="flex gap-8 align-end" style="justify-content: flex-end;">
-            
+
             <div class="flex-col">
               <label for="itemClassificaToggle" class="small-label">Classifica</label>
               <div id="itemClassificaToggle" class="tri-toggle" role="group" aria-label="Classifica">
@@ -244,17 +791,17 @@
               <div id="itemClassificaHint" class="tri-toggle__hint">Selecione uma opção</div>
               <input type="hidden" id="item_classifica" value="" />
             </div>
-            
+
             <div class="flex gap-8" style="align-items: center; margin-bottom: 2px;">
               <button id="itemAddBtn" class="icon-btn" title="Adicionar" aria-label="Adicionar">
                 <i class="ph ph-plus-circle icon" aria-hidden="true"></i>
               </button>
-              
+
               <button id="itemClearForm" type="button" title="Limpar Formulário" class="btn btn-clear" style="height: 26px; padding: 0 10px; font-size: 11px;">
                 Limpar
               </button>
             </div>
-            
+
           </div>
         </div>
 
@@ -338,5 +885,6 @@
 {% endblock %}
 
 {% block extra_js %}
-  <script src="{% static 'sankhya_integration/entrada.js' %}?v=9" defer></script>
+  <script src="{% static 'sankhya_integration/entrada.js' %}?v=10" defer></script>
+  <script src="{% static 'sankhya_integration/entrada_mobile.js' %}?v=34" defer></script>
 {% endblock %}

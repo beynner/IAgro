@@ -50,7 +50,9 @@ IAgro/
 │   │   ├── iagro_helpers.js                 # window.IAgro (helpers reutilizáveis)
 │   │   ├── home.css / home.js
 │   │   ├── entrada.css / entrada.js
+│   │   ├── entrada_mobile.js                # 📱 Redesign mobile-first Entrada (Mai/2026 — 2026-05-27)
 │   │   ├── classificacao.css / classificacao.js
+│   │   ├── classificacao_mobile.js          # 📱 Redesign mobile-first Classificação (Mai/2026 — 2026-05-26)
 │   │   ├── comercial.css / comercial.js
 │   │   ├── comercialDistribuicao.js         # Sub-módulo Comercial
 │   │   ├── comercialFinanceiro.js           # Sub-módulo Comercial
