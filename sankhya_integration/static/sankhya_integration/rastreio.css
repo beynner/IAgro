@@ -3724,3 +3724,1982 @@
 #lotesContainer[data-agrupar="parceiro"] .card-lote.compacto:not(.card-lote-avaria-int)>.col-parc {
     display: none;
 }
+
+/* =============================================================================
+ * REDESIGN MOBILE-FIRST — Rastreio (Mai/2026 — 2026-05-27)
+ *
+ * Dual container: .rastreio-desktop + .rastreio-mobile. Escopado por
+ * body[data-active-module="rastreio"] em viewport ≤900px. Desktop preservado.
+ * ============================================================================= */
+
+.rastreio-mobile {
+    display: none;
+    --m-bg: #f8fafc;
+    --m-surface: #ffffff;
+    --m-border: #e5e7eb;
+    --m-border-soft: #f1f5f9;
+    --m-text: #1f2937;
+    --m-text-muted: #6b7280;
+    --m-primary: #5e7e4a;
+    --m-primary-dark: #4a6e3e;
+    --m-primary-soft: #eaf0e8;
+    --m-warning: #d97706;
+    --m-warning-soft: #fff7ed;
+    --m-danger: #dc2626;
+    --m-danger-soft: #fef2f2;
+    --m-success: #16a34a;
+    --m-info: #2563eb;
+    --m-info-soft: #eff6ff;
+    --m-radius-sm: 7px;
+    --m-radius-md: 10px;
+    --m-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+    --m-header-h: 48px;
+    --m-bottom-nav-h: 52px;
+    --m-touch-target: 40px;
+}
+
+@media (max-width: 900px) {
+    body[data-active-module="rastreio"] .rastreio-desktop {
+        display: none !important;
+    }
+
+    body[data-active-module="rastreio"] .rastreio-mobile {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: var(--m-bg);
+        overflow: hidden;
+        z-index: 5;
+    }
+
+    body[data-active-module="rastreio"] .content-header,
+    body[data-active-module="rastreio"] .ia-footer-inline {
+        display: none !important;
+    }
+
+    body[data-active-module="rastreio"] .main-layout {
+        padding: 0 !important;
+        overflow: hidden !important;
+        flex-direction: column !important;
+    }
+}
+
+/* ===== TELAS (m-screen stack) ===== */
+.rastreio-mobile .m-screen {
+    position: absolute;
+    inset: 0;
+    background: var(--m-bg);
+    display: none;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.28s ease;
+    overflow: hidden;
+}
+
+.rastreio-mobile .m-screen.is-active {
+    display: flex;
+    transform: translateX(0);
+}
+
+.rastreio-mobile .m-screen--lista {
+    transform: translateX(0);
+}
+
+.rastreio-mobile .m-screen-header {
+    position: sticky;
+    top: 0;
+    z-index: 12;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: var(--m-header-h);
+    padding: 0 8px;
+    background: var(--m-surface);
+    border-bottom: 1px solid var(--m-border);
+}
+
+.rastreio-mobile .m-screen-title {
+    flex: 1;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--m-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rastreio-mobile .m-screen-body {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 12px;
+    padding-bottom: calc(var(--m-bottom-nav-h) + 24px + env(safe-area-inset-bottom, 0px));
+    -webkit-overflow-scrolling: touch;
+}
+
+.rastreio-mobile .m-iconbtn {
+    flex-shrink: 0;
+    width: var(--m-touch-target);
+    height: var(--m-touch-target);
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--m-text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 20px;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.rastreio-mobile .m-iconbtn:active {
+    background: var(--m-border-soft);
+}
+
+.rastreio-mobile .m-iconbtn--danger {
+    color: var(--m-danger);
+}
+
+/* User badge + Sair na tela principal */
+.rastreio-mobile .m-user-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    background: #f0f5ec;
+    color: #4a633a;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    max-width: 120px;
+    overflow: hidden;
+}
+
+.rastreio-mobile .m-user-badge i {
+    font-size: 13px;
+}
+
+.rastreio-mobile .m-user-badge span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rastreio-mobile .m-logout-link {
+    color: var(--m-danger);
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    padding: 6px 8px;
+}
+
+/* ===== Toolbar com toggle Lotes/Pedidos + busca + agrupamento ===== */
+.rastreio-mobile .m-ras-toolbar {
+    flex-shrink: 0;
+    padding: 8px 10px 6px;
+    background: var(--m-surface);
+    border-bottom: 1px solid var(--m-border);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.rastreio-mobile .m-search input {
+    height: 36px;
+    padding: 0 12px 0 32px;
+}
+
+.rastreio-mobile .m-ras-agrup {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px;
+    background: var(--m-border-soft);
+    border-radius: var(--m-radius-md);
+}
+
+.rastreio-mobile .m-ras-agrup-btn {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 5px 8px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--m-text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.rastreio-mobile .m-ras-agrup-btn i {
+    font-size: 13px;
+}
+
+.rastreio-mobile .m-ras-agrup-btn.is-active {
+    background: var(--m-surface);
+    color: var(--m-primary);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.rastreio-mobile .m-ras-agrup-actions {
+    display: flex;
+    gap: 2px;
+    padding-left: 4px;
+    border-left: 1px solid var(--m-border);
+    margin-left: 2px;
+}
+
+/* Variante: actions à esquerda do toggle (operador pediu Mai/2026 2026-05-28).
+ * Borda divisória vira do lado direito do bloco. */
+.rastreio-mobile .m-ras-agrup-actions--left {
+    padding-left: 0;
+    padding-right: 4px;
+    border-left: none;
+    border-right: 1px solid var(--m-border);
+    margin-left: 0;
+    margin-right: 2px;
+}
+
+.rastreio-mobile .m-ras-agrup-btn-tiny {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    font-size: 14px;
+    color: var(--m-text-muted);
+}
+
+.rastreio-mobile .m-ras-agrup-btn-tiny:active {
+    background: rgba(0, 0, 0, 0.06);
+}
+
+.rastreio-mobile .m-ras-toggle {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    background: var(--m-border-soft);
+    padding: 4px;
+    border-radius: var(--m-radius-md);
+}
+
+.rastreio-mobile .m-ras-toggle-btn {
+    border: none;
+    background: transparent;
+    padding: 8px 10px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--m-text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.rastreio-mobile .m-ras-toggle-btn.is-active {
+    background: var(--m-surface);
+    color: var(--m-primary);
+    box-shadow: var(--m-shadow);
+}
+
+.rastreio-mobile .m-ras-toggle-btn i {
+    font-size: 15px;
+}
+
+.rastreio-mobile .m-ras-toggle-count {
+    display: inline-block;
+    min-width: 22px;
+    text-align: center;
+    background: var(--m-primary-soft);
+    color: var(--m-primary-dark);
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    margin-left: 4px;
+}
+
+.rastreio-mobile .m-ras-toggle-btn:not(.is-active) .m-ras-toggle-count {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--m-text-muted);
+}
+
+.rastreio-mobile .m-search {
+    position: relative;
+}
+
+.rastreio-mobile .m-search i {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--m-text-muted);
+    font-size: 16px;
+    pointer-events: none;
+}
+
+.rastreio-mobile .m-search input {
+    width: 100%;
+    height: 38px;
+    padding: 0 12px 0 34px;
+    border: 1px solid var(--m-border);
+    border-radius: var(--m-radius-md);
+    background: var(--m-bg);
+    font-size: 16px;
+    color: var(--m-text);
+    outline: none;
+}
+
+.rastreio-mobile .m-search input:focus {
+    border-color: var(--m-primary);
+    background: var(--m-surface);
+}
+
+/* ===== Bar do lote armado (sticky logo abaixo da toolbar) ===== */
+.rastreio-mobile .m-ras-bar-armado {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: linear-gradient(135deg, var(--m-primary), var(--m-primary-dark));
+    color: #fff;
+    box-shadow: 0 2px 6px rgba(94, 126, 74, 0.3);
+    transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+.rastreio-mobile .m-ras-bar-armado--off {
+    display: none;
+}
+
+.rastreio-mobile .m-ras-bar-armado > i {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.rastreio-mobile .m-ras-bar-armado__info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.25;
+}
+
+.rastreio-mobile .m-ras-bar-armado__info strong {
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rastreio-mobile .m-ras-bar-armado__info small {
+    font-size: 11px;
+    opacity: 0.9;
+}
+
+.rastreio-mobile .m-ras-bar-armado__label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.85;
+}
+
+.rastreio-mobile .m-ras-bar-armado .m-iconbtn {
+    color: rgba(255, 255, 255, 0.95);
+    width: 32px;
+    height: 32px;
+}
+
+.rastreio-mobile .m-ras-bar-armado .m-iconbtn:active {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+/* ===== Body com listas ===== */
+.rastreio-mobile .m-ras-body {
+    padding: 4px 8px;
+    padding-bottom: calc(var(--m-bottom-nav-h) + 80px + env(safe-area-inset-bottom, 0px));
+}
+
+.rastreio-mobile .m-ras-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+/* `display: flex` acima sobrescreve o user-agent `hidden { display:none }`
+ * — forçamos a regra pra `hidden` voltar a esconder a lista inativa. */
+.rastreio-mobile .m-ras-list[hidden] {
+    display: none !important;
+}
+
+/* ===== Wrapper do card (esconde 2 botões absolutos atrás) =====
+ * Swipe esquerda revela: [ARMAR esquerda 44px · OLHO direita 44px] = 88px
+ */
+.rastreio-mobile .m-ras-lote-card-wrap {
+    position: relative;
+    overflow: hidden;
+    margin-left: 14px;
+    border-radius: var(--m-radius-sm);
+    background: var(--m-surface);
+}
+
+.rastreio-mobile .m-ras-lote-card__swipe-armar,
+.rastreio-mobile .m-ras-lote-card__swipe-olho {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 44px;
+    border: none;
+    color: #fff;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 1;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.rastreio-mobile .m-ras-lote-card__swipe-armar {
+    right: 44px;
+    background: var(--m-primary);
+}
+
+.rastreio-mobile .m-ras-lote-card__swipe-armar:active {
+    background: var(--m-primary-dark);
+}
+
+.rastreio-mobile .m-ras-lote-card__swipe-olho {
+    right: 0;
+    background: var(--m-info);
+}
+
+.rastreio-mobile .m-ras-lote-card__swipe-olho:active {
+    background: #1d4ed8;
+}
+
+/* ===== Card de Lote ===== */
+.rastreio-mobile .m-ras-lote-card {
+    position: relative;
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-left: 3px solid var(--m-primary);
+    border-radius: var(--m-radius-sm);
+    padding: 6px 10px;
+    cursor: pointer;
+    /* Transition aplicada inline pelo JS pra que touchmove fique fluido */
+    z-index: 2;
+    will-change: transform;
+    touch-action: pan-y;
+}
+
+.rastreio-mobile .m-ras-lote-card:active {
+    background: var(--m-border-soft);
+}
+
+.rastreio-mobile .m-ras-lote-card.is-armed {
+    border-left-color: var(--m-warning);
+    background: var(--m-warning-soft);
+    box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.2);
+}
+
+.rastreio-mobile .m-ras-lote-card.is-naoclass {
+    border-left-color: var(--m-text-muted);
+}
+
+.rastreio-mobile .m-ras-lote-card__top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 2px;
+}
+
+.rastreio-mobile .m-ras-lote-card__produto {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--m-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rastreio-mobile .m-ras-lote-card__qtd {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--m-primary);
+    background: var(--m-primary-soft);
+    padding: 1px 7px;
+    border-radius: 999px;
+}
+
+.rastreio-mobile .m-ras-lote-card__bottom {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10.5px;
+    color: var(--m-text-muted);
+    line-height: 1.3;
+}
+
+.rastreio-mobile .m-ras-lote-card__fornec {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rastreio-mobile .m-ras-lote-card__lote {
+    font-family: 'Courier New', monospace;
+    font-size: 10.5px;
+    color: var(--m-text-muted);
+    background: var(--m-border-soft);
+    padding: 1px 6px;
+    border-radius: 3px;
+}
+
+.rastreio-mobile .m-ras-lote-card__data {
+    font-size: 11px;
+    color: var(--m-text-muted);
+}
+
+.rastreio-mobile .m-ras-lote-card__badges {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 3px;
+}
+
+.rastreio-mobile .m-ras-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 600;
+}
+
+.rastreio-mobile .m-ras-badge--encaixa {
+    background: var(--m-primary-soft);
+    color: var(--m-primary-dark);
+}
+
+.rastreio-mobile .m-ras-badge--fracao {
+    background: var(--m-warning-soft);
+    color: var(--m-warning);
+}
+
+.rastreio-mobile .m-ras-badge--envelhecido {
+    background: #fed7aa;
+    color: #9a3412;
+}
+
+.rastreio-mobile .m-ras-badge--naoclass {
+    background: var(--m-info-soft);
+    color: var(--m-info);
+}
+
+.rastreio-mobile .m-ras-badge--avaria {
+    background: var(--m-danger-soft);
+    color: var(--m-danger);
+}
+
+/* ===== Wrapper do card de pedido (esconde botão swipe atrás) =====
+ * Swipe esquerda revela: [OLHO 56px] = 56px
+ */
+.rastreio-mobile .m-ras-pedido-card-wrap {
+    position: relative;
+    overflow: hidden;
+    margin-left: 14px;
+    border-radius: var(--m-radius-sm);
+    background: var(--m-surface);
+}
+
+.rastreio-mobile .m-ras-pedido-card__swipe-olho {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: 56px;
+    border: none;
+    background: var(--m-info);
+    color: #fff;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 1;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.rastreio-mobile .m-ras-pedido-card__swipe-olho:active {
+    background: #1d4ed8;
+}
+
+/* ===== Card de Pedido ===== */
+.rastreio-mobile .m-ras-pedido-card {
+    position: relative;
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-left: 3px solid var(--m-info);
+    border-radius: var(--m-radius-sm);
+    padding: 8px 10px;
+    cursor: pointer;
+    z-index: 2;
+    will-change: transform;
+    touch-action: pan-y;
+}
+
+.rastreio-mobile .m-ras-pedido-card:active {
+    background: var(--m-border-soft);
+}
+
+.rastreio-mobile .m-ras-pedido-card--orfa {
+    border-left-color: var(--m-danger);
+}
+
+.rastreio-mobile .m-ras-pedido-card--finalizado {
+    border-left-color: var(--m-success);
+    background: #f6fbf4;   /* verde bem sutil — sem opacity */
+}
+
+.rastreio-mobile .m-ras-pedido-card__top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.rastreio-mobile .m-ras-pedido-card__cliente {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--m-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rastreio-mobile .m-ras-pedido-card__progress {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+}
+
+.rastreio-mobile .m-ras-pedido-card__progress--ok {
+    background: var(--m-primary-soft);
+    color: var(--m-primary-dark);
+}
+
+.rastreio-mobile .m-ras-pedido-card__progress--pendente {
+    background: var(--m-warning-soft);
+    color: var(--m-warning);
+}
+
+.rastreio-mobile .m-ras-pedido-card__meta {
+    display: flex;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--m-text-muted);
+    align-items: center;
+}
+
+.rastreio-mobile .m-ras-pedido-card__num {
+    font-weight: 700;
+    color: var(--m-text);
+}
+
+.rastreio-mobile .m-ras-pedido-card__badges {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+/* "Falta X kg" no subheader do pedido (modo Por Parceiro) */
+.rastreio-mobile .m-ras-pedido-card__falta {
+    color: var(--m-warning);
+    font-weight: 700;
+}
+
+/* Container dos cards de item dentro do card de pedido */
+.rastreio-mobile .m-ras-pedido-card__items {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* Subheader compacto entre header de parceiro e cards de item */
+.rastreio-mobile .m-ras-pedido-subheader {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    margin: 6px 14px 2px;
+    background: #f8fafc;
+    border-left: 3px solid var(--m-info);
+    border-radius: 4px;
+    font-size: 11.5px;
+    color: var(--m-text);
+    font-weight: 600;
+    flex-wrap: wrap;
+}
+
+.rastreio-mobile .m-ras-pedido-subheader > i {
+    color: var(--m-info);
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.rastreio-mobile .m-ras-pedido-subheader__num {
+    font-weight: 700;
+    color: var(--m-info);
+}
+
+.rastreio-mobile .m-ras-pedido-subheader__qtd {
+    color: var(--m-text-muted);
+    font-weight: 600;
+    font-size: 11px;
+}
+
+.rastreio-mobile .m-ras-pedido-subheader__falta {
+    margin-left: auto;
+    background: var(--m-warning-soft);
+    color: var(--m-warning);
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 999px;
+}
+
+.rastreio-mobile .m-ras-pedido-subheader__ok {
+    margin-left: auto;
+    background: var(--m-primary-soft);
+    color: var(--m-primary-dark);
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 999px;
+}
+
+.rastreio-mobile .m-ras-pedido-subheader__badge {
+    background: var(--m-surface);
+    color: var(--m-text-muted);
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    border: 1px solid var(--m-border);
+}
+
+.rastreio-mobile .m-ras-pedido-subheader__badge--orfa {
+    background: var(--m-danger-soft);
+    color: var(--m-danger);
+    border-color: var(--m-danger);
+}
+
+.rastreio-mobile .m-ras-pedido-subheader__badge--faturado {
+    background: var(--m-warning-soft);
+    color: var(--m-warning);
+    border-color: var(--m-warning);
+}
+
+.rastreio-mobile .m-ras-pedido-subheader__badge--manual {
+    background: #ccfbf1;
+    color: #115e59;
+    border-color: #115e59;
+}
+
+.rastreio-mobile .m-ras-pedido-subheader__badge--retroativo {
+    background: #ede9fe;
+    color: #6d28d9;
+    border-color: #6d28d9;
+}
+
+/* Wrapper do card de item — esconde 2 botões swipe atrás (link + olho) */
+.rastreio-mobile .m-ras-item-card-wrap {
+    position: relative;
+    overflow: hidden;
+    border-radius: 6px;
+    background: var(--m-surface);
+    margin-left: 14px;
+    margin-bottom: 4px;
+}
+
+/* Card de item COMPATÍVEL com lote armado — destaque forte (verde Agromil
+ * intenso + borda grossa + glow). Operador identifica de relance onde
+ * pode vincular o lote que armou. Headers ficam neutros pra realçar isso. */
+.rastreio-mobile .m-ras-item-card-wrap.is-compativel .m-ras-item-card {
+    background: var(--m-primary-soft);
+    border-color: var(--m-primary);
+    border-left-color: var(--m-primary);
+    border-left-width: 4px;
+    box-shadow: 0 0 0 2px rgba(94, 126, 74, 0.18);
+}
+
+.rastreio-mobile .m-ras-item-card-wrap.is-compativel .m-ras-item-card__nome {
+    color: var(--m-primary-dark);
+    font-weight: 800;
+}
+
+.rastreio-mobile .m-ras-item-card-wrap.is-compativel .m-ras-item-card__qtd-badge {
+    background: var(--m-primary);
+    color: #fff;
+}
+
+.rastreio-mobile .m-ras-item-card__swipe-armar,
+.rastreio-mobile .m-ras-item-card__swipe-olho {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 48px;
+    border: none;
+    color: #fff;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 1;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.rastreio-mobile .m-ras-item-card__swipe-armar {
+    right: 48px;
+    background: var(--m-primary);
+}
+
+.rastreio-mobile .m-ras-item-card__swipe-armar:active {
+    background: var(--m-primary-dark);
+}
+
+.rastreio-mobile .m-ras-item-card__swipe-olho {
+    right: 0;
+    background: var(--m-info);
+}
+
+.rastreio-mobile .m-ras-item-card__swipe-olho:active {
+    background: #1d4ed8;
+}
+
+/* Card individual de item — 2 linhas (similar ao card de lote) */
+.rastreio-mobile .m-ras-item-card {
+    position: relative;
+    z-index: 2;
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-left: 3px solid var(--m-info);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: var(--m-text);
+    will-change: transform;
+    touch-action: pan-y;
+}
+
+.rastreio-mobile .m-ras-item-card.is-completo {
+    background: #f6fbf4;
+    border-left-color: var(--m-success);
+}
+
+.rastreio-mobile .m-ras-item-card__top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 2px;
+}
+
+.rastreio-mobile .m-ras-item-card__nome {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--m-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rastreio-mobile .m-ras-item-card__qtd-badge {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--m-info);
+    background: var(--m-info-soft);
+    padding: 1px 7px;
+    border-radius: 999px;
+}
+
+.rastreio-mobile .m-ras-item-card__qtd-badge.is-completo {
+    color: var(--m-primary-dark);
+    background: var(--m-primary-soft);
+}
+
+.rastreio-mobile .m-ras-item-card__bottom {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10.5px;
+    color: var(--m-text-muted);
+    line-height: 1.3;
+}
+
+.rastreio-mobile .m-ras-item-card__data {
+    color: var(--m-text-muted);
+}
+
+.rastreio-mobile .m-ras-item-card__pedido-tag {
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    color: var(--m-text-muted);
+    background: var(--m-border-soft);
+    padding: 1px 6px;
+    border-radius: 3px;
+}
+
+.rastreio-mobile .m-ras-item-card__falta {
+    margin-left: auto;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--m-warning-soft);
+    color: var(--m-warning);
+    font-size: 10.5px;
+    font-weight: 700;
+}
+
+.rastreio-mobile .m-ras-item-card__check {
+    margin-left: auto;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--m-primary-soft);
+    color: var(--m-primary-dark);
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Wrapper + botão swipe-to-delete pros cards de vínculo (sheet) */
+.rastreio-mobile .m-ras-vinc-card-wrap {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--m-radius-sm);
+    margin-bottom: 6px;
+}
+
+.rastreio-mobile .m-ras-vinc-card__swipe-del {
+    position: absolute;
+    top: 0; bottom: 0; right: 0;
+    width: 56px;
+    border: none;
+    background: var(--m-danger);
+    color: #fff;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 1;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.rastreio-mobile .m-ras-vinc-card__swipe-del:active {
+    background: #b91c1c;
+}
+
+.rastreio-mobile .m-ras-vinc-card-wrap .m-ras-vinc-card {
+    position: relative;
+    z-index: 2;
+    background: var(--m-surface);
+    will-change: transform;
+    touch-action: pan-y;
+    cursor: grab;
+}
+
+.rastreio-mobile .m-ras-pedido-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.rastreio-mobile .m-ras-pedido-badge--orfa {
+    background: var(--m-danger-soft);
+    color: var(--m-danger);
+}
+
+.rastreio-mobile .m-ras-pedido-badge--faturado {
+    background: var(--m-warning-soft);
+    color: var(--m-warning);
+}
+
+.rastreio-mobile .m-ras-pedido-badge--manual {
+    background: #ccfbf1;
+    color: #115e59;
+}
+
+.rastreio-mobile .m-ras-pedido-badge--retroativo {
+    background: #ede9fe;
+    color: #6d28d9;
+}
+
+/* ===== Hero card (telas detalhe) ===== */
+.rastreio-mobile .m-ras-hero {
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-left: 3px solid var(--m-primary);
+    border-radius: var(--m-radius-md);
+    padding: 12px;
+    margin-bottom: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.rastreio-mobile .m-ras-hero__row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.rastreio-mobile .m-ras-hero__row--inline {
+    flex-direction: row;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.rastreio-mobile .m-ras-hero__row--inline > div {
+    flex: 1;
+    min-width: 0;
+}
+
+.rastreio-mobile .m-ras-hero__row--lote {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--m-border);
+    font-size: 10.5px;
+    color: var(--m-text-muted);
+}
+
+.rastreio-mobile .m-ras-hero__row--lote span:last-child {
+    font-family: 'Courier New', monospace;
+    font-weight: 600;
+    color: var(--m-text);
+}
+
+.rastreio-mobile .m-ras-hero__lab {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--m-text-muted);
+}
+
+.rastreio-mobile .m-ras-hero__val {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--m-text);
+}
+
+.rastreio-mobile .m-ras-hero__val-sm {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--m-text);
+    display: block;
+    margin-top: 1px;
+}
+
+.rastreio-mobile .m-ras-hero__val-destaque {
+    color: var(--m-primary);
+    font-size: 14px;
+    font-weight: 800;
+}
+
+/* Pedido badge dentro do hero */
+.rastreio-mobile .m-ras-pedido-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+/* ===== Botão "armar lote" na tela detalhe ===== */
+.rastreio-mobile .m-ras-action-row {
+    margin-bottom: 14px;
+}
+
+.rastreio-mobile .m-ras-btn-armar {
+    width: 100%;
+}
+
+.rastreio-mobile .m-ras-btn-armar.is-armed {
+    background: var(--m-warning);
+}
+
+.rastreio-mobile .m-ras-btn-armar.is-armed:active {
+    background: #b45309;
+}
+
+/* ===== Section title ===== */
+.rastreio-mobile .m-ras-section-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--m-text-muted);
+    margin: 12px 0 8px;
+    padding: 0 2px;
+}
+
+.rastreio-mobile .m-ras-section-title i {
+    font-size: 14px;
+}
+
+.rastreio-mobile .m-ras-section-count {
+    margin-left: auto;
+    background: var(--m-border-soft);
+    color: var(--m-text);
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+}
+
+/* ===== Lista de vínculos (detalhe do lote) ===== */
+.rastreio-mobile .m-ras-vinculos {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.rastreio-mobile .m-ras-vinc-card {
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-radius: var(--m-radius-sm);
+    padding: 10px 12px;
+}
+
+.rastreio-mobile .m-ras-vinc-card__top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 3px;
+}
+
+.rastreio-mobile .m-ras-vinc-card__num {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--m-text);
+}
+
+.rastreio-mobile .m-ras-vinc-card__cliente {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--m-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rastreio-mobile .m-ras-vinc-card__qtd {
+    font-weight: 700;
+    color: var(--m-primary);
+    font-size: 13px;
+}
+
+.rastreio-mobile .m-ras-vinc-card__bottom {
+    font-size: 11px;
+    color: var(--m-text-muted);
+    display: flex;
+    gap: 8px;
+    margin-top: 2px;
+}
+
+.rastreio-mobile .m-ras-vinc-card__bottom small {
+    color: var(--m-text-muted);
+}
+
+.rastreio-mobile .m-ras-vinc-card__action {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 4px;
+}
+
+.rastreio-mobile .m-ras-vinc-card__btn-del {
+    border: none;
+    background: var(--m-danger-soft);
+    color: var(--m-danger);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* ===== Lista de produtos (detalhe do pedido) ===== */
+.rastreio-mobile .m-ras-produtos {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.rastreio-mobile .m-ras-prod-card {
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-left: 3px solid var(--m-border);
+    border-radius: var(--m-radius-sm);
+    padding: 10px 12px;
+    cursor: pointer;
+}
+
+.rastreio-mobile .m-ras-prod-card.is-completo {
+    border-left-color: var(--m-success);
+    opacity: 0.7;
+}
+
+.rastreio-mobile .m-ras-prod-card.is-pendente {
+    border-left-color: var(--m-warning);
+}
+
+.rastreio-mobile .m-ras-prod-card.tem-armado {
+    background: var(--m-warning-soft);
+    border-left-color: var(--m-warning);
+    border-color: #fed7aa;
+}
+
+.rastreio-mobile .m-ras-prod-card__top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.rastreio-mobile .m-ras-prod-card__nome {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--m-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rastreio-mobile .m-ras-prod-card__progress {
+    flex-shrink: 0;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--m-text);
+}
+
+.rastreio-mobile .m-ras-prod-card__qtd {
+    display: flex;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--m-text-muted);
+    margin-top: 4px;
+}
+
+.rastreio-mobile .m-ras-prod-card__qtd strong {
+    color: var(--m-text);
+    font-weight: 700;
+}
+
+.rastreio-mobile .m-ras-prod-card__bar {
+    height: 4px;
+    background: var(--m-border-soft);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 6px;
+}
+
+.rastreio-mobile .m-ras-prod-card__bar-fill {
+    height: 100%;
+    background: var(--m-primary);
+    transition: width 0.24s ease;
+}
+
+.rastreio-mobile .m-ras-prod-card__cta {
+    margin-top: 6px;
+    font-size: 11.5px;
+    color: var(--m-primary);
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* ===== Empty state ===== */
+.rastreio-mobile .m-empty-state {
+    text-align: center;
+    padding: 32px 16px;
+    color: var(--m-text-muted);
+}
+
+.rastreio-mobile .m-empty-state i {
+    font-size: 32px;
+    margin-bottom: 8px;
+    display: block;
+}
+
+.rastreio-mobile .m-empty-state__title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--m-text);
+    margin-bottom: 4px;
+}
+
+.rastreio-mobile .m-empty-state__msg {
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+/* ===== FAB Atualizar (azul, igual Entrada/Classif) ===== */
+.rastreio-mobile .m-fab {
+    position: absolute;
+    right: 16px;
+    bottom: calc(var(--m-bottom-nav-h) + 16px + env(safe-area-inset-bottom, 0px));
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--m-primary);
+    color: #fff;
+    border: none;
+    box-shadow: 0 4px 12px rgba(94, 126, 74, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    cursor: pointer;
+    z-index: 15;
+}
+
+.rastreio-mobile .m-fab--secondary {
+    width: 42px;
+    height: 42px;
+    background: var(--m-info);
+    font-size: 18px;
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.35);
+}
+
+.rastreio-mobile .m-ras-fab-refresh {
+    bottom: calc(var(--m-bottom-nav-h) + 16px + env(safe-area-inset-bottom, 0px));
+}
+
+.rastreio-mobile .m-fab.is-loading i {
+    animation: m-spin 0.8s linear infinite;
+}
+
+@keyframes m-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ===== Bottom nav ===== */
+.rastreio-mobile .m-bottom-nav {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: calc(var(--m-bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--m-surface);
+    border-top: 1px solid var(--m-border);
+    display: flex;
+    justify-content: space-around;
+    align-items: stretch;
+    z-index: 10;
+}
+
+.rastreio-mobile .m-bottom-nav__item {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--m-text-muted);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    font-size: 10.5px;
+    font-weight: 600;
+    cursor: pointer;
+    position: relative;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.rastreio-mobile .m-bottom-nav__item.is-active {
+    color: var(--m-primary);
+}
+
+.rastreio-mobile .m-bottom-nav__item i {
+    font-size: 19px;
+}
+
+.rastreio-mobile .m-bottom-nav__item.has-filtros-ativos {
+    color: var(--m-primary);
+}
+
+.rastreio-mobile .m-bottom-nav__item.has-filtros-ativos i::before {
+    font-family: 'Phosphor-Fill';
+}
+
+.rastreio-mobile .m-bottom-nav__item.has-filtros-ativos::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    right: 22%;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--m-danger);
+    box-shadow: 0 0 0 2px var(--m-surface);
+}
+
+/* ===== Bottom sheet ===== */
+.rastreio-mobile .m-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    pointer-events: none;
+    visibility: hidden;
+}
+
+.rastreio-mobile .m-sheet[aria-hidden="false"] {
+    pointer-events: auto;
+    visibility: visible;
+}
+
+.rastreio-mobile .m-sheet__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0);
+    transition: background 0.24s ease;
+}
+
+.rastreio-mobile .m-sheet[aria-hidden="false"] .m-sheet__backdrop {
+    background: rgba(0, 0, 0, 0.45);
+}
+
+.rastreio-mobile .m-sheet__content {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: 88vh;
+    max-height: 88dvh;
+    background: var(--m-surface);
+    border-radius: 16px 16px 0 0;
+    display: flex;
+    flex-direction: column;
+    transform: translateY(100%);
+    transition: transform 0.28s cubic-bezier(0.25, 1, 0.5, 1);
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.18);
+}
+
+.rastreio-mobile .m-sheet__content--tall {
+    max-height: 92vh;
+    max-height: 92dvh;
+}
+
+.rastreio-mobile .m-sheet[aria-hidden="false"] .m-sheet__content {
+    transform: translateY(0);
+}
+
+.rastreio-mobile .m-sheet__handle {
+    width: 36px;
+    height: 4px;
+    background: var(--m-border);
+    border-radius: 2px;
+    margin: 10px auto 4px;
+}
+
+.rastreio-mobile .m-sheet__header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px 10px;
+    border-bottom: 1px solid var(--m-border);
+}
+
+.rastreio-mobile .m-sheet__header h2 {
+    flex: 1;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--m-text);
+}
+
+.rastreio-mobile .m-sheet__body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.rastreio-mobile .m-sheet__footer {
+    flex-shrink: 0;
+    display: grid;
+    grid-template-columns: 1fr 1.4fr;
+    gap: 10px;
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--m-border);
+}
+
+.rastreio-mobile .m-sheet__footer button {
+    width: 100%;
+}
+
+/* ===== Campos ===== */
+.rastreio-mobile .m-field-group {
+    margin-bottom: 14px;
+}
+
+.rastreio-mobile .m-field-label {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--m-text-muted);
+    margin-bottom: 5px;
+}
+
+.rastreio-mobile .m-field-input {
+    width: 100%;
+    height: 42px;
+    padding: 0 12px;
+    border: 1px solid var(--m-border);
+    border-radius: var(--m-radius-sm);
+    background: var(--m-surface);
+    font-size: 16px;
+    color: var(--m-text);
+    outline: none;
+    -webkit-appearance: none;
+}
+
+.rastreio-mobile .m-field-input--lg {
+    height: 52px;
+    font-size: 22px;
+    font-weight: 700;
+    text-align: center;
+}
+
+.rastreio-mobile .m-field-input:focus {
+    border-color: var(--m-primary);
+    box-shadow: 0 0 0 3px rgba(94, 126, 74, 0.18);
+}
+
+.rastreio-mobile .m-field-hint {
+    margin-top: 6px;
+    font-size: 11.5px;
+    color: var(--m-text-muted);
+    line-height: 1.4;
+}
+
+.rastreio-mobile .m-field-hint strong {
+    color: var(--m-text);
+}
+
+/* Toggle row (Agrupamento, etc) */
+.rastreio-mobile .m-toggle-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 4px;
+    background: var(--m-border-soft);
+    border-radius: var(--m-radius-md);
+}
+
+.rastreio-mobile .m-toggle-btn {
+    border: none;
+    background: transparent;
+    padding: 9px 10px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--m-text-muted);
+    cursor: pointer;
+}
+
+.rastreio-mobile .m-toggle-btn.is-active {
+    background: var(--m-surface);
+    color: var(--m-primary);
+    box-shadow: var(--m-shadow);
+}
+
+/* Status chips (Pendente / Finalizado) */
+.rastreio-mobile .m-status-chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.rastreio-mobile .m-status-chip {
+    flex: 1;
+    border: 1px solid var(--m-border);
+    background: var(--m-surface);
+    padding: 8px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--m-text-muted);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+}
+
+.rastreio-mobile .m-status-chip i {
+    font-size: 14px;
+}
+
+.rastreio-mobile .m-status-chip.is-on {
+    background: var(--m-primary-soft);
+    color: var(--m-primary-dark);
+    border-color: var(--m-primary);
+}
+
+/* Date range */
+.rastreio-mobile .m-date-range {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.rastreio-mobile .m-date-range .m-field-input {
+    flex: 1;
+    padding: 0 6px;
+    font-size: 14px;
+}
+
+.rastreio-mobile .m-date-sep {
+    color: var(--m-text-muted);
+    font-size: 14px;
+}
+
+.rastreio-mobile .m-date-shift {
+    width: 32px;
+    height: 32px;
+}
+
+/* ===== Botões ===== */
+.rastreio-mobile .m-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    min-height: 46px;
+    padding: 0 16px;
+    background: var(--m-primary);
+    color: #fff;
+    border: none;
+    border-radius: var(--m-radius-md);
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.rastreio-mobile .m-btn-primary:active {
+    background: var(--m-primary-dark);
+}
+
+.rastreio-mobile .m-btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.rastreio-mobile .m-btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    min-height: 46px;
+    padding: 0 16px;
+    background: transparent;
+    color: var(--m-text);
+    border: 1.5px solid var(--m-border);
+    border-radius: var(--m-radius-md);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.rastreio-mobile .m-btn-secondary:active {
+    background: var(--m-border-soft);
+}
+
+/* Sheet body — info de vincular */
+.rastreio-mobile .m-ras-vincular-info {
+    background: var(--m-border-soft);
+    padding: 10px 12px;
+    border-radius: var(--m-radius-sm);
+    margin-bottom: 14px;
+}
+
+.rastreio-mobile .m-ras-vincular-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12.5px;
+}
+
+.rastreio-mobile .m-ras-vincular-row + .m-ras-vincular-row {
+    margin-top: 4px;
+}
+
+.rastreio-mobile .m-ras-vincular-lab {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--m-text-muted);
+    min-width: 72px;
+}
+
+.rastreio-mobile .m-ras-vincular-val {
+    flex: 1;
+    color: var(--m-text);
+    font-weight: 600;
+}
+
+/* Escolha peso lista */
+.rastreio-mobile .m-ras-escolha-intro {
+    font-size: 12.5px;
+    color: var(--m-text-muted);
+    line-height: 1.45;
+    margin: 0 0 14px 0;
+}
+
+.rastreio-mobile .m-ras-escolha-lista {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.rastreio-mobile .m-ras-escolha-item {
+    background: var(--m-border-soft);
+    padding: 10px 12px;
+    border-radius: var(--m-radius-sm);
+}
+
+.rastreio-mobile .m-ras-escolha-item__titulo {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--m-text);
+    margin-bottom: 8px;
+}
+
+.rastreio-mobile .m-ras-escolha-item__pesos {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.rastreio-mobile .m-ras-escolha-item__peso {
+    border: 1px solid var(--m-border);
+    background: var(--m-surface);
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--m-text);
+    cursor: pointer;
+}
+
+.rastreio-mobile .m-ras-escolha-item__peso.is-active {
+    background: var(--m-primary);
+    color: #fff;
+    border-color: var(--m-primary);
+}
+
+/* Header de grupo (lotes / pedidos) — compacto */
+.rastreio-mobile .m-ras-grupo-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    /* Cor NEUTRA pra todos os contextos (lotes/pedidos × produto/parceiro)
+     * — destaque visual fica reservado pros badges (qtd, %, falta)
+     * e pros cards de item compatível. */
+    background: var(--m-border-soft);
+    border-left: 3px solid var(--m-text-muted);
+    border-radius: var(--m-radius-sm);
+    margin: 2px 0 0;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--m-text);
+    min-height: 30px;
+}
+
+.rastreio-mobile .m-ras-grupo-header:first-child {
+    margin-top: 0;
+}
+
+.rastreio-mobile .m-ras-grupo-header > i {
+    font-size: 16px;
+    flex-shrink: 0;
+    color: var(--m-text-muted);
+}
+
+.rastreio-mobile .m-ras-grupo-header {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.12s ease;
+}
+
+.rastreio-mobile .m-ras-grupo-header:active {
+    filter: brightness(0.97);
+}
+
+.rastreio-mobile .m-ras-grupo-header__chevron {
+    transition: transform 0.2s ease;
+    font-size: 14px !important;
+    margin-right: -2px;
+}
+
+.rastreio-mobile .m-ras-grupo-header.is-colapsado .m-ras-grupo-header__chevron {
+    transform: rotate(-90deg);
+}
+
+.rastreio-mobile .m-ras-grupo-header__icone {
+    font-size: 16px;
+}
+
+/* Todos os headers de grupo (Lotes/Pedidos × Produto/Parceiro) usam o
+ * mesmo estilo neutro definido em .m-ras-grupo-header acima. As variantes
+ * coloridas (verde/marrom/azul) foram removidas pra reservar destaque
+ * cromático aos elementos de ação (badges, items compatíveis). */
+
+.rastreio-mobile .m-ras-grupo-header__nome {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.rastreio-mobile .m-ras-grupo-header__qtd {
+    font-size: 12.5px;
+    font-weight: 800;
+    color: var(--m-primary-dark);
+    background: var(--m-surface);
+    padding: 1px 8px;
+    border-radius: 999px;
+}
+
+.rastreio-mobile .m-ras-grupo-header__count {
+    background: var(--m-surface);
+    color: var(--m-text-muted);
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    min-width: 26px;
+    text-align: center;
+}
+
+.rastreio-mobile .m-ras-grupo-header__data {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--m-text-muted);
+    background: rgba(255, 255, 255, 0.55);
+    padding: 1px 7px;
+    border-radius: 999px;
+}
+
+.rastreio-mobile .m-ras-grupo-header__pct {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--m-warning);
+    background: var(--m-warning-soft);
+    padding: 1px 8px;
+    border-radius: 999px;
+    min-width: 38px;
+    text-align: center;
+}
+
+/* Pedido N no header (modo Por Parceiro — 1 grupo por pedido) */
+.rastreio-mobile .m-ras-grupo-header__pedido {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--m-info);
+    background: var(--m-info-soft);
+    padding: 1px 7px;
+    border-radius: 999px;
+}
+
+/* Badges de status no header (NF, Manual, Retroativo, ÓRFÃ) */
+.rastreio-mobile .m-ras-grupo-header__badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--m-border);
+    background: var(--m-surface);
+    color: var(--m-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.rastreio-mobile .m-ras-grupo-header__badge--orfa {
+    background: var(--m-danger-soft);
+    color: var(--m-danger);
+    border-color: var(--m-danger);
+}
+
+.rastreio-mobile .m-ras-grupo-header__badge--faturado {
+    background: var(--m-warning-soft);
+    color: var(--m-warning);
+    border-color: var(--m-warning);
+}
+
+.rastreio-mobile .m-ras-grupo-header__badge--manual {
+    background: #ccfbf1;
+    color: #115e59;
+    border-color: #115e59;
+}
+
+.rastreio-mobile .m-ras-grupo-header__badge--retroativo {
+    background: #ede9fe;
+    color: #6d28d9;
+    border-color: #6d28d9;
+}
+

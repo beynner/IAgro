@@ -1,6 +1,6 @@
 # Módulo Rastreio / WMS
 
-Atribuição e desvinculação de lotes a pedidos de venda com auditoria, lock pessimista e distinção visual de pedidos faturados.
+Atribuição e desvinculação de lotes a pedidos de venda com auditoria, lock pessimista e distinção visual de pedidos faturados. Versão desktop com 2 painéis lado-a-lado; **versão mobile app-like (Mai/2026 — 2026-05-27)** com toggle Lotes⇄Pedidos + telas detalhe + bottom sheets — substitui o drag&drop por "armar e tocar".
 
 ---
 
@@ -800,3 +800,261 @@ qrcode>=7.4.2
 ```
 
 `reportlab` já é dependência do projeto.
+
+---
+
+## 📱 Redesign Mobile app-like (Mai/2026 — 2026-05-27/28)
+
+Implementação completa pra operador usar no celular. Estratégia padrão: HTML único com 2 containers paralelos (`.rastreio-desktop` + `.rastreio-mobile`), escopados por `body[data-active-module="rastreio"]` em viewport ≤900px. Desktop 100% intacto.
+
+### Arquitetura de arquivos
+
+| Componente | Arquivo |
+|---|---|
+| Template | [rastreio.html](../../sankhya_integration/templates/sankhya_integration/rastreio.html) — bloco `.rastreio-mobile` com 3 telas + 5 bottom sheets |
+| CSS | [rastreio.css](../../sankhya_integration/static/sankhya_integration/rastreio.css) — bloco "REDESIGN MOBILE-FIRST" no fim, escopado |
+| JS | [rastreio_mobile.js](../../sankhya_integration/static/sankhya_integration/rastreio_mobile.js) (~1900 linhas, IIFE) — só ativa ≤900px |
+
+### Fluxo "armar e tocar" (substituindo drag&drop)
+
+Drag&drop não funciona em touch. Fluxo mobile:
+
+1. Operador na tela `lista` (toggle em **Lotes**) — vê lotes agrupados (default colapsados Por Produto)
+2. Expande grupo desejado, **arrasta card de lote pra esquerda** → revela 2 botões: 🔗 **Armar** (verde) + 👁 **Olho** (azul)
+3. Toque em **Armar** → lote vai pro `ESTADO.loteArmado`, barra verde sticky aparece no topo, toggle troca automaticamente pra **Pedidos**, lista filtra pelos pedidos com CODPROD compatível
+4. Toque num pedido pendente → abre direto o **sheet Vincular** (qtd sugerida + peso opcional) — sem passar pela tela detalhe
+5. Confirmar → POST `/api/atribuir-lote/` → sheet fecha → volta pra Lotes desarmado, lote some/diminui na lista
+6. Operador continua o próximo vínculo
+
+### Toolbar da tela `lista`
+
+Layout (Mai/2026 — 2026-05-28):
+```
+[Toggle Lotes  | Pedidos]      ← contador 100 / 48
+[campo de busca]
+[− +] [📦 Produto | 👤 Parceiro]
+```
+- Toggle **Lotes ⇄ Pedidos**: alterna `display` dos 2 containers `<div class="m-ras-list">` no DOM
+- Campo busca: cross-filter automático (q_lotes em Lotes; q/nunota em Pedidos)
+- Botões `−` `+` à esquerda do toggle de agrupamento (separados por borda vertical) — agrupam/desagrupam **todos os grupos visíveis** da lista atual
+- Toggle de agrupamento inline: **Por Produto** (default) ou **Por Parceiro**
+
+### 3 telas
+
+| # | Tela | Função |
+|---|---|---|
+| 1 | **lista** | Toolbar acima + bar do lote armado (quando há) + lista do contexto (Lotes ou Pedidos) + FAB azul Atualizar + bottom nav |
+| 2 | **detalheLote** | Hero (Produto · Fornecedor · Data · Disponível · Lote) + botão grande Armar/Desarmar + lista de vínculos do lote |
+| 3 | **detalhePedido** | Hero (Cliente · Pedido · Data + badge faturado/manual/retroativo/órfã) + lista de produtos com barra de progresso |
+
+### 5 bottom sheets
+
+| Sheet | Função |
+|---|---|
+| **filtros** | Status chips (Pendente/Finalizado) + período Lotes/Pedidos com `<<`/`>>` + agrupamento por painel |
+| **vincular** | Qtd sugerida + peso opcional + Confirmar. Destino: `cliente · Pedido N · Falta X kg` |
+| **escolhaPeso** | Lote classificado em 2+ pesos na TOP 26 — escolha por SEQ antes de imprimir etiqueta |
+| **vinculos-pedido** | Lotes vinculados a um pedido (read-only quando 35/37; com swipe-to-delete em TOP 34) |
+| **(reservado p/ futuras ações)** | — |
+
+### Bar do lote armado (sticky verde Agromil)
+
+Quando há `ESTADO.loteArmado`, aparece abaixo da toolbar:
+- 🔗 Ícone link
+- Linha 1: **FORNECEDOR · NOME_PRODUTO** (não mostra CODAGREGACAO pra não poluir)
+- Linha 2: `Disponível: X kg · DD/MM/AAAA`
+- Botão `×` pra desarmar
+
+### Cards de Lote — agrupamento + swipe
+
+**Agrupamento (Por Produto default):**
+- Header de grupo neutro (cinza claro `var(--m-border-soft)` + borda esquerda cinza)
+- Default **colapsado** — operador toca pra expandir
+- Estado preservado na sessão (`gruposLotesJaVistos` Set evita re-colapsar grupos que operador expandiu)
+- Botões `−`/`+` da toolbar agrupam/desagrupam tudo
+
+**Card de Lote (compacto):**
+- Linha 1: produto bold + qtd em pílula verde
+- Linha 2: fornecedor (ou produto se Por Parceiro) + lote (monospace cinza) + data
+- Badges: 📦 fração / `Xd` envelhecido / avaria
+- **Swipe esquerda** revela 2 botões 88px: 🔗 Armar (verde 44px) + 👁 Olho (azul 44px)
+- **Tap normal não faz nada** (operador só usa o swipe; tap fecha swipe aberto)
+
+### Cards de Pedido (Por Parceiro) — header + subheader + cards de item
+
+Cada **NUNOTA é um grupo único** — mesmo parceiro pode aparecer N vezes (1 por pedido). Estrutura ao expandir:
+
+```
+> 👤 ASSAI ARAGUAINA              28/05    38%      ← header neutro
+   📄 113497  3.000 / 7.890 kg  Falta 4.890  [NF 6451]   ← subheader
+   ┌─ Cards de item (cada um com swipe) ─┐
+   │ ABOBORA ITALIA EXTRA      400 kg     │
+   │ 25/05/2026  Pedido 113497      ✓     │
+   │                                       │
+   │ BATATA DOCE EXTRA       1.500 kg     │
+   │ 25/05/2026  Pedido 113497  Falta 1.500│
+   └───────────────────────────────────────┘
+```
+
+**Header de grupo (sempre visível):**
+- 👤 NOMEPARC + data DD/MM + % progresso em pílula âmbar
+- (número do pedido vive no subheader — header só mostra parceiro + data + %)
+
+**Subheader (aparece quando expandido):**
+- 📄 NUNOTA + qtd `atrib / total kg` + badge **Falta X** (âmbar) ou **✓ Completo** (verde)
+- Badges de status: **NF 6451** (faturado), **ÓRFÃ** (vermelho), **Manual** (ciano), **Retroativo** (roxo)
+
+**Cards de item (cada produto = 1 card):**
+- Linha 1: nome do produto + qtd em pílula azul (verde se completo)
+- Linha 2: data + tag "Pedido N" monospace + badge `Falta X` ou check `✓`
+- **Highlight verde Agromil intenso** quando há lote armado compatível com o CODPROD (`is-compativel`)
+- **Swipe esquerda** revela 2 botões 96px:
+  - 🔗 Verde **Vincular**: usa lote armado pra abrir sheet Vincular. Sem lote → toast `"Arme um lote primeiro"`. Lote de outro produto → toast com nome correto
+  - 👁 Azul **Olho**: abre sheet `vinculos-pedido` filtrado pelo CODPROD do item
+
+### Atalho ao tocar num pedido com lote armado
+
+Quando há `ESTADO.loteArmado`:
+- Pedido tem 1 item do mesmo CODPROD → abre **sheet Vincular** direto (não precisa entrar no detalhe)
+- 2+ linhas mesmo CODPROD → pega a 1ª pendente (ou a 1ª se todas vinculadas)
+- Sem produto compatível → toast `"Pedido não tem o produto do lote armado"` + abre detalhe
+
+Sheet Vincular sugere qtd:
+- `falta > 0` → `min(disp_lote, falta)`
+- `falta = 0` → `dispLote` (lote inteiro) — operador edita se quiser
+- Nunca aparece **0** com lote disponível
+
+### Sheet Vincular — destino
+
+Destino do sheet mostra: `cliente · Pedido N · Falta X kg`
+- Quando falta > 0, mostra a quantidade que falta no pedido
+- Quando completo, omite o "Falta X"
+
+### Sheet "Lotes vinculados" (`vinculos-pedido`)
+
+Abre via swipe → 👁 olho num card de item ou pedido. Mostra:
+- Cada vínculo: CODAGREGACAO (monospace) + qtd (verde) + produto + fornecedor + data
+- **Swipe-to-delete** no card de vínculo: revela botão lixeira vermelho (56px) → confirmação modal → POST `/api/desvincular-lote/`
+- Só TOP 34 STATUSNOTA<>'E' permite desvincular (notas TOP 35/37 ficam read-only)
+- Card animado some + se sheet fica vazio, fecha sozinho com toast `"Pedido sem lotes vinculados agora"`
+
+### FAB azul "Atualizar"
+
+`ph-arrows-clockwise`. Posicionado no canto inferior direito. Click chama `POST /api/refresh-saldo/` (refresh sincronizado do `AD_SALDO_LOTE_CACHE`, ~12s) + recarrega. Spinner via `.is-loading`.
+
+⚠ **Não disparar refresh automático após vínculo** (descoberto Mai/2026 — 2026-05-28): durante o TRUNCATE+INSERT da tabela materializada, `consultar_pedidos_abertos` (que faz JOIN nessa tabela) retorna 500. Após vínculo, apenas **atualização local** do `ESTADO.lotesData` reflete o saldo decrementado; sincronização real espera cron de 5min ou refresh manual.
+
+### Endpoints reusados (zero novo)
+
+| Endpoint | Mobile usa pra |
+|---|---|
+| `GET /api/lotes-disponiveis/` | Lista de lotes (filtros `data_ini`, `data_fim`, `q_lotes`) — retorna `{lotes: [...]}` |
+| `GET /api/pedidos-abertos/` | Lista de pedidos — retorna `{itens: [...]}` |
+| `GET /api/lote-vinculos/?codagregacao=X` | Vínculos pra tela detalhe do lote |
+| `POST /api/atribuir-lote/` | Vincular (sheet Vincular) |
+| `POST /api/desvincular-lote/` | Lixeira no sheet vinculos-pedido |
+| `POST /api/zerar-fracao/` | Botão broom no detalhe do lote (saldo ≤1% da entrada) |
+| `POST /api/refresh-saldo/` | FAB azul atualizar (manual; **não automático** após vínculo) |
+| `GET /api/resolver-peso/` | Etiqueta com escolha de peso |
+| `GET /api/etiqueta-pdf/` | Abre PDF em aba nova |
+
+⚠ **Atenção aos nomes de campo de resposta** (descoberto Mai/2026 — 2026-05-28):
+- `consultar_saldo_lote_disponivel` retorna **`lotes`** (não `itens`)
+- `consultar_pedidos_abertos_para_atribuicao` retorna **`itens`** — campos por item: **`qtd_pedida`** (não `qtdneg`) e **`codagregacao_atual`** (não `codagregacao`)
+
+`agruparPedidos` no mobile lê com fallback (`it.qtd_pedida ?? it.qtdneg`) pra robustez.
+
+### Estado interno (`ESTADO`)
+
+```js
+{
+    listaAtiva: 'lotes' | 'pedidos',
+    lotesData: [],
+    pedidosData: [],            // linhas brutas TGFITE
+    loteArmado: lote | null,
+    loteSelecionado: lote | null,
+    pedidoSelecionado: ped | null,
+    produtoSelecionado: prod | null,
+    agrupamentoLotes: 'produto' | 'parceiro',
+    agrupamentoPedidos: 'produto' | 'parceiro',
+    mostrarPendentes: bool,
+    mostrarFinalizados: bool,
+    dataIniLotes, dataFimLotes,
+    dataIniPedidos, dataFimPedidos,
+    textoBusca: '',
+    // Grupos colapsados (default colapsado na 1ª aparição)
+    gruposLotesColapsados: Set<chave>,
+    gruposLotesJaVistos: Set<chave>,
+    gruposPedidosColapsados: Set<chave>,   // chave = String(NUNOTA)
+    gruposPedidosJaVistos: Set<chave>,
+}
+```
+
+### Gestos touch (padrão consolidado)
+
+| Onde | Direção | Reveal | Botões |
+|---|---|---|---|
+| Card de lote | esquerda | 88px | 🔗 Armar (verde 44px) · 👁 Olho (azul 44px) |
+| Card de item de pedido | esquerda | 96px | 🔗 Vincular (verde 48px) · 👁 Olho (azul 48px) |
+| Card de vínculo (sheet) | esquerda | 56px | 🗑 Desvincular (vermelho 56px) |
+| Telas internas | direita (back) | 35% largura | volta uma tela |
+
+**Padrões fixos** (documentados em [`conventions.md`](../conventions.md)):
+- `setActiveScreen` + `openSheet` fecham todos os swipes pendentes
+- Click no card já em swipe-open fecha o swipe ("cancelar implícito")
+- Resistência elástica no overswipe (passar do reveal)
+- Detecção de eixo dominante nos primeiros 10px (cancela se vertical)
+
+### Design — paleta neutra (Mai/2026 — 2026-05-28)
+
+**Headers de grupo** (Lotes/Pedidos × Produto/Parceiro) — **todos neutros**:
+- Fundo: `var(--m-border-soft)` (cinza claro)
+- Borda esquerda: `var(--m-text-muted)` (cinza 3px)
+- Operador distingue contextos pelo ícone (👤 vs 📦), não pela cor
+
+**Card de item compatível com lote armado** — **destaque cromático intenso** (verde Agromil):
+- Fundo: `var(--m-primary-soft)` + border-left 4px verde
+- Box-shadow: `0 0 0 2px rgba(94, 126, 74, 0.18)` (glow sutil)
+- Nome em verde escuro + bold 800
+- Pílula de qtd em verde sólido + texto branco
+
+Toda intensidade cromática reservada pra elementos de **ação** (item compatível) ou **status** (badges Falta, ✓, NF, ÓRFÃ).
+
+### fmtQtd sem casas decimais
+
+Função arredonda valor antes de formatar — `3.000,50 kg` → `3.001 kg`. Operador trabalha com kg inteiros na Agromil; decimais eram ruído visual. Mantém `toFixed(2)` apenas no campo "Qtd sugerida" do sheet Vincular (precisão pro input).
+
+### Decisões pragmáticas vs desktop
+
+| Aspecto | Desktop | Mobile |
+|---|---|---|
+| Painéis | 2 lado-a-lado | Toggle Lotes ⇄ Pedidos |
+| Vínculo | Drag & drop OU armar+click | Apenas **armar e tocar** (gesto + swipe) |
+| Agrupamento | Por Produto / Por Parceiro | Igual + default colapsado em todos os grupos |
+| Modal de transferência | Overlay central | Bottom sheet `vincular` |
+| Atalhos teclado | `/`, R, C, G, ?, Esc | N/A (touch-only) |
+| Persistência prefs | localStorage | Defaults sempre arrancam |
+| Refresh saldo | Botão Atualizar do header | FAB azul dedicado |
+| Resolução nota órfã (A/B) | Botão único adaptativo | **Pendente v2** — operador volta no desktop |
+
+### Cache busting
+
+CSS `?v=31` · JS `?v=28` (Mai/2026 — 2026-05-28).
+
+### Limitações conscientes (operador volta no desktop)
+
+- **Resolver nota órfã** (vincular OU criar pedido retroativo) — fluxo de confirmação não-trivial. Mobile mostra badge ÓRFÃ mas não oferece a ação.
+- **Vínculo manual pedido pré-existente ↔ nota órfã** — mesmo motivo.
+- **Modal completo "Pedidos/vendas usando lote"** — mobile mostra vínculos inline no detalheLote ou em sheet (suficiente pra operação básica).
+
+### Pendência registrada (Mai/2026 — 2026-05-28) — swipe-to-direita pra criar avaria
+
+Operador pediu novo gesto:
+- **Arrastar card de lote pra DIREITA** → revelar botão de avaria (vermelho/laranja, ícone `ph-warning`)
+- Toque → confirmação `"Criar avaria de X kg do lote Y?"` → cria avaria do **saldo remanescente**
+
+**Decisão Cat B pendente** entre 2 caminhos:
+- **A — Relaxar a trava de 1% do `zerar_fracao_lote_banco`** (TGFCAB TOP 33). Pró: reusa código. Contra: muda semântica de "ajuste" pra "avaria total"
+- **B — Novo handler usando `criar_avaria_top30_banco`** (TGFCAB TOP 30 — Avaria Interna). Pró: TOP 30 é a TOP correta pra "perda de saldo" (já usada manualmente no módulo Venda). Mantém TOP 33 reservada pra ajustes pequenos. Contra: mais código
+
+**Recomendação**: caminho **B** (TOP 30). Aguarda aprovação ponto-a-ponto pra implementar.

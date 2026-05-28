@@ -538,7 +538,7 @@ Saldo validado individualmente por lote — falha em 1 reverte tudo (atomicidade
 
 Detalhes técnicos em [`modules/venda.md`](.claude/modules/venda.md).
 
-### 📱 Redesign Mobile app-like — Entrada + Classificação (Mai/2026 — 2026-05-27)
+### 📱 Redesign Mobile app-like — Entrada + Classificação + Rastreio (Mai/2026 — 2026-05-27)
 
 Início do trabalho de tornar o IAgro um **PWA-ready** (Progressive Web App): operador acessa do celular e parece app nativo. Estratégia: HTML único com 2 containers paralelos (`.entrada-desktop` + `.entrada-mobile`), escopados por `body[data-active-module="X"]`. CSS mobile-first com seletores prefixados `.m-*`. JS separado em arquivos `_mobile.js` que só ativam em viewport ≤900px.
 
@@ -576,14 +576,32 @@ Início do trabalho de tornar o IAgro um **PWA-ready** (Progressive Web App): op
   - **Busca server-side ágil** (Mai/2026 — 2026-05-27, Cat B aplicada): `listar_notas_compra_paginado` ganhou param `q` que aplica `LIKE` em NOMEPARC OR NUNOTA OR NUMNOTA. Mobile faz fetch `?q=...` em 1 chamada com debounce 250ms, replace dos cards (não append). Token de race (`buscaFetchToken`) descarta respostas obsoletas quando operador digita rápido. **Trava 90 dias por default**: `view_portal_entradas` aplica `days=90` quando operador não passa filtro de data explícito — pra histórico maior, abrir filtro e setar `days=N`/`start`/`end`. Auto-paginar client-side com `AUTO_PAGINAR_*` foi removido (descontinuado — era progressivo, lento, não cobria base inteira)
 - **Checklist completo passo-a-passo** pra implementar mobile de novo módulo registrado em [`conventions.md`](.claude/conventions.md) → "Checklist passo-a-passo pra novo módulo mobile" — usar como receita pra próximas implementações (Rastreio, Venda, Combustível, etc.)
 
-**Classificação (2ª implementação Mai/2026 — 2026-05-26)**:
-- 2 telas + 2 bottom sheets ([classificacao.html](sankhya_integration/templates/sankhya_integration/classificacao.html), [classificacao_mobile.js](sankhya_integration/static/sankhya_integration/classificacao_mobile.js))
+**Classificação (2ª implementação Mai/2026 — 2026-05-26, expandida 2026-05-27)**:
+- 2 telas + 3 bottom sheets ([classificacao.html](sankhya_integration/templates/sankhya_integration/classificacao.html), [classificacao_mobile.js](sankhya_integration/static/sankhya_integration/classificacao_mobile.js))
 - Cards de lote com cor de status (verde Finalizada · âmbar Classificando · vermelho A Classificar)
-- Detalhe do lote: hero + grid 4 cards (In natura/Classificado/Descarte/Estoque com kg e %)
-- Toggle "Classificação Finalizada" (POST `/sankhya/item/toggle_status/`)
-- Bottom sheet Descarte (+/− com input + toggle Adicionar/Subtrair → POST `/sankhya/item/update_descarte_lote/`)
+- Detalhe do lote (Mai/2026 — 2026-05-27 redesenhado): hero card 4 linhas (Fornecedor / Produto / Pedido·Data / Lote em fonte menor) + 4 cards resumo 2x2 compactos + toggle Finalizada + Descarte inline +/- + lista de Produtos Classificados
+- Header da tela detalhe limpo: `[← back] [empty title-block] [🗑 descarte] [✏ lápis abre sheet]`
+- Bottom sheet **"Itens — Nota"** (Mai/2026 — 2026-05-27 — paridade completa com `#cabItemsModal` desktop) — typeahead produto + form Total KG/CX/Peso + auto-cálculo CX + lista mostra SÓ o item recém-salvo (feedback visual; contador continua exibindo total real). Aberto via FAB verde + ou botão lápis no header
+- Swipe-to-edit+delete nos cards de Produtos Classificados (2 botões 44px, paridade Entrada): lápis azul abre sheet em modo edição (UPDATE); lixeira vermelha pede confirmação → DELETE com `apenas_checar` antes
+- **Click no card já em modo swipe-open fecha o swipe** (UX padrão "cancelar implícito")
 - Filtros: status chips (✓ Finalizada / ✓ Classificando / ✓ A Classificar) + data ini/fim com `<<` `>>` + Pedido + Produto (fabricante) + Parceiro + Lote
-- Adicionar/editar classificação **redireciona pro editor desktop** — fluxo complexo demais pra reimplementar no mobile (modal `modalClassify` tem Origem + Planificar + Salvar com SQL preview)
+- Sem trava de data / sem scroll infinito — `limit=10000` + datas amplas trazem TODOS os lotes do filtro padrão (Classificando + A Classificar) em 1 fetch
+- Fixes paridade web vs mobile (Mai/2026 — 2026-05-27): URL `/sankhya/produtos/search/modal/` (era 404); typeahead lê `dadosLote.resumo.fabricante` (TGFPRO.FABRICANTE); payload toggle_status `{nunota_class, pendente}`; payload descarte `{lote, valor, operacao}`; `codvol: 'KG'` força `CODVOLPARC='KG'` igual ao desktop (`showItemsModal:672`). Validado via comparação TGFITE 113878 (mobile) vs 113879 (web): paridade 100% confirmada
+- Adicionar nova classificação **agora roda no mobile** via bottom sheet — só **editar item classificado** ainda redireciona pro editor desktop quando o operador precisa do fluxo complexo Origem + Planificar + SQL preview
+
+**Rastreio (3ª implementação — Mai/2026 — 2026-05-27/28)**:
+- **3 telas + 5 bottom sheets** (`lista` · `detalheLote` · `detalhePedido` + sheets `filtros`/`vincular`/`escolhaPeso`/`vinculos-pedido`). Tela 1 tem **toggle Lotes ⇄ Pedidos** + toolbar com `[− +]` (agrupar/desagrupar tudo, à esquerda) + toggle `Por Produto / Por Parceiro`. Mobile só ativa em ≤900px
+- **Decisão arquitetural — "armar e tocar"** no lugar do drag&drop: arrasta lote pra esquerda → revela 🔗 Armar + 👁 Olho → tap Armar → bar verde sticky + alterna pra Pedidos com filtro automático por CODPROD → tap pedido com produto compatível abre sheet Vincular direto. Tap normal em card de lote **não faz nada** (operador usa swipe)
+- **Cards de Lote (agrupados, default colapsado)**: produto bold + qtd em pílula verde + fornecedor + lote em monospace. Badges contextuais (envelhecido `Xd`, fração, avaria). **Swipe esquerda 88px** revela 2 botões 44px (verde Armar / azul Olho). Estado de colapso preservado (`gruposLotesJaVistos`)
+- **Cards de Pedido (modo Por Parceiro)** — cada **NUNOTA é grupo único** (mesmo parceiro pode aparecer N vezes). Header neutro com 👤 + nome + data DD/MM + % pílula âmbar. Subheader ao expandir: 📄 NUNOTA + qtd `atrib/total kg` + badge `Falta X` ou `✓ Completo` + status (NF/ÓRFÃ/Manual/Retroativo). Cada produto = 1 card individual com swipe esquerda 96px (🔗 Vincular verde + 👁 Olho azul). **Highlight verde Agromil intenso** quando lote armado é compatível
+- **Sheet Vincular**: destino `cliente · Pedido N · Falta X kg` + qtd sugerida (sempre > 0, nunca vazio) + peso opcional. Confirmar distribui qtd entre `linhas_pendentes` (SPLIT automático paridade desktop). Após vínculo bem-sucedido: volta pra Lotes desarmado, lote some/diminui na lista local. **Sem refresh-saldo automático** (evita 500 em paralelo — vide gotchas)
+- **Sheet Lotes vinculados** (via swipe olho): cards com CODAGREGACAO/qtd/produto/fornecedor. **Swipe-to-delete** desvincula via `POST /api/desvincular-lote/` (só TOP 34 STATUSNOTA<>'E')
+- **Headers de grupo TODOS NEUTROS** (Mai/2026 — 2026-05-28): cinza claro + borda esquerda cinza. Operador distingue contextos pelo ícone (👤 vs 📦), não pela cor. Intensidade cromática reservada pra badges e card compatível
+- **FAB azul Atualizar** dispara `/api/refresh-saldo/` **só manualmente** (botão Mais no bottom nav). Não roda automaticamente após vínculo pra evitar 500 quando `consultar_pedidos_abertos` faz JOIN com `AD_SALDO_LOTE_CACHE` em paralelo com TRUNCATE
+- **fmtQtd sem casas decimais** em toda a tela mobile (operador trabalha com kg inteiros na Agromil)
+- **Bugs descobertos e corrigidos na sessão**: (a) endpoint de lotes retorna `data.lotes`, não `data.itens`; (b) endpoint de pedidos retorna `qtd_pedida`/`codagregacao_atual`, não `qtdneg`/`codagregacao`; (c) CSS `display: flex` na `.m-ras-list` sobrescrevia atributo HTML `hidden` (fix: `.m-ras-list[hidden] { display: none !important }`); (d) refresh-saldo + carregarPedidos em paralelo → 500 (fix: removido auto-refresh após vínculo, atualização local do estado garante feedback imediato); (e) cards finalizados com `opacity: 0.85` deixavam o botão swipe vazar atrás → trocado por `background: #f6fbf4`
+- **Limitações conscientes**: resolver nota órfã (vincular OU criar pedido retroativo) — pendente v2; modal detalhado de "Pedidos/vendas usando lote" — desktop apenas
+- **Pendência registrada Mai/2026 — 2026-05-28**: swipe-to-DIREITA pra criar avaria do saldo remanescente do lote. Decisão Cat B pendente entre relaxar trava de 1% no `zerar_fracao_lote_banco` (TOP 33) ou criar novo handler usando `criar_avaria_top30_banco` (TOP 30 — recomendado)
 
 **Limpeza arquitetural**: removidas todas as referências à página `/sankhya/compras/central/` que foi removida no início do projeto mas deixou código morto espalhado. View `view_central_compras` agora retorna 410 Gone (mantém só o ramo `?ajax_header=1` usado pra editar cabeçalho). 7 arquivos afetados — vide [`gotchas.md`](.claude/gotchas.md) → "Página compras/central foi removida".
 

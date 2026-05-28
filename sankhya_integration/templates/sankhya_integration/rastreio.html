@@ -5,12 +5,15 @@
 {% block active_module %}rastreio{% endblock %}
 
 {% block extra_css %}
-  <link rel="stylesheet" href="{% static 'sankhya_integration/rastreio.css' %}?v=17">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/rastreio.css' %}?v=31">
 {% endblock %}
 
 {% block header_title %}RASTREABILIDADE (WMS){% endblock %}
 
 {% block content %}
+<div class="rastreio-portal">
+
+<div class="rastreio-desktop">
 <div id="filtrosAtivos" class="filtros-ativos">
     <div id="filtrosAtivosChips" class="filtros-ativos-chips"></div>
     <div class="filtros-ativos-actions">
@@ -63,8 +66,6 @@
                     <input type="date" id="dataFimLotes" class="ras-range-input" title="Data final">
                     <button type="button" id="btnLimparPeriodoLotes" class="ras-range-clear" title="Limpar período (mostra tudo)" aria-label="Limpar período">×</button>
                 </div>
-                <!-- Filtro Tipo de lote (Todos/Classific./Não-class.) removido em Mai/2026.
-                     Variável JS `tipoLote` permanece como 'todos' fixo. -->
             </div>
         </header>
         <div id="lotesContainer" class="card-list"></div>
@@ -238,8 +239,388 @@
         </div>
     </div>
 </div>
+</div><!-- /.rastreio-desktop -->
+
+{# Mobile container (≤900px) — paridade web em fluxo app-like #}
+<div class="rastreio-mobile">
+
+    {# ===== Tela 1 — Lista (Lotes ⇄ Pedidos) ===== #}
+    <section class="m-screen m-screen--lista is-active" data-screen="lista">
+        <header class="m-screen-header">
+            <button type="button" class="m-iconbtn m-sidebar-toggle" id="m_ras_btnHamb" aria-label="Abrir menu">
+                <i class="ph ph-list" aria-hidden="true"></i>
+            </button>
+            <h1 class="m-screen-title">Rastreio</h1>
+            <div class="m-user-badge" title="{{ request.session.nomeusu|default:'Usuário' }}">
+                <i class="ph ph-user" aria-hidden="true"></i>
+                <span>{{ request.session.nomeusu|default:'Usuário' }}</span>
+            </div>
+            <a href="{% url 'logout' %}" class="m-logout-link" title="Encerrar sessão">Sair</a>
+        </header>
+
+        <div class="m-ras-toolbar">
+            <div class="m-ras-toggle" role="tablist" aria-label="Alternar lista">
+                <button type="button" class="m-ras-toggle-btn is-active" data-list="lotes" role="tab" aria-selected="true">
+                    <i class="ph ph-package" aria-hidden="true"></i>
+                    <span>Lotes</span>
+                    <span class="m-ras-toggle-count" id="m_ras_countLotes">0</span>
+                </button>
+                <button type="button" class="m-ras-toggle-btn" data-list="pedidos" role="tab" aria-selected="false">
+                    <i class="ph ph-shopping-cart-simple" aria-hidden="true"></i>
+                    <span>Pedidos</span>
+                    <span class="m-ras-toggle-count" id="m_ras_countPedidos">0</span>
+                </button>
+            </div>
+            <div class="m-search">
+                <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                <input type="search" id="m_ras_search" class="m-field-input" placeholder="Buscar lote, produto, fornecedor (últimos 7 dias)" autocomplete="off" />
+            </div>
+            <div class="m-ras-agrup" role="tablist" aria-label="Agrupar por">
+                <div class="m-ras-agrup-actions m-ras-agrup-actions--left">
+                    <button type="button" class="m-iconbtn m-ras-agrup-btn-tiny" id="m_ras_btnAgruparTudo" title="Agrupar tudo">
+                        <i class="ph ph-minus" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" class="m-iconbtn m-ras-agrup-btn-tiny" id="m_ras_btnDesagruparTudo" title="Desagrupar tudo">
+                        <i class="ph ph-plus" aria-hidden="true"></i>
+                    </button>
+                </div>
+                <button type="button" class="m-ras-agrup-btn is-active" data-agrup="produto" role="tab" aria-selected="true" title="Agrupar por produto">
+                    <i class="ph ph-package" aria-hidden="true"></i>
+                    <span>Produto</span>
+                </button>
+                <button type="button" class="m-ras-agrup-btn" data-agrup="parceiro" role="tab" aria-selected="false" title="Agrupar por parceiro">
+                    <i class="ph ph-user" aria-hidden="true"></i>
+                    <span>Parceiro</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="m-ras-bar-armado m-ras-bar-armado--off" id="m_ras_barArmado">
+            <i class="ph ph-link" aria-hidden="true"></i>
+            <div class="m-ras-bar-armado__info">
+                <span class="m-ras-bar-armado__label">Lote armado:</span>
+                <strong id="m_ras_barArmadoLote">—</strong>
+                <small id="m_ras_barArmadoDisp">0 kg</small>
+            </div>
+            <button type="button" class="m-iconbtn m-iconbtn--danger" id="m_ras_btnDesarmar" aria-label="Desarmar lote">
+                <i class="ph ph-x" aria-hidden="true"></i>
+            </button>
+        </div>
+
+        <div class="m-screen-body m-ras-body" id="m_ras_listaScroll">
+            <div id="m_ras_lotesList" class="m-ras-list" data-current-page="1" data-has-next="0"></div>
+            <div id="m_ras_pedidosList" class="m-ras-list" hidden></div>
+        </div>
+
+        <button type="button" class="m-fab m-fab--secondary m-ras-fab-refresh" id="m_ras_fabRefresh" aria-label="Atualizar">
+            <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+        </button>
+
+        <nav class="m-bottom-nav">
+            <button type="button" class="m-bottom-nav__item is-active" data-nav="lista">
+                <i class="ph ph-list-checks" aria-hidden="true"></i>
+                <span>Lista</span>
+            </button>
+            <button type="button" class="m-bottom-nav__item" data-nav="buscar">
+                <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                <span>Buscar</span>
+            </button>
+            <button type="button" class="m-bottom-nav__item" data-nav="filtros">
+                <i class="ph ph-funnel" aria-hidden="true"></i>
+                <span>Filtros</span>
+            </button>
+            <button type="button" class="m-bottom-nav__item" data-nav="mais">
+                <i class="ph ph-dots-three" aria-hidden="true"></i>
+                <span>Mais</span>
+            </button>
+        </nav>
+    </section>
+
+    {# ===== Tela 2 — Detalhe do Lote ===== #}
+    <section class="m-screen m-screen--detalhe-lote" data-screen="detalheLote">
+        <header class="m-screen-header">
+            <button type="button" class="m-iconbtn" data-back-to="lista" aria-label="Voltar">
+                <i class="ph ph-arrow-left" aria-hidden="true"></i>
+            </button>
+            <h1 class="m-screen-title">Lote</h1>
+            <button type="button" class="m-iconbtn" id="m_ras_loteBtnEtiqueta" aria-label="Imprimir etiquetas">
+                <i class="ph ph-printer" aria-hidden="true"></i>
+            </button>
+            <button type="button" class="m-iconbtn" id="m_ras_loteBtnFracao" aria-label="Zerar fração" hidden>
+                <i class="ph ph-broom" aria-hidden="true"></i>
+            </button>
+        </header>
+
+        <div class="m-screen-body">
+            <div class="m-ras-hero">
+                <div class="m-ras-hero__row">
+                    <span class="m-ras-hero__lab">PRODUTO</span>
+                    <span class="m-ras-hero__val" id="m_ras_loteProduto">—</span>
+                </div>
+                <div class="m-ras-hero__row">
+                    <span class="m-ras-hero__lab">FORNECEDOR</span>
+                    <span class="m-ras-hero__val" id="m_ras_loteFornecedor">—</span>
+                </div>
+                <div class="m-ras-hero__row m-ras-hero__row--inline">
+                    <div>
+                        <span class="m-ras-hero__lab">ENTRADA</span>
+                        <span class="m-ras-hero__val-sm" id="m_ras_loteData">—</span>
+                    </div>
+                    <div>
+                        <span class="m-ras-hero__lab">DISPONÍVEL</span>
+                        <span class="m-ras-hero__val-sm m-ras-hero__val-destaque" id="m_ras_loteDisp">0 kg</span>
+                    </div>
+                </div>
+                <div class="m-ras-hero__row m-ras-hero__row--lote">
+                    <span class="m-ras-hero__lab">LOTE</span>
+                    <span id="m_ras_loteCodag">—</span>
+                </div>
+            </div>
+
+            <div class="m-ras-action-row">
+                <button type="button" class="m-btn-primary m-ras-btn-armar" id="m_ras_btnArmar">
+                    <i class="ph ph-link" aria-hidden="true"></i>
+                    <span>Armar lote pra vincular</span>
+                </button>
+            </div>
+
+            <div class="m-ras-section-title">
+                <i class="ph ph-flow-arrow" aria-hidden="true"></i>
+                <span>Pedidos / vendas que usam este lote</span>
+            </div>
+            <div id="m_ras_loteVinculos" class="m-ras-vinculos"></div>
+        </div>
+    </section>
+
+    {# ===== Tela 3 — Detalhe do Pedido ===== #}
+    <section class="m-screen m-screen--detalhe-pedido" data-screen="detalhePedido">
+        <header class="m-screen-header">
+            <button type="button" class="m-iconbtn" data-back-to="lista" aria-label="Voltar">
+                <i class="ph ph-arrow-left" aria-hidden="true"></i>
+            </button>
+            <h1 class="m-screen-title">Pedido</h1>
+            <button type="button" class="m-iconbtn" id="m_ras_pedidoBtnEtiqueta" aria-label="Imprimir etiquetas">
+                <i class="ph ph-printer" aria-hidden="true"></i>
+            </button>
+        </header>
+
+        <div class="m-screen-body">
+            <div class="m-ras-hero">
+                <div class="m-ras-hero__row">
+                    <span class="m-ras-hero__lab">CLIENTE</span>
+                    <span class="m-ras-hero__val" id="m_ras_pedidoCliente">—</span>
+                </div>
+                <div class="m-ras-hero__row m-ras-hero__row--inline">
+                    <div>
+                        <span class="m-ras-hero__lab">PEDIDO</span>
+                        <span class="m-ras-hero__val-sm" id="m_ras_pedidoNumero">—</span>
+                    </div>
+                    <div>
+                        <span class="m-ras-hero__lab">DATA</span>
+                        <span class="m-ras-hero__val-sm" id="m_ras_pedidoData">—</span>
+                    </div>
+                </div>
+                <div class="m-ras-hero__row m-ras-hero__row--inline" id="m_ras_pedidoStatusRow" hidden>
+                    <span class="m-ras-pedido-badge" id="m_ras_pedidoBadge"></span>
+                </div>
+            </div>
+
+            <div class="m-ras-section-title">
+                <i class="ph ph-package" aria-hidden="true"></i>
+                <span>Produtos</span>
+                <span class="m-ras-section-count" id="m_ras_pedidoProdCount">0</span>
+            </div>
+            <div id="m_ras_pedidoProdutos" class="m-ras-produtos"></div>
+        </div>
+    </section>
+
+    {# ===== Bottom sheet — Filtros ===== #}
+    <div class="m-sheet" data-sheet="filtros" aria-hidden="true">
+        <div class="m-sheet__backdrop" data-close-sheet></div>
+        <div class="m-sheet__content" role="dialog" aria-label="Filtros">
+            <div class="m-sheet__handle"></div>
+            <header class="m-sheet__header">
+                <h2>Filtros</h2>
+                <button type="button" class="m-iconbtn" data-close-sheet aria-label="Fechar">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </header>
+            <div class="m-sheet__body">
+
+                <div class="m-field-group">
+                    <label class="m-field-label">Status do pedido</label>
+                    <div class="m-status-chips">
+                        <button type="button" class="m-status-chip is-on" data-status="pendente">
+                            <i class="ph ph-clock" aria-hidden="true"></i>
+                            <span>Pendente</span>
+                        </button>
+                        <button type="button" class="m-status-chip" data-status="finalizado">
+                            <i class="ph ph-check-circle" aria-hidden="true"></i>
+                            <span>Finalizado</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="m-field-group">
+                    <label class="m-field-label">Período (Lotes)</label>
+                    <div class="m-date-range">
+                        <button type="button" class="m-iconbtn m-date-shift" data-shift="-1" data-target="lotes" aria-label="Dia anterior">
+                            <i class="ph ph-caret-double-left" aria-hidden="true"></i>
+                        </button>
+                        <input type="date" id="m_ras_dataIniLotes" class="m-field-input" />
+                        <span class="m-date-sep">→</span>
+                        <input type="date" id="m_ras_dataFimLotes" class="m-field-input" />
+                        <button type="button" class="m-iconbtn m-date-shift" data-shift="1" data-target="lotes" aria-label="Dia seguinte">
+                            <i class="ph ph-caret-double-right" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="m-field-group">
+                    <label class="m-field-label">Período (Pedidos)</label>
+                    <div class="m-date-range">
+                        <button type="button" class="m-iconbtn m-date-shift" data-shift="-1" data-target="pedidos" aria-label="Dia anterior">
+                            <i class="ph ph-caret-double-left" aria-hidden="true"></i>
+                        </button>
+                        <input type="date" id="m_ras_dataIniPedidos" class="m-field-input" />
+                        <span class="m-date-sep">→</span>
+                        <input type="date" id="m_ras_dataFimPedidos" class="m-field-input" />
+                        <button type="button" class="m-iconbtn m-date-shift" data-shift="1" data-target="pedidos" aria-label="Dia seguinte">
+                            <i class="ph ph-caret-double-right" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="m-field-group">
+                    <label class="m-field-label">Agrupar Lotes por</label>
+                    <div class="m-toggle-row">
+                        <button type="button" class="m-toggle-btn" data-grp-lotes="parceiro">Parceiro</button>
+                        <button type="button" class="m-toggle-btn is-active" data-grp-lotes="produto">Produto</button>
+                    </div>
+                </div>
+
+                <div class="m-field-group">
+                    <label class="m-field-label">Agrupar Pedidos por</label>
+                    <div class="m-toggle-row">
+                        <button type="button" class="m-toggle-btn" data-grp-pedidos="parceiro">Parceiro</button>
+                        <button type="button" class="m-toggle-btn is-active" data-grp-pedidos="produto">Produto</button>
+                    </div>
+                </div>
+
+            </div>
+            <footer class="m-sheet__footer">
+                <button type="button" class="m-btn-secondary" id="m_ras_filtrosLimpar">
+                    <i class="ph ph-x"></i> Limpar
+                </button>
+                <button type="button" class="m-btn-primary" id="m_ras_filtrosAplicar">
+                    <i class="ph ph-check"></i> Aplicar
+                </button>
+            </footer>
+        </div>
+    </div>
+
+    {# ===== Bottom sheet — Vincular lote (qtd + peso) ===== #}
+    <div class="m-sheet" data-sheet="vincular" aria-hidden="true">
+        <div class="m-sheet__backdrop" data-close-sheet></div>
+        <div class="m-sheet__content" role="dialog" aria-label="Vincular lote">
+            <div class="m-sheet__handle"></div>
+            <header class="m-sheet__header">
+                <h2>Vincular lote</h2>
+                <button type="button" class="m-iconbtn" data-close-sheet aria-label="Fechar">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </header>
+            <div class="m-sheet__body">
+                <div class="m-ras-vincular-info">
+                    <div class="m-ras-vincular-row">
+                        <span class="m-ras-vincular-lab">LOTE</span>
+                        <span class="m-ras-vincular-val" id="m_ras_vincLote">—</span>
+                    </div>
+                    <div class="m-ras-vincular-row">
+                        <span class="m-ras-vincular-lab">DESTINO</span>
+                        <span class="m-ras-vincular-val" id="m_ras_vincDestino">—</span>
+                    </div>
+                </div>
+
+                <div class="m-field-group">
+                    <label class="m-field-label" for="m_ras_vincQtd">Quantidade (KG)</label>
+                    <input type="number" id="m_ras_vincQtd" class="m-field-input m-field-input--lg" step="0.01" inputmode="decimal" />
+                    <div class="m-field-hint">
+                        Disp: <strong id="m_ras_vincMaxLote">0</strong>
+                        · Falta: <strong id="m_ras_vincMaxPedido">0</strong>
+                    </div>
+                </div>
+
+                <div class="m-field-group">
+                    <label class="m-field-label" for="m_ras_vincPeso">Peso da caixa (kg) — opcional</label>
+                    <input type="number" id="m_ras_vincPeso" class="m-field-input" step="0.001" min="0.001" inputmode="decimal" placeholder="vazio = usa peso da classificação" />
+                    <div class="m-field-hint">
+                        Em branco, sistema lê peso da TOP 26 (classificação) na hora de imprimir etiqueta.
+                    </div>
+                </div>
+            </div>
+            <footer class="m-sheet__footer">
+                <button type="button" class="m-btn-secondary" data-close-sheet>Cancelar</button>
+                <button type="button" class="m-btn-primary" id="m_ras_btnConfirmarVinc">
+                    <i class="ph ph-link"></i> Vincular lote
+                </button>
+            </footer>
+        </div>
+    </div>
+
+    {# ===== Bottom sheet — Lotes vinculados (pedido/produto) ===== #}
+    <div class="m-sheet" data-sheet="vinculos-pedido" aria-hidden="true">
+        <div class="m-sheet__backdrop" data-close-sheet></div>
+        <div class="m-sheet__content m-sheet__content--tall" role="dialog" aria-label="Lotes vinculados">
+            <div class="m-sheet__handle"></div>
+            <header class="m-sheet__header">
+                <h2 id="m_ras_vinculosPedidoTitulo">Lotes vinculados</h2>
+                <button type="button" class="m-iconbtn" data-close-sheet aria-label="Fechar">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </header>
+            <div class="m-sheet__body">
+                <div id="m_ras_vinculosPedidoLista" class="m-ras-vinculos"></div>
+            </div>
+            <footer class="m-sheet__footer" style="grid-template-columns: 1fr;">
+                <button type="button" class="m-btn-secondary" data-close-sheet>Fechar</button>
+            </footer>
+        </div>
+    </div>
+
+    {# ===== Bottom sheet — Escolha de peso (etiqueta) ===== #}
+    <div class="m-sheet" data-sheet="escolhaPeso" aria-hidden="true">
+        <div class="m-sheet__backdrop" data-close-sheet></div>
+        <div class="m-sheet__content m-sheet__content--tall" role="dialog" aria-label="Escolha do peso da caixa">
+            <div class="m-sheet__handle"></div>
+            <header class="m-sheet__header">
+                <h2>Escolha o peso da caixa</h2>
+                <button type="button" class="m-iconbtn" data-close-sheet aria-label="Fechar">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </header>
+            <div class="m-sheet__body">
+                <p class="m-ras-escolha-intro">
+                    Esse pedido tem linhas cujo lote foi classificado em <strong>embalagens diferentes</strong>.
+                    Escolha qual peso usar pra cada linha antes de imprimir.
+                </p>
+                <div id="m_ras_escolhaPesoLista" class="m-ras-escolha-lista"></div>
+            </div>
+            <footer class="m-sheet__footer">
+                <button type="button" class="m-btn-secondary" data-close-sheet>Cancelar</button>
+                <button type="button" class="m-btn-primary" id="m_ras_btnConfirmarEscolhaPeso">
+                    <i class="ph ph-printer"></i> Imprimir
+                </button>
+            </footer>
+        </div>
+    </div>
+
+</div><!-- /.rastreio-mobile -->
+
+</div><!-- /.rastreio-portal -->
 {% endblock %}
 
 {% block extra_js %}
-  <script src="{% static 'sankhya_integration/rastreio.js' %}?v=12"></script>
+  <script src="{% static 'sankhya_integration/rastreio.js' %}?v=13"></script>
+  <script src="{% static 'sankhya_integration/rastreio_mobile.js' %}?v=28" defer></script>
 {% endblock %}

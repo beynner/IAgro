@@ -767,6 +767,15 @@
             listaItens.innerHTML = '<div class="m-empty-state"><i class="ph ph-spinner"></i><p>Carregando itens…</p></div>';
         }
 
+        // Popula hero card (paridade com Classificação Mobile)
+        var heroForn = document.getElementById('m_heroFornecedor');
+        var heroPedidoData = document.getElementById('m_heroPedidoData');
+        if (heroForn) heroForn.textContent = parc;
+        if (heroPedidoData) {
+            var dataTxt = cardEl.dataset.data || '';
+            heroPedidoData.textContent = (pedido ? 'Pedido ' + pedido : '—') + (dataTxt ? ' · ' + dataTxt : '');
+        }
+
         pushScreen('detalhe');
         carregarItens(nunota, pedido);
     }
@@ -793,6 +802,7 @@
     function renderItens(items, nunota) {
         var lista = document.getElementById('m_itensList');
         if (!lista) return;
+
         if (!items.length) {
             lista.innerHTML = '<div class="m-empty-state"><i class="ph ph-tray" aria-hidden="true"></i><p>Nenhum item nesta nota.</p></div>';
             return;

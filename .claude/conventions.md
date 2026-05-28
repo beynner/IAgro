@@ -197,13 +197,20 @@ Mesma família que o desktop (regular + fill), mas com mapeamento fixo por açã
 
 ### Gestos touch
 
-- **Swipe-to-back** — `touchstart`/`touchmove`/`touchend` com threshold 35% da largura ou velocidade > 0.5px/ms. Detecta eixo dominante nos primeiros 10px (cancela se vertical pra deixar scroll funcionar)
-- **Swipe-to-edit + delete** nos cards — arrasta esquerda revela botões escondidos atrás:
-  - **Cards de NOTA** (tela 1): 2 botões = **88px** (44 editar azul + 44 excluir vermelho). Threshold pra abrir: **44px** (50% do total)
-  - **Cards de ITEM** (tela 2): 1 botão = **44px** (excluir vermelho). Threshold: **22px**
-  - Constantes JS: `SWIPE_REVEAL_NOTAS = 88` · `SWIPE_REVEAL_PX = 44` · `SWIPE_TRIGGER_PX = 22`
-  - Botões com largura **44px** (touch target mínimo Apple guideline), ícone interno **16px**
-  - Estado de abertura: `card.dataset.swipeOpen = '1'` + `card.style.transform = 'translateX(-N px)'`
+- **Swipe-to-back** — **OBRIGATÓRIO em TODA tela interna mobile** (qualquer `m-screen` diferente da `lista` raiz: detalhe, item, conferir, etc). `touchstart`/`touchmove`/`touchend` com threshold 35% da largura ou velocidade > 0.5px/ms. Detecta eixo dominante nos primeiros 10px (cancela se vertical pra deixar scroll funcionar). Implementação canônica: função `setupSwipeToBack()` que itera `Object.keys(screens)` ignorando `lista`, registra handlers em cada `m-screen`. Chamar 1× no boot. **Validar no iPhone real** — DevTools mobile do Chrome às vezes mascara bugs de touch. **NÃO aplicar a bottom sheets** — UX testado em Mai/2026 e descartado (gesto horizontal compete com edição de inputs e ficou confuso; bottom sheet fecha por `X` no header ou botão Fechar no footer)
+- **Swipe-to-edit + delete** (ou view, armar, etc) nos cards — arrasta esquerda revela botões escondidos atrás:
+  - **Cards de NOTA** (Entrada tela 1): 2 botões = **88px** (44 editar azul + 44 excluir vermelho). Threshold pra abrir: **44px** (50% do total)
+  - **Cards de ITEM** (Entrada tela 2): 1 botão = **44px** (excluir vermelho). Threshold: **22px**
+  - **Cards de LOTE** (Rastreio Mai/2026 — 2026-05-28): 2 botões = **88px** (44 armar verde + 44 olho azul). Threshold: **44px**
+  - **Cards de ITEM de PEDIDO** (Rastreio Mai/2026 — 2026-05-28): 2 botões = **96px** (48 vincular verde + 48 olho azul). Threshold: **48px**
+  - **Cards de VÍNCULO no sheet** (Rastreio Mai/2026 — 2026-05-28): 1 botão = **56px** (desvincular vermelho). Threshold: **28px**
+  - Constantes JS por módulo: `SWIPE_REVEAL_NOTAS = 88` · `SWIPE_REVEAL_LOTES = 88` · `SWIPE_REVEAL_ITEM = 96` · `SWIPE_REVEAL_VINC = 56`. Trigger = ~50% do reveal
+  - Botões com largura **44-56px** (touch target mínimo Apple guideline 44px), ícone interno **16-20px**
+  - Estado de abertura: `wrap.dataset.swipeOpen = '1'` + `card.style.transform = 'translateX(-N px)'`
+  - **Resistência elástica no overswipe** (passar do reveal): `translateX = -REVEAL - over * 0.3`
+  - **OBRIGATÓRIO: click no card já em modo swipe-open fecha o swipe** (UX padrão de "cancelar implícito" — operador toca fora do botão pra desistir). Sem isso, swipe aberto fica "preso" e operador precisa swipe de volta. Implementação canônica: no handler de click do card (ou delegação no container), checar `if (wrap.dataset.swipeOpen === '1')` antes de qualquer outra ação — se aberto, limpar `transform`, setar `swipeOpen = '0'` e **retornar**. Padrão presente em `entrada_mobile.js:580`, `classificacao_mobile.js`, `rastreio_mobile.js` (lotes + items + vincs)
+  - **1 swipe aberto por vez** — `fecharTodosSwipesX()` é chamada antes de abrir outro, e em `setActiveScreen` + `openSheet`
+  - **Pendência registrada (Mai/2026 — 2026-05-28)**: padrão **swipe-to-direita** pra criar avaria nos cards de Lote do Rastreio. Mesma mecânica do swipe-esquerda mas com `dx > 0` revelando botão à esquerda do card. Decisão Cat B pendente entre TOP 30 vs TOP 33
 
 ### Reset automático do swipe ao navegar
 

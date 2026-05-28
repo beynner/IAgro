@@ -1689,17 +1689,29 @@ def api_listar_lotes_classificacao(request: HttpRequest) -> JsonResponse:
     except (ValueError, TypeError):
         page_num = 1
 
+    # Limit opcional via URL — default 50 (manter compat com desktop paginado).
+    # Mobile envia `limit=10000` pra trazer todos os lotes do filtro padrão sem paginação.
+    try:
+        limit_param = int(request.GET.get('limit', 50))
+        if limit_param < 1:
+            limit_param = 50
+        elif limit_param > 50000:  # teto defensivo
+            limit_param = 50000
+    except (ValueError, TypeError):
+        limit_param = 50
+
     filtros = {
         "lote": request.GET.get("lote"),
         "nunota_ini": request.GET.get("nunota_ini"),
         "page": page_num,
+        "limit": limit_param,
         "codparc": request.GET.get("codparc"),
         "fabricante": request.GET.get("fabricante"),
         "date_start": request.GET.get("date_start"),
         "date_end": request.GET.get("date_end"),
         "status_list": request.GET.getlist('status')
     }
-    
+
     if not filtros["status_list"]:
         filtros["status_list"] = ['AMARELO', 'VERMELHO']
 

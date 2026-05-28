@@ -544,6 +544,7 @@
 | Trigger | Evento | Erro Conhecido | Causa | Solução IAgro |
 |---|---|---|---|---|
 | `TRG_UPT_TGFITE` (Mai/2026 — 2026-05-20) | BEFORE UPDATE (via `STP_CONFIRMANOTA2` em impressão/faturamento) | ORA-20101: "Reserva diferente da definicao na TOP" | INSERT do IAgro deixava `RESERVA='N'`/`ATUALESTOQUE=-1`/`USOPROD='V'` em TOP de venda. Quando Sankhya tenta UPDATE pra valor da TOP, trigger compara NEW vs definição da TOP e rejeita | `inserir_item_nota_banco` agora popula `RESERVA='S'`, `ATUALESTOQUE=1`, `USOPROD=<TGFPRO.USOPROD>` quando `CODTIPOPER IN (34, 35, 37)`. Schema-resilient via `if 'COL' in colunas_tabela`. **Pedidos antigos pré-fix continuam quebrados** (UPDATE retroativo é Cat B, não aplicado porque volume é pequeno) |
+| `TRG_INC_UPD_TGFITE_PRODNFE` (Mai/2026 — 2026-05-27) | BEFORE INSERT OR UPDATE | (sem erro — popula campos automaticamente) | Popula `GTINNFE`, `GTINTRIBNFE`, `PRODUTONFE` a partir de `TGFPRO.TIPGTINNFE` + `TGFPRO.REFERENCIA` (EAN13 cadastrado) + `TGFEST.CODBARRA` + `TGFVOA.CODBARRA`. **Não exige nada do IAgro** — basta INSERT padrão. Produto sem `TGFPRO.REFERENCIA` cadastrado → campos NULL na TGFITE. Detalhes em `gotchas.md` |
 
 ### 2.3 Triggers em TGFVAR
 

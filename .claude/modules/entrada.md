@@ -118,7 +118,7 @@ Implementação completa pra operador usar no celular. Estratégia: HTML único 
 ### Telas mobile
 
 1. **Lista de notas** (tela `lista`) — cards 1 linha (26px altura), avatar + nome + Pedido + data. Search bar client-side. Bottom nav (Notas · Buscar · Filtros · Mais)
-2. **Detalhe da nota** (tela `detalhe`) — header com nome do fornecedor + lixeira excluir nota + edit cabeçalho. Lista de itens com cards de status. **Click no card de item abre o sheet "itens-nota" em modo EDIT** (reusa mesma tela de inserir, não tela separada)
+2. **Detalhe da nota** (tela `detalhe`) — header com nome do fornecedor + lixeira excluir nota + edit cabeçalho. **Hero card no topo** (`.m-entrada-hero` — Mai/2026 — 2026-05-27) com `FORNECEDOR` + `PEDIDO · DATA` em 2 linhas, espelhando o padrão `.m-clss-hero` da Classificação. Lista de itens (com cards de status) abaixo. **Click no card de item abre o sheet "itens-nota" em modo EDIT** (reusa mesma tela de inserir, não tela separada). Cada item já mostra seu lote no rodapé — por isso o hero NÃO tem linha "Lote" (uma nota TOP 11 tem N lotes diferentes, 1 por item)
 3. **Conferir item** (tela `item`) — Qtd conferida + Peso da caixa (m_conf_*) + Avaria + Toggle Classifica. **Desabilitada na navegação atual** (Mai/2026 — 2026-05-27) — preservada no HTML/JS pra reimplementação futura. Click no card de item agora navega pro sheet de edição.
 
 ### Bottom sheets

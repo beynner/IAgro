@@ -596,23 +596,42 @@ th, td {
     background: var(--m-surface);
     border-radius: var(--m-radius-sm);
     border-left: 3px solid var(--m-text-muted);
-    padding: 8px 10px;
+    padding: 6px 10px;
     box-shadow: var(--m-shadow);
-    display: flex; flex-direction: column; gap: 0;
+    /* Compacto: 2 linhas — label em cima, valor + unidade lado a lado embaixo */
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    column-gap: 6px;
+    row-gap: 1px;
+    align-items: baseline;
 }
 .classificacao-mobile .m-clss-resumo-card--success { border-left-color: var(--m-success); }
 .classificacao-mobile .m-clss-resumo-card--danger { border-left-color: var(--m-danger); }
 .classificacao-mobile .m-clss-resumo-card--warning { border-left-color: var(--m-warning); }
 .classificacao-mobile .m-clss-resumo-card__label {
+    grid-column: 1 / -1;
     font-size: 9.5px; color: var(--m-text-muted);
     text-transform: uppercase; font-weight: 700; letter-spacing: 0.04em;
+    line-height: 1.1;
 }
 .classificacao-mobile .m-clss-resumo-card__value {
-    font-size: 16px; font-weight: 800; color: var(--m-text);
+    font-size: 15px; font-weight: 800; color: var(--m-text);
     font-variant-numeric: tabular-nums; line-height: 1.1;
 }
 .classificacao-mobile .m-clss-resumo-card__unit {
     font-size: 10px; color: var(--m-text-muted); font-weight: 600;
+    line-height: 1.1; text-align: right;
+}
+
+/* Linha LOTE no hero — fonte menor que as demais linhas */
+.classificacao-mobile .m-clss-hero__row--lote .m-clss-hero__label,
+.classificacao-mobile .m-clss-hero__row--lote .m-clss-hero__value {
+    font-size: 10.5px;
+}
+.classificacao-mobile .m-clss-hero__row--lote .m-clss-hero__value {
+    color: var(--m-text-muted);
+    font-weight: 600;
 }
 
 .classificacao-mobile .m-clss-finalizar {
@@ -907,3 +926,192 @@ th, td {
 }
 .classificacao-mobile .m-empty-state i { font-size: 48px; color: #cbd5e1; }
 .classificacao-mobile .m-empty-state p { font-size: 13px; margin: 0; }
+
+/* User badge + Sair no header da tela lista — pendant do .user-badge-inline + .btn-logout-inline */
+.classificacao-mobile .m-user-badge {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 9px;
+    background: #f0f5ec;
+    border-radius: 14px;
+    color: #4a633a;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    max-width: 100px;
+    overflow: hidden;
+}
+.classificacao-mobile .m-user-badge i {
+    font-size: 12px;
+    color: #4a633a;
+    flex: 0 0 auto;
+}
+.classificacao-mobile .m-user-badge span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.classificacao-mobile .m-logout-link {
+    flex: 0 0 auto;
+    color: var(--m-danger);
+    text-decoration: none;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background 0.15s ease;
+}
+.classificacao-mobile .m-logout-link:active { background: var(--m-danger-soft); }
+
+/* FAB secundário (Atualizar) — azul, 42px, acima do FAB principal */
+.classificacao-mobile .m-fab--secondary {
+    width: 42px; height: 42px;
+    bottom: calc(var(--m-bottom-nav-h) + 12px + 60px + env(safe-area-inset-bottom, 0px));
+    background: #2563eb;
+    box-shadow: 0 3px 10px rgba(37,99,235,0.35), 0 2px 4px rgba(0,0,0,0.08);
+    font-size: 19px;
+}
+.classificacao-mobile .m-fab--secondary:hover { background: #1d4ed8; }
+.classificacao-mobile .m-fab--secondary.is-loading i { animation: m-spin 0.8s linear infinite; }
+
+/* Na tela lista, não há FAB principal — secundário ocupa a posição base */
+.classificacao-mobile .m-screen--lista .m-fab--secondary {
+    bottom: calc(var(--m-bottom-nav-h) + 12px + env(safe-area-inset-bottom, 0px));
+}
+
+@keyframes m-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+/* Badge "filtros ativos" no bottom nav (item Filtros) */
+.classificacao-mobile .m-bottom-nav__item { position: relative; }
+.classificacao-mobile .m-bottom-nav__item.has-filtros-ativos { color: var(--m-primary); }
+.classificacao-mobile .m-bottom-nav__item.has-filtros-ativos i::before { font-family: 'Phosphor-Fill'; }
+.classificacao-mobile .m-bottom-nav__item.has-filtros-ativos::after {
+    content: '';
+    position: absolute;
+    top: 6px; right: 22%;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--m-danger);
+    box-shadow: 0 0 0 2px var(--m-surface);
+}
+
+/* Form de adicionar item dentro do sheet de Itens — 3 colunas (Total KG / Total CX / Peso CX) */
+.classificacao-mobile .m-clss-item-form-grid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;
+}
+
+/* Linha de descarte inline (dentro do sheet de Itens) */
+.classificacao-mobile .m-clss-descarte-inline {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%;
+    font-size: 12.5px; color: var(--m-text);
+}
+.classificacao-mobile .m-clss-descarte-inline strong {
+    flex: 1; color: var(--m-danger); font-weight: 800;
+    background: var(--m-danger-soft);
+    padding: 4px 10px; border-radius: var(--m-radius-sm);
+    text-align: center; font-variant-numeric: tabular-nums;
+}
+.classificacao-mobile .m-clss-mini-btn {
+    width: 32px; height: 32px;
+    border-radius: var(--m-radius-sm);
+    border: 1.5px solid var(--m-border);
+    background: var(--m-surface);
+    font-size: 18px; font-weight: 700; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: all 0.15s ease;
+    font-family: inherit; flex: 0 0 32px;
+}
+.classificacao-mobile .m-clss-mini-btn--add { color: var(--m-success); border-color: #d1fae5; background: #ecfdf5; }
+.classificacao-mobile .m-clss-mini-btn--sub { color: var(--m-danger); border-color: #fecaca; background: #fef2f2; }
+.classificacao-mobile .m-clss-mini-btn:active { transform: scale(0.94); }
+
+/* Wrapper de card de produto classificado — esconde botões swipe atrás */
+.classificacao-mobile .m-clss-class-card-wrap {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--m-radius-sm);
+    margin-bottom: 4px;
+}
+.classificacao-mobile .m-clss-class-card-wrap .m-clss-class-card {
+    position: relative;
+    z-index: 2;
+    transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+    will-change: transform;
+    margin-bottom: 0;
+    cursor: grab;
+}
+.classificacao-mobile .m-clss-class-card-wrap .m-clss-class-card:active { cursor: grabbing; }
+
+/* Botões swipe atrás do card (editar azul + excluir vermelho) */
+.classificacao-mobile .m-clss-class-card__swipe-edit,
+.classificacao-mobile .m-clss-class-card__swipe-del {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 44px;
+    display: flex; align-items: center; justify-content: center;
+    border: none; cursor: pointer;
+    font-size: 16px; color: #fff;
+    z-index: 1;
+    font-family: inherit;
+}
+.classificacao-mobile .m-clss-class-card__swipe-edit {
+    right: 44px;
+    background: #2563eb;        /* azul — paridade Entrada */
+}
+.classificacao-mobile .m-clss-class-card__swipe-edit:active { background: #1d4ed8; }
+.classificacao-mobile .m-clss-class-card__swipe-del {
+    right: 0;
+    background: var(--m-danger);
+}
+.classificacao-mobile .m-clss-class-card__swipe-del:active { background: #b91c1c; }
+
+/* Card de item classificado dentro do sheet — com botão excluir lateral */
+.classificacao-mobile .m-clss-item-card {
+    background: var(--m-surface);
+    border-radius: var(--m-radius-sm);
+    padding: 8px 10px;
+    box-shadow: var(--m-shadow);
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.classificacao-mobile .m-clss-item-card__info { flex: 1; min-width: 0; }
+.classificacao-mobile .m-clss-item-card__produto {
+    font-size: 12px; font-weight: 700; color: var(--m-text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.classificacao-mobile .m-clss-item-card__meta {
+    font-size: 10.5px; color: var(--m-text-muted); margin-top: 2px;
+}
+.classificacao-mobile .m-clss-item-card__qtd {
+    font-size: 13px; font-weight: 800; color: var(--m-primary);
+    flex: 0 0 auto; font-variant-numeric: tabular-nums; min-width: 70px; text-align: right;
+}
+.classificacao-mobile .m-clss-item-card__del {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: transparent; border: none; color: var(--m-danger);
+    cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+    font-size: 16px; flex: 0 0 auto;
+}
+.classificacao-mobile .m-clss-item-card__del:active { background: var(--m-danger-soft); }
+
+/* Sentinela de lista infinita (caso queira ativar no futuro — atualmente lista carrega tudo) */
+.classificacao-mobile .m-lista-sentinela {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 12px 18px;
+    color: var(--m-text-muted);
+    font-size: 12px;
+    font-weight: 600;
+}
+.classificacao-mobile .m-lista-sentinela i {
+    font-size: 18px;
+    animation: m-spin 0.8s linear infinite;
+}

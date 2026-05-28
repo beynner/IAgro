@@ -1078,6 +1078,31 @@ table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 }
 
 /* ==========================================================================
+   HERO CARD da tela 2 (cabeçalho com Fornecedor + Pedido · Data) —
+   paridade com Classificação Mobile (.m-clss-hero)
+   ========================================================================== */
+.entrada-mobile .m-entrada-hero {
+    background: var(--m-surface);
+    border-radius: var(--m-radius-sm);
+    padding: 10px 12px;
+    box-shadow: var(--m-shadow);
+    display: flex; flex-direction: column; gap: 4px;
+    margin-bottom: 8px;
+}
+.entrada-mobile .m-entrada-hero__row {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+}
+.entrada-mobile .m-entrada-hero__label {
+    font-size: 10px; color: var(--m-text-muted); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em; flex: 0 0 auto;
+}
+.entrada-mobile .m-entrada-hero__value {
+    font-size: 12.5px; color: var(--m-text); font-weight: 700;
+    text-align: right; flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ==========================================================================
    CARDS DE ITEM (tela 2)
    ========================================================================== */
 .entrada-mobile .m-itens-list {

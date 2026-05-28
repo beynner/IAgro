@@ -25,6 +25,82 @@ A página `/sankhya/compras/central/` (template `compras_central.html`) foi **re
 
 ---
 
+## Rastreio Mobile — bugs descobertos (Mai/2026 — 2026-05-28)
+
+### Endpoint de lotes retorna `data.lotes`, não `data.itens`
+
+Padrão dos endpoints de listagem do projeto varia:
+
+- `api_rastreio_lotes_disponiveis` (em `views.py`) → retorna `{ok: True, lotes: [...]}`
+- `api_rastreio_pedidos_abertos` → retorna `{ok: True, itens: [...]}`
+
+Bug real: o mobile lia `data.itens` em ambos. Resultado: lista de lotes ficava sempre vazia ("Nenhum lote no período"). Fix: `data.lotes` em `carregarLotes`.
+
+**Regra geral**: ao consumir endpoint novo, conferir o nome do array de retorno (`lotes`, `itens`, `vinculos`, `pedidos`, etc.) — não assumir padrão único.
+
+### Endpoint de pedidos retorna `qtd_pedida`/`codagregacao_atual`, não `qtdneg`/`codagregacao`
+
+`consultar_pedidos_abertos_para_atribuicao` define `cols`:
+```python
+cols = [
+    'nunota', 'numnota', ...,
+    'sequencia', 'codprod', 'descrprod',
+    'qtd_pedida', 'codagregacao_atual', 'status_item',
+    ...
+]
+```
+
+Bug real: `agruparPedidos` no mobile lia `it.qtdneg` (do TGFITE raw) e `it.codagregacao` — ambos undefined. Cards mostravam `0,00 / 0,00 kg` em todos os pedidos. Fix com fallback robusto:
+
+```js
+const qtd = Number(it.qtd_pedida ?? it.qtdneg) || 0;
+const codag = it.codagregacao_atual ?? it.codagregacao ?? null;
+```
+
+**Lição**: o backend cria aliases convenientes nos `cols` quando faz `dict(zip(cols, row))` — o nome enviado pra frontend não é necessariamente o da coluna Oracle.
+
+### CSS `display: flex` sobrescreve atributo HTML `hidden`
+
+Ao usar `display: flex/grid` na classe base + atributo `hidden` pra esconder dinamicamente:
+
+```html
+<div id="lista-a" class="m-ras-list"></div>
+<div id="lista-b" class="m-ras-list" hidden></div>
+```
+
+```css
+.m-ras-list { display: flex; flex-direction: column; }
+```
+
+→ User-agent stylesheet aplica `[hidden] { display: none }`, mas a regra customizada `.m-ras-list { display: flex }` é mais específica e vence. **Ambas as listas ficam visíveis sobrepostas**.
+
+Fix obrigatório:
+```css
+.m-ras-list[hidden] { display: none !important; }
+```
+
+Padrão a aplicar sempre que misturar `display: flex/grid` com toggle via `hidden`. Em Mai/2026 — 2026-05-28 isso causou "lista de pedidos não aparece quando troca toggle no Rastreio Mobile".
+
+### Refresh `AD_SALDO_LOTE_CACHE` em paralelo com queries de pedidos → 500
+
+`POST /api/refresh-saldo/` faz **TRUNCATE + INSERT-SELECT** na tabela materializada (~12s). Durante essa janela, `consultar_pedidos_abertos_para_atribuicao` faz JOIN com `AD_SALDO_LOTE_CACHE` pra trazer origem do lote → query pode dar erro Oracle (transação concorrente) → endpoint retorna 500.
+
+Bug real (Mai/2026 — 2026-05-28): após vínculo no mobile do Rastreio, eu disparava `refresh-saldo` em background + `carregarPedidos` em paralelo. 500 no console.
+
+**Fix**: não disparar refresh-saldo **automático** após escritas. Usar **atualização local do estado JS** pra feedback imediato (subtrai qtd do lote vinculado no `ESTADO.lotesData`, remove da lista se zerou). Cron natural sincroniza em ≤5min. Operador força refresh manualmente via FAB Mais se quiser sincronizar antes.
+
+**Padrão geral**: refresh-saldo é operação **manual**, dispara só por click explícito. Nunca em paralelo com outras queries que leem `AD_SALDO_LOTE_CACHE`.
+
+### `opacity` em card com botão swipe atrás → vaza visualmente
+
+Bug em cards "finalizados" do Rastreio Mobile: o card tinha `opacity: 0.85` pra indicar "completado". Mas a opacidade fazia o **botão azul de swipe (escondido atrás) aparecer através do card** — operador via olho ao lado do card sem ter feito swipe.
+
+Fix: trocar `opacity: 0.85` por mudança de cor sutil (`background: #f6fbf4` verde bem claro + borda esquerda verde). Mantém indicação visual de "completo" sem transparência.
+
+**Regra**: nunca usar `opacity < 1` em cards que tenham elementos `position: absolute` escondidos atrás (botões swipe, etc.). Use `background-color` ou `filter: brightness()` no lugar.
+
+---
+
 ## Redesign Mobile — armadilhas conhecidas (Mai/2026 — 2026-05-27)
 
 ### Comentários Django `{# #}` são single-line — multi-line vaza no HTML
@@ -306,6 +382,43 @@ Tem auto-cura de `AD_NUMPEDIDOORIG` que é **específica da Entrada/Classificaç
 INSERT em TGFCAB **rejeita** se `(CODTIPVENDA, DHTIPVENDA)` não estiverem coerentes. Erro: `ORA-20101: Verifique se o TIPO DE NEGOCIAÇÃO X está ativo...`.
 
 **Solução aplicada:** `inserir_cabecalho_nota_banco` consulta a `DHALTER` mais recente da TGFTPV antes do INSERT e grava em `DHTIPVENDA`.
+
+### Trigger `TRG_INC_UPD_TGFITE_PRODNFE` popula GTINNFE/GTINTRIBNFE automaticamente (Mai/2026 — 2026-05-27)
+
+Os campos fiscais `GTINNFE` (EAN13 da NFe) e `GTINTRIBNFE` (EAN13 tributário) em TGFITE **não são preenchidos pelo IAgro** — são populados pela trigger nativa Sankhya `TRG_INC_UPD_TGFITE_PRODNFE` (BEFORE INSERT OR UPDATE).
+
+Lógica do trigger:
+```
+TGFPRO.TIPGTINNFE = 0  → GTINNFE = NULL
+TGFPRO.TIPGTINNFE = 1  → GTINNFE = CODPROD
+TGFPRO.TIPGTINNFE = 3  → GTINNFE = TGFEST.CODBARRA[:14]
+TGFPRO.TIPGTINNFE = 4  → GTINNFE = TGFVOA.CODBARRA[:14] OR TGFPRO.REFERENCIA[:14]
+outros (2, 5...)       → GTINNFE = TGFPRO.REFERENCIA[:14]
+```
+
+`GTINTRIBNFE` segue lógica análoga lendo `TGFVOA.TIPGTINNFE` + `TGFVOA.CODBARRA`. Sem `TGFVOA`, geralmente cai em `GTINTRIBNFE = GTINNFE`.
+
+**Conclusão**: se um produto não tem `TGFPRO.REFERENCIA` cadastrado (ex: CHUCHU MÉDIO CODPROD 352), GTINNFE/GTINTRIBNFE ficam NULL na TGFITE — tanto INSERT via desktop quanto mobile. Não é bug de código IAgro — é cadastro fiscal do produto faltando no Sankhya.
+
+**Diagnóstico do operador**: cadastrar EAN13 no campo "Referência" do produto via tela nativa Sankhya. Linhas TGFITE antigas não retroagem — operador edita manualmente se precisar.
+
+### CODVOLPARC divergente — desktop força `item_vol = 'KG'` ao abrir modal (Mai/2026 — 2026-05-27)
+
+Bug histórico: lançamento via mobile resultava em `TGFITE.CODVOLPARC='CX'`, enquanto via desktop ficava `'KG'`. Mesmo trigger Sankhya, mesmo endpoint backend.
+
+**Causa**: o backend `api_salvar_item_nota` ([views.py:1069-1075](../sankhya_integration/views.py#L1069)) tem normalização condicional:
+```python
+vol_digitado = str(payload.get('CODVOL') or payload.get('VOL') or 'KG').strip().upper()
+payload['CODVOLPARC'] = vol_digitado          # preserva o original
+if vol_digitado in ('CX', 'SC'):
+    payload['CODVOL'] = 'KG'                  # CODVOL vira KG
+else:
+    payload['CODVOL'] = vol_digitado          # CODVOL preserva
+```
+
+O desktop em `showItemsModal` ([classificacao.js:672](../sankhya_integration/static/sankhya_integration/classificacao.js#L672)) executa `volEl.value = 'KG'` ao abrir o modal, **sobrescrevendo o default 'CX' do HTML**. Mobile não fazia isso e mandava `codvol: 'CX'` (default da hidden), resultando em CODVOLPARC='CX' depois da normalização.
+
+**Fix mobile**: payload de `salvarItemClassificacao` agora hardcode `codvol: 'KG'` na linha do payload — paridade desktop. Validado via comparação TGFITE NUNOTA 113878 (mobile) vs 113879 (web): `CODVOLPARC='KG'` em ambos.
 
 ### Trigger `TRG_UPT_TGFITE` exige `RESERVA`/`ATUALESTOQUE`/`USOPROD` em TOP de venda (Mai/2026 — 2026-05-20)
 

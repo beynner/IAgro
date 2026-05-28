@@ -6,7 +6,7 @@
 
 {% block extra_css %}
   <meta name="app-version" content="{{ APP_VERSION }}">
-  <link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}?v=38">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}?v=39">
 {% endblock %}
 
 {% block header_title %}ENTRADA IAGRO{% endblock %}
@@ -229,6 +229,17 @@
       </header>
 
       <div class="m-screen-body">
+        <div class="m-entrada-hero">
+          <div class="m-entrada-hero__row">
+            <span class="m-entrada-hero__label">Fornecedor</span>
+            <span class="m-entrada-hero__value" id="m_heroFornecedor">—</span>
+          </div>
+          <div class="m-entrada-hero__row">
+            <span class="m-entrada-hero__label">Pedido · Data</span>
+            <span class="m-entrada-hero__value" id="m_heroPedidoData">—</span>
+          </div>
+        </div>
+
         <div class="m-itens-list" id="m_itensList">
           {# Cards renderizados na Fase 2. Mock visual abaixo. #}
 
@@ -886,5 +897,5 @@
 
 {% block extra_js %}
   <script src="{% static 'sankhya_integration/entrada.js' %}?v=10" defer></script>
-  <script src="{% static 'sankhya_integration/entrada_mobile.js' %}?v=34" defer></script>
+  <script src="{% static 'sankhya_integration/entrada_mobile.js' %}?v=37" defer></script>
 {% endblock %}
