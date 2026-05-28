@@ -1135,19 +1135,19 @@ def inserir_item_nota_banco(dados: dict, simulacao: bool = False, conexao_existe
             valores_sql.append(':codusu_log')
             binds['codusu_log'] = int(codusu_logado)
 
-        # QTDCONFERIDA — Mai/2026 (2026-05-22): default depende do TOP.
-        # TOP 34/35/37 (venda) NÃO podem nascer com QTDCONFERIDA=QTDNEG —
-        # Sankhya interpreta como "item já conferido/entregue" e rejeita o
-        # "atender pedido" com CORE_E04678 (Não existem produtos/qtds
-        # disponíveis). Sankhya nativo grava 0.0 em pedido de venda novo.
-        # Demais TOPs (11/13/26/30/36/10/53) preservam o default histórico
-        # (QTDCONFERIDA = QTDNEG) — faz sentido em Entrada onde o operador
-        # confere a mercadoria ao receber. Diagnóstico via 113264 (IAgro,
-        # erro) vs 113259 (Sankhya nativo OK), única coluna divergente.
+        # QTDCONFERIDA — Mai/2026 (2026-05-22, estendido 2026-05-28): default
+        # depende do TOP. TOP 34/35/37 (venda) NÃO podem nascer com
+        # QTDCONFERIDA=QTDNEG — Sankhya interpreta como "item já conferido/
+        # entregue" e rejeita o "atender pedido" com CORE_E04678. TOP 33
+        # (Avaria de Ajuste) também grava 0.0 nativamente — paridade
+        # validada via comparação 113910 (Sankhya manual) vs 113911/113912
+        # (IAgro). Demais TOPs (11/13/26/30/36/10/53) preservam o default
+        # histórico (QTDCONFERIDA = QTDNEG) — faz sentido em Entrada onde o
+        # operador confere a mercadoria ao receber.
         qtdconferida_raw = dados.get('QTDCONFERIDA')
         if qtdconferida_raw is not None:
             qtdconferida = float(qtdconferida_raw)
-        elif codtipoper in (34, 35, 37):
+        elif codtipoper in (33, 34, 35, 37):
             qtdconferida = 0.0
         else:
             qtdconferida = float(qtdneg)
@@ -1201,15 +1201,19 @@ def inserir_item_nota_banco(dados: dict, simulacao: bool = False, conexao_existe
         # forma que aciona o trigger; os outros são opcionais/recalculáveis.
         # ─────────────────────────────────────────────────────────────────────
         if codtipoper in (34, 35, 37):
+            # TOP 34/35/37 (venda) precisam RESERVA='S' + ATUALESTOQUE=1.
+            # TOP 33 (avaria de ajuste) NÃO precisa — Sankhya nativo grava
+            # RESERVA='N'/AE=-1 (default Oracle), validado no smoke 113910.
             if 'RESERVA' in colunas_tabela:
                 colunas_sql.append('RESERVA'); valores_sql.append(':RESERVA'); binds['RESERVA'] = 'S'
             if 'ATUALESTOQUE' in colunas_tabela:
                 colunas_sql.append('ATUALESTOQUE'); valores_sql.append(':ATUALESTOQUE'); binds['ATUALESTOQUE'] = 1
+
+        if codtipoper in (33, 34, 35, 37):
+            # USOPROD do TGFPRO: TOP 33 também precisa (smoke 113910 mostrou
+            # USOPROD='R' lido do cadastro do produto). IAgro estava chutando
+            # 'V' — corrigido em 2026-05-28 com a comparação.
             if 'USOPROD' in colunas_tabela:
-                # Lê USOPROD do cadastro do produto (TGFPRO). Sankhya nativo
-                # propaga esse valor pra TGFITE. Fallback 'R' (Revenda) é o
-                # uso mais comum em produtos vendíveis caso TGFPRO esteja
-                # com NULL no campo.
                 try:
                     cur.execute("SELECT USOPROD FROM TGFPRO WHERE CODPROD=:p", p=codprod)
                     row_uso = cur.fetchone()
@@ -4465,6 +4469,7 @@ def zerar_fracao_lote_banco(
                 'PENDENTE': 'N',
                 'AD_NUMPEDIDOORIG': nunota_origem,
                 'OBSERVACAO': f'Ajuste de fração do lote {codagregacao} ({qtd_zerada:.3f} kg)',
+                'CODUSU': codusu,   # Mai/2026 (2026-05-28): paridade com Sankhya manual
             }
             res_cab = inserir_cabecalho_nota_banco(
                 dados_cab_33, conexao_existente=conn,
@@ -4475,18 +4480,21 @@ def zerar_fracao_lote_banco(
                     f'Falha ao criar TGFCAB TOP 33: {res_cab.get("error")}'}
             nunota_33 = int(res_cab['nunota'])
 
-            # 4. Lê preço do vale TOP 13 do lote pra documentar custo da perda
+            # 4. Lê VLRUNIT do TGFITE da TOP 11 raiz do lote pra documentar
+            # o custo de aquisição (paridade Sankhya manual — Mai/2026 / 2026-05-28).
+            # Decisão do operador (2026-05-28): VLRUNIT exclusivo da TOP 11; sem
+            # fallback TOP 13. Custo de aquisição é semanticamente correto pra
+            # avaria contábil de ajuste (TOP 33).
             cur.execute(
                 """
-                SELECT NVL(i13.VLRUNIT, 0)
-                  FROM TGFITE i13
-                  JOIN TGFCAB c13 ON c13.NUNOTA = i13.NUNOTA
-                                 AND c13.CODTIPOPER = 13
-                                 AND c13.STATUSNOTA <> 'E'
-                 WHERE i13.CODPROD = :prod AND i13.CODAGREGACAO = :lote
+                SELECT NVL(i11.VLRUNIT, 0)
+                  FROM TGFITE i11
+                 WHERE i11.NUNOTA = :n11
+                   AND i11.CODAGREGACAO = :lote
+                   AND NVL(i11.VLRUNIT, 0) > 0
                    AND ROWNUM = 1
                 """,
-                prod=codprod, lote=codagregacao,
+                n11=nunota_origem, lote=codagregacao,
             )
             row_preco = cur.fetchone()
             vlrunit_kg = float(row_preco[0]) if row_preco and row_preco[0] else 0.0
@@ -4512,6 +4520,21 @@ def zerar_fracao_lote_banco(
                     f'Falha ao criar TGFITE TOP 33: {res_item.get("error")}'}
 
             recalcular_totais_nota_banco(nunota_33, conexao_existente=conn)
+
+            # Mai/2026 (2026-05-28): força STATUSNOTA='L' + DTFATUR=SYSDATE
+            # após o INSERT pra paridade com Sankhya manual. Como o
+            # `inserir_cabecalho_nota_banco` grava 'P' por default (regra de
+            # outros fluxos), UPDATE explícito aqui finaliza a TOP 33. Trigger
+            # TRG_UPD_TGFCAB aceita transição 'P' -> 'L' sem problemas.
+            cur.execute(
+                """
+                UPDATE TGFCAB
+                   SET STATUSNOTA = 'L',
+                       DTFATUR   = SYSDATE
+                 WHERE NUNOTA = :n
+                """,
+                n=nunota_33,
+            )
 
             conn.commit()
         except Exception as exc:

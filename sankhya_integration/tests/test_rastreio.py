@@ -1642,6 +1642,9 @@ class ZerarFracaoLoteServiceTest(TestCase):
         self.assertEqual(dados_cab['CODTIPVENDA'], 11)
         self.assertEqual(dados_cab['CODEMP'], 1)
         self.assertEqual(dados_cab['AD_NUMPEDIDOORIG'], 11111)
+        # Mai/2026 (2026-05-28): CODUSU passa pro inserir_cabecalho — antes
+        # ficava NULL em TGFCAB.CODUSU (diff vs Sankhya manual NUNOTA 113910).
+        self.assertEqual(dados_cab['CODUSU'], 1)
 
         # TGFITE com CODAGREGACAO preservado
         self.assertTrue(mock_item.called)
@@ -1739,9 +1742,12 @@ class ZerarFracaoLoteServiceTest(TestCase):
         dados_item = mock_item.call_args[0][0]
         self.assertEqual(dados_item['CODPROD'], 351)
         self.assertEqual(dados_item['CODAGREGACAO'], '113821S01D260527')
-        # AD_NUMPEDIDOORIG aponta pra TOP 11 raiz (audit/rastreabilidade)
+        # VLRUNIT veio da TOP 11 raiz (custo de aquisição R$ 15)
+        self.assertEqual(dados_item['VLRUNIT'], 15.0)
+        # AD_NUMPEDIDOORIG aponta pra TOP 11 raiz + CODUSU populado
         dados_cab = mock_cab.call_args[0][0]
         self.assertEqual(dados_cab['AD_NUMPEDIDOORIG'], 113821)
+        self.assertEqual(dados_cab['CODUSU'], 1)
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita')
