@@ -6,6 +6,81 @@ Controle integral de estoque de combustível: compra (TOP 10 + TGFFIN em aberto)
 
 ---
 
+## 📱 Combustível Mobile — redesign app-like + UI v2 unificada (Mai/2026 — 2026-05-27/28)
+
+Implementação completa do **fluxo mobile** + **refator da UI desktop** numa única arquitetura coerente. Aplicado **a desktop e mobile simultaneamente**.
+
+### Mobile app-like (Mai/2026 — 2026-05-27)
+
+Mesma arquitetura dos outros módulos (Entrada/Classificação/Rastreio). HTML único com 2 containers paralelos (`.combustivel-desktop` + `.combustivel-mobile`), escopados por `body[data-active-module="combustivel"]` em viewport ≤900px. Desktop preservado 100% intacto.
+
+**Componentes mobile**:
+- **3 telas** (`m-screen`): `lista` (com 3 contextos: Estoque / Movs / Veículos) · `detalheVeiculo` (foto + 7 cards Diesel/ARLA + lista filtrada) · `fotoLightbox` (sheet fullscreen)
+- **Bottom nav 5 itens**: Estoque · Movs · Veículos · Filtros · Mais — toggle de contexto **vive apenas no bottom nav** (sem toggle de topo redundante)
+- **Bottom sheets**: `nova-req` (único pra todos os tipos) · `filtros` · `excluir` · `mais`
+- **Tanques SVG** reutilizam funções desktop (`renderTanqueCilindricoSVG` / `renderTanqueQuadradoSVG`) — empilhados verticalmente em mobile
+- **Lista de veículos** 1 coluna com foto thumb 60×44 + swipe-to-back nas telas internas
+- **Cards de movimentação** 3 linhas (parc · prod+qtd · vlr+consumo) com swipe-to-edit + swipe-to-delete
+- **Cálculo Total km + Média Diesel/ARLA client-side** reusado (`_calcularConsumoMov`)
+
+**Persistência**: localStorage `iagro:combustivel:prefs:v1` guarda só `veiculosFiltro` (Frota/Maquinário — herdado do desktop).
+
+### UI v2 — Modal único com 3 pills (Mai/2026 — 2026-05-28)
+
+**Antes** havia 2 botões na toolbar (`Entrada` verde claro + `Requisição` verde Agromil), cada um abrindo modal separado:
+- `modalNovaEntrada` (form de compra)
+- `modalNovaReq` com 2 pills (Interno / Posto Externo)
+
+**Agora**: 1 botão único **`+`** abre **modal único** com **3 pills**:
+
+| Pill | Cor | Valor backend | Bloco visível |
+|---|---|---|---|
+| **Entrada** | azul info `#2563eb` | `ENTRADA` (frontend só) | `reqEntradaWrap` — form de compra (Empresa, Fornecedor, NF, Série, Tipo Negociação, DTVENC auto, multi-itens, Histórico, Observação) |
+| **Interno** (default) | verde Agromil `#5e7e4a` | `INTERNA_FROTA` | `reqRequisicaoWrap` — form single (Veículo + Combustível + Qtd + Vlr Unit + Hodômetro/Horímetro + Data) |
+| **Posto Externo** | âmbar `#c4862e` | `EXTERNA_POSTO` | `reqRequisicaoWrap` com multi-itens + Posto + NUMNOTA + Datas + DTVENC auto |
+
+**Mudanças desktop**:
+- `btnNovaEntrada` removido da toolbar
+- `btnNovaRequisicao` virou `+` simples (ícone `ph-plus`)
+- `modalNovaEntrada` removido (form migrou pra dentro de `modalNovaReq`)
+- `cb-pill--entrada` adicionada (CSS azul info + hint azul `#eff6ff`)
+- `rotuloTipo()` retorna `'Interna'` em vez de `'Veículo'` (badge verde nos cards de movimentação)
+
+**Mudanças mobile**:
+- FAB secundário `m_cb_fabEntrada` removido — sobra só FAB principal `+` (verde)
+- Sheet `nova-entrada` removido (form migrou pra dentro de `nova-req`)
+- Sheet "Mais" agora tem só 2 atalhos: **Atualizar todos** + **Novo lançamento**
+- Toggle de contexto (Estoque/Movs/Veículos) **removido do topo** — vive só no bottom nav
+- Badge `m-cb-mov-badge--frota` mostra `'Interna'` (era `'Veículo'`)
+
+**Toggle Maquinário removido** (desktop + mobile, 2026-05-28):
+- Pill `INTERNA_MAQUINARIO` removida do form (Interno cobre tudo)
+- Filtro `Maquinário` removido do select de tipo da listagem
+- Backend continua aceitando `INTERNA_MAQUINARIO` por compat — requisições antigas continuam visíveis com badge "Máquina" (raro, legado)
+
+### Validação por tipo
+
+`validarReq()` e `enviarRequisicao()` (desktop) / `validarReq()` e `enviarRequisicao()` (mobile) **roteam por tipo**:
+- `ENTRADA` → delega pra `validarEntrada()` + `enviarEntrada()` (endpoint `URL_ENT_CRIAR` ou `/entrada/<n>/editar/`)
+- `INTERNA_FROTA` → fluxo single (endpoint `URL_REQ_CRIAR` ou `/requisicao/<n>/editar/`)
+- `EXTERNA_POSTO` → fluxo multi-itens (endpoint `URL_EXT_CRIAR` ou `/requisicao/<n>/editar/`)
+
+**Em modo edição** (entrada ou requisição), as **outras pills ficam disabled + opacity 0.45**. Operador não troca entrada por requisição (estados diferentes no banco).
+
+### Sem botão "Excluir entrada" (2026-05-28)
+
+O botão `Excluir entrada` foi **removido do rodapé** do modal/sheet único (estava só em edição de entrada). Razão: poluição visual + caminho redundante. Exclusão continua disponível via **swipe-to-delete** (lixeira vermelha 🗑) nos cards de movimentação — mesmo fluxo do sheet de exclusão com motivo obrigatório.
+
+### Mensagem unificada
+
+Modal/sheet único usa **uma única área de mensagem**:
+- Desktop: `#reqMensagem` (substituiu `#entMensagem`)
+- Mobile: `#m_cb_reqMsg` (substituiu `#m_cb_entMsg`)
+
+Botão Salvar também é único: `#btnConfirmarReq` (desktop) / `#m_cb_reqSalvar` (mobile). Label muda conforme tipo + estado de edição.
+
+---
+
 ## 💰 TGFFIN automático pra veículos de terceiro (Mai/2026 — 2026-05-26)
 
 Veículos cadastrados em `TGFVEI` com `PROPRIO='N'` (freteiros, cooperados, maquinário alugado) abastecem do nosso tanque interno mas o financeiro ficava sem rastro. Agora o IAgro gera TGFFIN automático contra o parceiro do veículo a cada requisição.
@@ -17,12 +92,12 @@ Veículos cadastrados em `TGFVEI` com `PROPRIO='N'` (freteiros, cooperados, maqu
 | `S` (próprio) | normal | **Sem TGFFIN** — comportamento atual preservado |
 | `N` (terceiro) | normal | **Gera TGFFIN** auto + AD_REQ.NUFIN_GERADO populado |
 
-Tipo `EXTERNA_FRETE` foi **removido da UI** desde 2026-05-26. Operador escolhe apenas:
-- **Veículos** (`TIPMOV='INTERNA_FROTA'` no banco)
-- **Maquinário** (`INTERNA_MAQUINARIO`)
+Tipos da UI desde 2026-05-28 (revisão pós-Combustível Mobile):
+- **Entrada** (compra de combustível, TOP 10)
+- **Interno** (`INTERNA_FROTA` no banco — cobre frota própria + maquinário, simplificado em 2026-05-28)
 - **Posto Externo** (`EXTERNA_POSTO`)
 
-Backend ainda aceita `EXTERNA_FRETE` por compatibilidade (não usado).
+Backend ainda aceita `INTERNA_MAQUINARIO` e `EXTERNA_FRETE` por compatibilidade (requisições antigas continuam aparecendo na listagem com badge "Máquina"; novas vão tudo como `INTERNA_FROTA`).
 
 ### TGFFIN modelo
 

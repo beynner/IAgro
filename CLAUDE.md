@@ -551,7 +551,7 @@ Saldo validado individualmente por lote — falha em 1 reverte tudo (atomicidade
 
 Detalhes técnicos em [`modules/venda.md`](.claude/modules/venda.md).
 
-### 📱 Redesign Mobile app-like — Entrada + Classificação + Rastreio (Mai/2026 — 2026-05-27)
+### 📱 Redesign Mobile app-like — Entrada + Classificação + Rastreio + Combustível (Mai/2026 — 2026-05-27/28)
 
 Início do trabalho de tornar o IAgro um **PWA-ready** (Progressive Web App): operador acessa do celular e parece app nativo. Estratégia: HTML único com 2 containers paralelos (`.entrada-desktop` + `.entrada-mobile`), escopados por `body[data-active-module="X"]`. CSS mobile-first com seletores prefixados `.m-*`. JS separado em arquivos `_mobile.js` que só ativam em viewport ≤900px.
 
@@ -615,6 +615,40 @@ Início do trabalho de tornar o IAgro um **PWA-ready** (Progressive Web App): op
 - **Bugs descobertos e corrigidos na sessão**: (a) endpoint de lotes retorna `data.lotes`, não `data.itens`; (b) endpoint de pedidos retorna `qtd_pedida`/`codagregacao_atual`, não `qtdneg`/`codagregacao`; (c) CSS `display: flex` na `.m-ras-list` sobrescrevia atributo HTML `hidden` (fix: `.m-ras-list[hidden] { display: none !important }`); (d) refresh-saldo + carregarPedidos em paralelo → 500 (fix: removido auto-refresh após vínculo, atualização local do estado garante feedback imediato); (e) cards finalizados com `opacity: 0.85` deixavam o botão swipe vazar atrás → trocado por `background: #f6fbf4`
 - **Limitações conscientes**: resolver nota órfã (vincular OU criar pedido retroativo) — pendente v2; modal detalhado de "Pedidos/vendas usando lote" — desktop apenas
 - **Swipe-direita pra Avaria de Ajuste implementado (Mai/2026 — 2026-05-28)**: arrastar card de lote pra direita revela botão âmbar `ph-broom` (60px). Tap → prompt qtd → confirmação → TGFCAB TOP 33 sem trava de 1%. Mesma função do desktop (botão broom esquerda do produto quando linha selecionada). Detalhes em [`modules/rastreio.md`](.claude/modules/rastreio.md) → "Avaria de Ajuste (TOP 33)"
+
+**Combustível (4ª implementação — Mai/2026 — 2026-05-27/28)**:
+- **3 telas + 4 bottom sheets** (`lista` com 3 contextos · `detalheVeiculo` · `fotoLightbox` + sheets `nova-req`/`filtros`/`excluir`/`mais`). Bottom nav 5 itens (Estoque/Movs/Veículos/Filtros/Mais). Toggle de contexto **só no bottom nav** — sem duplicação no topo
+- **Tanques SVG reutilizados** das funções desktop (`renderTanqueCilindricoSVG` / `renderTanqueQuadradoSVG`) — empilhados verticalmente
+- **Lista de veículos 1 coluna** com foto thumb 60×44 + busca placa/modelo/parceiro + toggle COM/MAQ
+- **Detalhe veículo** com hero foto clicável (→ lightbox), 7 cards Diesel/ARLA separados, lista filtrada de abastecimentos, FAB Nova requisição pré-selecionando o veículo
+- **Cards de movimentação** 3 linhas (parc · prod+qtd · vlr+consumo) com swipe-to-edit (azul) + swipe-to-delete (vermelho) 88px reveal
+- **Cálculo Total km + Média Diesel/ARLA client-side** reusado (`_calcularConsumoMov`) — mesma lógica desktop
+- **Filtros de período** (`<<` `>>`) compartilhados entre lista geral e detalhe do veículo via `ESTADO.movDataIni/Fim`
+- **persistência localStorage** `iagro:combustivel:prefs:v1` guarda só `veiculosFiltro` (Frota/Maquinário)
+- **Limitações conscientes**: cadastro de novo veículo (Sankhya); edição de foto (não exposta); refresh-saldo automático após lançamento (operador usa FAB azul Atualizar manual)
+
+### 🔄 Combustível UI v2 — modal único com 3 pills (Mai/2026 — 2026-05-28)
+
+Refator arquitetural aplicado **simultaneamente em desktop e mobile**. Operador agora tem 1 só botão `+` que abre **modal único** com 3 tipos via pills.
+
+**Antes**: 2 botões `Entrada` (verde claro) + `Requisição` (verde Agromil), 2 modais separados (`modalNovaEntrada` + `modalNovaReq`).
+
+**Agora**: 1 botão `+` → modal único `modalNovaReq` com 3 pills coloridas:
+- **Entrada** (azul info `#2563eb`, ícone `ph-tray-arrow-down`) — form de compra
+- **Interno** (verde Agromil, ícone `ph-van`, default) — form single
+- **Posto Externo** (âmbar, ícone `ph-globe`) — form multi-itens
+
+Backend continua usando 3 endpoints distintos (`URL_ENT_CRIAR` / `URL_REQ_CRIAR` / `URL_EXT_CRIAR`). `validarReq()` e `enviarRequisicao()` roteam por tipo. Em modo edição, **outras pills ficam disabled + opacity 0.45** — operador não troca entrada por requisição.
+
+**Mudanças adicionais (mesma sessão)**:
+- Toggle **Maquinário removido** (desktop + mobile) — operador escolhe só Interno/Posto Externo. Backend continua aceitando `INTERNA_MAQUINARIO` por compat retroativo (requisições antigas continuam visíveis com badge "Máquina")
+- Badge `Veículo` (verde) renomeado pra `Interna` nos cards de movimentação — desktop (`rotuloTipo`) + mobile (2 lugares)
+- Botão `Excluir entrada` **removido** do rodapé do modal/sheet único — exclusão continua via swipe-to-delete nos cards
+- Sheet "Mais" mobile reduzido pra 2 atalhos: **Atualizar todos** + **Novo lançamento**
+- Mensagem unificada: `#reqMensagem` desktop / `#m_cb_reqMsg` mobile (substituiu `entMensagem`/`m_cb_entMsg`)
+- Botão Salvar unificado: `#btnConfirmarReq` desktop / `#m_cb_reqSalvar` mobile (substituiu `btnConfirmarEntrada`/`m_cb_entSalvar`)
+
+Detalhes técnicos em [`modules/combustivel.md`](.claude/modules/combustivel.md) → "📱 Combustível Mobile — redesign app-like + UI v2 unificada".
 
 **Limpeza arquitetural**: removidas todas as referências à página `/sankhya/compras/central/` que foi removida no início do projeto mas deixou código morto espalhado. View `view_central_compras` agora retorna 410 Gone (mantém só o ramo `?ajax_header=1` usado pra editar cabeçalho). 7 arquivos afetados — vide [`gotchas.md`](.claude/gotchas.md) → "Página compras/central foi removida".
 

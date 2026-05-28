@@ -124,7 +124,7 @@
 
     function rotuloTipo(tipo) {
         switch (tipo) {
-            case 'INTERNA_FROTA':       return 'Veículo';
+            case 'INTERNA_FROTA':       return 'Interna';
             case 'INTERNA_MAQUINARIO':  return 'Máquina';
             case 'EXTERNA_POSTO':       return '<i class="ph ph-globe"></i> Externo';
             default:                    return '—';
@@ -755,14 +755,32 @@
     }
 
     function _atualizarHeaderModalReq() {
-        const header = document.querySelector('#modalNovaReq .cb-modal-header strong');
+        const header = document.getElementById('reqModalTitle');
         const btn = document.getElementById('btnConfirmarReq');
+        const tipo = tipoSelecionado();
+        const ehEntrada = tipo === 'ENTRADA';
+        // Edição (req ou entrada) — usa o NUNOTA pra header
         if (requisicaoEditandoNunota) {
-            if (header) header.innerHTML = `<i class="ph ph-pencil-simple"></i> Editar requisição NUNOTA ${requisicaoEditandoNunota}`;
+            if (header) {
+                if (ehEntrada) {
+                    header.innerHTML = `<i class="ph ph-pencil-simple"></i> Editar entrada NUNOTA ${requisicaoEditandoNunota}`;
+                } else {
+                    header.innerHTML = `<i class="ph ph-pencil-simple"></i> Editar requisição NUNOTA ${requisicaoEditandoNunota}`;
+                }
+            }
+            if (btn) btn.textContent = 'Salvar alterações';
+        } else if (entEditandoNunota) {
+            if (header) header.innerHTML = `<i class="ph ph-pencil-simple"></i> Editar entrada NUNOTA ${entEditandoNunota}`;
             if (btn) btn.textContent = 'Salvar alterações';
         } else {
-            if (header) header.textContent = 'Nova requisição de combustível';
-            if (btn) btn.textContent = 'Salvar requisição';
+            if (header) {
+                if (ehEntrada) header.innerHTML = '<i class="ph ph-tray-arrow-down"></i> Nova entrada de combustível';
+                else header.textContent = 'Novo lançamento';
+            }
+            if (btn) {
+                if (ehEntrada) btn.textContent = 'Salvar entrada';
+                else btn.textContent = 'Salvar requisição';
+            }
         }
     }
 
@@ -770,15 +788,37 @@
         const modal = document.getElementById('modalNovaReq');
         modal.classList.remove('hidden');
         requisicaoEditandoNunota = null;
+        entEditandoNunota = null;
         _limparModalReq();
-        _atualizarHeaderModalReq();
-        atualizarMedidorPorTipo();
+        // Default: pill INTERNA_FROTA marcada (mais usado)
+        const r = document.querySelector('input[name="cbTipo"][value="INTERNA_FROTA"]');
+        if (r) r.checked = true;
+        _liberarPills();
         atualizarExternoVisivel();
+        atualizarMedidorPorTipo();
         atualizarDtNegInternaVisivel();
+        _atualizarHeaderModalReq();
         // Default da data interna = hoje
         const dtNegInterna = document.getElementById('reqDtNeg');
         if (dtNegInterna && !dtNegInterna.value) dtNegInterna.value = hoje();
         setTimeout(() => document.getElementById('reqVeiculoVis').focus(), 50);
+    }
+
+    // Libera/trava pills do tipo. Em edição, só a pill do tipo atual fica
+    // habilitada — operador não troca entrada por requisição.
+    function _liberarPills() {
+        document.querySelectorAll('input[name="cbTipo"]').forEach(r => {
+            r.disabled = false;
+            const pill = r.closest('.cb-pill');
+            if (pill) pill.style.opacity = '';
+        });
+    }
+    function _travarOutrasPills(valorAtivo) {
+        document.querySelectorAll('input[name="cbTipo"]').forEach(r => {
+            r.disabled = (r.value !== valorAtivo);
+            const pill = r.closest('.cb-pill');
+            if (pill) pill.style.opacity = r.disabled ? '0.45' : '';
+        });
     }
 
     async function abrirModalEditarReq(nunota) {
@@ -918,47 +958,60 @@
     }
 
     function atualizarMedidorPorTipo() {
-        // Mai/2026: hodômetro/horímetro opcionais em todos os tipos — sempre visíveis.
+        // Mai/2026: hodômetro/horímetro opcionais em todos os tipos.
+        // Sempre visíveis em requisição (INTERNO + EXTERNA). Não aplica em ENTRADA.
         const wrap = document.getElementById('reqMedidoresWrap');
+        if (!wrap) return;
         wrap.classList.remove('hidden');
     }
 
     function atualizarDtNegInternaVisivel() {
-        // Campo "Data" da requisição interna (Mai/2026) — escondido em
-        // EXTERNA_POSTO porque lá já existe `reqExternoDtNeg`.
+        // Campo "Data" da requisição interna — escondido em EXTERNA_POSTO
+        // (lá já existe `reqExternoDtNeg`) e em ENTRADA (lá existe `entDtNeg`).
         const wrap = document.getElementById('reqDtNegWrap');
         if (!wrap) return;
         const tipo = tipoSelecionado();
-        wrap.classList.toggle('hidden', tipo === 'EXTERNA_POSTO');
+        wrap.classList.toggle('hidden', tipo !== 'INTERNA_FROTA');
     }
 
+    // Alterna visibilidade dos 3 blocos (ENTRADA / INTERNO / EXTERNA_POSTO).
+    // Mai/2026 — 2026-05-28: modal unificado com 3 pills.
     function atualizarExternoVisivel() {
-        const ehExterno = tipoSelecionado() === 'EXTERNA_POSTO';
+        const tipo = tipoSelecionado();
+        const ehEntrada = tipo === 'ENTRADA';
+        const ehInterno = tipo === 'INTERNA_FROTA';
+        const ehExterno = tipo === 'EXTERNA_POSTO';
+
+        // Bloco ENTRADA — mostra só quando tipo=ENTRADA
+        const wrapEntrada = document.getElementById('reqEntradaWrap');
+        if (wrapEntrada) wrapEntrada.classList.toggle('hidden', !ehEntrada);
+        const avisoEntrada = document.getElementById('reqEntradaAviso');
+        if (avisoEntrada) avisoEntrada.classList.toggle('hidden', !ehEntrada);
+
+        // Bloco REQUISIÇÃO (Interno + Externo) — esconde quando ENTRADA
+        const wrapReq = document.getElementById('reqRequisicaoWrap');
+        if (wrapReq) wrapReq.classList.toggle('hidden', ehEntrada);
+
+        // Posto + datas + doc + aviso externo — só EXTERNA_POSTO
         document.getElementById('reqPostoWrap').classList.toggle('hidden', !ehExterno);
         document.getElementById('reqExternoDocWrap').classList.toggle('hidden', !ehExterno);
         document.getElementById('reqExternoDatasWrap').classList.toggle('hidden', !ehExterno);
         document.getElementById('reqExternoAviso').classList.toggle('hidden', !ehExterno);
 
-        // Multi-itens (Mai/2026 — 2026-05-13): externo usa tabela; internos
-        // mantêm form single (Combustível + Qtd + Valor Unit. avulsos).
+        // Single (INTERNO) vs Multi-itens (EXTERNA) dentro do bloco req
         const wrapItens = document.getElementById('reqItensExternoWrap');
         const wrapSingle = document.getElementById('reqProdutoSingleWrap');
-        if (wrapSingle) wrapSingle.classList.toggle('hidden', ehExterno);
+        if (wrapSingle) wrapSingle.classList.toggle('hidden', !ehInterno);
         if (wrapItens) wrapItens.classList.toggle('hidden', !ehExterno);
         document.getElementById('reqExtTotalWrap').classList.toggle('hidden', !ehExterno);
 
-        // Quando entra em externo, garante 1 linha vazia na tabela e re-renderiza
-        // forçado (cobre cenário de modal reaberto / troca de tipo com lista vazia).
+        // Garante 1 linha na tabela externo quando entra nele
         if (ehExterno && wrapItens) {
-            if (reqExtItens.length === 0) {
-                _addItemReqExt();
-            } else {
-                _renderReqExtItens();
-            }
+            if (reqExtItens.length === 0) _addItemReqExt();
+            else _renderReqExtItens();
         }
 
-        // Mai/2026 (2026-05-26): campo Valor Unit. editável (operador pode
-        // sobrescrever o auto-fill do último abastecimento). Antes era readonly.
+        // Vlr Unit. editável (auto-fill com último preço)
         const vlrUnitInp = document.getElementById('reqVlrUnit');
         if (vlrUnitInp) {
             vlrUnitInp.readOnly = false;
@@ -966,18 +1019,28 @@
             vlrUnitInp.style.background = '';
         }
 
-        // Quando entra em externo, default datas = hoje (à vista)
+        // Default datas
         if (ehExterno) {
             const h = hoje();
             const dtNeg = document.getElementById('reqExternoDtNeg');
             const dtVenc = document.getElementById('reqExternoDtVenc');
-            if (!dtNeg.value)  dtNeg.value  = h;
+            if (!dtNeg.value) dtNeg.value = h;
             if (!dtVenc.value) dtVenc.value = h;
-        } else {
+        } else if (!ehEntrada) {
+            // Saiu de externo pra interno — limpa posto/doc
             document.getElementById('reqPostoVis').value = '';
             document.getElementById('reqPostoCod').value = '';
             document.getElementById('reqExternoDoc').value = '';
         }
+
+        // Garante 1 linha vazia na tabela de itens da Entrada quando entra
+        if (ehEntrada) {
+            if (entItens.length === 0) _addItemEntrada();
+            else _renderEntItens();
+        }
+
+        // Atualiza header/botões conforme tipo
+        _atualizarHeaderModalReq();
     }
 
     function montarTypeaheadVeiculo() {
@@ -1109,8 +1172,11 @@
     }
 
     function validarReq() {
-        const erros = [];
         const tipo = tipoSelecionado();
+        // ENTRADA: delega pra validarEntrada (mesmas regras do form de compra)
+        if (tipo === 'ENTRADA') return validarEntrada();
+
+        const erros = [];
         const ehExterno = (tipo === 'EXTERNA_POSTO');
 
         if (!document.getElementById('reqVeiculoCod').value) erros.push('Selecione um veículo.');
@@ -1157,12 +1223,15 @@
     }
 
     async function enviarRequisicao() {
+        const tipo = tipoSelecionado();
+        // ENTRADA: delega pra enviarEntrada (cria/edita TOP 10 + TGFFIN)
+        if (tipo === 'ENTRADA') return enviarEntrada();
+
         const msg = document.getElementById('reqMensagem');
         msg.textContent = ''; msg.className = 'cb-mensagem';
         const erros = validarReq();
         if (erros.length) { msg.textContent = erros.join(' '); return; }
 
-        const tipo = tipoSelecionado();
         const ehExterno = (tipo === 'EXTERNA_POSTO');
 
         // Payload base — compartilhado entre interno e externo
@@ -1879,13 +1948,23 @@
     }
 
     function abrirModalNovaEntrada() {
-        const modal = document.getElementById('modalNovaEntrada');
+        // Mai/2026 — 2026-05-28: modal único — abre modalNovaReq com pill ENTRADA selecionada.
+        const modal = document.getElementById('modalNovaReq');
         modal.classList.remove('hidden');
 
         entEditandoNunota = null;
+        requisicaoEditandoNunota = null;
         entItens = [];
-        _atualizarHeaderModalEnt();
 
+        // Marca pill ENTRADA
+        const r = document.querySelector('input[name="cbTipo"][value="ENTRADA"]');
+        if (r) r.checked = true;
+        _liberarPills();
+
+        // Limpa também os campos da requisição pra não vazar valores antigos
+        _limparModalReq();
+
+        // Limpa campos da entrada
         ['entEmpresaVis','entEmpresaCod','entFornecedorVis','entFornecedorCod',
          'entNumNota','entSerieNota',
          'entCencusVis','entCencusCod','entHistorico','entObs',
@@ -1899,7 +1978,6 @@
         document.getElementById('entEmpresaCod').value = '1';
         document.getElementById('entEmpresaVis').value = '1';   // placeholder até nome carregar
         _preencherNomeEmpresaDefault(1);
-        // Defaults pré-selecionados (Mai/2026)
         document.getElementById('entCencusCod').value  = DEFAULT_CODCENCUS;
         document.getElementById('entCencusVis').value  = `${DEFAULT_CODCENCUS} — COMERCIALIZAÇÃO`;
         document.getElementById('entNaturezaCod').value = DEFAULT_CODNAT;
@@ -1909,38 +1987,30 @@
 
         // 1 item vazio inicial
         _addItemEntrada();
-        document.getElementById('entTotalCalculado').innerHTML = 'Total: <strong>R$ 0,00</strong>';
-        document.getElementById('entMensagem').textContent = '';
-        document.getElementById('entMensagem').className = 'cb-mensagem';
+        document.getElementById('entTotalCalculado').innerHTML = 'Total da Nota: <strong>R$ 0,00</strong>';
+        // Mensagem é compartilhada — usa reqMensagem (única do modal único)
+        const msg = document.getElementById('reqMensagem');
+        if (msg) { msg.textContent = ''; msg.className = 'cb-mensagem'; }
+
+        // Atualiza visibilidade dos blocos + header
+        atualizarExternoVisivel();
 
         setTimeout(() => document.getElementById('entFornecedorVis').focus(), 50);
     }
 
-    function fecharModalNovaEntrada() {
-        document.getElementById('modalNovaEntrada').classList.add('hidden');
-    }
-
-    function _atualizarHeaderModalEnt() {
-        const h = document.getElementById('entModalTitle');
-        const btn = document.getElementById('btnConfirmarEntrada');
-        const btnExcluir = document.getElementById('btnExcluirEntradaModal');
-        if (entEditandoNunota) {
-            if (h) h.innerHTML = `<i class="ph ph-pencil-simple"></i> Editar entrada NUNOTA ${entEditandoNunota}`;
-            if (btn) btn.textContent = 'Salvar alterações';
-            if (btnExcluir) btnExcluir.classList.remove('hidden');
-        } else {
-            if (h) h.innerHTML = '<i class="ph ph-tray-arrow-down"></i> Nova entrada de combustível (compra)';
-            if (btn) btn.textContent = 'Salvar entrada';
-            if (btnExcluir) btnExcluir.classList.add('hidden');
-        }
-    }
-
     async function abrirModalEditarEntrada(nunota) {
-        const modal = document.getElementById('modalNovaEntrada');
+        const modal = document.getElementById('modalNovaReq');
         modal.classList.remove('hidden');
         entEditandoNunota = nunota;
+        requisicaoEditandoNunota = null;
         entItens = [];
-        _atualizarHeaderModalEnt();
+
+        // Marca pill ENTRADA + trava as outras (edição não troca tipo)
+        const r = document.querySelector('input[name="cbTipo"][value="ENTRADA"]');
+        if (r) r.checked = true;
+        _travarOutrasPills('ENTRADA');
+
+        atualizarExternoVisivel();
 
         // Limpa
         ['entEmpresaVis','entEmpresaCod','entFornecedorVis','entFornecedorCod',
@@ -1950,17 +2020,17 @@
          'entDtNeg','entDtVenc']
             .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
         _renderEntItens();
-        document.getElementById('entMensagem').textContent = 'Carregando…';
-        document.getElementById('entMensagem').className = 'cb-mensagem cb-mensagem-info';
+        document.getElementById('reqMensagem').textContent = 'Carregando…';
+        document.getElementById('reqMensagem').className = 'cb-mensagem cb-mensagem-info';
 
         try {
             const resp = await fetch(`/sankhya/combustivel/api/entrada/${nunota}/`,
                                      { credentials: 'same-origin' });
             const data = await resp.json();
             if (!resp.ok || !data.ok) {
-                document.getElementById('entMensagem').textContent =
+                document.getElementById('reqMensagem').textContent =
                     data.error || 'Falha ao carregar entrada.';
-                document.getElementById('entMensagem').className = 'cb-mensagem';
+                document.getElementById('reqMensagem').className = 'cb-mensagem';
                 return;
             }
             const cab = data.cabecalho || {};
@@ -2008,11 +2078,13 @@
             }));
             if (entItens.length === 0) _addItemEntrada();
 
-            document.getElementById('entMensagem').textContent = '';
-            document.getElementById('entMensagem').className = 'cb-mensagem';
+            document.getElementById('reqMensagem').textContent = '';
+            document.getElementById('reqMensagem').className = 'cb-mensagem';
+            // Atualiza header pra mostrar "Editar entrada NUNOTA X"
+            _atualizarHeaderModalReq();
         } catch (err) {
-            document.getElementById('entMensagem').textContent = 'Falha de conexão.';
-            document.getElementById('entMensagem').className = 'cb-mensagem';
+            document.getElementById('reqMensagem').textContent = 'Falha de conexão.';
+            document.getElementById('reqMensagem').className = 'cb-mensagem';
         }
     }
 
@@ -2090,7 +2162,8 @@
     }
 
     async function enviarEntrada() {
-        const msg = document.getElementById('entMensagem');
+        // Modal único — mensagem é reqMensagem
+        const msg = document.getElementById('reqMensagem');
         msg.textContent = ''; msg.className = 'cb-mensagem';
         const erros = validarEntrada();
         if (erros.length) { msg.textContent = erros.join(' '); return; }
@@ -2122,7 +2195,8 @@
             observacao: document.getElementById('entObs').value.trim() || null,
         };
 
-        const btn = document.getElementById('btnConfirmarEntrada');
+        // Modal único — botão de salvar é btnConfirmarReq
+        const btn = document.getElementById('btnConfirmarReq');
         btn.disabled = true; const txt0 = btn.textContent; btn.textContent = 'Enviando…';
         try {
             const url = entEditandoNunota
@@ -2140,7 +2214,7 @@
                 `Entrada NUNOTA ${data.nunota} · NF ${data.numnota} (${data.qtd_itens || itens.length} itens) ${acao}${extras}.`,
                 'success',
             );
-            fecharModalNovaEntrada();
+            fecharModalNovaReq();
             carregarMovimentacoes();
             carregarEstoque();
         } catch (err) {
@@ -2157,8 +2231,8 @@
     function init() {
         document.getElementById('btnAtualizarEstoque').addEventListener('click', carregarEstoque);
         document.getElementById('btnAtualizarReqs').addEventListener('click', carregarMovimentacoes);
+        // Mai/2026 — 2026-05-28: 1 botão único `+` (abrirModalNovaReq) cobre os 3 tipos
         document.getElementById('btnNovaRequisicao').addEventListener('click', abrirModalNovaReq);
-        document.getElementById('btnNovaEntrada').addEventListener('click', abrirModalNovaEntrada);
 
         if (window.IAgro && IAgro.wireFilterAuto) {
             IAgro.wireFilterAuto(['filtroMov', 'filtroTipo'], carregarMovimentacoes);
@@ -2218,26 +2292,8 @@
             });
         });
 
-        // Modal Entrada
-        document.getElementById('modalNovaEntradaFechar').addEventListener('click', fecharModalNovaEntrada);
-        document.getElementById('btnCancelarEntrada').addEventListener('click', fecharModalNovaEntrada);
-        document.getElementById('btnConfirmarEntrada').addEventListener('click', enviarEntrada);
+        // Botão + Item da tabela de itens da Entrada (vive dentro do modal único)
         document.getElementById('btnAddItemEntrada').addEventListener('click', () => _addItemEntrada());
-
-        // Botão Excluir Entrada (rodapé do modal de edição) — abre modal de
-        // confirmação com motivo obrigatório. Reusa modal existente de excluir
-        // requisição via abrirModalExcluirEntrada (distingue por flag interna).
-        document.getElementById('btnExcluirEntradaModal').addEventListener('click', () => {
-            if (!entEditandoNunota) return;
-            const nunota = entEditandoNunota;
-            // Monta resumo curto pra mostrar no modal de confirmação
-            const numnota = (document.getElementById('entNumNota').value || '').trim();
-            const fornecedor = (document.getElementById('entFornecedorVis').value || '').trim();
-            const resumo = `NF ${numnota || '—'} · ${fornecedor || 'fornecedor'}`;
-            // Fecha modal de edição antes pra evitar 2 modais sobrepostos
-            fecharModalNovaEntrada();
-            abrirModalExcluirEntrada(nunota, resumo);
-        });
 
         // Auto-cálculo de DTVENC quando muda Tipo de Negociação ou Data Entrada.
         // Exposto em window._cbRecalcularDtVenc pra que o onSelect do typeahead

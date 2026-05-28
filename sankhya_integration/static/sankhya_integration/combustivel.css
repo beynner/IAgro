@@ -1049,6 +1049,14 @@
     color: #fff;
 }
 
+/* Pill especial pra ENTRADA (compra): azul info — distingue do Interno (verde)
+   e do Posto Externo (âmbar). Mai/2026 — 2026-05-28. */
+.cb-pill--entrada:has(input[type="radio"]:checked) {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #fff;
+}
+
 /* Hint do aviso EXTERNA_POSTO (não desconta tanque) */
 .cb-hint-externo {
     padding: 6px 10px;
@@ -1061,6 +1069,19 @@
 }
 
 .cb-hint-externo.hidden { display: none; }
+
+/* Hint do aviso ENTRADA (azul info) */
+.cb-hint-entrada {
+    padding: 6px 10px;
+    background: #eff6ff;
+    border-left: 3px solid #2563eb;
+    border-radius: 4px;
+    color: #1e40af;
+    font-size: 11px;
+    margin-top: 6px;
+}
+
+.cb-hint-entrada.hidden { display: none; }
 
 .cb-link-posto {
     color: var(--cb-primary);
@@ -1362,3 +1383,1193 @@
     .cb-form-row-grid { flex-direction: column; }
     .cb-form-row-grid > div { width: 100% !important; }
 }
+
+/* ============================================================================
+   📱 REDESIGN MOBILE-FIRST — Combustível (Mai/2026 — 2026-05-28)
+   Escopado por body[data-active-module="combustivel"] em viewport <=900px.
+   Desktop preservado 100% intacto.
+   ============================================================================ */
+
+.combustivel-portal { width: 100%; height: 100%; }
+.combustivel-mobile { display: none; }
+.combustivel-desktop { display: block; }
+
+@media (max-width: 900px) {
+    body[data-active-module="combustivel"] .combustivel-desktop { display: none !important; }
+    body[data-active-module="combustivel"] .combustivel-mobile { display: block; }
+    body[data-active-module="combustivel"] .content-header,
+    body[data-active-module="combustivel"] .ia-footer-inline { display: none; }
+    body[data-active-module="combustivel"] .main-layout {
+        padding: 0 !important;
+        overflow: hidden !important;
+        gap: 0 !important;
+    }
+}
+
+/* Tokens locais (escopo .combustivel-mobile) */
+.combustivel-mobile {
+    --m-bg:            #f8fafc;
+    --m-surface:       #ffffff;
+    --m-border:        #e5e7eb;
+    --m-border-soft:   #f1f5f9;
+    --m-text:          #1f2937;
+    --m-text-muted:    #6b7280;
+    --m-primary:       #5e7e4a;
+    --m-primary-dark:  #4a6e3e;
+    --m-primary-soft:  #eaf0e8;
+    --m-warning:       #d97706;
+    --m-warning-soft:  #fff7ed;
+    --m-danger:        #dc2626;
+    --m-danger-soft:   #fef2f2;
+    --m-success:       #16a34a;
+    --m-info:          #2563eb;
+    --m-amber:         #b45309;
+    --m-amber-soft:    #fef9c3;
+    --m-radius-sm:     7px;
+    --m-shadow:        0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --m-header-h:      48px;
+    --m-bottom-nav-h:  52px;
+    --m-touch-target:  40px;
+
+    position: fixed;
+    inset: 0;
+    background: var(--m-bg);
+    color: var(--m-text);
+    overflow: hidden;
+    font-family: inherit;
+}
+
+/* ====== Telas (m-screen) ====== */
+.combustivel-mobile .m-screen {
+    position: absolute;
+    inset: 0;
+    background: var(--m-bg);
+    display: none;
+    flex-direction: column;
+    transition: transform 0.28s ease;
+    transform: translateX(100%);
+}
+.combustivel-mobile .m-screen.is-active {
+    display: flex;
+    transform: translateX(0);
+}
+.combustivel-mobile .m-screen--lista.is-active { transform: translateX(0); }
+
+/* Header das telas */
+.combustivel-mobile .m-screen-header {
+    flex-shrink: 0;
+    height: var(--m-header-h);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 8px 0 8px;
+    background: var(--m-surface);
+    border-bottom: 1px solid var(--m-border-soft);
+    box-shadow: var(--m-shadow);
+    z-index: 5;
+}
+
+.combustivel-mobile .m-screen-title {
+    flex: 1;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--m-text);
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.combustivel-mobile .m-screen-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: calc(var(--m-bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 16px);
+}
+
+/* Botão de ícone padrão */
+.combustivel-mobile .m-iconbtn {
+    width: var(--m-touch-target);
+    height: var(--m-touch-target);
+    border: none;
+    background: transparent;
+    border-radius: 50%;
+    color: var(--m-text);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+}
+.combustivel-mobile .m-iconbtn:hover { background: var(--m-border-soft); }
+.combustivel-mobile .m-iconbtn--danger { color: var(--m-danger); }
+
+/* User badge (pílula verde claro + Sair) */
+.combustivel-mobile .m-user-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: #f0f5ec;
+    color: #4a633a;
+    padding: 5px 10px;
+    border-radius: 14px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    max-width: 110px;
+}
+.combustivel-mobile .m-user-badge span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.combustivel-mobile .m-logout-link {
+    color: var(--m-danger);
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: none;
+    text-transform: uppercase;
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+.combustivel-mobile .m-logout-link:hover { background: var(--m-danger-soft); }
+
+/* ============================================================================
+   Toggle de contexto (Estoque / Movs / Veículos) na tela lista
+   ============================================================================ */
+.combustivel-mobile .m-cb-toggle-wrap {
+    flex-shrink: 0;
+    display: flex;
+    gap: 0;
+    background: var(--m-surface);
+    border-bottom: 1px solid var(--m-border-soft);
+    padding: 6px 8px;
+}
+.combustivel-mobile .m-cb-toggle-btn {
+    flex: 1;
+    height: 36px;
+    border: none;
+    background: transparent;
+    border-radius: 18px;
+    color: var(--m-text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    transition: background 0.18s, color 0.18s;
+}
+.combustivel-mobile .m-cb-toggle-btn i { font-size: 16px; }
+.combustivel-mobile .m-cb-toggle-btn.is-active {
+    background: var(--m-primary);
+    color: #fff;
+}
+
+/* Containers de contexto */
+.combustivel-mobile .m-cb-ctx {
+    display: block;
+    padding: 8px 10px;
+}
+.combustivel-mobile .m-cb-ctx[hidden] { display: none !important; }
+
+/* ============================================================================
+   Tanques (mobile — empilhados verticalmente)
+   ============================================================================ */
+.combustivel-mobile .m-cb-tanques {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.combustivel-mobile .m-cb-tanques .cb-tanque {
+    flex-grow: 1;
+    min-width: 0;
+    width: 100%;
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    gap: 6px;
+}
+.combustivel-mobile .m-cb-tanques .cb-tanque-cabeca {
+    min-height: 32px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--m-border-soft);
+}
+.combustivel-mobile .m-cb-tanques .cb-tanque-nome { font-size: 13px; }
+.combustivel-mobile .m-cb-tanques .cb-tanque-capacidade { font-size: 11px; }
+.combustivel-mobile .m-cb-tanques .cb-tanque-svg { height: 110px; }
+.combustivel-mobile .m-cb-tanques .cb-tanque-saldo-svg { font-size: 18px; }
+.combustivel-mobile .m-cb-tanques .cb-tanque-pct-svg { font-size: 13px; }
+
+/* ============================================================================
+   Movimentações (mobile)
+   ============================================================================ */
+.combustivel-mobile .m-cb-mov-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    box-shadow: var(--m-shadow);
+}
+.combustivel-mobile .m-cb-det-toolbar {
+    margin: 12px 0 8px 0;
+}
+.combustivel-mobile .m-cb-periodo {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+}
+.combustivel-mobile .m-cb-mini-nav {
+    flex-shrink: 0;
+    height: 36px;
+    width: 38px;
+    padding: 0;
+    border: 1px solid var(--m-border);
+    border-radius: 6px;
+    background: var(--m-surface);
+    color: var(--m-text-muted);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.combustivel-mobile .m-cb-mini-nav:hover {
+    border-color: var(--m-primary);
+    color: var(--m-primary);
+}
+.combustivel-mobile .m-cb-data-input {
+    flex: 1;
+    min-width: 0;
+    height: 36px;
+    font-size: 13px;
+    padding: 0 8px;
+}
+.combustivel-mobile .m-cb-sep {
+    color: var(--m-text-muted);
+    font-size: 12px;
+    padding: 0 2px;
+}
+
+/* Lista de movimentações */
+.combustivel-mobile .m-cb-mov-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+/* Card de movimentação */
+.combustivel-mobile .m-cb-mov-card-wrap {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--m-radius-sm);
+}
+.combustivel-mobile .m-cb-mov-card {
+    position: relative;
+    z-index: 2;
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-radius: var(--m-radius-sm);
+    padding: 8px 10px;
+    transition: transform 0.18s ease;
+}
+.combustivel-mobile .m-cb-mov-card[data-mov="ENTRADA"] {
+    border-left: 3px solid var(--m-success);
+}
+.combustivel-mobile .m-cb-mov-card[data-mov="REQUISICAO"] {
+    border-left: 3px solid var(--m-warning);
+}
+.combustivel-mobile .m-cb-mov-card[data-tipo="EXTERNA_POSTO"] {
+    border-left: 3px solid var(--m-amber);
+    background: linear-gradient(to right, #fff7ed 0%, var(--m-surface) 8%);
+}
+.combustivel-mobile .m-cb-mov-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: space-between;
+}
+.combustivel-mobile .m-cb-mov-row + .m-cb-mov-row {
+    margin-top: 4px;
+}
+.combustivel-mobile .m-cb-mov-icone {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+.combustivel-mobile .m-cb-mov-icone--ent {
+    background: #dcfce7;
+    color: var(--m-success);
+}
+.combustivel-mobile .m-cb-mov-icone--req {
+    background: #fef3c7;
+    color: var(--m-warning);
+}
+.combustivel-mobile .m-cb-mov-icone--ext {
+    background: #ffedd5;
+    color: var(--m-amber);
+}
+.combustivel-mobile .m-cb-mov-parc {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--m-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.combustivel-mobile .m-cb-mov-data {
+    font-size: 11px;
+    color: var(--m-text-muted);
+    flex-shrink: 0;
+}
+.combustivel-mobile .m-cb-mov-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    flex-shrink: 0;
+}
+.combustivel-mobile .m-cb-mov-badge--ext {
+    background: #ffedd5;
+    color: #c2410c;
+    border: 1px solid #fed7aa;
+}
+.combustivel-mobile .m-cb-mov-badge--frota {
+    background: #dcfce7;
+    color: #15803d;
+}
+.combustivel-mobile .m-cb-mov-badge--maq {
+    background: #fef3c7;
+    color: #92400e;
+}
+.combustivel-mobile .m-cb-mov-prod {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--m-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.combustivel-mobile .m-cb-mov-qtd {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--m-text);
+    flex-shrink: 0;
+}
+.combustivel-mobile .m-cb-mov-vlr {
+    font-size: 12px;
+    color: var(--m-text-muted);
+    flex-shrink: 0;
+}
+.combustivel-mobile .m-cb-mov-consumo {
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+.combustivel-mobile .m-cb-mov-consumo--diesel { color: var(--m-primary); }
+.combustivel-mobile .m-cb-mov-consumo--arla { color: var(--m-amber); }
+.combustivel-mobile .m-cb-mov-consumo sup {
+    font-size: 8px;
+    margin-left: 1px;
+    opacity: 0.7;
+}
+
+/* Botões de swipe (atrás do card) */
+.combustivel-mobile .m-cb-mov-swipe {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    width: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    border: none;
+    font-size: 18px;
+    z-index: 1;
+}
+.combustivel-mobile .m-cb-mov-swipe--edit {
+    right: 44px;
+    background: var(--m-info);
+}
+.combustivel-mobile .m-cb-mov-swipe--del {
+    right: 0;
+    background: var(--m-danger);
+}
+
+/* ============================================================================
+   Veículos (mobile — 1 coluna)
+   ============================================================================ */
+.combustivel-mobile .m-cb-vei-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: var(--m-surface);
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    border: 1px solid var(--m-border);
+    border-radius: 8px;
+    box-shadow: var(--m-shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.combustivel-mobile .m-cb-vei-busca {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.combustivel-mobile .m-cb-vei-busca i {
+    position: absolute;
+    left: 10px;
+    color: var(--m-text-muted);
+    font-size: 16px;
+    pointer-events: none;
+}
+.combustivel-mobile .m-cb-vei-busca input {
+    padding-left: 36px;
+}
+.combustivel-mobile .m-cb-vei-toggle {
+    display: inline-flex;
+    border: 1px solid var(--m-border);
+    border-radius: 18px;
+    overflow: hidden;
+    background: var(--m-surface);
+}
+.combustivel-mobile .m-cb-vei-toggle-btn {
+    flex: 1;
+    padding: 6px 12px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--m-text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+}
+.combustivel-mobile .m-cb-vei-toggle-btn.is-active {
+    background: var(--m-primary);
+    color: #fff;
+}
+
+.combustivel-mobile .m-cb-vei-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.combustivel-mobile .m-cb-vei-card {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 10px;
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-radius: var(--m-radius-sm);
+    cursor: pointer;
+    transition: background 0.18s;
+}
+.combustivel-mobile .m-cb-vei-card:hover { background: var(--m-border-soft); }
+.combustivel-mobile .m-cb-vei-card:active { background: var(--m-primary-soft); }
+
+.combustivel-mobile .m-cb-vei-foto {
+    width: 60px;
+    height: 44px;
+    border-radius: 5px;
+    background: var(--m-border-soft) no-repeat center / cover;
+    border: 1px solid var(--m-border);
+    flex-shrink: 0;
+}
+
+.combustivel-mobile .m-cb-vei-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.combustivel-mobile .m-cb-vei-placa {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--m-text);
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.combustivel-mobile .m-cb-vei-modelo {
+    font-size: 12px;
+    color: var(--m-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.combustivel-mobile .m-cb-vei-tipo {
+    font-size: 10px;
+    color: #94a3b8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ============================================================================
+   Detalhe Veículo (tela 2)
+   ============================================================================ */
+.combustivel-mobile .m-cb-det-foto {
+    width: 100%;
+    height: 200px;
+    background: var(--m-border-soft) no-repeat center / cover;
+    border: 1px solid var(--m-border);
+    border-radius: 8px;
+    margin-bottom: 12px;
+    cursor: zoom-in;
+}
+.combustivel-mobile .m-cb-det-info {
+    padding: 8px 12px;
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-left: 3px solid var(--m-primary);
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--m-text);
+}
+.combustivel-mobile .m-cb-det-info .m-cb-det-placa {
+    font-weight: 700;
+    letter-spacing: 0.4px;
+}
+.combustivel-mobile .m-cb-det-info .m-cb-muted {
+    color: var(--m-text-muted);
+    font-size: 11px;
+    margin-top: 2px;
+}
+.combustivel-mobile .m-cb-det-resumo {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+.combustivel-mobile .m-cb-det-metric {
+    padding: 8px 10px;
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-radius: 6px;
+}
+.combustivel-mobile .m-cb-det-metric--full { grid-column: 1 / -1; }
+.combustivel-mobile .m-cb-det-metric-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--m-text-muted);
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+.combustivel-mobile .m-cb-det-metric-valor {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--m-primary);
+    line-height: 1.1;
+}
+.combustivel-mobile .m-cb-det-metric--destaque .m-cb-det-metric-valor {
+    font-size: 18px;
+    color: var(--m-warning);
+}
+.combustivel-mobile .m-cb-det-metric--arla {
+    background: var(--m-amber-soft);
+    border-color: #fde68a;
+}
+.combustivel-mobile .m-cb-det-metric--arla .m-cb-det-metric-label { color: #92400e; }
+.combustivel-mobile .m-cb-det-metric--arla .m-cb-det-metric-valor { color: var(--m-amber); }
+
+.combustivel-mobile .m-cb-det-secao-titulo {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--m-text-muted);
+    margin: 14px 0 8px 0;
+}
+
+/* ============================================================================
+   Lightbox de foto (tela 3)
+   ============================================================================ */
+.combustivel-mobile .m-cb-lb-header {
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    border-color: transparent;
+}
+.combustivel-mobile .m-cb-lb-header .m-iconbtn { color: #fff; }
+.combustivel-mobile .m-cb-lb-header .m-screen-title { color: #fff; }
+.combustivel-mobile .m-cb-lb-body {
+    background: rgba(0, 0, 0, 0.92);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+.combustivel-mobile .m-cb-lb-img {
+    max-width: 100%;
+    max-height: 80vh;
+    object-fit: contain;
+    border-radius: 4px;
+}
+.combustivel-mobile .m-cb-lb-legenda {
+    color: #f1f5f9;
+    font-size: 13px;
+    font-weight: 600;
+    margin-top: 16px;
+    text-align: center;
+}
+
+/* ============================================================================
+   Bottom Sheets
+   ============================================================================ */
+.combustivel-mobile .m-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    pointer-events: none;
+}
+.combustivel-mobile .m-sheet[aria-hidden="false"] {
+    pointer-events: auto;
+}
+.combustivel-mobile .m-sheet__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+.combustivel-mobile .m-sheet[aria-hidden="false"] .m-sheet__backdrop {
+    opacity: 1;
+}
+.combustivel-mobile .m-sheet__content {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--m-surface);
+    border-radius: 16px 16px 0 0;
+    max-height: 90vh;
+    max-height: 90dvh;
+    display: flex;
+    flex-direction: column;
+    transform: translateY(100%);
+    transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+    box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.18);
+}
+.combustivel-mobile .m-sheet__content--tall {
+    height: 92vh;
+    height: 92dvh;
+    max-height: 92dvh;
+}
+.combustivel-mobile .m-sheet[aria-hidden="false"] .m-sheet__content {
+    transform: translateY(0);
+}
+.combustivel-mobile .m-sheet__handle {
+    width: 36px;
+    height: 4px;
+    background: var(--m-border);
+    border-radius: 2px;
+    margin: 8px auto 0;
+    flex-shrink: 0;
+}
+.combustivel-mobile .m-sheet__header {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--m-border-soft);
+}
+.combustivel-mobile .m-sheet__header h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--m-text);
+}
+.combustivel-mobile .m-sheet__body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.combustivel-mobile .m-sheet__footer {
+    flex-shrink: 0;
+    display: flex;
+    gap: 8px;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--m-border-soft);
+    background: var(--m-surface);
+}
+
+/* ============================================================================
+   Form fields nos sheets
+   ============================================================================ */
+.combustivel-mobile .m-field {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+.combustivel-mobile .m-field-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--m-text-muted);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.combustivel-mobile .m-field-input {
+    height: 42px;
+    padding: 0 12px;
+    border: 1px solid var(--m-border);
+    border-radius: 6px;
+    font-size: 16px;  /* iOS no-zoom */
+    color: var(--m-text);
+    outline: none;
+    background: var(--m-surface);
+    width: 100%;
+    box-sizing: border-box;
+    font-family: inherit;
+}
+.combustivel-mobile .m-field-input:focus {
+    border-color: var(--m-primary);
+    box-shadow: 0 0 0 2px rgba(94, 126, 74, 0.15);
+}
+.combustivel-mobile .m-field-input.is-invalid {
+    border-color: var(--m-danger);
+    background: var(--m-danger-soft);
+}
+.combustivel-mobile .m-cb-textarea {
+    height: auto;
+    padding: 10px 12px;
+    min-height: 48px;
+    resize: vertical;
+    font-size: 14px;
+}
+.combustivel-mobile .m-field-hint {
+    font-size: 11px;
+    color: var(--m-text-muted);
+    margin-top: 4px;
+    line-height: 1.3;
+}
+
+/* Grid 2 colunas */
+.combustivel-mobile .m-cb-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+/* Pills de tipo */
+.combustivel-mobile .m-cb-tipo-pills {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.combustivel-mobile .m-cb-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 8px 12px;
+    border: 1px solid var(--m-border);
+    border-radius: 20px;
+    background: var(--m-surface);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--m-text);
+}
+.combustivel-mobile .m-cb-pill input[type="radio"] { display: none; }
+.combustivel-mobile .m-cb-pill:has(input[type="radio"]:checked) {
+    background: var(--m-primary);
+    border-color: var(--m-primary);
+    color: #fff;
+}
+.combustivel-mobile .m-cb-pill--externo:has(input[type="radio"]:checked) {
+    background: var(--m-warning);
+    border-color: var(--m-warning);
+    color: #fff;
+}
+/* Pill ENTRADA: azul info — distingue do Interno (verde) e do Externo (âmbar).
+   Mai/2026 — 2026-05-28. */
+.combustivel-mobile .m-cb-pill--entrada:has(input[type="radio"]:checked) {
+    background: var(--m-info);
+    border-color: var(--m-info);
+    color: #fff;
+}
+.combustivel-mobile .m-cb-hint-externo {
+    padding: 8px 12px;
+    background: var(--m-warning-soft);
+    border-left: 3px solid var(--m-warning);
+    border-radius: 4px;
+    color: #92400e;
+    font-size: 12px;
+    margin-top: 8px;
+}
+.combustivel-mobile .m-cb-hint-externo[hidden] { display: none; }
+.combustivel-mobile .m-cb-hint-entrada {
+    padding: 8px 12px;
+    background: #eff6ff;
+    border-left: 3px solid var(--m-info);
+    border-radius: 4px;
+    color: #1e40af;
+    font-size: 12px;
+    margin-top: 8px;
+}
+.combustivel-mobile .m-cb-hint-entrada[hidden] { display: none; }
+.combustivel-mobile .m-cb-link-posto {
+    color: var(--m-primary);
+    text-decoration: none;
+    font-weight: 600;
+}
+.combustivel-mobile .m-cb-link-posto:hover { text-decoration: underline; }
+
+/* Dropdown de typeahead (mobile) */
+.combustivel-mobile .m-cb-dropdown {
+    position: absolute;
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+    max-height: 200px;
+    overflow: auto;
+    z-index: 60;
+    display: none;
+    font-size: 13px;
+    margin-top: 2px;
+    width: 100%;
+    box-sizing: border-box;
+}
+.combustivel-mobile .m-cb-dropdown .dd-item {
+    padding: 10px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--m-border-soft);
+    color: var(--m-text);
+    font-size: 13px;
+}
+.combustivel-mobile .m-cb-dropdown .dd-item:last-child { border-bottom: none; }
+.combustivel-mobile .m-cb-dropdown .dd-item:hover,
+.combustivel-mobile .m-cb-dropdown .dd-item.active {
+    background: var(--m-primary-soft);
+}
+.combustivel-mobile .m-cb-dropdown .dd-empty {
+    padding: 10px 12px;
+    color: var(--m-text-muted);
+    font-style: italic;
+    font-size: 12px;
+}
+
+/* Lista de itens (multi) — cards inline */
+.combustivel-mobile .m-cb-itens-wrap {
+    border: 1px solid var(--m-border);
+    border-radius: 8px;
+    background: var(--m-bg);
+    padding: 8px;
+}
+.combustivel-mobile .m-cb-itens-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.combustivel-mobile .m-cb-itens-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.combustivel-mobile .m-cb-item-card {
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    position: relative;
+}
+.combustivel-mobile .m-cb-item-card .m-field-label {
+    font-size: 10px;
+    margin-bottom: 2px;
+}
+.combustivel-mobile .m-cb-item-card .m-field-input {
+    height: 36px;
+    font-size: 14px;
+    padding: 0 8px;
+}
+.combustivel-mobile .m-cb-item-rm {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: var(--m-danger);
+    cursor: pointer;
+    font-size: 18px;
+    border-radius: 4px;
+}
+.combustivel-mobile .m-cb-item-rm:hover { background: var(--m-danger-soft); }
+.combustivel-mobile .m-cb-item-rm:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.combustivel-mobile .m-cb-total-nota {
+    margin-top: 10px;
+    padding: 8px 12px;
+    background: linear-gradient(180deg, #fafbfc, #f3f5f7);
+    border: 1px solid var(--m-border);
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--m-text-muted);
+    text-align: right;
+}
+.combustivel-mobile .m-cb-total-nota strong {
+    font-size: 17px;
+    font-weight: 800;
+    color: var(--m-primary);
+    margin-left: 6px;
+}
+
+/* Mensagens */
+.combustivel-mobile .m-cb-msg {
+    font-size: 12px;
+    color: var(--m-danger);
+    min-height: 16px;
+    line-height: 1.4;
+}
+.combustivel-mobile .m-cb-msg-info {
+    padding: 8px 12px;
+    background: var(--m-primary-soft);
+    border-left: 3px solid var(--m-primary);
+    border-radius: 4px;
+    color: var(--m-text);
+    font-size: 12px;
+}
+.combustivel-mobile .m-cb-aviso {
+    padding: 8px 12px;
+    background: var(--m-warning-soft);
+    border-left: 3px solid var(--m-warning);
+    border-radius: 4px;
+    color: #92400e;
+    font-size: 12px;
+}
+
+/* Botões */
+.combustivel-mobile .m-btn-primary,
+.combustivel-mobile .m-btn-secondary,
+.combustivel-mobile .m-btn-danger {
+    flex: 1;
+    height: 46px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid transparent;
+}
+.combustivel-mobile .m-btn-primary {
+    background: var(--m-primary);
+    color: #fff;
+}
+.combustivel-mobile .m-btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.combustivel-mobile .m-btn-secondary {
+    background: var(--m-surface);
+    color: var(--m-text);
+    border-color: var(--m-border);
+}
+.combustivel-mobile .m-btn-danger {
+    background: var(--m-danger);
+    color: #fff;
+}
+.combustivel-mobile .m-btn-footer-left {
+    margin-right: auto;
+    flex: 0;
+    padding: 0 14px;
+}
+.combustivel-mobile .m-btn-small {
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 6px;
+    background: var(--m-surface);
+    color: var(--m-primary);
+    border: 1px solid var(--m-primary);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Menu item (sheet "Mais") */
+.combustivel-mobile .m-cb-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 14px 12px;
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--m-text);
+    text-align: left;
+}
+.combustivel-mobile .m-cb-menu-item i {
+    font-size: 18px;
+    color: var(--m-primary);
+}
+.combustivel-mobile .m-cb-menu-item:hover {
+    background: var(--m-primary-soft);
+}
+
+/* ============================================================================
+   FAB
+   ============================================================================ */
+.combustivel-mobile .m-fab {
+    position: absolute;
+    right: 16px;
+    bottom: calc(var(--m-bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 16px);
+    width: 48px;
+    height: 48px;
+    border: none;
+    border-radius: 50%;
+    background: var(--m-primary);
+    color: #fff;
+    font-size: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(94, 126, 74, 0.4);
+    z-index: 6;
+    transition: transform 0.18s ease;
+}
+.combustivel-mobile .m-fab:active { transform: scale(0.92); }
+.combustivel-mobile .m-fab[hidden] { display: none; }
+.combustivel-mobile .m-fab--secondary {
+    width: 42px;
+    height: 42px;
+    font-size: 18px;
+    background: var(--m-info);
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    bottom: calc(var(--m-bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 76px);
+}
+.combustivel-mobile .m-fab--lvl2 {
+    background: var(--m-success);
+    box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
+    bottom: calc(var(--m-bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 126px);
+}
+.combustivel-mobile .m-fab.is-loading i {
+    animation: m-cb-spin 0.8s linear infinite;
+}
+@keyframes m-cb-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+/* ============================================================================
+   Bottom Nav
+   ============================================================================ */
+.combustivel-mobile .m-bottom-nav {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: calc(var(--m-bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--m-surface);
+    border-top: 1px solid var(--m-border);
+    display: flex;
+    z-index: 4;
+}
+.combustivel-mobile .m-bottom-nav__item {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--m-text-muted);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    font-size: 10px;
+    font-weight: 600;
+    position: relative;
+}
+.combustivel-mobile .m-bottom-nav__item i {
+    font-size: 20px;
+}
+.combustivel-mobile .m-bottom-nav__item.is-active {
+    color: var(--m-primary);
+}
+.combustivel-mobile .m-bottom-nav__item.is-active i::before {
+    font-family: 'Phosphor-Fill';
+}
+.combustivel-mobile .m-bottom-nav__item.has-filtros-ativos {
+    color: var(--m-primary);
+}
+.combustivel-mobile .m-bottom-nav__item.has-filtros-ativos i::before {
+    font-family: 'Phosphor-Fill';
+}
+.combustivel-mobile .m-bottom-nav__item.has-filtros-ativos::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    right: 22%;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--m-danger);
+    box-shadow: 0 0 0 2px var(--m-surface);
+}
+
+/* Empty state */
+.combustivel-mobile .m-empty {
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--m-text-muted);
+    font-style: italic;
+    font-size: 13px;
+}
+
+/* Sidebar toggle visível só em ≤900px */
+.combustivel-mobile .m-sidebar-toggle { display: inline-flex; }
