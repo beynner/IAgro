@@ -4248,6 +4248,7 @@ def api_rastreio_zerar_fracao(request: HttpRequest) -> JsonResponse:
     """
     dados = _get_json_payload(request)
     if not dados:
+        logger.warning("api_rastreio_zerar_fracao: JSON inválido recebido")
         return JsonResponse({"ok": False, "error": "JSON inválido"}, status=400)
 
     codprod      = _converter_para_inteiro(dados.get('codprod'))
@@ -4259,6 +4260,7 @@ def api_rastreio_zerar_fracao(request: HttpRequest) -> JsonResponse:
         try:
             qtd_avaria = float(qtd_raw)
         except (TypeError, ValueError):
+            logger.warning("api_rastreio_zerar_fracao: qtd inválida %r", qtd_raw)
             return JsonResponse(
                 {"ok": False, "error": f"qtd inválida: {qtd_raw!r}"},
                 status=400,
@@ -4270,10 +4272,19 @@ def api_rastreio_zerar_fracao(request: HttpRequest) -> JsonResponse:
             )
 
     if not codprod or not codagregacao:
+        logger.warning(
+            "api_rastreio_zerar_fracao: codprod/codagregacao faltando — payload=%r",
+            dados,
+        )
         return JsonResponse(
             {"ok": False, "error": "codprod e codagregacao são obrigatórios"},
             status=400,
         )
+
+    logger.info(
+        "api_rastreio_zerar_fracao chamada: codprod=%s codagregacao=%s qtd_avaria=%s codusu=%s",
+        codprod, codagregacao, qtd_avaria, request.session.get('codusu'),
+    )
 
     try:
         res = zerar_fracao_lote_banco(
@@ -4284,6 +4295,10 @@ def api_rastreio_zerar_fracao(request: HttpRequest) -> JsonResponse:
             qtd_avaria=qtd_avaria,
         )
         if not res.get('ok'):
+            logger.warning(
+                "zerar_fracao_lote_banco retornou erro: %r (codprod=%s codagregacao=%s qtd_avaria=%s)",
+                res.get('error'), codprod, codagregacao, qtd_avaria,
+            )
             res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao gerar avaria de ajuste')
             return JsonResponse(res, status=400)
         return JsonResponse(res)

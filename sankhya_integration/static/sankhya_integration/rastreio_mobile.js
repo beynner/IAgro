@@ -1036,12 +1036,26 @@
         });
         if (!ok) return;
 
-        const res = await postJSON(URLS.zerarFracao, {
+        const payload = {
             codprod: lote.codprod,
             codagregacao: lote.codagregacao,
             qtd: qtdEfetiva,
-        });
+        };
+        const res = await postJSON(URLS.zerarFracao, payload);
         if (!res.ok || !res.body || !res.body.ok) {
+            // Debug detalhado pra diagnosticar 400 do backend
+            console.error('avariaAjusteDoLote falhou:', {
+                status: res.status,
+                body: res.body,
+                payload,
+                loteEstado: {
+                    codprod: lote.codprod,
+                    codagregacao: lote.codagregacao,
+                    qtd_disponivel: lote.qtd_disponivel,
+                    qtd_entrada: lote.qtd_entrada,
+                    nunota_origem: lote.nunota_origem,
+                },
+            });
             mostrarToast((res.body && res.body.error) || 'Falha ao gerar avaria de ajuste.', 'error');
             return;
         }

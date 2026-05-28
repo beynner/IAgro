@@ -1717,13 +1717,24 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!ok) return;
 
         try {
-            const resp = await IAgro.postJSON('/sankhya/rastreio/api/zerar-fracao/', {
+            const payload = {
                 codprod: lote.codprod,
                 codagregacao: lote.codagregacao,
                 qtd: qtdEfetiva,
-            });
+            };
+            const resp = await IAgro.postJSON('/sankhya/rastreio/api/zerar-fracao/', payload);
             const data = resp.body || {};
             if (!resp.ok || !data.ok) {
+                console.error('zerarFracaoDoLote falhou:', {
+                    status: resp.status, body: data, payload,
+                    loteEstado: {
+                        codprod: lote.codprod,
+                        codagregacao: lote.codagregacao,
+                        qtd_disponivel: lote.qtd_disponivel,
+                        qtd_entrada: lote.qtd_entrada,
+                        nunota_origem: lote.nunota_origem,
+                    },
+                });
                 IAgro.showToast(data.error || `Falha ao gerar avaria de ajuste (HTTP ${resp.status})`, 'error');
                 return;
             }
