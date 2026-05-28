@@ -1552,8 +1552,9 @@ class ZerarFracaoLoteServiceTest(TestCase):
         cur.fetchone.side_effect = [
             (50.0, 100.0, 11111),                          # view: saldo, entrada, nunota_origem
             (1, 200, 10100, date(2026, 5, 1), 11),         # TGFCAB TOP 11 (cabeçalho)
-            ('KG', 1.0),                                   # TGFITE CODVOL+PESO (qualquer TOP)
-            (10.0,),                                       # VLRUNIT do vale TOP 13
+            ('KG',),                                       # TGFITE CODVOL
+            None,                                          # CAB TOP 33 do dia/parceiro: NÃO existe
+            (10.0,),                                       # VLRUNIT da TOP 11
         ]
         mock_cab.return_value = {'ok': True, 'nunota': 99999}
         mock_item.return_value = {'ok': True, 'nunota': 99999, 'sequencia': 1}
@@ -1618,8 +1619,9 @@ class ZerarFracaoLoteServiceTest(TestCase):
         cur.fetchone.side_effect = [
             (1.0, 100.0, 11111),                           # view: saldo, entrada, nunota_origem
             (1, 200, 10100, date(2026, 5, 1), 11),         # TGFCAB TOP 11 (cabeçalho)
-            ('KG', 1.0),                                   # TGFITE CODVOL+PESO (qualquer TOP)
-            (12.50,),                                      # VLRUNIT do vale TOP 13
+            ('KG',),                                       # TGFITE CODVOL
+            None,                                          # CAB TOP 33 do dia/parceiro: NÃO existe
+            (12.50,),                                      # VLRUNIT da TOP 11
         ]
         mock_cab.return_value = {'ok': True, 'nunota': 99999}
         mock_item.return_value = {'ok': True, 'nunota': 99999, 'sequencia': 1}
@@ -1638,12 +1640,16 @@ class ZerarFracaoLoteServiceTest(TestCase):
         dados_cab = mock_cab.call_args[0][0]
         self.assertEqual(dados_cab['CODTIPOPER'], 33)
         self.assertEqual(dados_cab['CODNAT'], 20010200)
-        self.assertEqual(dados_cab['STATUSNOTA'], 'L')
+        # Mai/2026 (2026-05-28): TGFCAB TOP 33 fica em 'P' (em aberto) —
+        # operador finaliza manualmente quando quiser. Facilita consolidação
+        # de avarias do dia/parceiro + edição posterior se necessário.
+        self.assertEqual(dados_cab['STATUSNOTA'], 'P')
         self.assertEqual(dados_cab['CODTIPVENDA'], 11)
         self.assertEqual(dados_cab['CODEMP'], 1)
         self.assertEqual(dados_cab['AD_NUMPEDIDOORIG'], 11111)
-        # Mai/2026 (2026-05-28): CODUSU passa pro inserir_cabecalho — antes
-        # ficava NULL em TGFCAB.CODUSU (diff vs Sankhya manual NUNOTA 113910).
+        # OBSERVACAO fixo (sem qtd/lote no texto — detalhe vai no TGFITE)
+        self.assertEqual(dados_cab['OBSERVACAO'], 'Ajuste de Estoque - IAgro/Rastreio')
+        # CODUSU populado (antes ficava NULL em TGFCAB.CODUSU)
         self.assertEqual(dados_cab['CODUSU'], 1)
 
         # TGFITE com CODAGREGACAO preservado
@@ -1680,8 +1686,9 @@ class ZerarFracaoLoteServiceTest(TestCase):
         cur.fetchone.side_effect = [
             (30.0, 500.0, 11111),                          # view: saldo, entrada, nunota_origem
             (1, 200, 10100, date(2026, 5, 1), 11),         # TGFCAB TOP 11 (cabeçalho)
-            ('KG', 1.0),                                   # TGFITE CODVOL+PESO (qualquer TOP)
-            (8.0,),                                        # VLRUNIT do vale TOP 13
+            ('KG',),                                       # TGFITE CODVOL
+            None,                                          # CAB TOP 33 do dia/parceiro: NÃO existe
+            (8.0,),                                        # VLRUNIT da TOP 11
         ]
         mock_cab.return_value = {'ok': True, 'nunota': 88888}
         mock_item.return_value = {'ok': True, 'nunota': 88888, 'sequencia': 1}
@@ -1723,8 +1730,9 @@ class ZerarFracaoLoteServiceTest(TestCase):
         cur.fetchone.side_effect = [
             (1000.0, 1000.0, 113821),                       # view: saldo, entrada, nunota_origem (TOP 11)
             (1, 200, 10100, date(2026, 5, 27), 11),         # TGFCAB TOP 11 cabeçalho (sem CODPROD)
-            ('KG', 1.0),                                    # TGFITE TOP 26 CODVOL+PESO do CODPROD 351
-            (15.0,),                                        # VLRUNIT do vale TOP 13
+            ('KG',),                                        # TGFITE TOP 26 CODVOL do CODPROD 351
+            None,                                           # CAB TOP 33 do dia/parceiro: NÃO existe
+            (15.0,),                                        # VLRUNIT da TOP 11
         ]
         mock_cab.return_value = {'ok': True, 'nunota': 113911}
         mock_item.return_value = {'ok': True, 'nunota': 113911, 'sequencia': 1}
@@ -1748,6 +1756,51 @@ class ZerarFracaoLoteServiceTest(TestCase):
         dados_cab = mock_cab.call_args[0][0]
         self.assertEqual(dados_cab['AD_NUMPEDIDOORIG'], 113821)
         self.assertEqual(dados_cab['CODUSU'], 1)
+
+    @patch('sankhya_integration.services.oracle_conn.invalidar_cache_rastreio')
+    @patch('sankhya_integration.services.oracle_conn.registrar_auditoria')
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita')
+    def test_consolida_cab_existente_mesmo_parceiro_dia(
+        self, mock_perm, mock_conn, mock_cab, mock_item, mock_rec, mock_audit, mock_invcache,
+    ):
+        """Mai/2026 — 2026-05-28: 2ª avaria do mesmo CODPARC no mesmo dia
+        reusa TGFCAB TOP 33 existente (NUNOTA 113911) em vez de criar nova.
+        TGFITE vai pra CAB existente; NÃO chama inserir_cabecalho_nota_banco."""
+        mock_perm.return_value = True
+        conn_ctx, _, cur = _conn_cursor_mock_rastreio()
+        mock_conn.return_value = conn_ctx
+        cur.fetchone.side_effect = [
+            (10.0, 1000.0, 113821),                         # view
+            (1, 200, 10100, date(2026, 5, 28), 11),         # TGFCAB TOP 11
+            ('KG',),                                        # TGFITE CODVOL
+            (113911,),                                      # CAB TOP 33 do dia/parceiro: EXISTE NUNOTA 113911
+            (15.0,),                                        # VLRUNIT da TOP 11
+        ]
+        mock_item.return_value = {'ok': True, 'nunota': 113911, 'sequencia': 2}
+        mock_rec.return_value = {'ok': True}
+
+        r = self.fn(
+            codprod=351, codagregacao='OUTRO_LOTE_HOJE',
+            codusu=1, nomeusu='Teste', qtd_avaria=5.0,
+        )
+        self.assertTrue(r['ok'], f"Consolidação falhou: {r}")
+        self.assertEqual(r['nunota_33'], 113911, 'Deve reusar NUNOTA da CAB existente')
+        # NÃO chamou inserir_cabecalho (reusou CAB) — economia confirma consolidação
+        self.assertFalse(mock_cab.called, 'inserir_cabecalho_nota_banco NÃO deve ser chamado em CAB reusada')
+        # TGFITE foi inserido na CAB reusada
+        self.assertTrue(mock_item.called)
+        dados_item = mock_item.call_args[0][0]
+        self.assertEqual(dados_item['NUNOTA'], 113911)
+        self.assertEqual(dados_item['CODPROD'], 351)
+        self.assertEqual(dados_item['CODAGREGACAO'], 'OUTRO_LOTE_HOJE')
+        # Audit registra cab_reusada=True
+        self.assertTrue(mock_audit.called)
+        snapshot = mock_audit.call_args.kwargs['snapshot_depois']
+        self.assertTrue(snapshot['cab_reusada'])
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita')

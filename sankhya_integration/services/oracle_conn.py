@@ -4431,12 +4431,14 @@ def zerar_fracao_lote_banco(
                     f'pro lote {codagregacao}.'}
             codemp, codparc, codcencus, dtneg, codtipvenda_origem = row_cab
 
-            # 2.1. Lê CODVOL + PESO do item: aceita qualquer TOP (11/13/26) que
-            # tenha esse (CODPROD, CODAGREGACAO). Pra classificáveis, vai achar
-            # em TOP 26; pra não-classificáveis, em TOP 11. PESO é por produto.
+            # 2.1. Lê CODVOL do item: aceita qualquer TOP (11/13/26) que tenha
+            # esse (CODPROD, CODAGREGACAO). Em classificáveis vai achar em TOP
+            # 26; em não-classificáveis em TOP 11.
+            # PESO NÃO é populado em TGFITE TOP 33 (paridade Sankhya manual
+            # NUNOTA 113910 que tem PESO=NULL).
             cur.execute(
                 """
-                SELECT i.CODVOL, NVL(i.PESO, 1)
+                SELECT i.CODVOL
                   FROM TGFITE i
                   JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
                  WHERE i.CODPROD = :prod AND i.CODAGREGACAO = :lote
@@ -4447,38 +4449,68 @@ def zerar_fracao_lote_banco(
                 prod=codprod, lote=codagregacao,
             )
             row_item = cur.fetchone()
-            if row_item:
-                codvol = row_item[0] or 'KG'
-                peso_caixa = float(row_item[1]) if row_item[1] is not None else 1.0
-            else:
-                # Defensivo: lote+codprod sem TGFITE ativa em 11/13/26 (caso atípico).
-                # Usa defaults seguros.
-                codvol, peso_caixa = 'KG', 1.0
+            codvol = (row_item[0] or 'KG') if row_item else 'KG'
 
-            # 3. Cria cabeçalho TGFCAB TOP 33
-            codtipvenda_efetiva = int(codtipvenda_origem) if codtipvenda_origem else 11
-            dados_cab_33 = {
-                'CODEMP': codemp,
-                'CODPARC': codparc,
-                'CODNAT': CODNAT_POR_TOP[33],
-                'CODCENCUS': codcencus or 10100,
-                'DTNEG': _date.today().strftime('%d/%m/%Y'),
-                'CODTIPOPER': 33,
-                'CODTIPVENDA': codtipvenda_efetiva,
-                'STATUSNOTA': 'L',
-                'PENDENTE': 'N',
-                'AD_NUMPEDIDOORIG': nunota_origem,
-                'OBSERVACAO': f'Ajuste de fração do lote {codagregacao} ({qtd_zerada:.3f} kg)',
-                'CODUSU': codusu,   # Mai/2026 (2026-05-28): paridade com Sankhya manual
-            }
-            res_cab = inserir_cabecalho_nota_banco(
-                dados_cab_33, conexao_existente=conn,
+            # 3. CONSOLIDAÇÃO (Mai/2026 — 2026-05-28): tenta reusar TGFCAB TOP 33
+            # existente do mesmo CODPARC + mesmo dia (TRUNC(DTNEG) = hoje +
+            # STATUSNOTA <> 'E'). Se encontrar, INSERT TGFITE adicional vai pra
+            # CAB existente em vez de criar nova. Padrão confirmado por smoke
+            # histórico Sankhya (ex: NUNOTA 9831 com 3 TGFITE inseridos 9 dias
+            # após DTFATUR). Operação contábil concentra avarias do dia/parceiro
+            # numa única nota.
+            cur.execute(
+                """
+                SELECT NUNOTA FROM (
+                    SELECT NUNOTA
+                      FROM TGFCAB
+                     WHERE CODTIPOPER = 33
+                       AND CODPARC    = :p
+                       AND TRUNC(DTNEG) = TRUNC(SYSDATE)
+                       AND STATUSNOTA <> 'E'
+                     ORDER BY NUNOTA DESC
+                ) WHERE ROWNUM = 1
+                """,
+                p=codparc,
             )
-            if not res_cab.get('ok'):
-                conn.rollback()
-                return {'ok': False, 'error':
-                    f'Falha ao criar TGFCAB TOP 33: {res_cab.get("error")}'}
-            nunota_33 = int(res_cab['nunota'])
+            row_existente = cur.fetchone()
+            cab_reusada = False
+
+            if row_existente:
+                nunota_33 = int(row_existente[0])
+                cab_reusada = True
+                logger.info(
+                    "ZERAR_FRACAO_LOTE: consolidando em TGFCAB TOP 33 existente NUNOTA=%s "
+                    "(CODPARC=%s, dia=hoje, item lote=%s codprod=%s)",
+                    nunota_33, codparc, codagregacao, codprod,
+                )
+            else:
+                # Cria TGFCAB nova. STATUSNOTA='P' (em aberto) — operador
+                # finaliza manualmente quando quiser (ou via cron noturno).
+                # Decisão 2026-05-28: NÃO finaliza com 'L' imediato pra
+                # facilitar consolidação + edição posterior se necessário.
+                codtipvenda_efetiva = int(codtipvenda_origem) if codtipvenda_origem else 11
+                dados_cab_33 = {
+                    'CODEMP': codemp,
+                    'CODPARC': codparc,
+                    'CODNAT': CODNAT_POR_TOP[33],
+                    'CODCENCUS': codcencus or 10100,
+                    'DTNEG': _date.today().strftime('%d/%m/%Y'),
+                    'CODTIPOPER': 33,
+                    'CODTIPVENDA': codtipvenda_efetiva,
+                    'STATUSNOTA': 'P',
+                    'PENDENTE': 'N',
+                    'AD_NUMPEDIDOORIG': nunota_origem,
+                    'OBSERVACAO': 'Ajuste de Estoque - IAgro/Rastreio',
+                    'CODUSU': codusu,
+                }
+                res_cab = inserir_cabecalho_nota_banco(
+                    dados_cab_33, conexao_existente=conn,
+                )
+                if not res_cab.get('ok'):
+                    conn.rollback()
+                    return {'ok': False, 'error':
+                        f'Falha ao criar TGFCAB TOP 33: {res_cab.get("error")}'}
+                nunota_33 = int(res_cab['nunota'])
 
             # 4. Lê VLRUNIT do TGFITE da TOP 11 raiz do lote pra documentar
             # o custo de aquisição (paridade Sankhya manual — Mai/2026 / 2026-05-28).
@@ -4521,20 +4553,13 @@ def zerar_fracao_lote_banco(
 
             recalcular_totais_nota_banco(nunota_33, conexao_existente=conn)
 
-            # Mai/2026 (2026-05-28): força STATUSNOTA='L' + DTFATUR=SYSDATE
-            # após o INSERT pra paridade com Sankhya manual. Como o
-            # `inserir_cabecalho_nota_banco` grava 'P' por default (regra de
-            # outros fluxos), UPDATE explícito aqui finaliza a TOP 33. Trigger
-            # TRG_UPD_TGFCAB aceita transição 'P' -> 'L' sem problemas.
-            cur.execute(
-                """
-                UPDATE TGFCAB
-                   SET STATUSNOTA = 'L',
-                       DTFATUR   = SYSDATE
-                 WHERE NUNOTA = :n
-                """,
-                n=nunota_33,
-            )
+            # Mai/2026 (2026-05-28): TGFCAB TOP 33 fica em STATUSNOTA='P'
+            # (em aberto) — operador finaliza manualmente quando quiser
+            # ou via cron noturno. Decisão tomada após smoke confirmar
+            # que CAB 'L' aceita INSERTs de TGFITE (histórico Sankhya
+            # NUNOTA 9831 — 3 itens inseridos 9 dias após DTFATUR), mas
+            # operador prefere manter 'P' pra facilitar consolidação e
+            # edição posterior.
 
             conn.commit()
         except Exception as exc:
@@ -4566,11 +4591,13 @@ def zerar_fracao_lote_banco(
                 'qtd_entrada_lote': qtd_entrada,
                 'avaria_parcial': qtd_zerada < qtd_disponivel,
                 'vlrtot_documentado': vlrtot,
+                'cab_reusada': cab_reusada,   # Mai/2026 (2026-05-28): consolidação
             },
             observacao=(
                 f'Avaria de ajuste de {qtd_zerada:.3f} kg no lote {codagregacao} '
-                f'via TOP 33 (saldo disponível antes: {qtd_disponivel:.3f} kg, '
-                f'entrada total: {qtd_entrada:.0f} kg).'
+                f'via TOP 33 NUNOTA={nunota_33} '
+                f'({"consolidada em CAB existente" if cab_reusada else "CAB nova"}). '
+                f'Saldo antes: {qtd_disponivel:.3f} kg de {qtd_entrada:.0f} kg.'
             ),
         )
     except Exception:
