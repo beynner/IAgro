@@ -434,19 +434,29 @@ Veículos de terceiro (`TGFVEI.PROPRIO='N'`) abastecem do nosso tanque interno m
 
 Detalhes técnicos em [`modules/combustivel.md`](.claude/modules/combustivel.md) → "TGFFIN automático pra veículos de terceiro" + "Média Diesel vs ARLA".
 
-### 🧹 Rastreio — Avaria de Ajuste TOP 33 sem trava + swipe-direita mobile (Mai/2026 — 2026-05-26, revisada 2026-05-28)
+### 🧹 Rastreio — Avaria de Ajuste TOP 33: sem trava + consolida por parceiro/dia + view desconta saldo (Mai/2026 — 2026-05-26, revisada extensa 2026-05-28)
 
 Caso real Agromil: **enviar gramas a mais é deliberado pra compensar desidratação de hortifrúti**. Conta nunca é exata — se falta no vínculo (98-99%), tudo bem; se sobra 1-10 kg, é resíduo natural de desidratação que vira **avaria de ajuste contábil** (TGFCAB TOP 33). Não é perda comercial (perda real continua sendo TOP 30 manual no módulo Venda).
 
-**Versão inicial (2026-05-26)** travava em 1% × `qtd_entrada` — operador relatou que era apertado demais (desidratação real chega a 5-10%). **Versão atual (2026-05-28)** sem trava: operador decide caso a caso.
+**Versão inicial (2026-05-26)** travava em 1% × `qtd_entrada` — operador relatou que era apertado demais (desidratação real chega a 5-10%). **Várias revisões em 2026-05-28** consolidaram a feature.
 
-- **Cat B aplicada**: `zerar_fracao_lote_banco` ganhou param `qtd_avaria` opcional (None = saldo todo; valor = parcial). Trava de 1% e constante `TOLERANCIA_FRACAO_LOTE_PCT` removidas. Audit `ZERAR_FRACAO_LOTE` em `AD_AUDITORIA_GERAL` registra qtd_zerada + qtd_disponivel_antes + avaria_parcial pra detecção retroativa de abuso.
-- **Endpoint** `POST /sankhya/rastreio/api/zerar-fracao/` aceita `{codprod, codagregacao, qtd?}`. `qtd` opcional valida ser número > 0.
-- **Desktop**: botão broom (`btn-zerar-fracao` `ph-broom`) aparece **à esquerda do nome do produto/parceiro** quando o card está selecionado (`.linha-ativa`). Visível em qualquer card com saldo > 0. Prompt nativo pede qtd (default = saldo todo) → `IAgro.confirmarAcao` confirma parcial vs total.
-- **Mobile**: **swipe-direita** no card de lote (60px reveal, threshold 30px) revela botão âmbar `ph-broom`. Tap → mesmo fluxo prompt+confirmação. Swipe-esquerda continua revelando armar+olho (88px). Atualização local imediata do `ESTADO.lotesData` (sem refresh-saldo automático).
+**Cat B aplicadas em 2026-05-28:**
+
+- **B1 (revertida)** — tentou STATUSNOTA='L' + DTFATUR imediato. **Revertida** após decisão de manter 'P' pra facilitar consolidação + edição.
+- **B2** — `inserir_item_nota_banco` estendido pra TOP 33: `QTDCONFERIDA=0` + `USOPROD = TGFPRO.USOPROD` (paridade com Sankhya manual NUNOTA 113910).
+- **B3** — VLRUNIT **exclusivo da TGFITE TOP 11 raiz do lote** (custo de aquisição). Não usa TOP 13 — operador definiu: avaria contábil documenta perda pelo custo de compra, não pelo preço de venda.
+- **B4** — `CODUSU` populado no `dict_cab_33` (antes ficava NULL).
+- **Fix bug query origem** — query `SELECT cab TOP 11` exigia `i.CODPROD = :prod` match exato, falhava 100% em lotes classificáveis (CODPROD da TOP 11 raiz = in natura 863; CODPROD da TOP 33 = classificado 351). Refatorado em 2 queries: cabeçalho sem filtro CODPROD + item em qualquer TOP 11/13/26.
+- **Sem trava** — `zerar_fracao_lote_banco` ganhou param `qtd_avaria` opcional (None = saldo todo; valor = parcial). Trava de 1% e constante `TOLERANCIA_FRACAO_LOTE_PCT` removidas. Audit `ZERAR_FRACAO_LOTE` em `AD_AUDITORIA_GERAL` registra qtd_zerada + qtd_disponivel_antes + avaria_parcial + cab_reusada.
+- **Consolidação por parceiro/dia** — antes de criar TGFCAB nova, busca existente: `WHERE CODTIPOPER=33 AND CODPARC=:p AND TRUNC(DTNEG)=TRUNC(SYSDATE) AND STATUSNOTA<>'E'`. Se acha → reusa NUNOTA, INSERT TGFITE direto (audit registra `cab_reusada=True`). Mesmo parceiro/dias diferentes → CABs separadas. Padrão confirmado por smoke histórico Sankhya (NUNOTA 9831 com 3 itens inseridos 9 dias após DTFATUR).
+- **STATUSNOTA = 'P' (em aberto)** intencionalmente diferente do Sankhya manual ('L'). Facilita consolidação + edição posterior. Operador finaliza manualmente se quiser.
+- **OBSERVACAO fixa** "Ajuste de Estoque - IAgro/Rastreio" (sem qtd/lote no texto — detalhe vai no TGFITE).
+- **B5 — View `ANDRE_IAGRO_SALDO_LOTE`** ganhou TOP 33 em `baixas_avaria` + `perna_d`. Antes só conhecia TOP 30 (criada antes da feature TOP 33). Saldo do lote agora desconta avarias TOP 33 corretamente nas pernas A/B. Necessário aceitar `STATUSNOTA <> 'E'` (não só 'L') porque TOP 33 IAgro fica em 'P'.
+- **Endpoint** `POST /sankhya/rastreio/api/zerar-fracao/` aceita `{codprod, codagregacao, qtd?}`.
+- **Desktop**: botão broom à esquerda do nome do produto/parceiro quando card selecionado (`.linha-ativa`). Visível em qualquer saldo > 0. Prompt nativo pede qtd + `IAgro.confirmarAcao`.
+- **Mobile**: **swipe-direita** no card de lote (60px reveal, threshold 30px) revela botão âmbar `ph-broom`. Swipe-esquerda continua armar+olho (88px). Atualização local imediata do `ESTADO.lotesData`.
 - **TGFCAB TOP 33 CODNAT 20010200** (mesmo da TOP 30; smoke confirmou TOP 33 já existe no Sankhya da Agromil, usada 269× nativamente). TGFITE preserva `CODAGREGACAO` (diferente do uso nativo Sankhya que deixa NULL).
-- **VLRUNIT do vale TOP 13** lido pra documentar custo da perda em VLRTOT da TGFITE TOP 33 (audit contábil).
-- **Tests**: `ZerarFracaoLoteServiceTest` (10) + `ApiRastreioZerarFracaoEndpointTest` (8) = 18 tests, todos verdes. Removidos os testes da trava (`test_saldo_acima_da_tolerancia_recusa`); adicionados testes de saldo grande aceito + qtd parcial + qtd negativa/inválida/acima do saldo.
+- **Tests**: `ZerarFracaoLoteServiceTest` (11) + `ApiRastreioZerarFracaoEndpointTest` (9) = 20 verdes. Inclui `test_lote_classificado_codprod_diferente_da_top11` (regressão do bug origem) + `test_consolida_cab_existente_mesmo_parceiro_dia` (valida reuso de NUNOTA).
 
 Detalhes em [`modules/rastreio.md`](.claude/modules/rastreio.md) → "Avaria de Ajuste (TOP 33)".
 

@@ -190,7 +190,7 @@ View dedicada do WMS, **não toca `TGFEST` nativa do Sankhya**. Toda aritmética
 | A | `CLASSIFICADO` | TOP 26 (lotes que têm classificação confirmada) | ✅ |
 | B | `NAO_CLASSIFICAVEL` | TOP 13 (lotes que NÃO têm TOP 26) | ✅ |
 | C | `AGUARDANDO_CLASSIFICACAO` | TOP 11 com `GERAPRODUCAO='S'` ainda sem TOP 26 (qtd pendente = `QTDNEG − AD_QTDAVARIA − Σ TOP 26`) | ❌ |
-| D | `AVARIA_INTERNA` | TOP 30 (perda no estoque) | ❌ |
+| D | `AVARIA_INTERNA` | TOP 30 + **TOP 33** (perda comercial OU ajuste contábil de desidratação — Mai/2026 — 2026-05-28) | ❌ |
 | E | `AVARIA_FORNECEDOR` | `AD_QTDAVARIA` da TOP 11 (descarte da classificação repassado ao fornecedor) | ❌ |
 | F | `DEVOLVIDO` | TOP 36 STATUSNOTA='L' com `CODAGREGACAO` preservado (cliente devolveu — Mai/2026) | ❌ (informativo; SOMA ao saldo das pernas A/B) |
 
@@ -200,13 +200,15 @@ View dedicada do WMS, **não toca `TGFEST` nativa do Sankhya**. Toda aritmética
 QTD_DISPONIVEL = ENTRADA
                + Σ TOP 36 confirmadas (devolvido — Mai/2026)
                − BAIXA_VENDA (ver detalhe abaixo)
-               − Σ TOP 30 confirmadas
+               − Σ TOP 30 + TOP 33 com STATUSNOTA <> 'E'  ← Mai/2026 — 2026-05-28
                − Σ TOP 34 abertas (STATUSNOTA NOT IN ('L','E'))
 ```
 
 **BAIXA_VENDA (Mai/2026 — rastreabilidade no pedido):** UNIÃO deduplicada de duas fontes:
 1. **TOP 34 STATUSNOTA='L'** com `CODAGREGACAO` (verdade IAgro — pedido faturado vinculado pela tela)
 2. **TOP 35/37 STATUSNOTA='L'** com `CODAGREGACAO`, **somente quando** o item origem via TGFVAR não tem lote no pedido (fallback pra vínculos feitos direto pelo Sankhya nativo, sem duplicar)
+
+**BAIXA_AVARIA (Mai/2026 — 2026-05-28):** soma TOP 30 + TOP 33 com `STATUSNOTA <> 'E'`. Antes da revisão de Mai/2026 — 2026-05-28, a CTE `baixas_avaria` filtrava apenas `CODTIPOPER = 30 AND STATUSNOTA = 'L'`, ignorando completamente TOP 33 (Avaria de Ajuste). Como TOP 33 IAgro fica em `STATUSNOTA = 'P'` (decisão operador 2026-05-28), o filtro foi relaxado pra `<> 'E'` cobrindo ambos os estados ('L' nativo Sankhya + 'P' IAgro). TOP 30 (perda comercial) e TOP 33 (ajuste de desidratação) compartilham a mesma `CODNAT = 20010200` ("AVARIA") e descontam saldo das pernas A/B nas mesmas condições.
 
 ### Decisões de agregação
 

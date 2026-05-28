@@ -207,6 +207,38 @@ Smoke validou em Mai/2026 (2026-05-26) que TOP 33 já existe no Sankhya da Agrom
 
 Diferença da TOP 30: TOP 30 é avaria de **perda comercial** (saiu mas estragou — caso típico: 8 kg de tomate esquecido na câmara, vai pro lixo); TOP 33 é **ajuste contábil de desidratação** (gramas a mais que foram enviadas pra compensar perda de umidade, sobraram contabilmente). Mesma natureza, semânticas distintas — Comercial usa TOP 30 manual no módulo Venda; Rastreio usa TOP 33 automática no botão broom.
 
+### Consolidação por parceiro/dia (Mai/2026 — 2026-05-28)
+
+Operador decisão: TGFCAB TOP 33 do **mesmo CODPARC + mesmo dia** consolida em 1 nota só. Mesmo que sejam lotes diferentes ou produtos diferentes, vão pra mesma CAB como TGFITEs separados. Reduz pulverização de notas.
+
+```sql
+-- Antes de criar TGFCAB nova, busca existente:
+SELECT NUNOTA FROM (
+    SELECT NUNOTA
+      FROM TGFCAB
+     WHERE CODTIPOPER = 33
+       AND CODPARC    = :p
+       AND TRUNC(DTNEG) = TRUNC(SYSDATE)
+       AND STATUSNOTA  <> 'E'
+     ORDER BY NUNOTA DESC
+) WHERE ROWNUM = 1
+```
+
+- Se acha → reusa NUNOTA, INSERT TGFITE adicional, recalcula totais. **NÃO chama `inserir_cabecalho_nota_banco`** (audit registra `cab_reusada=True`)
+- Se não acha → cria CAB nova
+- **Mesmo parceiro, dias diferentes** → CABs diferentes (consulta filtra por `TRUNC(DTNEG)=TRUNC(SYSDATE)`)
+
+Padrão confirmado em smoke histórico Sankhya — TGFCAB TOP 33 com múltiplos TGFITE existe naturalmente (ex: NUNOTA 9831 com 3 itens). Trigger Sankhya aceita INSERT de TGFITE em CAB TOP 33 sem problemas.
+
+### STATUSNOTA='P' (em aberto) — Mai/2026 — 2026-05-28
+
+Decisão do operador: TGFCAB TOP 33 IAgro fica em **`STATUSNOTA='P'`** (em aberto), não `'L'` (liberada). Motivos:
+- Facilita consolidação (CAB 'L' às vezes precisa UPDATE temporário, gotcha do trigger)
+- Permite edição/correção posterior se necessário
+- Operador finaliza manualmente quando achar conveniente (ou via cron noturno futuro)
+
+Diferença com Sankhya nativo (que finaliza 'L' direto) é **intencional** — IAgro consolida, Sankhya não consolida.
+
 ### Estrutura criada
 
 ```python
@@ -219,24 +251,47 @@ def zerar_fracao_lote_banco(
        - qtd_avaria None ou >= saldo → saldo todo
        - 0 < qtd_avaria < saldo      → parcial
        - inválido                    → erro
-    3. SELECT cabeçalho TOP 11 origem (herda CODEMP, CODPARC, CODTIPVENDA, etc)
-    4. SELECT VLRUNIT do vale TOP 13 (custo médio do lote)
-    5. INSERT TGFCAB TOP 33 STATUSNOTA='L' direto
-       CODNAT=20010200, CODTIPVENDA herdada (trigger TRG_INC_TGFCAB exige)
-       AD_NUMPEDIDOORIG = NUNOTA TOP 11 (rastreabilidade)
-       OBSERVACAO = 'Ajuste de fração do lote XXX (Y kg)'
-    6. INSERT TGFITE com CODAGREGACAO preservado
-       QTDNEG = qtd_zerada (saldo todo ou parcial)
-       VLRUNIT = VLRUNIT do vale TOP 13 (documenta custo da perda)
-       VLRTOT = qtd × VLRUNIT
-    7. recalcular_totais_nota_banco
-    8. Invalida cache Rastreio
-    9. Audit ZERAR_FRACAO_LOTE em AD_AUDITORIA_GERAL
-       (snapshot inclui qtd_zerada, qtd_disponivel_antes, avaria_parcial)
+    3. SELECT cabeçalho TOP 11 origem (herda CODEMP, CODPARC, CODTIPVENDA)
+       — sem filtro CODPROD (fix 2026-05-28 — vide gotcha "Query origem
+       TOP 11 exigia match CODPROD")
+    4. SELECT CODVOL do TGFITE em qualquer TOP 11/13/26
+       (CODPROD pode diferir em lotes classificados)
+    5. CONSOLIDAÇÃO: busca TGFCAB TOP 33 existente do mesmo CODPARC + dia
+       - Se acha → reusa NUNOTA, pula INSERT TGFCAB
+       - Se não acha → cria TGFCAB nova com:
+           STATUSNOTA = 'P' (em aberto, paridade decisão operador)
+           OBSERVACAO = 'Ajuste de Estoque - IAgro/Rastreio' (fixo)
+           CODUSU populado, CODNAT=20010200
+    6. SELECT VLRUNIT da TGFITE TOP 11 raiz do lote (custo de aquisição)
+       — exclusivo da TOP 11; sem fallback TOP 13 (decisão operador
+       2026-05-28). Avaria contábil documenta perda pelo custo de compra.
+    7. INSERT TGFITE com CODAGREGACAO preservado, VLRTOT=qtd×vlrunit_top11
+       (inserir_item_nota_banco grava QTDCONFERIDA=0 + USOPROD da TGFPRO
+        em TOP 33 — paridade com Sankhya manual)
+    8. recalcular_totais_nota_banco
+    9. Invalida cache Rastreio
+    10. Audit ZERAR_FRACAO_LOTE em AD_AUDITORIA_GERAL
+        (snapshot inclui qtd_zerada, qtd_disponivel_antes, avaria_parcial,
+         cab_reusada)
     """
 ```
 
 **Importante**: TGFITE TOP 33 nativa Sankhya tem `CODAGREGACAO = NULL` em 100% dos casos históricos. IAgro **força CODAGREGACAO preservado** pra manter rastreabilidade ponta-a-ponta — mesmo padrão da TOP 30 automática.
+
+### View `ANDRE_IAGRO_SALDO_LOTE` desconta TOP 33 (Mai/2026 — 2026-05-28)
+
+Bug histórico: view e tabela materializada **só conheciam TOP 30** (criadas antes da feature TOP 33). TGFITE TOP 33 era inserida no Oracle mas a view ignorava — saldo do lote não diminuía visualmente, operador acreditava que a avaria "não salvou" mesmo com status 200.
+
+**Fix B5**: CTE `baixas_avaria` e `perna_d` da view ganharam:
+- `CODTIPOPER IN (30, 33)` — antes só `= 30`
+- `STATUSNOTA <> 'E'` — antes só `= 'L'`. Necessário porque TOP 33 IAgro fica em `'P'`
+
+Aplicação:
+1. Editar `sankhya_integration/sql/ANDRE_IAGRO_SALDO_LOTE.sql`
+2. `CREATE OR REPLACE VIEW` no Oracle
+3. `python manage.py refresh_saldo_lote` (atualiza materializada)
+
+Após o fix, TOP 33 desconta saldo automaticamente nas pernas A (CLASSIFICADO) e B (NAO_CLASSIFICAVEL).
 
 ### Endpoint + frontend
 

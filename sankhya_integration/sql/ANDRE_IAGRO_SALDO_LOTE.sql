@@ -13,7 +13,8 @@
 --   B) NAO_CLASSIFICAVEL         → fonte TOP 13 (lote NÃO tem TOP 26)
 --   C) AGUARDANDO_CLASSIFICACAO  → in natura pendente:
 --                                  QTDNEG(TOP11) − AD_QTDAVARIA − Σ QTDNEG(TOP26)
---   D) AVARIA_INTERNA            → fonte TOP 30 (informativo, perda no estoque)
+--   D) AVARIA_INTERNA            → fontes TOP 30 + TOP 33 (informativo, perda
+--                                  comercial OU ajuste contábil — desidratação)
 --   E) AVARIA_FORNECEDOR         → fonte AD_QTDAVARIA da TOP 11 (informativo,
 --                                  descarte da classificação repassado ao fornecedor)
 --   F) DEVOLVIDO                 → fonte TOP 36 (informativo, devolução do cliente
@@ -21,7 +22,9 @@
 --
 -- Baixas, reservas e retornos que ajustam QTD_DISPONIVEL nas pernas A e B:
 --   QTD_BAIXADA_VENDA  = baixa de venda (ver detalhe abaixo)
---   QTD_BAIXADA_AVARIA = Σ QTDNEG  TOP 30    com STATUSNOTA = 'L'
+--   QTD_BAIXADA_AVARIA = Σ QTDNEG  TOP 30 + TOP 33  com STATUSNOTA <> 'E'
+--                        (TOP 30 nativa Sankhya finaliza em 'L';
+--                         TOP 33 IAgro permanece em 'P' — vide modules/rastreio.md)
 --   QTD_RESERVADA      = Σ QTDNEG  TOP 34    com STATUSNOTA NOT IN ('L','E')
 --   QTD_DEVOLVIDA      = Σ QTDNEG  TOP 36    com STATUSNOTA = 'L'  (SOMA ao saldo)
 --
@@ -132,13 +135,17 @@ WITH
   ),
 
   baixas_avaria AS (
+    -- Mai/2026 (2026-05-28): inclui TOP 33 (Avaria de Ajuste) além da TOP 30
+    -- (Avaria Interna). Aceita STATUSNOTA <> 'E' porque TGFCAB TOP 33 do IAgro
+    -- fica em 'P' (decisão operador 2026-05-28 — facilita consolidação +
+    -- edição). Sankhya nativo TOP 30 finaliza em 'L'; ambas descontam saldo.
     SELECT
       i.CODPROD, i.CODAGREGACAO,
       SUM(NVL(i.QTDNEG, 0)) AS QTD_BAIXADA_AVARIA
     FROM TGFITE i
     JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
-    WHERE c.CODTIPOPER     = 30
-      AND c.STATUSNOTA     = 'L'
+    WHERE c.CODTIPOPER IN (30, 33)
+      AND c.STATUSNOTA  <> 'E'
       AND i.CODAGREGACAO IS NOT NULL
     GROUP BY i.CODPROD, i.CODAGREGACAO
   ),
@@ -237,9 +244,11 @@ WITH
   ),
 
   -- -------------------------------------------------------------------------
-  -- PERNA D — AVARIA_INTERNA (fonte TOP 30, informativa)
+  -- PERNA D — AVARIA_INTERNA (fontes TOP 30 + TOP 33, informativa)
   -- A baixa de fato no QTD_DISPONIVEL acontece via baixas_avaria nas pernas A/B.
   -- Esta linha é mantida na view para uso futuro (Opção B na UI) ou relatórios.
+  -- Mai/2026 (2026-05-28): inclui TOP 33 (Avaria de Ajuste) — semanticamente
+  -- equivalente à TOP 30 pra fins de saldo. Aceita STATUSNOTA <> 'E'.
   -- -------------------------------------------------------------------------
   perna_d AS (
     SELECT
@@ -251,8 +260,8 @@ WITH
       0                             AS QTD_PENDENTE
     FROM TGFITE i30
     JOIN TGFCAB c30 ON c30.NUNOTA = i30.NUNOTA
-    WHERE c30.CODTIPOPER     = 30
-      AND c30.STATUSNOTA     = 'L'
+    WHERE c30.CODTIPOPER  IN (30, 33)
+      AND c30.STATUSNOTA  <> 'E'
       AND i30.CODAGREGACAO IS NOT NULL
     GROUP BY i30.CODEMP, i30.CODPROD, i30.CODAGREGACAO
   ),

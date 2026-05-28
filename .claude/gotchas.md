@@ -295,6 +295,100 @@ Sequência atual da Entrada Mobile (Mai/2026 — 2026-05-27): CSS `?v=35` · JS 
 
 ---
 
+## `zerar_fracao_lote_banco` — query origem TOP 11 exigia match exato de CODPROD (Mai/2026 — 2026-05-28)
+
+Bug histórico afetava **100% dos lotes hortifrúti classificáveis**. A função busca a TGFCAB TOP 11 raiz do lote pra herdar `CODEMP/CODPARC/CODTIPVENDA` no INSERT da TGFCAB TOP 33. A query antiga fazia JOIN em uma operação só:
+
+```sql
+SELECT c.CODEMP, c.CODPARC, c.CODCENCUS, c.DTNEG, c.CODTIPVENDA,
+       i.CODVOL, NVL(i.PESO, 1)
+  FROM TGFCAB c JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+ WHERE c.NUNOTA = :n11 AND c.CODTIPOPER = 11
+   AND c.STATUSNOTA <> 'E'
+   AND i.CODPROD = :prod    -- ❌ exige match exato
+   AND i.CODAGREGACAO = :lote
+   AND ROWNUM = 1
+```
+
+Em hortifrúti classificável (fluxo TOP 11 → 26 → 13 → 33 → 35), o CODPROD muda na Classificação:
+- TGFITE TOP 11 raiz: CODPROD=863 (TOMATE in natura)
+- TGFITE TOP 26: CODPROD=351 (TOMATE EXTRA classificado)
+- TGFITE TOP 33 sendo criada: CODPROD=351 (mesmo do classificado)
+
+A query buscava NUNOTA 113821 TOP 11 + CODPROD=351 → **0 linhas** → erro `"Item TOP 11 origem do lote XXX não encontrado"`. Apenas lotes não-classificáveis (CODPROD igual em TOP 11/13) escapavam do bug.
+
+**Fix**: SELECT em 2 queries:
+
+```sql
+-- 1. Cabeçalho TOP 11 (sem filtro CODPROD)
+SELECT c.CODEMP, c.CODPARC, c.CODCENCUS, c.DTNEG, c.CODTIPVENDA
+  FROM TGFCAB c
+ WHERE c.NUNOTA = :n11 AND c.CODTIPOPER = 11
+   AND c.STATUSNOTA <> 'E'
+   AND ROWNUM = 1
+
+-- 2. CODVOL do item (aceita qualquer TOP 11/13/26 com o mesmo CODPROD+lote)
+SELECT i.CODVOL
+  FROM TGFITE i JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+ WHERE i.CODPROD = :prod AND i.CODAGREGACAO = :lote
+   AND c.STATUSNOTA <> 'E'
+   AND c.CODTIPOPER IN (11, 13, 26)
+   AND ROWNUM = 1
+```
+
+**Lição arquitetural**: ao herdar metadata de cabeçalho que mudará de produto na cadeia (in natura → classificado), separe a query de cabeçalho da query de item. Use JOINs simples por documento (NUNOTA) ou por lote (CODAGREGACAO) — não por (NUNOTA, CODPROD) que assume invariante errada.
+
+Test de regressão: `ZerarFracaoLoteServiceTest::test_lote_classificado_codprod_diferente_da_top11`.
+
+---
+
+## View `ANDRE_IAGRO_SALDO_LOTE` só conhecia TOP 30 — saldo não diminuía após TOP 33 (Mai/2026 — 2026-05-28)
+
+Bug **silencioso e crítico** descoberto via diagnóstico de campo. Operador relatou: "INSERT TGFITE acontece no Oracle (vejo via SQL), backend retorna 200 OK, frontend mostra qtd diminuindo no card, mas ao atualizar a página saldo volta pro original — não está descontando".
+
+**Causa**: a view foi criada em Mai/2026 (2026-05-26) sem considerar TOP 33 (Avaria de Ajuste — feature mais recente). As CTEs `baixas_avaria` e `perna_d` filtravam apenas `CODTIPOPER = 30 AND STATUSNOTA = 'L'`:
+
+```sql
+-- ❌ Antes
+baixas_avaria AS (
+  SELECT i.CODPROD, i.CODAGREGACAO,
+         SUM(NVL(i.QTDNEG, 0)) AS QTD_BAIXADA_AVARIA
+    FROM TGFITE i JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+   WHERE c.CODTIPOPER = 30 AND c.STATUSNOTA = 'L'
+     AND i.CODAGREGACAO IS NOT NULL
+   GROUP BY i.CODPROD, i.CODAGREGACAO
+)
+```
+
+TGFITE TOP 33 era inserido com sucesso, mas a view ignorava → `QTD_DISPONIVEL` continuava igual.
+
+Adicionalmente, **TOP 33 IAgro fica em `STATUSNOTA = 'P'`** (decisão operador 2026-05-28 pra facilitar consolidação + edição). Filtro `STATUSNOTA = 'L'` excluiria TOP 33 mesmo se a CTE incluísse `CODTIPOPER = 33`.
+
+**Fix (Cat B aplicada)**: relaxar ambas as condições:
+
+```sql
+-- ✅ Depois
+baixas_avaria AS (
+  ...
+  WHERE c.CODTIPOPER IN (30, 33)
+    AND c.STATUSNOTA <> 'E'           -- aceita 'L' (nativo) ou 'P' (IAgro)
+    AND i.CODAGREGACAO IS NOT NULL
+  ...
+)
+```
+
+Mesma mudança em `perna_d` (perna informativa do saldo). DDL versionada em [`ANDRE_IAGRO_SALDO_LOTE.sql`](../sankhya_integration/sql/ANDRE_IAGRO_SALDO_LOTE.sql). Após `CREATE OR REPLACE VIEW`, rodar `python manage.py refresh_saldo_lote` pra atualizar a materializada `AD_SALDO_LOTE_CACHE`.
+
+**Lição operacional**: ao adicionar nova TOP que afeta saldo, **sempre verificar a view dedicada e a tabela materializada** se há filtro hardcoded de `CODTIPOPER`. Checklist:
+
+1. Existe nova TOP que descontá saldo de lote? Atualize `baixas_avaria` + `perna_d` (avaria) OU `baixas_venda` (venda).
+2. Filtro de STATUSNOTA bate com o estado em que a nova TOP fica? Se IAgro deixa em 'P', use `<> 'E'`.
+3. Após DDL, refresh manual da materializada via `python manage.py refresh_saldo_lote`.
+
+Test de regressão Cat A é difícil (mock da view) — confiar no smoke real após aplicar DDL: `SELECT QTD_BAIXADA_AVARIA FROM ANDRE_IAGRO_SALDO_LOTE WHERE CODAGREGACAO=:lote`.
+
+---
+
 ## Linter aponta `rapidfuzz` como módulo ausente — falso positivo
 
 Quando o Antigravity (ou outro IDE) está com **interpreter setado para o Python do sistema** (ex: `C:\Users\ANDRE\AppData\Local\Programs\Python\Python313\`) ao invés do venv do projeto (`.venv\Scripts\python.exe`), o linter olha apenas as packages do Python sistema — onde `rapidfuzz` (e demais deps do `requirements.txt`) **não estão instaladas**.

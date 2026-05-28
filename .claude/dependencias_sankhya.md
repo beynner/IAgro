@@ -826,12 +826,15 @@ CODTIPOPER = {
 }
 ```
 
-**TOP 33 — Avaria de Ajuste** (Mai/2026 — 2026-05-26):
+**TOP 33 — Avaria de Ajuste** (Mai/2026 — 2026-05-26, revisada 2026-05-28):
 - Confirmada via smoke real (`SELECT * FROM TGFTOP WHERE CODTIPOPER=33`)
 - `DESCROPER='AVARIA DE AJUSTE'`, `TIPMOV='V'`, `ATIVO='S'`, `DHALTER=2020-03-02`
 - Uso histórico: **269 notas** TOP 33 já criadas pelo Sankhya nativo
-- Usada pela IAgro em `zerar_fracao_lote_banco` (módulo Rastreio) — destina-se a ajustes contábeis de fração residual de lote (caixa cheia enviada vs pedido fracionário)
+- Usada pela IAgro em `zerar_fracao_lote_banco` (módulo Rastreio) — destina-se a ajustes contábeis de desidratação de hortifrúti (sobra natural de 1-10 kg quando vínculo de pedido fica completo)
 - TGFITE TOP 33 nativa Sankhya tem `CODAGREGACAO=NULL` em 100% dos casos históricos; IAgro **força CODAGREGACAO preservado** pra rastreabilidade
+- **STATUSNOTA do IAgro fica em `'P'`** (decisão operador 2026-05-28) — diferente do Sankhya nativo que finaliza em `'L'`. Facilita consolidação de avarias do mesmo parceiro/dia + edição posterior.
+- **Consolidação** (Mai/2026 — 2026-05-28): TGFCAB do mesmo `CODPARC` + `TRUNC(DTNEG)=TRUNC(SYSDATE)` é reusada — novas avarias adicionam TGFITE em vez de criar CAB nova. Mesmo lote/produto diferentes vão pra mesma CAB. Padrão confirmado em smoke histórico Sankhya (NUNOTA 9831 com 3 TGFITEs inseridos 9 dias após DTFATUR — INSERT em CAB 'L' é permitido pelo trigger).
+- **View `ANDRE_IAGRO_SALDO_LOTE` desconta TOP 33** desde Mai/2026 — 2026-05-28 (B5). CTEs `baixas_avaria` + `perna_d` ganharam `CODTIPOPER IN (30, 33)` + `STATUSNOTA <> 'E'`. Antes só conhecia TOP 30 — saldo do lote não diminuía após avaria TOP 33 (bug silencioso).
 
 ### 6.2 STATUSNOTA (Estados da Nota)
 
