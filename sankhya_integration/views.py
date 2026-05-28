@@ -4232,17 +4232,19 @@ def api_rastreio_desvincular_lote(request: HttpRequest) -> JsonResponse:
 @require_http_methods(["POST"])
 @exige_grupo('rastreio')
 def api_rastreio_zerar_fracao(request: HttpRequest) -> JsonResponse:
-    """Mai/2026 (2026-05-26) — Zera fração residual de um lote criando
-    TGFCAB TOP 33 (Avaria de Ajuste) automática.
+    """Mai/2026 (2026-05-26, revisado 2026-05-28) — Cria TGFCAB TOP 33
+    (Avaria de Ajuste) descontando saldo do lote.
 
-    Caso de uso: pedido pediu 19 kg, operação enviou 20 kg (caixa cheia)
-    e o lote ficou com 1 kg fantasma. Operador chama esse endpoint pelo
-    botão "Zerar fração" do card de lote.
+    Caso de uso típico: desidratação de frutas/verduras gera resíduo
+    natural ao final de um lote (1-10 kg sobrando). Operador zera pelo
+    botão broom (desktop) ou swipe-direita (mobile).
 
-    Trava (defesa em profundidade): só zera quando saldo <= 1% da qtd que
-    entrou no lote (TOP 11 origem). Avarias maiores devem usar fluxo TOP 30.
+    Mai/2026 (2026-05-28): trava de 1% removida — operador decide quando
+    e quanto avariar. Cada uso registrado em AD_AUDITORIA_GERAL.
 
-    Body JSON: {codprod, codagregacao}
+    Body JSON: {codprod, codagregacao, qtd?}
+      - qtd ausente ou >= saldo → zera saldo todo
+      - 0 < qtd < saldo        → avaria parcial
     """
     dados = _get_json_payload(request)
     if not dados:
@@ -4250,6 +4252,22 @@ def api_rastreio_zerar_fracao(request: HttpRequest) -> JsonResponse:
 
     codprod      = _converter_para_inteiro(dados.get('codprod'))
     codagregacao = (dados.get('codagregacao') or '').strip()
+
+    qtd_raw = dados.get('qtd')
+    qtd_avaria = None
+    if qtd_raw not in (None, '', 0, '0'):
+        try:
+            qtd_avaria = float(qtd_raw)
+        except (TypeError, ValueError):
+            return JsonResponse(
+                {"ok": False, "error": f"qtd inválida: {qtd_raw!r}"},
+                status=400,
+            )
+        if qtd_avaria <= 0:
+            return JsonResponse(
+                {"ok": False, "error": "qtd deve ser > 0"},
+                status=400,
+            )
 
     if not codprod or not codagregacao:
         return JsonResponse(
@@ -4263,9 +4281,10 @@ def api_rastreio_zerar_fracao(request: HttpRequest) -> JsonResponse:
             codagregacao=codagregacao,
             codusu=request.session.get('codusu'),
             nomeusu=request.session.get('nomeusu') or '',
+            qtd_avaria=qtd_avaria,
         )
         if not res.get('ok'):
-            res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao zerar fração')
+            res['error'] = humanizar_erro_oracle(res.get('error') or 'Falha ao gerar avaria de ajuste')
             return JsonResponse(res, status=400)
         return JsonResponse(res)
     except Exception as e:

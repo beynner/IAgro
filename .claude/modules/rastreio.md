@@ -16,7 +16,7 @@ A alocação de lote a pedido é feita gravando `CODAGREGACAO` no `TGFITE` do pe
 - Listar pedidos abertos (TOP 34) com falta por produto
 - Vincular lote → item de pedido (atribuição parcial ou total via SPLIT)
 - Desvincular lote (remove `CODAGREGACAO`)
-- **Zerar fração residual** do lote (Mai/2026 — 2026-05-26) → cria TGFCAB TOP 33
+- **Avaria de Ajuste** do saldo (Mai/2026 — 2026-05-26, revisada 2026-05-28) → cria TGFCAB TOP 33. Aceita qtd parcial ou total; sem trava de % (operador decide)
 - Filtro cruzado bidirecional (lote ↔ pedido)
 - Drag & drop de lote em produto-linha
 - Modais de vínculos (👁 nas linhas)
@@ -146,7 +146,7 @@ maior que 10 min.
 | `consultar_dados_etiqueta_pedido(nunota, codprod=None, pesos_overrides=None)` | Leitura — JOIN TGFCAB+TGFITE+TGFPAR+TGFPRO+TSIEMP. Inclui só linhas com `CODAGREGACAO != NULL`. **Mai/2026 (2026-05-16):** retorna `peso_resolvido` por linha em cascata — override do operador → `TGFITE.PESO` próprio → DISTINCT `PESO` da TOP 26 do mesmo lote. Se TOP 26 tem 2+ pesos, marca `precisa_escolha=True` |
 | `consultar_pesos_classificacao_lote(codagregacao)` | **Nova (Mai/2026 — 2026-05-16).** `SELECT DISTINCT PESO FROM TGFITE i JOIN TGFCAB c WHERE c.CODTIPOPER=26 AND c.STATUSNOTA<>'E' AND i.CODAGREGACAO=:l AND i.PESO>0 ORDER BY PESO DESC`. Cacheada por lote dentro de `consultar_dados_etiqueta_pedido` |
 | `calcular_qtd_etiquetas(qtd_kg, peso_caixa_kg)` | `math.ceil(qtd/peso)`. Retorna 0 se algum for ≤ 0 — frontend bloqueia impressão |
-| `zerar_fracao_lote_banco(codprod, codagregacao, codusu, nomeusu)` | **Mai/2026 — 2026-05-26 (Cat B aplicada).** Cria TGFCAB TOP 33 (Avaria de Ajuste, CODNAT 20010200) zerando saldo residual do lote. Trava: só zera quando `saldo <= qtd_entrada × 1%`. TGFITE preserva `CODAGREGACAO`. Audit `ZERAR_FRACAO_LOTE`. Vide seção "Zerar fração do lote — TOP 33" abaixo |
+| `zerar_fracao_lote_banco(codprod, codagregacao, codusu, nomeusu, qtd_avaria=None)` | **Mai/2026 — 2026-05-26 (Cat B aplicada, revisada 2026-05-28).** Cria TGFCAB TOP 33 (Avaria de Ajuste, CODNAT 20010200) descontando saldo do lote. `qtd_avaria=None` → zera saldo todo; `0 < qtd < saldo` → avaria parcial. **Trava de 1% removida** (2026-05-28) — operador decide. TGFITE preserva `CODAGREGACAO`. Audit `ZERAR_FRACAO_LOTE`. Vide seção "Avaria de Ajuste (TOP 33)" abaixo |
 
 ---
 
@@ -162,38 +162,35 @@ maior que 10 min.
 
 ---
 
-## Zerar fração do lote — TOP 33 (Mai/2026 — 2026-05-26)
+## Avaria de Ajuste (TOP 33) — Mai/2026 — 2026-05-26, revisada 2026-05-28
 
-Operação rotineira: pedido pede **19 kg** de tomate, operação envia **20 kg** (caixa cheia), sistema desconta 19 kg → lote fica com **1 kg fantasma** de saldo. Tela poluída com resíduos que não existem fisicamente. Botão **broom** (vassoura) no card de lote zera essa fração criando uma avaria contábil rastreada.
+Caso real da operação Agromil: **enviar gramas a mais é prática deliberada pra compensar desidratação de frutas/verduras**. Conta nunca é exata — se falta, vínculo fica 98-99% (sem problema); se sobra 1-10 kg, é resíduo natural que vira **avaria de ajuste contábil** (não é perda real de estoque, é a fração que desidratou em trânsito).
 
-### Detecção
+Operador zera/avaria parte do saldo via:
+- **Desktop**: botão broom à esquerda do nome do produto, visível quando o card está selecionado
+- **Mobile**: swipe-direita no card de lote → revela botão âmbar broom
 
-Frontend calcula `ehFracao` no render dos cards de lote:
+### Sem trava — operador decide caso a caso (Mai/2026 — 2026-05-28)
 
-```js
-ehFracao = qtd_disponivel > 0
-        && qtd_disponivel <= qtd_entrada × 1%
-```
+Versão inicial (2026-05-26) tinha trava de 1% × `qtd_entrada` — saldo acima da tolerância era recusado pelo backend ("use TOP 30 avulsa pra avaria maior"). Operador testou e relatou que a regra de 1% era muito apertada — desidratação real chega a 5-10% em produtos com alta umidade. **Trava removida em 2026-05-28**:
 
-`qtd_entrada` vem da view `AD_SALDO_LOTE_CACHE` (qtd que entrou na TOP 11 origem do lote). Tolerância **1% naturalmente proporcional** ao volume:
-
-| Tamanho do lote | Tolerância |
+| Versão | Comportamento |
 |---|---|
-| 1000 kg | 10 kg |
-| 500 kg | 5 kg |
-| 100 kg | 1 kg |
-| 50 kg | 0,5 kg |
+| 2026-05-26 | Botão broom só em saldo ≤ 1% × entrada. Backend recusa acima. |
+| 2026-05-28 | Botão broom em qualquer saldo > 0. Operador decide quanto avariar via modal. |
 
-Card com fração mostra badge âmbar `📦 fração` + classe `.lote-fracao` (borda esquerda âmbar) + botão broom.
+Audit em `AD_AUDITORIA_GERAL` registra cada uso (`ZERAR_FRACAO_LOTE`) — auditoria detecta abuso retroativamente.
 
-### Trava no backend (defesa em profundidade)
+### Qtd parcial vs total
 
-`zerar_fracao_lote_banco` valida `qtd_disponivel <= qtd_entrada × 0.01` **antes** de criar TOP 33. Se acima da tolerância (ex: 5 kg de lote 100 kg = 5%), recusa com:
+Função aceita 2 modos:
 
-```
-"Saldo X kg está acima da tolerância (Y kg = 1% de Z kg).
- Use TOP 30 avulsa pra avaria maior."
-```
+| `qtd_avaria` | Resultado |
+|---|---|
+| `None` (default) | Zera saldo todo do lote. Lote some da listagem. |
+| `0 < qtd < saldo` | Avaria parcial. Lote continua na lista com `saldo − qtd`. |
+| `qtd > saldo` | Erro `"qtd_avaria X excede saldo disponível Y"` |
+| `qtd <= 0` | Erro `"qtd_avaria deve ser > 0"` |
 
 ### TGFCAB TOP 33 — Avaria de Ajuste
 
@@ -208,15 +205,20 @@ Smoke validou em Mai/2026 (2026-05-26) que TOP 33 já existe no Sankhya da Agrom
 | `CODNAT` mais usado | **20010200** (DESCRNAT `'AVARIA'`, mesmo da TOP 30) |
 | Uso histórico | 269 notas (uso real Sankhya nativo) |
 
-Diferença da TOP 30: TOP 30 é avaria de **perda comercial** (saiu mas estragou); TOP 33 é **ajuste contábil** (diferença pequena entre o que o sistema diz e o físico). Mesma natureza, semântica diferente.
+Diferença da TOP 30: TOP 30 é avaria de **perda comercial** (saiu mas estragou — caso típico: 8 kg de tomate esquecido na câmara, vai pro lixo); TOP 33 é **ajuste contábil de desidratação** (gramas a mais que foram enviadas pra compensar perda de umidade, sobraram contabilmente). Mesma natureza, semânticas distintas — Comercial usa TOP 30 manual no módulo Venda; Rastreio usa TOP 33 automática no botão broom.
 
 ### Estrutura criada
 
 ```python
-def zerar_fracao_lote_banco(codprod, codagregacao, codusu, nomeusu) -> dict:
+def zerar_fracao_lote_banco(
+    codprod, codagregacao, codusu, nomeusu, qtd_avaria=None,
+) -> dict:
     """
     1. SELECT qtd_disponivel + qtd_entrada da view AD_SALDO_LOTE_CACHE
-    2. Valida saldo <= entrada × 1% (defesa em profundidade)
+    2. Resolve qtd_zerada:
+       - qtd_avaria None ou >= saldo → saldo todo
+       - 0 < qtd_avaria < saldo      → parcial
+       - inválido                    → erro
     3. SELECT cabeçalho TOP 11 origem (herda CODEMP, CODPARC, CODTIPVENDA, etc)
     4. SELECT VLRUNIT do vale TOP 13 (custo médio do lote)
     5. INSERT TGFCAB TOP 33 STATUSNOTA='L' direto
@@ -224,12 +226,13 @@ def zerar_fracao_lote_banco(codprod, codagregacao, codusu, nomeusu) -> dict:
        AD_NUMPEDIDOORIG = NUNOTA TOP 11 (rastreabilidade)
        OBSERVACAO = 'Ajuste de fração do lote XXX (Y kg)'
     6. INSERT TGFITE com CODAGREGACAO preservado
-       QTDNEG = saldo residual
+       QTDNEG = qtd_zerada (saldo todo ou parcial)
        VLRUNIT = VLRUNIT do vale TOP 13 (documenta custo da perda)
-       VLRTOT = saldo × VLRUNIT
+       VLRTOT = qtd × VLRUNIT
     7. recalcular_totais_nota_banco
     8. Invalida cache Rastreio
     9. Audit ZERAR_FRACAO_LOTE em AD_AUDITORIA_GERAL
+       (snapshot inclui qtd_zerada, qtd_disponivel_antes, avaria_parcial)
     """
 ```
 
@@ -239,20 +242,19 @@ def zerar_fracao_lote_banco(codprod, codagregacao, codusu, nomeusu) -> dict:
 
 | Componente | Detalhe |
 |---|---|
-| `POST /sankhya/rastreio/api/zerar-fracao/` | Body `{codprod, codagregacao}`. `@exige_grupo('rastreio')` |
-| Badge `📦 fração` | `<span class="badge-fracao-lote">` âmbar inline na coluna QTD |
-| Botão broom | `<button class="btn-zerar-fracao">` com ícone `ph-broom` |
-| Modal de confirmação | Via `IAgro.confirmarAcao({tipo: 'aviso'})` mostrando qtd + produto + lote |
-| `zerarFracaoDoLote(lote)` | Handler JS: POST → toast verde → `carregarLotes(true)` (lote some) |
+| `POST /sankhya/rastreio/api/zerar-fracao/` | Body `{codprod, codagregacao, qtd?}`. `qtd` opcional. `@exige_grupo('rastreio')` |
+| Desktop — botão broom | `<button class="btn-zerar-fracao">` com ícone `ph-broom`. Aparece à **esquerda do nome do produto/parceiro** quando linha está selecionada (`.linha-ativa`). Sempre disponível em saldo > 0 |
+| Desktop — modal de qtd | `window.prompt` pede qtd (default = saldo todo) → `IAgro.confirmarAcao` confirma parcial vs total → POST |
+| Mobile — swipe-direita | 60px na lado esquerdo do card. Botão âmbar `ph-broom`. Threshold 30px (50% do reveal). Não interfere com swipe-esquerda (armar + olho 88px) |
+| Mobile — modal de qtd | `window.prompt` pede qtd → `IAgro.confirmarAcao` confirma → POST → atualização local imediata do `ESTADO.lotesData` (sem refresh-saldo automático) |
 | `CODNAT_POR_TOP[33] = 20010200` | Adicionado ao dict canônico em `oracle_conn.py` |
-| `TOLERANCIA_FRACAO_LOTE_PCT = 0.01` | Constante de módulo em `oracle_conn.py` |
 
 ### Manual, não automático
 
 **Operador decide caso a caso**:
-- Cada zerada é uma decisão humana auditada (`ZERAR_FRACAO_LOTE` em `AD_AUDITORIA_GERAL` registra quem zerou e quando).
-- Reversível mentalmente — se a regra de tolerância de 1% se mostrar errada nos primeiros dias, basta evitar clicar.
-- Sem perigo de zerar lote legítimo que tinha 1,5 kg esperando próximo pedido.
+- Cada uso é decisão humana auditada (`ZERAR_FRACAO_LOTE` em `AD_AUDITORIA_GERAL` registra quem fez, quanto, e se foi parcial).
+- Audit log permite identificar uso atípico retroativamente — abuso fica visível.
+- Reversível mentalmente — se aparecer uso abusivo, basta avisar o operador; sem código pra mudar.
 
 Se aparecer demanda de automatizar depois (após 1-2 meses de uso), criar cron opcional vira trabalho pequeno.
 
@@ -995,6 +997,7 @@ Abre via swipe → 👁 olho num card de item ou pedido. Mostra:
 | Onde | Direção | Reveal | Botões |
 |---|---|---|---|
 | Card de lote | esquerda | 88px | 🔗 Armar (verde 44px) · 👁 Olho (azul 44px) |
+| Card de lote | **direita** (Mai/2026 — 2026-05-28) | 60px | 🧹 Avaria de Ajuste (âmbar `ph-broom`) |
 | Card de item de pedido | esquerda | 96px | 🔗 Vincular (verde 48px) · 👁 Olho (azul 48px) |
 | Card de vínculo (sheet) | esquerda | 56px | 🗑 Desvincular (vermelho 56px) |
 | Telas internas | direita (back) | 35% largura | volta uma tela |
@@ -1047,14 +1050,10 @@ CSS `?v=31` · JS `?v=28` (Mai/2026 — 2026-05-28).
 - **Vínculo manual pedido pré-existente ↔ nota órfã** — mesmo motivo.
 - **Modal completo "Pedidos/vendas usando lote"** — mobile mostra vínculos inline no detalheLote ou em sheet (suficiente pra operação básica).
 
-### Pendência registrada (Mai/2026 — 2026-05-28) — swipe-to-direita pra criar avaria
+### Swipe-direita pra Avaria de Ajuste — Mai/2026 — 2026-05-28 (implementada)
 
-Operador pediu novo gesto:
-- **Arrastar card de lote pra DIREITA** → revelar botão de avaria (vermelho/laranja, ícone `ph-warning`)
-- Toque → confirmação `"Criar avaria de X kg do lote Y?"` → cria avaria do **saldo remanescente**
+Operador arrasta card de lote pra **DIREITA** → revela botão âmbar com ícone `ph-broom` à esquerda (60px reveal, threshold 30px). Tap no botão → prompt nativo pede qtd → modal de confirmação (parcial vs zerar tudo) → POST `/api/zerar-fracao/` com `qtd`. Atualização local imediata: lote some se zerou tudo, atualiza saldo se parcial.
 
-**Decisão Cat B pendente** entre 2 caminhos:
-- **A — Relaxar a trava de 1% do `zerar_fracao_lote_banco`** (TGFCAB TOP 33). Pró: reusa código. Contra: muda semântica de "ajuste" pra "avaria total"
-- **B — Novo handler usando `criar_avaria_top30_banco`** (TGFCAB TOP 30 — Avaria Interna). Pró: TOP 30 é a TOP correta pra "perda de saldo" (já usada manualmente no módulo Venda). Mantém TOP 33 reservada pra ajustes pequenos. Contra: mais código
+**Caminho escolhido**: TGFCAB TOP 33 com trava de 1% **removida**. Razão: o caso real da operação Agromil é desidratação de hortifrúti (1-10% do volume), não perda comercial. TOP 33 (Avaria de Ajuste) é semanticamente correto — Sankhya nativo já usa essa TOP pra ajustes contábeis (269 notas históricas). TOP 30 (Avaria Interna) continua reservada pro caso real de perda comercial (operador faz manualmente no módulo Venda quando precisa).
 
-**Recomendação**: caminho **B** (TOP 30). Aguarda aprovação ponto-a-ponto pra implementar.
+**Decisão arquitetural** (registrada em audit + memory): mantida 1 TOP só pra "saldo restante esperado da operação". Botão broom no mobile (swipe-direita) e desktop (selecionado) usam mesma função `zerar_fracao_lote_banco`. Audit em `AD_AUDITORIA_GERAL` registra cada uso pra detecção retroativa de abuso.

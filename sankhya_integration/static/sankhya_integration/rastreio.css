@@ -1732,41 +1732,32 @@
     border-left: 3px solid #fb923c;
 }
 
-/* Mai/2026 (2026-05-26): Badge "fração" — saldo residual abaixo de 1% do
-   qtd_entrada do lote. Botão "broom" zera via TGFCAB TOP 33. */
-.badge-fracao-lote {
-    display: inline-block;
-    background: #fbbf24;
-    color: #78350f;
-    font-size: 9px;
-    font-weight: 700;
-    padding: 1px 5px;
-    border-radius: 10px;
-    margin-left: 4px;
-    vertical-align: middle;
-    cursor: help;
-}
-.badge-fracao-lote .ph {
-    font-size: 10px;
-    vertical-align: middle;
-    margin-right: 2px;
-}
-
-.rastreio-card.lote-fracao {
-    border-left: 3px solid #fbbf24;
-    background: #fffbeb;     /* fundo amarelo claríssimo pra destacar */
-}
-
-/* Botão "Zerar fração" (broom) — só aparece em lotes com fração */
+/* Mai/2026 (revisado 2026-05-28): Botão "Avaria de Ajuste" (broom — TOP 33).
+   Aparece à esquerda do nome do produto/parceiro em qualquer lote com
+   saldo > 0, mas só fica visível quando a linha está SELECIONADA
+   (.linha-ativa). Trava de 1% removida — operador decide caso a caso. */
 .btn-zerar-fracao {
+    order: -1;                       /* posiciona à esquerda do flex row */
     color: #b45309;
+    opacity: 0;                      /* escondido por padrão */
+    pointer-events: none;
+    width: 22px;
+    transition: opacity .14s ease, color .14s ease, background .14s ease;
+}
+.rastreio-card.compacto.linha-ativa .btn-zerar-fracao {
+    opacity: 0.85;                   /* revela ao selecionar */
+    pointer-events: auto;
 }
 .btn-zerar-fracao:hover {
     color: #fff;
     background: #d97706;
+    opacity: 1 !important;
 }
 .btn-zerar-fracao .ph {
     font-size: 14px;
+}
+.rastreio-card.compacto.linha-ativa .btn-zerar-fracao .ph {
+    font-size: 17px;
 }
 
 /* Badge de status FATURADO/ATRIBUIDO no modal de vínculos do lote */
@@ -4142,8 +4133,9 @@
     display: none !important;
 }
 
-/* ===== Wrapper do card (esconde 2 botões absolutos atrás) =====
- * Swipe esquerda revela: [ARMAR esquerda 44px · OLHO direita 44px] = 88px
+/* ===== Wrapper do card (esconde botões absolutos atrás) =====
+ * Swipe ESQUERDA revela: [ARMAR esquerda 44px · OLHO direita 44px] = 88px
+ * Swipe DIREITA  revela: [AVARIA 60px ph-broom] — Mai/2026 (2026-05-28)
  */
 .rastreio-mobile .m-ras-lote-card-wrap {
     position: relative;
@@ -4154,11 +4146,11 @@
 }
 
 .rastreio-mobile .m-ras-lote-card__swipe-armar,
-.rastreio-mobile .m-ras-lote-card__swipe-olho {
+.rastreio-mobile .m-ras-lote-card__swipe-olho,
+.rastreio-mobile .m-ras-lote-card__swipe-avaria {
     position: absolute;
     top: 0;
     bottom: 0;
-    width: 44px;
     border: none;
     color: #fff;
     font-size: 18px;
@@ -4172,6 +4164,7 @@
 
 .rastreio-mobile .m-ras-lote-card__swipe-armar {
     right: 44px;
+    width: 44px;
     background: var(--m-primary);
 }
 
@@ -4181,11 +4174,24 @@
 
 .rastreio-mobile .m-ras-lote-card__swipe-olho {
     right: 0;
+    width: 44px;
     background: var(--m-info);
 }
 
 .rastreio-mobile .m-ras-lote-card__swipe-olho:active {
     background: #1d4ed8;
+}
+
+/* Swipe-direita: avaria de ajuste (TOP 33). Botão laranja â ph-broom.
+   Mai/2026 (2026-05-28) — operador arrasta lote pra direita pra revelar. */
+.rastreio-mobile .m-ras-lote-card__swipe-avaria {
+    left: 0;
+    width: 60px;
+    background: #d97706;   /* âmbar — diferente do vermelho de perigo */
+}
+
+.rastreio-mobile .m-ras-lote-card__swipe-avaria:active {
+    background: #b45309;
 }
 
 /* ===== Card de Lote ===== */
@@ -4298,10 +4304,8 @@
     color: var(--m-primary-dark);
 }
 
-.rastreio-mobile .m-ras-badge--fracao {
-    background: var(--m-warning-soft);
-    color: var(--m-warning);
-}
+/* Badge "fração" removido Mai/2026 (2026-05-28) — trava de 1% foi removida,
+   operador decide manualmente quando gerar avaria de ajuste. */
 
 .rastreio-mobile .m-ras-badge--envelhecido {
     background: #fed7aa;

@@ -99,6 +99,18 @@ Fix: trocar `opacity: 0.85` por mudança de cor sutil (`background: #f6fbf4` ver
 
 **Regra**: nunca usar `opacity < 1` em cards que tenham elementos `position: absolute` escondidos atrás (botões swipe, etc.). Use `background-color` ou `filter: brightness()` no lugar.
 
+### Swipe bidirecional precisa 2 atributos de estado independentes (Mai/2026 — 2026-05-28)
+
+Cards do Rastreio Mobile ganharam swipe-direita (avaria de ajuste) **em adição** ao swipe-esquerda existente (armar + olho). Tentativa inicial reaproveitou só `data-swipe-open="1"` pra ambos os lados — bug imediato: abrir esquerda + tentar abrir direita não funcionava (touchmove tratava o dx contrário como "fechando o swipe atual").
+
+**Fix**: 2 atributos independentes no wrapper:
+- `data-swipe-open="1"` → swipe-esquerda aberto (armar + olho 88px)
+- `data-swipe-right="1"` → swipe-direita aberto (avaria 60px)
+
+No `touchmove`, decide `translateX` lendo qual dos 2 está aberto. No `touchend`, decide com base no `dx` final qual atributo setar. **`fecharTodosSwipesLotes()` zera os dois**. Em `setActiveScreen` + `openSheet`, ambos zerados (mesma chamada).
+
+**Regra geral**: ao adicionar swipe na outra direção num card que já tem swipe, criar **atributo de estado dedicado** (não reaproveitar o existente). Touchmove/touchend precisam ler ambos pra decidir o `translateX` correto. CSS pode reaproveitar a estrutura `position: absolute` — só os atributos JS é que são separados.
+
 ---
 
 ## Redesign Mobile — armadilhas conhecidas (Mai/2026 — 2026-05-27)

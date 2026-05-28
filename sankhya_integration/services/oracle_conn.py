@@ -4305,28 +4305,30 @@ def upsert_avaria_top30_lote(
     return {'ok': True, 'nunota_30': int(nunota_30)}
 
 
-# Tolerância (%) usada por `zerar_fracao_lote_banco` pra travar contra abuso.
-# 1% da qtd que entrou no lote (TOP 11 origem). Lote de 1000 kg → tolerância
-# 10 kg; lote de 50 kg → tolerância 0,5 kg. Naturalmente adaptativo.
-TOLERANCIA_FRACAO_LOTE_PCT = 0.01
-
-
 def zerar_fracao_lote_banco(
     codprod: int,
     codagregacao: str,
     codusu: int,
     nomeusu: str,
+    qtd_avaria: Optional[float] = None,
 ) -> dict:
-    """Mai/2026 (2026-05-26) — Zera saldo residual de um lote criando
-    TGFCAB TOP 33 (Avaria de Ajuste, CODNAT 20010200) automática.
+    """Mai/2026 (2026-05-26, revisado 2026-05-28) — Cria TGFCAB TOP 33
+    (Avaria de Ajuste, CODNAT 20010200) descontando saldo do lote.
 
-    Caso de uso: o pedido pede 19 kg, operação envia 20 kg (caixa cheia)
-    e o sistema desconta só 19 — lote fica com 1 kg fantasma. Operador
-    chama essa função pelo botão "Zerar fração" do card e o saldo zera.
+    Caso de uso típico: desidratação de frutas/verduras. Operação envia
+    algumas gramas a mais pra compensar perda de umidade — quando sobra
+    saldo de 1-10 kg no fim, vira avaria de ajuste contábil (não é perda
+    real de estoque, é resíduo natural).
 
-    Trava: só zera quando `qtd_disponivel <= qtd_entrada × TOLERANCIA_FRACAO_LOTE_PCT`
-    (default 1%). Pra avarias maiores, operador usa fluxo TOP 30 avulso
-    do módulo Venda.
+    Mai/2026 (2026-05-28): trava de 1% **removida**. Operador decide
+    manualmente quando e quanto avariar — auditoria registra cada uso
+    em AD_AUDITORIA_GERAL. Avaria real de estoque (perda comercial)
+    continua sendo decisão consciente via TOP 30 (módulo Venda).
+
+    Param `qtd_avaria`:
+      - None ou >= saldo disponível → usa saldo todo (zera lote)
+      - 0 < qtd < saldo            → avaria parcial (saldo continua > 0)
+      - <= 0                       → erro
 
     Estrutura criada (igual `upsert_avaria_top30_lote` mas pra TOP 33):
       - TGFCAB TOP 33 STATUSNOTA='L' direto, CODNAT 20010200
@@ -4336,7 +4338,7 @@ def zerar_fracao_lote_banco(
     Audit: `ZERAR_FRACAO_LOTE` em AD_AUDITORIA_GERAL.
 
     Retorna:
-      {'ok': True, 'nunota_33': int, 'qtd_zerada': float, 'tolerancia_kg': float}
+      {'ok': True, 'nunota_33': int, 'qtd_zerada': float}
       {'ok': False, 'error': str}
     """
     if not verificar_permissao_escrita():
@@ -4371,19 +4373,31 @@ def zerar_fracao_lote_banco(
             qtd_entrada    = float(row[1] or 0)
             nunota_origem  = int(row[2]) if row[2] is not None else None
 
-            if qtd_entrada <= 0:
-                return {'ok': False, 'error':
-                    f'Lote {codagregacao} sem qtd de entrada — não é possível calcular tolerância.'}
             if qtd_disponivel <= 0:
                 return {'ok': False, 'error':
                     f'Lote {codagregacao} já está zerado (saldo {qtd_disponivel:.3f}).'}
 
-            tolerancia_kg = qtd_entrada * TOLERANCIA_FRACAO_LOTE_PCT
-            if qtd_disponivel > tolerancia_kg:
-                return {'ok': False, 'error':
-                    f'Saldo {qtd_disponivel:.3f} kg está acima da tolerância '
-                    f'({tolerancia_kg:.3f} kg = 1% de {qtd_entrada:.0f} kg). '
-                    f'Use TOP 30 avulsa pra avaria maior.'}
+            # Mai/2026 — 2026-05-28: trava de 1% removida. Operador decide.
+            # `qtd_avaria` opcional: None ou >= saldo → zera lote todo;
+            # 0 < qtd < saldo → avaria parcial.
+            if qtd_avaria is None:
+                qtd_zerada = qtd_disponivel
+            else:
+                try:
+                    qtd_zerada = float(qtd_avaria)
+                except (TypeError, ValueError):
+                    return {'ok': False, 'error':
+                        f'qtd_avaria inválida: {qtd_avaria!r}'}
+                if qtd_zerada <= 0:
+                    return {'ok': False, 'error':
+                        f'qtd_avaria deve ser > 0 (recebido {qtd_zerada}).'}
+                if qtd_zerada > qtd_disponivel + 0.001:
+                    return {'ok': False, 'error':
+                        f'qtd_avaria {qtd_zerada:.3f} kg excede saldo disponível '
+                        f'{qtd_disponivel:.3f} kg.'}
+                # Tolerância de 1g pra evitar saldo residual numérico
+                if qtd_zerada > qtd_disponivel:
+                    qtd_zerada = qtd_disponivel
 
             if not nunota_origem:
                 return {'ok': False, 'error':
@@ -4423,7 +4437,7 @@ def zerar_fracao_lote_banco(
                 'STATUSNOTA': 'L',
                 'PENDENTE': 'N',
                 'AD_NUMPEDIDOORIG': nunota_origem,
-                'OBSERVACAO': f'Ajuste de fração do lote {codagregacao} ({qtd_disponivel:.3f} kg)',
+                'OBSERVACAO': f'Ajuste de fração do lote {codagregacao} ({qtd_zerada:.3f} kg)',
             }
             res_cab = inserir_cabecalho_nota_banco(
                 dados_cab_33, conexao_existente=conn,
@@ -4449,14 +4463,14 @@ def zerar_fracao_lote_banco(
             )
             row_preco = cur.fetchone()
             vlrunit_kg = float(row_preco[0]) if row_preco and row_preco[0] else 0.0
-            vlrtot = round(qtd_disponivel * vlrunit_kg, 2)
+            vlrtot = round(qtd_zerada * vlrunit_kg, 2)
 
             # 5. INSERT item da avaria (CODAGREGACAO preservado pra rastreio)
             dados_item = {
                 'NUNOTA': nunota_33,
                 'CODPROD': codprod,
                 'CODAGREGACAO': codagregacao,
-                'QTDNEG': qtd_disponivel,
+                'QTDNEG': qtd_zerada,
                 'CODVOL': codvol or 'KG',
                 'VLRUNIT': vlrunit_kg,
                 'VLRTOT': vlrtot,
@@ -4497,15 +4511,16 @@ def zerar_fracao_lote_banco(
                 'nunota_33': nunota_33,
                 'codprod': codprod,
                 'codagregacao': codagregacao,
-                'qtd_zerada': qtd_disponivel,
+                'qtd_zerada': qtd_zerada,
+                'qtd_disponivel_antes': qtd_disponivel,
                 'qtd_entrada_lote': qtd_entrada,
-                'tolerancia_kg': tolerancia_kg,
+                'avaria_parcial': qtd_zerada < qtd_disponivel,
                 'vlrtot_documentado': vlrtot,
             },
             observacao=(
-                f'Zerou fração de {qtd_disponivel:.3f} kg do lote {codagregacao} '
-                f'via TOP 33 (tolerância 1% = {tolerancia_kg:.3f} kg de '
-                f'{qtd_entrada:.0f} kg que entraram).'
+                f'Avaria de ajuste de {qtd_zerada:.3f} kg no lote {codagregacao} '
+                f'via TOP 33 (saldo disponível antes: {qtd_disponivel:.3f} kg, '
+                f'entrada total: {qtd_entrada:.0f} kg).'
             ),
         )
     except Exception:
@@ -4515,8 +4530,9 @@ def zerar_fracao_lote_banco(
     return {
         'ok': True,
         'nunota_33': nunota_33,
-        'qtd_zerada': qtd_disponivel,
-        'tolerancia_kg': tolerancia_kg,
+        'qtd_zerada': qtd_zerada,
+        'qtd_disponivel_antes': qtd_disponivel,
+        'avaria_parcial': qtd_zerada < qtd_disponivel,
     }
 
 

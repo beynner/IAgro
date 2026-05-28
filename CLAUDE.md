@@ -434,18 +434,21 @@ Veículos de terceiro (`TGFVEI.PROPRIO='N'`) abastecem do nosso tanque interno m
 
 Detalhes técnicos em [`modules/combustivel.md`](.claude/modules/combustivel.md) → "TGFFIN automático pra veículos de terceiro" + "Média Diesel vs ARLA".
 
-### 🧹 Rastreio — Zerar fração do lote via TOP 33 (Mai/2026 — 2026-05-26)
+### 🧹 Rastreio — Avaria de Ajuste TOP 33 sem trava + swipe-direita mobile (Mai/2026 — 2026-05-26, revisada 2026-05-28)
 
-Pedido pede 19 kg de tomate, operação envia 20 kg (caixa cheia), sistema desconta 19 → lote fica com 1 kg fantasma de saldo. Tela poluída com restos que não existem fisicamente. Solução: botão **"Zerar fração"** (broom) no card de lote quando saldo ≤ 1% da qtd que entrou no lote.
+Caso real Agromil: **enviar gramas a mais é deliberado pra compensar desidratação de hortifrúti**. Conta nunca é exata — se falta no vínculo (98-99%), tudo bem; se sobra 1-10 kg, é resíduo natural de desidratação que vira **avaria de ajuste contábil** (TGFCAB TOP 33). Não é perda comercial (perda real continua sendo TOP 30 manual no módulo Venda).
 
-- **Tolerância adaptativa**: 1% do `qtd_entrada` (TOP 11 origem). Lote de 1000 kg → tolerância 10 kg; lote de 50 kg → tolerância 0,5 kg. Naturalmente proporcional ao volume.
-- **Botão broom** aparece apenas em cards com saldo residual. Click → modal de confirmação → cria TGFCAB **TOP 33 — AVARIA DE AJUSTE** (CODNAT 20010200, mesmo da TOP 30; smoke confirmou TOP 33 já existe e foi usada 269× pelo Sankhya nativo). TGFITE preserva `CODAGREGACAO` (rastreabilidade — diferente do uso nativo que deixa NULL).
-- **Trava em backend** (defesa em profundidade): se operador tentar zerar lote com saldo acima da tolerância (ex: 5 kg de lote 100 kg = 5%), recusa com `"Saldo X kg está acima da tolerância (Y kg). Use TOP 30 avulsa pra avaria maior."`.
+**Versão inicial (2026-05-26)** travava em 1% × `qtd_entrada` — operador relatou que era apertado demais (desidratação real chega a 5-10%). **Versão atual (2026-05-28)** sem trava: operador decide caso a caso.
+
+- **Cat B aplicada**: `zerar_fracao_lote_banco` ganhou param `qtd_avaria` opcional (None = saldo todo; valor = parcial). Trava de 1% e constante `TOLERANCIA_FRACAO_LOTE_PCT` removidas. Audit `ZERAR_FRACAO_LOTE` em `AD_AUDITORIA_GERAL` registra qtd_zerada + qtd_disponivel_antes + avaria_parcial pra detecção retroativa de abuso.
+- **Endpoint** `POST /sankhya/rastreio/api/zerar-fracao/` aceita `{codprod, codagregacao, qtd?}`. `qtd` opcional valida ser número > 0.
+- **Desktop**: botão broom (`btn-zerar-fracao` `ph-broom`) aparece **à esquerda do nome do produto/parceiro** quando o card está selecionado (`.linha-ativa`). Visível em qualquer card com saldo > 0. Prompt nativo pede qtd (default = saldo todo) → `IAgro.confirmarAcao` confirma parcial vs total.
+- **Mobile**: **swipe-direita** no card de lote (60px reveal, threshold 30px) revela botão âmbar `ph-broom`. Tap → mesmo fluxo prompt+confirmação. Swipe-esquerda continua revelando armar+olho (88px). Atualização local imediata do `ESTADO.lotesData` (sem refresh-saldo automático).
+- **TGFCAB TOP 33 CODNAT 20010200** (mesmo da TOP 30; smoke confirmou TOP 33 já existe no Sankhya da Agromil, usada 269× nativamente). TGFITE preserva `CODAGREGACAO` (diferente do uso nativo Sankhya que deixa NULL).
 - **VLRUNIT do vale TOP 13** lido pra documentar custo da perda em VLRTOT da TGFITE TOP 33 (audit contábil).
-- **Manual, não automático**: operador decide caso a caso. Audit `ZERAR_FRACAO_LOTE` registra quem zerou e quando. Reversível mentalmente — se a regra de tolerância se mostrar errada nos primeiros dias, basta evitar clicar.
-- **Componentes**: função `zerar_fracao_lote_banco` (Cat B) + endpoint `POST /sankhya/rastreio/api/zerar-fracao/` + badge âmbar `📦 fração` + botão broom no card.
+- **Tests**: `ZerarFracaoLoteServiceTest` (10) + `ApiRastreioZerarFracaoEndpointTest` (8) = 18 tests, todos verdes. Removidos os testes da trava (`test_saldo_acima_da_tolerancia_recusa`); adicionados testes de saldo grande aceito + qtd parcial + qtd negativa/inválida/acima do saldo.
 
-Detalhes em [`modules/rastreio.md`](.claude/modules/rastreio.md) → "Zerar fração do lote (TOP 33)".
+Detalhes em [`modules/rastreio.md`](.claude/modules/rastreio.md) → "Avaria de Ajuste (TOP 33)".
 
 ### 🧬 Rastreio — fix SPLIT (RESERVA/AE/USOPROD) + filtro `cliente_q` quebrado (Mai/2026 — 2026-05-25)
 
@@ -601,7 +604,7 @@ Início do trabalho de tornar o IAgro um **PWA-ready** (Progressive Web App): op
 - **fmtQtd sem casas decimais** em toda a tela mobile (operador trabalha com kg inteiros na Agromil)
 - **Bugs descobertos e corrigidos na sessão**: (a) endpoint de lotes retorna `data.lotes`, não `data.itens`; (b) endpoint de pedidos retorna `qtd_pedida`/`codagregacao_atual`, não `qtdneg`/`codagregacao`; (c) CSS `display: flex` na `.m-ras-list` sobrescrevia atributo HTML `hidden` (fix: `.m-ras-list[hidden] { display: none !important }`); (d) refresh-saldo + carregarPedidos em paralelo → 500 (fix: removido auto-refresh após vínculo, atualização local do estado garante feedback imediato); (e) cards finalizados com `opacity: 0.85` deixavam o botão swipe vazar atrás → trocado por `background: #f6fbf4`
 - **Limitações conscientes**: resolver nota órfã (vincular OU criar pedido retroativo) — pendente v2; modal detalhado de "Pedidos/vendas usando lote" — desktop apenas
-- **Pendência registrada Mai/2026 — 2026-05-28**: swipe-to-DIREITA pra criar avaria do saldo remanescente do lote. Decisão Cat B pendente entre relaxar trava de 1% no `zerar_fracao_lote_banco` (TOP 33) ou criar novo handler usando `criar_avaria_top30_banco` (TOP 30 — recomendado)
+- **Swipe-direita pra Avaria de Ajuste implementado (Mai/2026 — 2026-05-28)**: arrastar card de lote pra direita revela botão âmbar `ph-broom` (60px). Tap → prompt qtd → confirmação → TGFCAB TOP 33 sem trava de 1%. Mesma função do desktop (botão broom esquerda do produto quando linha selecionada). Detalhes em [`modules/rastreio.md`](.claude/modules/rastreio.md) → "Avaria de Ajuste (TOP 33)"
 
 **Limpeza arquitetural**: removidas todas as referências à página `/sankhya/compras/central/` que foi removida no início do projeto mas deixou código morto espalhado. View `view_central_compras` agora retorna 410 Gone (mantém só o ramo `?ajax_header=1` usado pra editar cabeçalho). 7 arquivos afetados — vide [`gotchas.md`](.claude/gotchas.md) → "Página compras/central foi removida".
 

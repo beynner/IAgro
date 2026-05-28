@@ -36,7 +36,6 @@
 
     const PAGE_SIZE        = 100;
     const DIAS_ALERTA_LOTE = 60;
-    const TOLERANCIA_FRACAO_PCT = 0.01;
 
     // ===== Estado =====
     const ESTADO = {
@@ -778,17 +777,20 @@
     }
 
     // Constantes do swipe (paridade Entrada Mobile):
-    // 2 botões 44px = 88px revelados em swipe esquerda. Threshold 44px (50%)
-    // pra "abrir definitivo". Padrão documentado em conventions.md.
-    const SWIPE_REVEAL_LOTES = 88;   // 2 botões × 44px
-    const SWIPE_TRIGGER_PX   = 44;   // 50% — distância mínima pra abrir
+    // - Esquerda: 2 botões 44px = 88px (armar + olho)
+    // - Direita (Mai/2026 — 2026-05-28): 1 botão 60px (avaria de ajuste / TOP 33)
+    const SWIPE_REVEAL_LOTES = 88;        // swipe esquerda — armar + olho
+    const SWIPE_REVEAL_AVARIA = 60;       // swipe direita  — avaria de ajuste
+    const SWIPE_TRIGGER_PX   = 44;        // threshold pra abrir esquerda
+    const SWIPE_TRIGGER_AVARIA_PX = 30;   // threshold pra abrir direita (50% do reveal)
 
     function fecharTodosSwipesLotes() {
-        document.querySelectorAll('.rastreio-mobile .m-ras-lote-card-wrap[data-swipe-open="1"]')
+        document.querySelectorAll('.rastreio-mobile .m-ras-lote-card-wrap[data-swipe-open], .rastreio-mobile .m-ras-lote-card-wrap[data-swipe-right="1"]')
             .forEach(w => {
                 const card = w.querySelector('.m-ras-lote-card');
                 if (card) card.style.transform = '';
                 w.dataset.swipeOpen = '0';
+                w.dataset.swipeRight = '0';
             });
     }
 
@@ -822,19 +824,25 @@
                     eixoH = true;
                 }
                 moveu = true;
-                // Limita: só permite swipe pra esquerda (dx negativo).
-                // Se já está aberto, permite arrastar pra direita pra fechar.
-                const aberto = wrap.dataset.swipeOpen === '1';
+                // Aceita swipe esquerda (dx < 0) → armar+olho
+                // Aceita swipe direita (dx > 0)  → avaria de ajuste
+                const abertoEsq = wrap.dataset.swipeOpen === '1';
+                const abertoDir = wrap.dataset.swipeRight === '1';
                 let translateX;
-                if (aberto) {
+                if (abertoEsq) {
                     translateX = Math.min(0, -SWIPE_REVEAL_LOTES + Math.max(0, dx));
+                } else if (abertoDir) {
+                    translateX = Math.max(0, SWIPE_REVEAL_AVARIA + Math.min(0, dx));
                 } else {
-                    translateX = Math.min(0, dx);
+                    translateX = dx;   // segue dedo nas 2 direções
                 }
-                // Resistência elástica abaixo de -SWIPE_REVEAL_LOTES (overswipe)
+                // Resistência elástica acima do reveal
                 if (translateX < -SWIPE_REVEAL_LOTES) {
                     const over = -translateX - SWIPE_REVEAL_LOTES;
                     translateX = -SWIPE_REVEAL_LOTES - over * 0.3;
+                } else if (translateX > SWIPE_REVEAL_AVARIA) {
+                    const over = translateX - SWIPE_REVEAL_AVARIA;
+                    translateX = SWIPE_REVEAL_AVARIA + over * 0.3;
                 }
                 card.style.transform = `translateX(${translateX}px)`;
             }, { passive: true });
@@ -847,45 +855,53 @@
                     return;
                 }
                 const dx = e.changedTouches[0].clientX - startX;
-                const aberto = wrap.dataset.swipeOpen === '1';
+                const abertoEsq = wrap.dataset.swipeOpen === '1';
+                const abertoDir = wrap.dataset.swipeRight === '1';
                 card.style.transition = 'transform 0.22s cubic-bezier(0.25, 1, 0.5, 1)';
-                if (aberto) {
-                    // Já aberto: fecha se arrastou suficientemente pra direita
+
+                if (abertoEsq) {
                     if (dx > SWIPE_TRIGGER_PX) {
                         card.style.transform = '';
                         wrap.dataset.swipeOpen = '0';
                     } else {
                         card.style.transform = `translateX(-${SWIPE_REVEAL_LOTES}px)`;
                     }
+                } else if (abertoDir) {
+                    if (-dx > SWIPE_TRIGGER_AVARIA_PX) {
+                        card.style.transform = '';
+                        wrap.dataset.swipeRight = '0';
+                    } else {
+                        card.style.transform = `translateX(${SWIPE_REVEAL_AVARIA}px)`;
+                    }
                 } else {
-                    // Fechado: abre se swipou suficientemente pra esquerda
+                    // Fechado: decide direção
                     if (-dx > SWIPE_TRIGGER_PX) {
-                        // Fecha qualquer outro swipe aberto (1 por vez)
                         fecharTodosSwipesLotes();
                         card.style.transform = `translateX(-${SWIPE_REVEAL_LOTES}px)`;
                         wrap.dataset.swipeOpen = '1';
+                    } else if (dx > SWIPE_TRIGGER_AVARIA_PX) {
+                        fecharTodosSwipesLotes();
+                        card.style.transform = `translateX(${SWIPE_REVEAL_AVARIA}px)`;
+                        wrap.dataset.swipeRight = '1';
                     } else {
                         card.style.transform = '';
                     }
                 }
             }, { passive: true });
 
-            // Click no card: se swipe aberto, FECHA o swipe (UX padrão "cancelar
-            // implícito" documentado em conventions.md). Senão, NÃO FAZ NADA —
-            // operador usa swipe pra armar/visualizar (não abre janela ao tocar).
+            // Click no card: se swipe aberto (qualquer direção), FECHA o swipe.
+            // Senão, NÃO FAZ NADA — operador usa swipe pra armar/visualizar/avariar.
             card.addEventListener('click', (e) => {
-                // Se moveu (swipe), ignora — touchend já cuidou do estado
                 if (moveu) return;
-                if (wrap.dataset.swipeOpen === '1') {
+                if (wrap.dataset.swipeOpen === '1' || wrap.dataset.swipeRight === '1') {
                     card.style.transition = 'transform 0.22s cubic-bezier(0.25, 1, 0.5, 1)';
                     card.style.transform = '';
                     wrap.dataset.swipeOpen = '0';
+                    wrap.dataset.swipeRight = '0';
                 }
-                // Tap normal sem swipe aberto: sem ação. Operador usa o gesto
-                // de swipe pra revelar Armar/Olho.
             });
 
-            // Botões absolutos: armar + olho
+            // Botões absolutos: armar + olho + avariar
             wrap.querySelectorAll('[data-action]').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -893,10 +909,11 @@
                     const codag = wrap.dataset.codag;
                     const lote = ESTADO.lotesData.find(x => x.codagregacao === codag);
                     if (!lote) return;
-                    // Fecha swipe após ação
+                    // Fecha swipe após ação (qualquer direção)
                     card.style.transition = 'transform 0.22s cubic-bezier(0.25, 1, 0.5, 1)';
                     card.style.transform = '';
                     wrap.dataset.swipeOpen = '0';
+                    wrap.dataset.swipeRight = '0';
                     if (acao === 'armar') {
                         const isArmed = ESTADO.loteArmado && ESTADO.loteArmado.codagregacao === lote.codagregacao;
                         if (isArmed) {
@@ -908,6 +925,8 @@
                     } else if (acao === 'olho') {
                         ESTADO.loteSelecionado = lote;
                         abrirDetalheLote(lote);
+                    } else if (acao === 'avariar') {
+                        avariaAjusteDoLote(lote);
                     }
                 });
             });
@@ -915,20 +934,17 @@
     }
     function renderLoteCard(l, porProduto) {
         const qtd = Number(l.qtd_disponivel) || 0;
-        const qtdEntrada = Number(l.qtd_entrada || 0);
         const isArmed = ESTADO.loteArmado && ESTADO.loteArmado.codagregacao === l.codagregacao;
         const isNaoClass = l.status_linha === 'NAO_CLASSIFICAVEL';
         const idade = _idadeDiasFromBR(l.dtneg_origem);
-        const ehFracao = qtdEntrada > 0 && qtd > 0 && qtd <= qtdEntrada * TOLERANCIA_FRACAO_PCT;
 
         const badges = [];
         // Badge N/C removido por pedido do operador (2026-05-28) — operador
         // identifica não-classificáveis por contexto, não precisa do badge.
+        // Badge "fração" removido (2026-05-28) — trava de 1% foi removida,
+        // operador decide manualmente quando avariar saldo.
         if (idade > DIAS_ALERTA_LOTE) {
             badges.push(`<span class="m-ras-badge m-ras-badge--envelhecido"><i class="ph ph-warning"></i> ${idade}d</span>`);
-        }
-        if (ehFracao) {
-            badges.push('<span class="m-ras-badge m-ras-badge--fracao"><i class="ph ph-package"></i> fração</span>');
         }
         if (l.qtd_avaria_interna && Number(l.qtd_avaria_interna) > 0) {
             badges.push(`<span class="m-ras-badge m-ras-badge--avaria">avaria ${fmtQtd(l.qtd_avaria_interna)}</span>`);
@@ -944,9 +960,13 @@
             ? escapeHtml(l.nomeparc_origem || '—')
             : escapeHtml(l.descrprod || '—');
 
-        // Wrapper esconde 2 botões absolutos atrás do card (44px cada).
-        // Swipe pra esquerda revela: [ARMAR esquerda · OLHO direita].
+        // Wrapper esconde botões absolutos atrás do card:
+        //   Swipe ESQUERDA revela: [ARMAR · OLHO]  (88px total, 44px cada)
+        //   Swipe DIREITA  revela: [AVARIA]        (60px, ph-broom)
         return `<div class="m-ras-lote-card-wrap" data-codag="${escapeHtml(l.codagregacao)}">
+            <button type="button" class="m-ras-lote-card__swipe-avaria" data-action="avariar" aria-label="Avaria de ajuste">
+                <i class="ph ph-broom" aria-hidden="true"></i>
+            </button>
             <button type="button" class="m-ras-lote-card__swipe-armar" data-action="armar" aria-label="Armar lote">
                 <i class="ph ph-link" aria-hidden="true"></i>
             </button>
@@ -966,6 +986,94 @@
                 ${badgesHtml}
             </div>
         </div>`;
+    }
+
+    // ===== Avaria de Ajuste (TOP 33) =====
+    // Mai/2026 (2026-05-28): trava de 1% removida. Operador decide quanto
+    // avariar — prompt nativo pede qtd (default = saldo todo), confirmação
+    // explicita parcial vs total, POST com qtd, atualização local imediata.
+    async function avariaAjusteDoLote(lote) {
+        if (!lote || !lote.codagregacao) return;
+        const saldo = Number(lote.qtd_disponivel || 0);
+        if (saldo <= 0) {
+            mostrarToast('Lote já está zerado.', 'info');
+            return;
+        }
+        const saldoTxt = fmtQtd(saldo);
+
+        const entrada = window.prompt(
+            `Avaria de ajuste — lote ${lote.codagregacao}\n` +
+            `Produto: ${lote.descrprod}\n` +
+            `Saldo disponível: ${saldoTxt} kg\n\n` +
+            `Quantidade a avariar (em kg):`,
+            String(saldo),
+        );
+        if (entrada === null) return;
+
+        const qtdAvaria = parseFloat(String(entrada).trim().replace(',', '.'));
+        if (!isFinite(qtdAvaria) || qtdAvaria <= 0) {
+            mostrarToast('Quantidade inválida. Use número > 0.', 'error');
+            return;
+        }
+        if (qtdAvaria > saldo + 0.001) {
+            mostrarToast(`Quantidade ${fmtQtd(qtdAvaria)} excede o saldo ${saldoTxt}.`, 'error');
+            return;
+        }
+        const qtdEfetiva = Math.min(qtdAvaria, saldo);
+        const restante = saldo - qtdEfetiva;
+        const ehParcial = restante > 0.001;
+
+        const ok = await IAgro.confirmarAcao({
+            titulo: 'Confirmar avaria de ajuste',
+            mensagem:
+                `Vai criar TGFCAB TOP 33 com <strong>${fmtQtd(qtdEfetiva)} kg</strong> ` +
+                `de <strong>${escapeHtml(lote.descrprod || '')}</strong> ` +
+                `(lote ${escapeHtml(lote.codagregacao)}).` +
+                (ehParcial
+                    ? `<br>Saldo restante: <strong>${fmtQtd(restante)} kg</strong>.`
+                    : `<br>Lote vai sair da listagem (saldo zerado).`),
+            tipo: 'aviso',
+        });
+        if (!ok) return;
+
+        const res = await postJSON(URLS.zerarFracao, {
+            codprod: lote.codprod,
+            codagregacao: lote.codagregacao,
+            qtd: qtdEfetiva,
+        });
+        if (!res.ok || !res.body || !res.body.ok) {
+            mostrarToast((res.body && res.body.error) || 'Falha ao gerar avaria de ajuste.', 'error');
+            return;
+        }
+        mostrarToast(
+            ehParcial
+                ? `Avaria de ${fmtQtd(qtdEfetiva)} kg criada. Saldo restante: ${fmtQtd(restante)} kg.`
+                : 'Lote zerado (TOP 33 criada).',
+            'success',
+        );
+
+        // Atualização local imediata (sem refresh-saldo automático — vide gotchas).
+        const idx = ESTADO.lotesData.findIndex(x => x.codagregacao === lote.codagregacao);
+        if (idx >= 0) {
+            if (ehParcial) {
+                ESTADO.lotesData[idx] = Object.assign({}, ESTADO.lotesData[idx], {
+                    qtd_disponivel: restante,
+                });
+            } else {
+                ESTADO.lotesData.splice(idx, 1);
+                if (ESTADO.loteArmado && ESTADO.loteArmado.codagregacao === lote.codagregacao) {
+                    desarmarLote();
+                }
+            }
+        }
+
+        // Se está na tela detalheLote, volta pra lista. Senão re-renderiza.
+        const telaAtiva = document.querySelector('.rastreio-mobile .m-screen.is-active');
+        if (telaAtiva && telaAtiva.dataset.screen === 'detalheLote') {
+            popToRoot();
+        } else {
+            renderLotesLista();
+        }
     }
 
     // ===== Render: Lista de Pedidos =====
@@ -1832,12 +1940,11 @@
         $m('m_ras_loteDisp').textContent = `${fmtQtd(lote.qtd_disponivel)} kg`;
         $m('m_ras_loteCodag').textContent = lote.codagregacao || '—';
 
-        // Botão zerar fração (só se aplicável)
-        const qtd = Number(lote.qtd_disponivel) || 0;
-        const qtdEntrada = Number(lote.qtd_entrada || 0);
-        const ehFracao = qtdEntrada > 0 && qtd > 0 && qtd <= qtdEntrada * TOLERANCIA_FRACAO_PCT;
+        // Botão Avaria de Ajuste (TOP 33) — Mai/2026 (2026-05-28): sempre
+        // disponível em lote com saldo > 0. Trava de 1% foi removida.
+        const qtdLote = Number(lote.qtd_disponivel) || 0;
         const btnFracao = $m('m_ras_loteBtnFracao');
-        if (btnFracao) btnFracao.hidden = !ehFracao;
+        if (btnFracao) btnFracao.hidden = qtdLote <= 0;
 
         const btnArm = $m('m_ras_btnArmar');
         if (btnArm) atualizarBtnArmarTela(btnArm);
@@ -1964,26 +2071,9 @@
         }
         const btnFracao = $m('m_ras_loteBtnFracao');
         if (btnFracao) {
-            btnFracao.addEventListener('click', async () => {
+            btnFracao.addEventListener('click', () => {
                 const lote = ESTADO.loteSelecionado;
-                if (!lote) return;
-                const ok = await IAgro.confirmarAcao({
-                    titulo: 'Zerar fração',
-                    mensagem: `Vai criar avaria TOP 33 com <strong>${fmtQtd(lote.qtd_disponivel)} kg</strong> e remover o lote da listagem.`,
-                    tipo: 'aviso',
-                });
-                if (!ok) return;
-                const res = await postJSON(URLS.zerarFracao, {
-                    codprod: lote.codprod,
-                    codagregacao: lote.codagregacao,
-                });
-                if (!res.ok || !res.body || !res.body.ok) {
-                    mostrarToast((res.body && res.body.error) || 'Falha ao zerar fração.', 'error');
-                    return;
-                }
-                mostrarToast('Fração zerada (TOP 33 criada).', 'success');
-                popToRoot();
-                carregarLotes();
+                if (lote) avariaAjusteDoLote(lote);
             });
         }
         // Botão back genérico (data-back-to="lista")

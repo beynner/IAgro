@@ -891,26 +891,22 @@ document.addEventListener('DOMContentLoaded', function () {
                    </button>`
                 : '';
 
-            // Mai/2026 (2026-05-26): badge "fração" — saldo residual abaixo
-            // da tolerância de 1% da qtd que entrou no lote. Botão "Zerar fração"
-            // cria avaria TOP 33 automática. Sem virar lote completamente esgotado.
-            const qtdEntrada = Number(l.qtd_entrada || 0);
-            const TOLERANCIA_FRACAO_PCT = 0.01;
-            const ehFracao = qtdEntrada > 0
-                && Number(qtd) > 0
-                && Number(qtd) <= qtdEntrada * TOLERANCIA_FRACAO_PCT;
-            const badgeFracao = ehFracao
-                ? `<span class="badge-fracao-lote" title="Sobra residual de ${fmtQtd(qtd)} (≤1% dos ${fmtQtd(qtdEntrada)} que entraram). Provavelmente caixa cheia foi enviada e essa fração é fantasma."><i class="ph ph-package"></i> fração</span>`
-                : '';
-            const zerarBtn = ehFracao
-                ? `<button class="btn-zerar-fracao btn-acao-linha" title="Zerar fração: cria avaria TOP 33 com ${fmtQtd(qtd)} e remove o lote da listagem" type="button">
+            // Mai/2026 — 2026-05-28: botão "Avaria de Ajuste" sempre disponível
+            // em lote com saldo > 0. Aparece à esquerda do nome do produto
+            // quando a linha está SELECIONADA (controlado por CSS via classe
+            // .linha-ativa). Cria TGFCAB TOP 33 com qtd parcial ou total
+            // (modal pergunta quanto). Trava de 1% foi removida — operador
+            // decide caso a caso.
+            const podeAvariar = Number(qtd) > 0;
+            const zerarBtn = podeAvariar
+                ? `<button class="btn-zerar-fracao btn-acao-linha" title="Gerar avaria de ajuste (TOP 33) — desconta saldo do lote" type="button">
                        <i class="ph ph-broom" aria-hidden="true"></i>
                    </button>`
                 : '';
-            if (ehFracao) card.classList.add('lote-fracao');
 
-            // Layout em 1 linha: produto · parceiro · lote · data · qtd · armar · olho
+            // Layout em 1 linha: [broom à esquerda] · produto · parceiro · lote · data · qtd · armar · olho
             card.innerHTML = `
+                ${zerarBtn}
                 <span class="col-prod"  title="${escapeHtml(l.descrprod)}">
                     <strong>${escapeHtml(l.descrprod)}</strong>${tagStatus}
                 </span>
@@ -921,8 +917,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     ${escapeHtml(l.codagregacao)}
                 </span>
                 <span class="col-data">${escapeHtml(l.dtneg_origem || '')} ${badgeIdade}</span>
-                <span class="col-qtd">${fmtQtd(qtd)} ${badgeEncaixa} ${badgeFracao}</span>
-                ${zerarBtn}
+                <span class="col-qtd">${fmtQtd(qtd)} ${badgeEncaixa}</span>
                 ${armarBtn}
                 <button class="btn-olho btn-acao-linha" title="Ver pedidos/vendas que usam este lote" type="button">
                     <i class="ph ph-eye" aria-hidden="true"></i>
@@ -1665,46 +1660,87 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     /**
-     * Mai/2026 (2026-05-26): zera fração residual do lote criando TGFCAB
-     * TOP 33 (Avaria de Ajuste). Backend valida tolerância de 1% — saldo
-     * acima é recusado. Pós-sucesso: lote some da lista (saldo zerado).
+     * Mai/2026 (2026-05-26, revisado 2026-05-28): cria avaria de ajuste
+     * do lote via TGFCAB TOP 33. Operador escolhe a qtd no prompt nativo
+     * (default = saldo todo). Pós-sucesso: lote some/diminui na lista.
+     *
+     * Trava de 1% removida — operador decide caso a caso. Audit em
+     * AD_AUDITORIA_GERAL registra cada uso.
      */
     async function zerarFracaoDoLote(lote) {
-        const qtdTxt = fmtQtd(lote.qtd_disponivel);
+        const saldo = Number(lote.qtd_disponivel || 0);
+        if (saldo <= 0) {
+            IAgro.showToast('Lote já está zerado.', 'info');
+            return;
+        }
+        const saldoTxt = fmtQtd(saldo);
+
+        // Prompt nativo simples — operador edita ou aceita o saldo todo
+        const entrada = window.prompt(
+            `Avaria de ajuste — lote ${lote.codagregacao}\n` +
+            `Produto: ${lote.descrprod}\n` +
+            `Saldo disponível: ${saldoTxt}\n\n` +
+            `Quantidade a avariar (em kg):`,
+            String(saldo),
+        );
+        if (entrada === null) return;  // cancelou
+
+        const qtdAvaria = parseFloat(String(entrada).trim().replace(',', '.'));
+        if (!isFinite(qtdAvaria) || qtdAvaria <= 0) {
+            IAgro.showToast('Quantidade inválida. Use número > 0.', 'error');
+            return;
+        }
+        if (qtdAvaria > saldo + 0.001) {
+            IAgro.showToast(
+                `Quantidade ${fmtQtd(qtdAvaria)} excede o saldo ${saldoTxt}.`,
+                'error',
+            );
+            return;
+        }
+
+        const qtdEfetiva = Math.min(qtdAvaria, saldo);
+        const qtdEfetivaTxt = fmtQtd(qtdEfetiva);
+        const restante = saldo - qtdEfetiva;
+        const ehParcial = restante > 0.001;
+
         const ok = await IAgro.confirmarAcao({
-            titulo: 'Zerar fração do lote',
-            mensagem: `Vai criar avaria TOP 33 com <strong>${qtdTxt}</strong> de ` +
-                      `<strong>${escapeHtml(lote.descrprod)}</strong> ` +
-                      `(lote ${escapeHtml(lote.codagregacao)}). ` +
-                      `Esse lote sai da listagem após confirmar.`,
+            titulo: 'Confirmar avaria de ajuste',
+            mensagem:
+                `Vai criar TGFCAB TOP 33 com <strong>${qtdEfetivaTxt}</strong> ` +
+                `de <strong>${escapeHtml(lote.descrprod)}</strong> ` +
+                `(lote ${escapeHtml(lote.codagregacao)}).` +
+                (ehParcial
+                    ? `<br>Saldo restante no lote: <strong>${fmtQtd(restante)}</strong>.`
+                    : `<br>Lote vai sair da listagem (saldo zerado).`),
             tipo: 'aviso',
         });
         if (!ok) return;
+
         try {
             const resp = await IAgro.postJSON('/sankhya/rastreio/api/zerar-fracao/', {
                 codprod: lote.codprod,
                 codagregacao: lote.codagregacao,
+                qtd: qtdEfetiva,
             });
             const data = resp.body || {};
             if (!resp.ok || !data.ok) {
-                IAgro.showToast(data.error || `Falha ao zerar fração (HTTP ${resp.status})`, 'error');
+                IAgro.showToast(data.error || `Falha ao gerar avaria de ajuste (HTTP ${resp.status})`, 'error');
                 return;
             }
             IAgro.showToast(
-                `Fração zerada: ${qtdTxt} de ${lote.descrprod} → TOP 33 NUNOTA ${data.nunota_33}`,
+                `Avaria criada: ${qtdEfetivaTxt} de ${lote.descrprod} → TOP 33 NUNOTA ${data.nunota_33}`,
                 'success',
             );
-            // Se o lote zerado era o "armado", desarma
-            if (loteArmado && loteArmado.codagregacao === lote.codagregacao) {
+            // Se o lote ficou zerado e estava "armado", desarma
+            if (!ehParcial && loteArmado && loteArmado.codagregacao === lote.codagregacao) {
                 loteArmado = null;
                 _salvarPrefs();
                 atualizarBarArmado();
             }
-            // Reflete na tela — lote some por saldo = 0
             await carregarLotes(true);
         } catch (err) {
             console.error('zerarFracaoDoLote', err);
-            IAgro.showToast('Falha de conexão ao zerar fração.', 'error');
+            IAgro.showToast('Falha de conexão ao gerar avaria de ajuste.', 'error');
         }
     }
 
