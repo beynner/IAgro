@@ -1550,9 +1550,10 @@ class ZerarFracaoLoteServiceTest(TestCase):
         conn_ctx, _, cur = _conn_cursor_mock_rastreio()
         mock_conn.return_value = conn_ctx
         cur.fetchone.side_effect = [
-            (50.0, 100.0, 11111),
-            (1, 200, 10100, date(2026, 5, 1), 11, 'KG', 1.0),
-            (10.0,),
+            (50.0, 100.0, 11111),                          # view: saldo, entrada, nunota_origem
+            (1, 200, 10100, date(2026, 5, 1), 11),         # TGFCAB TOP 11 (cabeçalho)
+            ('KG', 1.0),                                   # TGFITE CODVOL+PESO (qualquer TOP)
+            (10.0,),                                       # VLRUNIT do vale TOP 13
         ]
         mock_cab.return_value = {'ok': True, 'nunota': 99999}
         mock_item.return_value = {'ok': True, 'nunota': 99999, 'sequencia': 1}
@@ -1616,7 +1617,8 @@ class ZerarFracaoLoteServiceTest(TestCase):
         mock_conn.return_value = conn_ctx
         cur.fetchone.side_effect = [
             (1.0, 100.0, 11111),                           # view: saldo, entrada, nunota_origem
-            (1, 200, 10100, date(2026, 5, 1), 11, 'KG', 1.0),  # TGFCAB TOP 11 origem
+            (1, 200, 10100, date(2026, 5, 1), 11),         # TGFCAB TOP 11 (cabeçalho)
+            ('KG', 1.0),                                   # TGFITE CODVOL+PESO (qualquer TOP)
             (12.50,),                                      # VLRUNIT do vale TOP 13
         ]
         mock_cab.return_value = {'ok': True, 'nunota': 99999}
@@ -1673,9 +1675,10 @@ class ZerarFracaoLoteServiceTest(TestCase):
         conn_ctx, _, cur = _conn_cursor_mock_rastreio()
         mock_conn.return_value = conn_ctx
         cur.fetchone.side_effect = [
-            (30.0, 500.0, 11111),
-            (1, 200, 10100, date(2026, 5, 1), 11, 'KG', 1.0),
-            (8.0,),
+            (30.0, 500.0, 11111),                          # view: saldo, entrada, nunota_origem
+            (1, 200, 10100, date(2026, 5, 1), 11),         # TGFCAB TOP 11 (cabeçalho)
+            ('KG', 1.0),                                   # TGFITE CODVOL+PESO (qualquer TOP)
+            (8.0,),                                        # VLRUNIT do vale TOP 13
         ]
         mock_cab.return_value = {'ok': True, 'nunota': 88888}
         mock_item.return_value = {'ok': True, 'nunota': 88888, 'sequencia': 1}
@@ -1693,6 +1696,52 @@ class ZerarFracaoLoteServiceTest(TestCase):
         dados_item = mock_item.call_args[0][0]
         self.assertEqual(dados_item['QTDNEG'], 12.0)
         self.assertAlmostEqual(dados_item['VLRTOT'], 96.0, places=2)  # 12 × 8.0
+
+    @patch('sankhya_integration.services.oracle_conn.invalidar_cache_rastreio')
+    @patch('sankhya_integration.services.oracle_conn.registrar_auditoria')
+    @patch('sankhya_integration.services.oracle_conn.recalcular_totais_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_item_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.inserir_cabecalho_nota_banco')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita')
+    def test_lote_classificado_codprod_diferente_da_top11(
+        self, mock_perm, mock_conn, mock_cab, mock_item, mock_rec, mock_audit, mock_invcache,
+    ):
+        """REGRESSÃO 2026-05-28: lote classificado tem CODPROD diferente na TOP 11
+        raiz (in natura, ex: 863) e no avaria TOP 33 (classificado, ex: 351).
+        Bug original: query exigia match exato CODPROD em TGFITE TOP 11 → 0 linhas
+        → erro "Item TOP 11 origem não encontrado". Fix: SELECT de cabeçalho sem
+        filtro CODPROD + SELECT de item em qualquer TOP 11/13/26."""
+        mock_perm.return_value = True
+        conn_ctx, _, cur = _conn_cursor_mock_rastreio()
+        mock_conn.return_value = conn_ctx
+        # Cenário real: TOP 11 NUNOTA 113821 tem CODPROD=863 (in natura);
+        # avaria TOP 33 que vamos criar usa CODPROD=351 (classificado).
+        cur.fetchone.side_effect = [
+            (1000.0, 1000.0, 113821),                       # view: saldo, entrada, nunota_origem (TOP 11)
+            (1, 200, 10100, date(2026, 5, 27), 11),         # TGFCAB TOP 11 cabeçalho (sem CODPROD)
+            ('KG', 1.0),                                    # TGFITE TOP 26 CODVOL+PESO do CODPROD 351
+            (15.0,),                                        # VLRUNIT do vale TOP 13
+        ]
+        mock_cab.return_value = {'ok': True, 'nunota': 113911}
+        mock_item.return_value = {'ok': True, 'nunota': 113911, 'sequencia': 1}
+        mock_rec.return_value = {'ok': True}
+
+        r = self.fn(
+            codprod=351,                                    # CLASSIFICADO (diferente da TOP 11)
+            codagregacao='113821S01D260527',
+            codusu=1, nomeusu='Teste',
+            qtd_avaria=1.0,
+        )
+        self.assertTrue(r['ok'], f"Fix do bug 2026-05-28 quebrado: {r}")
+        self.assertEqual(r['nunota_33'], 113911)
+        # TGFCAB TOP 33 criada com CODPROD do avariado (não da TOP 11 raiz)
+        dados_item = mock_item.call_args[0][0]
+        self.assertEqual(dados_item['CODPROD'], 351)
+        self.assertEqual(dados_item['CODAGREGACAO'], '113821S01D260527')
+        # AD_NUMPEDIDOORIG aponta pra TOP 11 raiz (audit/rastreabilidade)
+        dados_cab = mock_cab.call_args[0][0]
+        self.assertEqual(dados_cab['AD_NUMPEDIDOORIG'], 113821)
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita')

@@ -4404,25 +4404,52 @@ def zerar_fracao_lote_banco(
                     f'Lote {codagregacao} sem NUNOTA_ORIGEM (TOP 11) — '
                     f'não dá pra herdar dados do cabeçalho.'}
 
-            # 2. Lê dados de origem (TOP 11) pra herdar CODEMP/CODPARC/CODTIPVENDA
+            # 2. Lê cabeçalho da TOP 11 raiz (herda CODEMP/CODPARC/CODTIPVENDA).
+            # Mai/2026 (2026-05-28): SEPARADO do SELECT do item porque em lotes
+            # CLASSIFICÁVEIS a TOP 11 raiz tem CODPROD diferente (in natura, ex:
+            # CODPROD 863 TOMATE), enquanto a TOP 33 que estamos criando avaria o
+            # CODPROD classificado (ex: 351 TOMATE EXTRA). Query antiga exigia
+            # match exato CODPROD na TOP 11 e falhava 100% pra hortifrúti.
             cur.execute(
                 """
-                SELECT c.CODEMP, c.CODPARC, c.CODCENCUS, c.DTNEG, c.CODTIPVENDA,
-                       i.CODVOL, NVL(i.PESO, 1)
+                SELECT c.CODEMP, c.CODPARC, c.CODCENCUS, c.DTNEG, c.CODTIPVENDA
                   FROM TGFCAB c
-                  JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
                  WHERE c.NUNOTA = :n11 AND c.CODTIPOPER = 11
                    AND c.STATUSNOTA <> 'E'
-                   AND i.CODPROD = :prod AND i.CODAGREGACAO = :lote
                    AND ROWNUM = 1
                 """,
-                n11=nunota_origem, prod=codprod, lote=codagregacao,
+                n11=nunota_origem,
             )
-            row_orig = cur.fetchone()
-            if not row_orig:
+            row_cab = cur.fetchone()
+            if not row_cab:
                 return {'ok': False, 'error':
-                    f'Item TOP 11 origem do lote {codagregacao} não encontrado.'}
-            codemp, codparc, codcencus, dtneg, codtipvenda_origem, codvol, peso_caixa = row_orig
+                    f'TGFCAB TOP 11 NUNOTA={nunota_origem} não encontrado '
+                    f'pro lote {codagregacao}.'}
+            codemp, codparc, codcencus, dtneg, codtipvenda_origem = row_cab
+
+            # 2.1. Lê CODVOL + PESO do item: aceita qualquer TOP (11/13/26) que
+            # tenha esse (CODPROD, CODAGREGACAO). Pra classificáveis, vai achar
+            # em TOP 26; pra não-classificáveis, em TOP 11. PESO é por produto.
+            cur.execute(
+                """
+                SELECT i.CODVOL, NVL(i.PESO, 1)
+                  FROM TGFITE i
+                  JOIN TGFCAB c ON c.NUNOTA = i.NUNOTA
+                 WHERE i.CODPROD = :prod AND i.CODAGREGACAO = :lote
+                   AND c.STATUSNOTA <> 'E'
+                   AND c.CODTIPOPER IN (11, 13, 26)
+                   AND ROWNUM = 1
+                """,
+                prod=codprod, lote=codagregacao,
+            )
+            row_item = cur.fetchone()
+            if row_item:
+                codvol = row_item[0] or 'KG'
+                peso_caixa = float(row_item[1]) if row_item[1] is not None else 1.0
+            else:
+                # Defensivo: lote+codprod sem TGFITE ativa em 11/13/26 (caso atípico).
+                # Usa defaults seguros.
+                codvol, peso_caixa = 'KG', 1.0
 
             # 3. Cria cabeçalho TGFCAB TOP 33
             codtipvenda_efetiva = int(codtipvenda_origem) if codtipvenda_origem else 11
