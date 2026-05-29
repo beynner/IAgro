@@ -72,6 +72,102 @@ Visível só pra grupos Diretoria (`1`) e Suporte (`6`):
 
 Estratégia pra módulos terem fluxo mobile próprio (não só responsivo) — PWA-ready. Módulos com redesign até hoje: **Entrada** e **Classificação**.
 
+### 🧩 Partial `_m_header_interno.html` (Mai/2026 — 2026-05-29) — OBRIGATÓRIO em telas internas
+
+Equivalente mobile do `content-header` do `base.html` desktop. Centraliza o padrão "Menu/Back > Módulo / Sub-tela > [User-badge] [Sair]" pra que **toda tela interna** de **qualquer módulo mobile** use a mesma estrutura — sem duplicação.
+
+**Arquivo**: `sankhya_integration/templates/sankhya_integration/_m_header_interno.html`
+
+**Uso obrigatório** em qualquer `m-screen` que não seja a tela `lista`:
+
+```django
+<section class="m-screen m-screen--detalhe" data-screen="detalhe">
+  {% include "sankhya_integration/_m_header_interno.html"
+     with modulo_nome="Entrada" subtela_nome="Nota" %}
+  <div class="m-screen-body"> ... </div>
+  ...
+</section>
+```
+
+**Renderiza**:
+```
+[← back]   Entrada / Nota          [👤 ANDRE]  Sair
+            ^muted    ^bold
+```
+
+**Quando NÃO usar o partial**:
+- Tela `lista` (header próprio com hambúrguer da sidebar, sem back). Hoje é declarado inline em cada módulo
+- Telas que precisam de **botões extras** no header (ex: lápis/lixeira) — declarar inline preservando user-badge + Sair + breadcrumb (slot futuro pode ser adicionado ao partial)
+
+**Classes CSS globais** (`global.css`):
+- `.m-breadcrumb` — container flex baseline
+- `.m-breadcrumb-root` — módulo (cinza muted, peso 500)
+- `.m-breadcrumb-sep` — separador `/` (cinza light, opacity 0.5)
+- `.m-breadcrumb-leaf` — sub-tela (texto escuro, peso 700, ellipsis)
+
+**Não duplicar**: classes locais `.{modulo}-mobile .m-lg-breadcrumb*` ou similares estão **proibidas**. Use as globais.
+
+⚠ **Atenção ao documentar o partial**: use `{% comment %}...{% endcomment %}` (multi-line). `{# ... #}` é single-line — bloco de doc multi-linha com `{# #}` faz Django interpretar tags Django literais dentro do texto (`{% block %}`, `{% include %}`) e quebra a aplicação com `TemplateSyntaxError: Unclosed tag`. Vide [`gotchas.md`](gotchas.md) → "Comentários Django `{# #}` são single-line".
+
+### 🧩 Partial `_m_fabs.html` (Mai/2026 — 2026-05-29) — OBRIGATÓRIO em telas com FABs
+
+Centraliza o padrão dos 2 FABs IAgro Mobile:
+- **Verde Agromil 48px** com `ph-plus` → ação POSITIVA (criar, adicionar, novo)
+- **Azul info 42px** com `ph-arrows-clockwise` → ATUALIZAR (refresh, recarregar)
+
+**Arquivo**: `sankhya_integration/templates/sankhya_integration/_m_fabs.html`
+
+**Uso obrigatório** em qualquer template mobile que precise de FAB:
+
+```django
+<section class="m-screen" data-screen="lista">
+  ... conteúdo ...
+  {% include "sankhya_integration/_m_fabs.html"
+     with fab_primario_id="m_lg_fabNova"
+          fab_primario_label="Nova viagem"
+          fab_secundario_id="m_lg_fabAtualizar"
+          fab_secundario_label="Atualizar lista" %}
+</section>
+```
+
+**Parâmetros**:
+- `fab_primario_id` / `fab_primario_label` / `fab_primario_icone` (default `ph-plus`)
+- `fab_secundario_id` / `fab_secundario_label` / `fab_secundario_icone` (default `ph-arrows-clockwise`)
+- `fab_primario_ocultar=True` → só renderiza o azul
+- `fab_secundario_ocultar=True` → só renderiza o verde
+
+**Classes CSS globais** (`global.css` desde 2026-05-29):
+- `.m-fab` — verde primário 48px
+- `.m-fab--secondary` — azul secundário 42px
+- `.m-fab.is-loading` — spinner via `@keyframes m-spin`
+
+**Posicionamento — cada módulo declara sua regra base** (não tem mais override global de tela detalhe, revisão 2026-05-29 — vide gotchas.md "FAB primário cortado pelo bottom-nav"):
+
+```css
+.{modulo}-mobile .m-fab {
+    position: absolute;   /* relativo à .m-screen com inset: 0 */
+    right: 14px;          /* ou 16px conforme padrão do módulo */
+    bottom: calc(var(--m-bottom-nav-h) + 16px + env(safe-area-inset-bottom, 0px));
+    /* ...resto idêntico (width 48, height 48, border-radius 50%, etc) */
+}
+
+.{modulo}-mobile .m-fab--secondary {
+    bottom: calc(var(--m-bottom-nav-h) + 16px + env(safe-area-inset-bottom, 0px) + 60px);
+}
+```
+
+Essa regra vale em **todas as telas** (lista + detalhe). Se uma tela específica oculta o FAB primário (via `fab_primario_ocultar=True`), pode adicionar override do secundário pra ocupar a posição base:
+
+```css
+.{modulo}-mobile .m-screen--lista .m-fab--secondary {
+    bottom: calc(var(--m-bottom-nav-h) + 16px + env(safe-area-inset-bottom, 0px));
+}
+```
+
+**Por que não tem mais override global de tela detalhe**: a regra anterior `.m-screen[data-screen]:not([data-screen="lista"]) .m-fab { bottom: 16px }` presumia que telas internas NÃO têm bottom-nav. Mas TODOS os módulos IAgro mobile mantêm o bottom-nav em ambas as telas — a regra global cortava o FAB primário dentro da nav. Removida.
+
+**Não duplicar**: regras visuais (cor, tamanho, sombra) `.{modulo}-mobile .m-fab*` que copiam o que já está em `global.css` estão **proibidas**. Use as globais. Só sobrescreva o `bottom` (e `right`/`position` se diferir do padrão).
+
 ### Arquitetura — 2 containers paralelos no HTML
 
 ```html

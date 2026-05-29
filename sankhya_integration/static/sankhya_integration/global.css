@@ -288,29 +288,34 @@ body {
 }
 
 /* Badge de ambiente — HOMOLOGAÇÃO / PRODUÇÃO centralizado no topo da página */
+/* Badge de ambiente como MARCA D'ÁGUA do header (Mai/2026 — 2026-05-29):
+   fundo zerado, cor translúcida, pointer-events: none (não bloqueia cliques
+   em engrenagem/user-badge/Sair no mobile) e z-index: 1 (atrás dos
+   elementos clicáveis). */
 .env-badge {
   position: fixed;
-  top: 12px;
+  top: 14px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 4px 16px;
-  border-radius: var(--borda-raio-pilula);
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  border: none;
   font-weight: var(--peso-extranegrito);
-  font-size: 0.8rem;
+  font-size: 0.95rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  z-index: 10000;
+  letter-spacing: 0.18em;
+  pointer-events: none;
+  user-select: none;
+  z-index: 20;
 }
 
 .env-badge--homologacao {
-  background: var(--cor-erro);
-  color: #ffffff;
+  color: rgba(220, 38, 38, 0.55);
 }
 
 .env-badge--producao {
-  background: var(--cor-sucesso);
-  color: #ffffff;
+  color: rgba(22, 163, 74, 0.55);
 }
 
 /* Status dot — indicador colorido de estado */
@@ -1518,4 +1523,152 @@ body.app-shell .ia-footer:not(.ia-footer-inline) {
   body.app-shell .main-layout {
     padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px));
   }
+}
+/* ============================================================================
+   Mobile — header de tela INTERNA: breadcrumb "Módulo / Sub-tela"
+   Padrão IAgro Mobile pra todas as telas internas dos módulos
+   (entrada/classificação/rastreio/combustível/caixas/logística...)
+
+   Usado via partial:
+     {% include "sankhya_integration/_m_header_interno.html"
+        with modulo_nome="..." subtela_nome="..." %}
+
+   Tokens herdam do escopo de cada módulo (--m-text, --m-text-muted, etc).
+   Inicia com fallbacks pra funcionar mesmo fora do contexto modular.
+============================================================================ */
+.m-breadcrumb {
+    display: inline-flex !important;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+    flex: 1;
+    margin: 0;
+}
+
+.m-breadcrumb-root {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--m-text-muted, #6b7280);
+    white-space: nowrap;
+}
+
+.m-breadcrumb-sep {
+    color: var(--m-text-muted, #6b7280);
+    opacity: 0.5;
+    font-weight: 400;
+}
+
+.m-breadcrumb-leaf {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--m-text, #1f2937);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ============================================================================
+   Mobile — FABs (verde primário + azul secundário) e bottom-nav
+   Padrão IAgro Mobile pra todas as telas de qualquer módulo
+   ----------------------------------------------------------------------------
+   USO:
+   1. FABs: include "sankhya_integration/_m_fabs.html" com params (vide partial)
+   2. Bottom-nav: inline em cada tela (items variam por módulo), MAS sempre
+      com as classes globais .m-bottom-nav e .m-bottom-nav__item
+
+   Tokens herdam de --m-primary, --m-info, --m-bottom-nav-h, etc.
+   Não escope por módulo — classes valem global.
+============================================================================ */
+.m-fab {
+    position: absolute;
+    right: 14px;
+    bottom: calc(var(--m-bottom-nav-h, 52px) + 16px + env(safe-area-inset-bottom, 0px));
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--m-primary, #5e7e4a);
+    color: #fff;
+    border: none;
+    box-shadow: 0 4px 12px rgba(94,126,74,0.32);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 30;
+}
+.m-fab .ph { font-size: 22px; }
+
+.m-fab--secondary {
+    width: 42px;
+    height: 42px;
+    background: var(--m-info, #2563eb);
+    color: #fff;
+    bottom: calc(var(--m-bottom-nav-h, 52px) + 16px + env(safe-area-inset-bottom, 0px) + 60px);
+    box-shadow: 0 4px 10px rgba(37,99,235,0.32);
+}
+.m-fab--secondary .ph { font-size: 18px; }
+
+.m-fab.is-loading .ph {
+    animation: m-spin 0.8s linear infinite;
+}
+
+@keyframes m-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+/* Regra anterior `.m-screen[data-screen]:not([data-screen="lista"]) .m-fab`
+   foi REMOVIDA em Mai/2026 — 2026-05-29. A premissa era "telas internas não
+   têm bottom-nav" — mas TODOS os módulos IAgro mobile mantêm o bottom-nav
+   visível em tela detalhe (Entrada, Classificação, Caixas, Rastreio,
+   Combustível, Logística). A regra global cortava o FAB primário pra
+   `bottom: 16px` dentro do bottom-nav. Cada módulo agora define sua própria
+   regra base de FAB e ela vale em TODAS as telas (lista + detalhe + etc).
+   Se algum dia aparecer tela interna SEM bottom-nav (ex: lightbox), usar
+   classe específica do módulo. */
+
+/* Bottom-nav padrão (items variam por módulo, classes são globais) */
+.m-bottom-nav {
+    position: fixed;
+    left: 0; right: 0;
+    bottom: 0;
+    height: calc(var(--m-bottom-nav-h, 52px) + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--m-surface, #fff);
+    border-top: 1px solid var(--m-border, #e5e7eb);
+    display: flex;
+    z-index: 4;
+}
+
+.m-bottom-nav__item {
+    flex: 1;
+    border: none;
+    background: transparent;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--m-text-muted, #6b7280);
+    cursor: pointer;
+    padding: 4px 0;
+    position: relative;
+}
+
+.m-bottom-nav__item .ph { font-size: 18px; }
+.m-bottom-nav__item.is-active { color: var(--m-primary, #5e7e4a); }
+.m-bottom-nav__item.is-active .ph::before { font-family: 'Phosphor-Fill'; }
+
+.m-bottom-nav__item.has-filtros-ativos { color: var(--m-primary, #5e7e4a); }
+.m-bottom-nav__item.has-filtros-ativos i::before { font-family: 'Phosphor-Fill'; }
+.m-bottom-nav__item.has-filtros-ativos::after {
+    content: '';
+    position: absolute;
+    top: 6px; right: 22%;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--m-danger, #dc2626);
+    box-shadow: 0 0 0 2px var(--m-surface, #fff);
 }

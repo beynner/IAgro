@@ -1,0 +1,31 @@
+{% load static %}
+{% comment %}
+Partial: header de tela INTERNA mobile (padrão IAgro)
+
+Padrão "Menu/Back > Módulo / Sub-tela > [User-badge] [Sair]"
+
+Parâmetros (via {% include with %}):
+  - modulo_nome:   raiz do breadcrumb (ex: "Entrada", "Caixas")
+  - subtela_nome:  folha do breadcrumb (ex: "Nota", "Cliente")
+
+Uso típico:
+  {% include "sankhya_integration/_m_header_interno.html"
+     with modulo_nome="Entrada" subtela_nome="Nota" %}
+
+Detalhes da diretriz em .claude/conventions.md → "Partial _m_header_interno.html"
+{% endcomment %}
+<header class="m-screen-header">
+    <button type="button" class="m-iconbtn m-back-btn" aria-label="Voltar">
+        <i class="ph ph-arrow-left" aria-hidden="true"></i>
+    </button>
+    <h1 class="m-screen-title m-breadcrumb">
+        <span class="m-breadcrumb-root">{{ modulo_nome }}</span>
+        <span class="m-breadcrumb-sep">/</span>
+        <span class="m-breadcrumb-leaf">{{ subtela_nome }}</span>
+    </h1>
+    <div class="m-user-badge" title="{{ request.session.nomeusu|default:'Usuário' }}">
+        <i class="ph ph-user" aria-hidden="true"></i>
+        <span>{{ request.session.nomeusu|default:'Usuário' }}</span>
+    </div>
+    <a href="{% url 'logout' %}" class="m-logout-link" title="Encerrar sessão">Sair</a>
+</header>

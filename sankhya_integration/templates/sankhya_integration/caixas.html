@@ -13,7 +13,7 @@
 {% endblock %}
 
 {% block extra_css %}
-  <link rel="stylesheet" href="{% static 'sankhya_integration/caixas.css' %}?v=9">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/caixas.css' %}?v=16">
 {% endblock %}
 
 {% block content %}
@@ -107,21 +107,14 @@
 
           <div class="cx-detalhe-stats">
             <div class="cx-stat cx-stat--enviadas">
-              <i class="ph ph-arrow-up-right" aria-hidden="true"></i>
+              <i class="ph ph-truck" aria-hidden="true"></i>
               <div class="cx-stat-info">
-                <span class="cx-stat-label">Enviadas</span>
+                <span class="cx-stat-label">Em viagens</span>
                 <span class="cx-stat-valor" id="cxStatEnviadas">—</span>
               </div>
             </div>
-            <div class="cx-stat cx-stat--devolvidas">
-              <i class="ph ph-arrow-down-left" aria-hidden="true"></i>
-              <div class="cx-stat-info">
-                <span class="cx-stat-label">Devolução (TOP 36)</span>
-                <span class="cx-stat-valor" id="cxStatDevolvidas">—</span>
-              </div>
-            </div>
             <div class="cx-stat cx-stat--coletadas">
-              <i class="ph ph-truck" aria-hidden="true"></i>
+              <i class="ph ph-arrow-down-left" aria-hidden="true"></i>
               <div class="cx-stat-info">
                 <span class="cx-stat-label">Coletadas</span>
                 <span class="cx-stat-valor" id="cxStatColetadas">—</span>
@@ -141,10 +134,6 @@
                 <span class="cx-stat-valor" id="cxStatPerdidas">—</span>
               </div>
             </div>
-          </div>
-          <div class="cx-sem-peso-alerta" id="cxSemPesoAlerta" hidden>
-            <i class="ph ph-info" aria-hidden="true"></i>
-            <span>Este cliente tem vendas mas sem peso de caixa registrado. Saldo será ajustado pela tela administrativa.</span>
           </div>
 
           <header class="cx-timeline-header">
@@ -222,14 +211,7 @@
       </div>
     </div>
 
-    {# FAB principal: lançar coleta #}
-    <button type="button" class="m-fab" id="m_cx_fabColeta" aria-label="Lançar coleta">
-      <i class="ph ph-plus" aria-hidden="true"></i>
-    </button>
-    {# FAB secundário: Atualizar #}
-    <button type="button" class="m-fab m-fab--secondary" id="m_cx_fabAtualizar" aria-label="Atualizar saldo (pode demorar)">
-      <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
-    </button>
+    {% include "sankhya_integration/_m_fabs.html" with fab_secundario_id="m_cx_fabAtualizar" fab_secundario_label="Atualizar saldo (pode demorar)" fab_primario_ocultar=True %}
 
     {# Bottom nav 3 itens #}
     <nav class="m-bottom-nav">
@@ -247,41 +229,33 @@
 
   {# ----------------- TELA 2 — DETALHE DO CLIENTE ----------------- #}
   <section class="m-screen m-screen--detalhe" data-screen="detalheCliente">
-    <header class="m-screen-header">
-      <button type="button" class="m-iconbtn m-back-btn" aria-label="Voltar">
-        <i class="ph ph-arrow-left" aria-hidden="true"></i>
-      </button>
-      <div class="m-screen-title-block">
-        <h1 class="m-screen-title m-screen-title--ellipsis" id="m_cx_detNome">—</h1>
-        <small class="m-screen-subtitle" id="m_cx_detCodparc">—</small>
-      </div>
-    </header>
+    {% include "sankhya_integration/_m_header_interno.html" with modulo_nome="Caixas" subtela_nome="Cliente" %}
 
     <div class="m-screen-body" id="m_cx_detScroll">
+      {# Identificação do cliente em linha (sem fundo destacado) #}
+      <div class="m-cx-identificacao">
+        <span class="m-cx-ident-nome" id="m_cx_detNome">—</span>
+        <span class="m-cx-ident-sep">·</span>
+        <span class="m-cx-ident-codparc" id="m_cx_detCodparc">—</span>
+      </div>
+
       {# Hero com saldo grande #}
       <div class="m-cx-hero">
         <div class="m-cx-hero-label">Saldo em campo</div>
         <div class="m-cx-hero-valor" id="m_cx_detSaldo">—</div>
       </div>
 
-      {# 5 stats em grid 3×2 (Ajuste removido — vai pra admin) #}
+      {# 4 stats em grid 2×2 (Devolução removida — agora vem só via Coleta) #}
       <div class="m-cx-stats">
         <div class="m-cx-stat m-cx-stat--enviadas">
-          <i class="ph ph-arrow-up-right" aria-hidden="true"></i>
+          <i class="ph ph-truck" aria-hidden="true"></i>
           <div class="m-cx-stat-info">
-            <span class="m-cx-stat-label">Enviadas</span>
+            <span class="m-cx-stat-label">Em viagens</span>
             <span class="m-cx-stat-valor" id="m_cx_statEnv">—</span>
           </div>
         </div>
-        <div class="m-cx-stat m-cx-stat--devolvidas">
-          <i class="ph ph-arrow-down-left" aria-hidden="true"></i>
-          <div class="m-cx-stat-info">
-            <span class="m-cx-stat-label">Devolução</span>
-            <span class="m-cx-stat-valor" id="m_cx_statDev">—</span>
-          </div>
-        </div>
         <div class="m-cx-stat m-cx-stat--coletadas">
-          <i class="ph ph-truck" aria-hidden="true"></i>
+          <i class="ph ph-arrow-down-left" aria-hidden="true"></i>
           <div class="m-cx-stat-info">
             <span class="m-cx-stat-label">Coletadas</span>
             <span class="m-cx-stat-valor" id="m_cx_statCol">—</span>
@@ -303,12 +277,6 @@
         </div>
       </div>
 
-      {# Alerta "sem peso" condicional #}
-      <div class="m-cx-sem-peso" id="m_cx_semPeso" hidden>
-        <i class="ph ph-info" aria-hidden="true"></i>
-        <span>Cliente com vendas sem peso registrado. Saldo será ajustado pela tela administrativa.</span>
-      </div>
-
       {# Timeline header #}
       <div class="m-cx-timeline-header">
         <span class="m-cx-timeline-titulo">Timeline (últimos <span id="m_cx_timelineDias">90</span> dias)</span>
@@ -324,9 +292,7 @@
     </div>
 
     {# FAB: lançar coleta do cliente atual #}
-    <button type="button" class="m-fab" id="m_cx_fabColetaCliente" aria-label="Lançar coleta deste cliente">
-      <i class="ph ph-plus" aria-hidden="true"></i>
-    </button>
+    {% include "sankhya_integration/_m_fabs.html" with fab_primario_id="m_cx_fabColetaCliente" fab_primario_label="Lançar coleta deste cliente" fab_secundario_id="m_cx_fabAtualizarDetalhe" fab_secundario_label="Atualizar detalhe" %}
   </section>
 
   {# ----------------- SHEET: LANÇAR COLETA ----------------- #}
@@ -353,6 +319,15 @@
         <div class="m-field-group">
           <label class="m-field-label" for="m_cx_colData">Data</label>
           <input type="date" id="m_cx_colData" class="m-field-input">
+        </div>
+
+        {# Motorista — typeahead (obrigatório em COLETA; oculto em QUEBRA/PERDA) #}
+        <div class="m-field-group" id="m_cx_colMotoristaWrap">
+          <label class="m-field-label" for="m_cx_colMotorista">Motorista que buscou as caixas</label>
+          <input type="text" id="m_cx_colMotorista" class="m-field-input" placeholder="Nome do motorista…" autocomplete="off">
+          <input type="hidden" id="m_cx_colMotoristaCodparc">
+          <div id="m_cx_colMotoristaDropdown" class="dropdown-abs"></div>
+          <small class="m-field-hint">Mesmo cadastro usado na Logística (tipo MOTORISTA em TGFPAR)</small>
         </div>
 
         {# Qtd #}
@@ -468,6 +443,13 @@
           <label for="cxColetaData">Data *</label>
           <input type="date" id="cxColetaData" required>
         </div>
+        <div class="cx-form-row" id="cxColetaMotoristaWrap">
+          <label for="cxColetaMotorista">Motorista que buscou as caixas *</label>
+          <input type="text" id="cxColetaMotorista" placeholder="Buscar motorista…" autocomplete="off">
+          <input type="hidden" id="cxColetaMotoristaCodparc">
+          <div id="cxColetaMotoristaDropdown" class="dropdown-abs"></div>
+          <small class="cx-form-hint">Mesmo cadastro usado na Logística (tipo MOTORISTA em TGFPAR)</small>
+        </div>
         <div class="cx-form-row">
           <label for="cxColetaQtd">Quantidade de caixas *</label>
           <input type="number" id="cxColetaQtd" step="1" min="1" required>
@@ -515,6 +497,6 @@
 {% endblock %}
 
 {% block extra_js %}
-  <script src="{% static 'sankhya_integration/caixas.js' %}?v=7"></script>
-  <script src="{% static 'sankhya_integration/caixas_mobile.js' %}?v=1" defer></script>
+  <script src="{% static 'sankhya_integration/caixas.js' %}?v=9"></script>
+  <script src="{% static 'sankhya_integration/caixas_mobile.js' %}?v=5" defer></script>
 {% endblock %}

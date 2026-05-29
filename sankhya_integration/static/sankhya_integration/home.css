@@ -23,33 +23,40 @@
 }
 .dash-updated small { font-size: 11.5px; }
 
-.btn-refresh {
-    display: inline-flex;
+/* FAB azul Atualizar — padrão IAgro mobile (Mai/2026 — 2026-05-29).
+   Substituiu o antigo .btn-refresh do header. Mesmo id #btnDashRefresh,
+   JS de polling e .loading inalterados. */
+.dash-fab-refresh {
+    position: fixed;
+    right: 16px;
+    bottom: calc(40px + env(safe-area-inset-bottom, 0px));
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    box-shadow: 0 4px 12px rgba(37,99,235,0.32);
+    display: flex;
     align-items: center;
-    gap: 5px;
-    padding: 6px 11px;
-    background: #fff;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    color: #1f2937;
-    font-size: 12px;
-    font-weight: 500;
+    justify-content: center;
     cursor: pointer;
-    transition: all 0.15s ease;
-    font-family: inherit;
+    z-index: 30;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 
-.btn-refresh:hover {
-    border-color: #5e7e4a;
-    color: #5e7e4a;
-    background: #f0f5ec;
+.dash-fab-refresh:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 14px rgba(37,99,235,0.4);
 }
 
-.btn-refresh.loading svg {
-    animation: spin 0.8s linear infinite;
+.dash-fab-refresh .ph { font-size: 22px; }
+
+.dash-fab-refresh.loading .ph {
+    animation: m-spin 0.8s linear infinite;
 }
 
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes m-spin { to { transform: rotate(360deg); } }
 
 /* =========================================
    GRID DE WIDGETS
@@ -250,7 +257,6 @@ body.app-shell .main-layout { overflow: auto; padding: 0; }
 
 @media (max-width: 520px) {
     .widgets-grid { grid-template-columns: 1fr; gap: 8px; }
-    .btn-refresh span { display: none; }
 }
 
 /* =========================================

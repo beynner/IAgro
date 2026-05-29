@@ -620,9 +620,9 @@
 
     // Swipe nos cards: arrasta pra esquerda revela botões escondidos
     // Nota tem 2 botões (editar + excluir) = 88px; Item tem 1 (excluir) = 44px
-    var SWIPE_REVEAL_NOTAS = 88;    // 44 (edit) + 44 (del)
-    var SWIPE_REVEAL_PX = 44;       // largura do botão exposto (usado pelos itens)
-    var SWIPE_TRIGGER_PX = 22;      // threshold pra abrir definitivo (50% de 44)
+    var SWIPE_REVEAL_NOTAS = 88;    // 44 (edit) + 44 (del) — cards de NOTA
+    var SWIPE_REVEAL_PX = 88;       // 44 (edit) + 44 (del) — cards de ITEM (paridade nota Mai/2026 — 2026-05-29)
+    var SWIPE_TRIGGER_PX = 44;      // threshold pra abrir definitivo (50% de 88)
     function setupSwipeNotasDelete() {
         document.querySelectorAll('#m_notasList .m-card-nota').forEach(function (card) {
             var startX = 0, startY = 0, currentDx = 0, tracking = false, canceled = false;
@@ -839,6 +839,10 @@
             var pesoLabel = 'Peso/' + escapeHtml(codvol.toLowerCase());
 
             html += '<div class="m-card-item-wrap">' +
+                '<button class="m-card-item__swipe-edit" data-nunota="' + escapeHtml(nunota) +
+                    '" data-idx="' + idx + '" data-seq="' + escapeHtml(seq) + '" aria-label="Editar item">' +
+                    '<i class="ph ph-pencil-simple" aria-hidden="true"></i>' +
+                '</button>' +
                 '<button class="m-card-item__swipe-del" data-nunota="' + escapeHtml(nunota) +
                     '" data-seq="' + escapeHtml(seq) + '" aria-label="Excluir item">' +
                     '<i class="ph ph-trash" aria-hidden="true"></i>' +
@@ -864,16 +868,21 @@
     }
 
     function bindCardsItem() {
+        // Click no card SÓ fecha swipe aberto — edição agora vem do swipe-edit (lápis)
+        // Mai/2026 — 2026-05-29: tap-to-edit desativado por feedback do operador
         document.querySelectorAll('#m_itensList .m-card-item').forEach(function (card) {
             card.addEventListener('click', function () {
-                // Se swipe está aberto, click "fora" fecha o swipe
                 if (card.dataset.swipeOpen === '1') {
                     fecharSwipe(card);
-                    return;
                 }
-                // Abre o sheet de Itens (mesma tela de inserir) em modo EDIT
-                // já com os campos preenchidos do item clicado.
-                var idx = parseInt(card.dataset.idx, 10);
+            });
+        });
+
+        // Botão editar revelado pelo swipe (lápis azul, paridade card de NOTA)
+        document.querySelectorAll('#m_itensList .m-card-item__swipe-edit').forEach(function (btn) {
+            btn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                var idx = parseInt(btn.dataset.idx, 10);
                 var it = !isNaN(idx) ? ESTADO_NOTA.items[idx] : null;
                 if (!it || !ESTADO_NOTA.nunota) return;
                 abrirSheetItens({
@@ -881,12 +890,11 @@
                     parc: ESTADO_NOTA.parc || '',
                     nova: false
                 });
-                // Aguarda o sheet montar + carregarItensInseridos rodar, então
-                // popula o form em modo edit
                 setTimeout(function () { abrirEditItem(it); }, 60);
             });
         });
-        // Botão excluir revelado pelo swipe
+
+        // Botão excluir revelado pelo swipe (lixeira vermelha)
         document.querySelectorAll('#m_itensList .m-card-item__swipe-del').forEach(function (btn) {
             btn.addEventListener('click', function (e) {
                 e.stopPropagation();

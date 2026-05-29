@@ -534,13 +534,22 @@
     box-shadow: 0 1px 2px rgba(0,0,0,0.04);
 }
 
-.cx-evento--saida      { --cor-evento: #5e7e4a; }
-.cx-evento--devolucao  { --cor-evento: #0891b2; }
+.cx-evento--viagem     { --cor-evento: #5e7e4a; }   /* verde Agromil — saída via Logística */
+.cx-evento--saida      { --cor-evento: #5e7e4a; }   /* legado pré-2026-05-29 */
+.cx-evento--devolucao  { --cor-evento: #0891b2; }   /* legado pré-2026-05-29 */
 .cx-evento--coleta     { --cor-evento: #0891b2; }
 .cx-evento--quebra     { --cor-evento: #d97706; }
 .cx-evento--perda      { --cor-evento: #dc2626; }
 .cx-evento--ajuste     { --cor-evento: #6366f1; }   /* indigo — discrimina visualmente como evento "excepcional" */
 .cx-evento--estornado  { opacity: 0.5; text-decoration: line-through; }
+
+/* Observação do evento (linha extra abaixo da descrição) */
+.cx-evento-obs {
+    font-size: 11px;
+    color: var(--m-text-muted, #6b7280);
+    margin-top: 2px;
+    line-height: 1.3;
+}
 
 .cx-evento-icone {
     width: 28px; height: 28px;
@@ -1048,6 +1057,33 @@
 }
 
 /* ----------------- Detalhe — hero + stats + alerta + timeline ----------------- */
+/* Identificação do cliente (acima do hero saldo) — Mai/2026 — 2026-05-29 */
+.caixas-mobile .m-cx-identificacao {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 4px 2px 10px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--m-border-soft);
+}
+.caixas-mobile .m-cx-ident-nome {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--m-text);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+.caixas-mobile .m-cx-ident-sep {
+    color: var(--m-text-muted);
+    opacity: 0.5;
+}
+.caixas-mobile .m-cx-ident-codparc {
+    font-size: 12px;
+    color: var(--m-text-muted);
+    font-family: monospace;
+}
+
 .caixas-mobile .m-cx-hero {
     background: linear-gradient(135deg, var(--m-primary) 0%, var(--m-primary-dark) 100%);
     color: #fff;
@@ -1072,10 +1108,11 @@
     line-height: 1;
 }
 
-/* Stats grid 3×2 com 5 itens (último ocupa célula sozinho na 2ª linha — visual ok) */
+/* Stats grid 2×2 com 4 KPIs (Em viagens · Coletadas · Quebradas · Perdidas).
+   Mai/2026 — 2026-05-29: trocado de 3×2 (5 stats) pra 2×2 (4 stats, Devolução removida) */
 .caixas-mobile .m-cx-stats {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: 6px;
     margin-bottom: 10px;
 }
@@ -1098,8 +1135,11 @@
 
 .caixas-mobile .m-cx-stat-info {
     display: flex;
-    flex-direction: column;
-    gap: 0;
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+    flex: 1;
     min-width: 0;
 }
 
@@ -1109,6 +1149,9 @@
     text-transform: uppercase;
     letter-spacing: 0.02em;
     line-height: 1.1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .caixas-mobile .m-cx-stat-valor {
@@ -1116,6 +1159,8 @@
     font-weight: 700;
     color: var(--m-text);
     line-height: 1.1;
+    text-align: right;
+    flex-shrink: 0;
 }
 
 .caixas-mobile .m-cx-stat--enviadas .ph    { color: var(--m-primary); }
@@ -1176,7 +1221,7 @@
     border-radius: var(--m-radius-sm);
 }
 
-/* Botão swipe escondido atrás (estornar) — 56px */
+/* Botão swipe esquerda revelado à direita — estornar (âmbar, 56px) */
 .caixas-mobile .m-cx-evento__swipe-estornar {
     position: absolute;
     inset: 0 0 0 auto;
@@ -1193,6 +1238,23 @@
 
 .caixas-mobile .m-cx-evento__swipe-estornar .ph { font-size: 18px; }
 
+/* Botão swipe direita revelado à esquerda — transferir pra Logística (verde, 56px) */
+.caixas-mobile .m-cx-evento__swipe-transferir {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 56px;
+    background: var(--m-primary);
+    color: #fff;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 0;
+}
+
+.caixas-mobile .m-cx-evento__swipe-transferir .ph { font-size: 18px; }
+
 .caixas-mobile .m-cx-evento {
     position: relative;
     z-index: 1;
@@ -1207,9 +1269,17 @@
     will-change: transform;
 }
 
-.caixas-mobile .m-cx-evento--saida      { --cor-evento: var(--m-primary); }
-.caixas-mobile .m-cx-evento--devolucao  { --cor-evento: var(--m-cyan); }
+.caixas-mobile .m-cx-evento--viagem     { --cor-evento: var(--m-primary); }
+.caixas-mobile .m-cx-evento--saida      { --cor-evento: var(--m-primary); }  /* legado */
+.caixas-mobile .m-cx-evento--devolucao  { --cor-evento: var(--m-cyan); }     /* legado */
 .caixas-mobile .m-cx-evento--coleta     { --cor-evento: var(--m-cyan); }
+
+.caixas-mobile .m-cx-evento__obs {
+    font-size: 10px;
+    color: var(--m-text-muted);
+    margin-top: 2px;
+    line-height: 1.3;
+}
 .caixas-mobile .m-cx-evento--quebra     { --cor-evento: var(--m-warning); }
 .caixas-mobile .m-cx-evento--perda      { --cor-evento: var(--m-danger); }
 .caixas-mobile .m-cx-evento--ajuste     { --cor-evento: #6366f1; }
@@ -1306,6 +1376,13 @@
     color: #fff;
     bottom: calc(var(--m-bottom-nav-h) + 16px + env(safe-area-inset-bottom, 0px) + 60px);
     box-shadow: 0 4px 10px rgba(37,99,235,0.32);
+}
+
+/* Tela `lista` esconde o FAB primário (verde) via partial:
+   fab_primario_ocultar=True. Então o azul deve ocupar a posição que
+   o primário ocuparia, sem o offset `+60px` de empilhamento. */
+.caixas-mobile .m-screen[data-screen="lista"] .m-fab--secondary {
+    bottom: calc(var(--m-bottom-nav-h) + 16px + env(safe-area-inset-bottom, 0px));
 }
 
 .caixas-mobile .m-fab--secondary .ph { font-size: 18px; }

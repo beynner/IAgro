@@ -26,6 +26,7 @@
         filtroBusca: '',
         filtroCodparcMotorista: 0,
         filtroCodveiculo: 0,
+        _rotasCache: null,   // cache local após refetch; null = ainda usa LM().getRotas()
     };
 
     // -------------------------------------------------------------------------
@@ -33,7 +34,46 @@
     // -------------------------------------------------------------------------
     function $(id) { return document.getElementById(id); }
     function LM() { return window.LogisticaMock; }
-    function rotas() { return LM() ? LM().getRotas() : []; }
+    function rotas() {
+        if (ESTADO._rotasCache !== null) return ESTADO._rotasCache;
+        return LM() ? LM().getRotas() : [];
+    }
+
+    function filtrosEstadoMobile() {
+        return {
+            data_de: ESTADO.filtroDataIni || '',
+            data_ate: ESTADO.filtroDataFim || ESTADO.filtroDataIni || '',
+            codparc_motorista: ESTADO.filtroCodparcMotorista || 0,
+            codveiculo: ESTADO.filtroCodveiculo || 0,
+            q: (ESTADO.filtroBusca || '').trim(),
+        };
+    }
+
+    let _refetchTimerMobile = null;
+    let _refetchTokenMobile = 0;
+    async function refetchViagensMobile() {
+        const Api = window.LogisticaApi;
+        if (!Api || !Api.carregarViagens) {
+            renderTudo();
+            return;
+        }
+        const meuToken = ++_refetchTokenMobile;
+        try {
+            const rotasNovas = await Api.carregarViagens(filtrosEstadoMobile());
+            if (meuToken !== _refetchTokenMobile) return;
+            ESTADO._rotasCache = rotasNovas || [];
+            renderTudo();
+        } catch (e) {
+            if (meuToken !== _refetchTokenMobile) return;
+            console.error('Falha ao filtrar viagens (mobile):', e);
+            mostrarToast('Erro ao filtrar: ' + e.message, 'error');
+        }
+    }
+    function aplicarFiltrosBackendMobile(opts) {
+        const debounceMs = (opts && typeof opts.debounceMs === 'number') ? opts.debounceMs : 250;
+        if (_refetchTimerMobile) clearTimeout(_refetchTimerMobile);
+        _refetchTimerMobile = setTimeout(function () { refetchViagensMobile(); }, debounceMs);
+    }
     function parcs() { return LM() ? LM().getParceiros() : []; }
     function veics() { return LM() ? LM().getVeiculos() : []; }
 
@@ -81,6 +121,49 @@
 
     window.addEventListener('popstate', function () { setActiveScreen('lista'); });
 
+    // Swipe-to-back: arrastar pra direita em telas internas volta pra lista (padrão IAgro Mobile)
+    function setupSwipeToBack() {
+        const TRIGGER_PCT = 0.35;
+        const TRIGGER_VEL = 0.5;
+        Object.keys(screens).forEach(function (name) {
+            if (name === 'lista') return;
+            const el = document.querySelector('.logistica-mobile ' + screens[name]);
+            if (!el) return;
+            let startX = 0, startY = 0, startT = 0;
+            let dx = 0, dy = 0, axis = '';
+
+            el.addEventListener('touchstart', function (e) {
+                if (e.touches.length !== 1) return;
+                const t = e.touches[0];
+                startX = t.clientX; startY = t.clientY; startT = Date.now();
+                dx = 0; dy = 0; axis = '';
+            }, { passive: true });
+
+            el.addEventListener('touchmove', function (e) {
+                if (e.touches.length !== 1) return;
+                const t = e.touches[0];
+                dx = t.clientX - startX;
+                dy = t.clientY - startY;
+                if (!axis && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+                    axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+                }
+                if (axis === 'x' && dx > 0) {
+                    el.style.transform = 'translateX(' + (dx * 0.5) + 'px)';
+                }
+            }, { passive: true });
+
+            el.addEventListener('touchend', function () {
+                el.style.transform = '';
+                if (axis !== 'x' || dx <= 0) return;
+                const w = window.innerWidth || 360;
+                const vel = dx / Math.max(1, Date.now() - startT);
+                if (dx / w >= TRIGGER_PCT || vel >= TRIGGER_VEL) {
+                    popScreen();
+                }
+            });
+        });
+    }
+
     // -------------------------------------------------------------------------
     // SHEETS
     // -------------------------------------------------------------------------
@@ -112,29 +195,12 @@
     // -------------------------------------------------------------------------
     // FILTRAGEM
     // -------------------------------------------------------------------------
+    // Backend já entrega a lista filtrada quando _rotasCache foi populado.
+    // Quando ainda não houve refetch (cache null), cai no fallback de LM().getRotas().
     function rotasFiltradas() {
-        const ini = ESTADO.filtroDataIni || '';
-        const fim = ESTADO.filtroDataFim || ini;
-        const busca = normalizar(ESTADO.filtroBusca);
-
-        return rotas().filter(function (r) {
-            if (ini && r.data < ini) return false;
-            if (fim && r.data > fim) return false;
-            if (ESTADO.filtroCodparcMotorista && r.codparc_motorista !== ESTADO.filtroCodparcMotorista) return false;
-            if (ESTADO.filtroCodveiculo && r.codveiculo !== ESTADO.filtroCodveiculo) return false;
-            if (busca) {
-                const pm = LM().placaModelo(r);
-                const destinos = (r.destinos || []).map(function (d) { return LM().nomeDestino(d.codparc); }).join(' ');
-                const haystack = normalizar(
-                    r.num_viagem + ' ' + pm.placa + ' ' + pm.modelo + ' ' +
-                    LM().nomeMotorista(r) + ' ' + LM().nomeAjudantes(r) + ' ' + destinos
-                );
-                if (haystack.indexOf(busca) < 0) return false;
-            }
-            return true;
-        }).sort(function (a, b) {
+        return rotas().slice().sort(function (a, b) {
             if (a.data !== b.data) return a.data < b.data ? 1 : -1;
-            return a.hora_saida.localeCompare(b.hora_saida);
+            return (a.hora_saida || '').localeCompare(b.hora_saida || '');
         });
     }
 
@@ -240,9 +306,6 @@
         ESTADO.rotaSelecionadaId = id;
 
         const pm = LM().placaModelo(r);
-
-        $('m_lg_detTitulo').textContent = 'Viagem #' + r.num_viagem;
-        $('m_lg_detSubtitulo').textContent = LM().fmtDataBR(r.data) + ' · ' + r.hora_saida;
 
         $('m_lg_detNumViagem').textContent = r.num_viagem;
         $('m_lg_detDataExtenso').textContent = LM().fmtDataExtenso(r.data);
@@ -540,7 +603,7 @@
             }
 
             mostrarToast('Viagem ' + (editId ? 'atualizada' : 'criada') + '.', 'success');
-            await Api.recarregarTudo();
+            await refetchViagensMobile();
 
             closeSheet('rota');
             if (LM().rerenderDesktop) LM().rerenderDesktop();
@@ -835,12 +898,12 @@
             veicSel.value = ESTADO.filtroCodveiculo || '';
         }
 
-        function aplicarToEstado() {
+        function aplicarToEstado(opts) {
             ESTADO.filtroDataIni = dataIni.value;
             ESTADO.filtroDataFim = dataFim.value;
             ESTADO.filtroCodparcMotorista = parseInt(motoSel.value, 10) || 0;
             ESTADO.filtroCodveiculo = parseInt(veicSel.value, 10) || 0;
-            renderTudo();
+            aplicarFiltrosBackendMobile(opts);
         }
 
         const replicar = function () {
@@ -857,6 +920,9 @@
             const iso = d.toISOString().slice(0, 10);
             dataIni.value = iso;
             dataFim.value = iso;
+            ESTADO.filtroDataIni = iso;
+            ESTADO.filtroDataFim = iso;
+            aplicarFiltrosBackendMobile({ debounceMs: 0 });
         };
         $('m_lg_filtPrevDay').addEventListener('click', function () { shift(-1); });
         $('m_lg_filtNextDay').addEventListener('click', function () { shift(1); });
@@ -864,7 +930,7 @@
         const sheet = document.querySelector('.logistica-mobile .m-sheet[data-sheet="filtros"]');
         if (sheet) {
             sheet.querySelector('.m-btn-primary').addEventListener('click', function () {
-                aplicarToEstado();
+                aplicarToEstado({ debounceMs: 0 });
             });
         }
 
@@ -873,6 +939,14 @@
             dataFim.value = HOJE;
             motoSel.value = '';
             veicSel.value = '';
+            ESTADO.filtroDataIni = HOJE;
+            ESTADO.filtroDataFim = HOJE;
+            ESTADO.filtroBusca = '';
+            ESTADO.filtroCodparcMotorista = 0;
+            ESTADO.filtroCodveiculo = 0;
+            const buscaInp = $('m_lg_busca');
+            if (buscaInp) buscaInp.value = '';
+            aplicarFiltrosBackendMobile({ debounceMs: 0 });
         });
 
         document.querySelectorAll('.logistica-mobile .m-bottom-nav__item[data-nav="filtros"]').forEach(function (b) {
@@ -888,13 +962,9 @@
     function setupBuscaMobile() {
         const input = $('m_lg_busca');
         if (!input) return;
-        let timer = null;
         input.addEventListener('input', function () {
-            clearTimeout(timer);
-            timer = setTimeout(function () {
-                ESTADO.filtroBusca = input.value;
-                renderTudo();
-            }, 250);
+            ESTADO.filtroBusca = input.value;
+            aplicarFiltrosBackendMobile({ debounceMs: 350 });
         });
     }
 
@@ -946,19 +1016,15 @@
             });
         });
 
-        $('m_lg_detEditar').addEventListener('click', function () {
+        $('m_lg_footEditar').addEventListener('click', function () {
             if (ESTADO.rotaSelecionadaId) abrirSheetEditar(ESTADO.rotaSelecionadaId);
         });
 
-        $('m_lg_detImprimir').addEventListener('click', function () {
+        $('m_lg_footImprimir').addEventListener('click', function () {
             if (ESTADO.rotaSelecionadaId) abrirFichaMobile(ESTADO.rotaSelecionadaId);
         });
 
-        $('m_lg_btnImprimir').addEventListener('click', function () {
-            if (ESTADO.rotaSelecionadaId) abrirFichaMobile(ESTADO.rotaSelecionadaId);
-        });
-
-        $('m_lg_btnExcluir').addEventListener('click', function () {
+        $('m_lg_footExcluir').addEventListener('click', function () {
             if (!ESTADO.rotaSelecionadaId) return;
             const r = rotas().find(function (x) { return x.id === ESTADO.rotaSelecionadaId; });
             if (!r) return;
@@ -984,7 +1050,7 @@
                         mostrarToast('Erro ao excluir: ' + (resp.error || 'desconhecido'), 'error');
                         return;
                     }
-                    await Api.recarregarTudo();
+                    await refetchViagensMobile();
                     if (LM().rerenderDesktop) LM().rerenderDesktop();
                     ESTADO.rotaSelecionadaId = null;
                     popScreen();
@@ -1005,9 +1071,11 @@
                 const Api = window.LogisticaApi;
                 if (Api && Api.recarregarTudo) {
                     await Api.recarregarTudo();
+                    await refetchViagensMobile();
                     mostrarToast('Lista atualizada.', 'info');
+                } else {
+                    renderTudo();
                 }
-                renderTudo();
             } finally {
                 fab.classList.remove('is-loading');
             }
@@ -1038,7 +1106,21 @@
         setupTypeaheadVeiculoMobile();
         setupTypeaheadMotoristaMobile();
         setupTypeaheadAjudanteMobile();
+        setupSwipeToBack();
         renderTudo();
+        // Aguarda o LogisticaApi (boot do desktop) e dispara refetch com filtros do mobile
+        setTimeout(function () {
+            refetchViagensMobile().then(function () {
+                // Deep-link: ?viagem=<id> abre direto o detalhe da viagem
+                // Usado pelo módulo Caixas (swipe-to-transfer no card de Viagem)
+                var urlParams = new URLSearchParams(window.location.search);
+                var viagemId = parseInt(urlParams.get('viagem'), 10);
+                if (viagemId) {
+                    var rota = rotas().find(function (r) { return r.id === viagemId; });
+                    if (rota) abrirDetalhe(viagemId);
+                }
+            });
+        }, 500);
     }
 
     if (document.readyState === 'loading') {

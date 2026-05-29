@@ -6,17 +6,13 @@
 {% block header_title %}PAINEL{% endblock %}
 
 {% block extra_css %}
-  <link rel="stylesheet" href="{% static 'sankhya_integration/home.css' %}?v=4">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/home.css' %}?v=5">
 {% endblock %}
 
 {% block header_actions %}
   <span class="dash-updated" id="dashUpdatedAt-wrap">
     <small>Atualizado <span id="dashUpdatedAt">agora</span></small>
   </span>
-  <button id="btnDashRefresh" class="btn-refresh" title="Atualizar indicadores">
-    <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
-    <span>Atualizar</span>
-  </button>
 {% endblock %}
 
 {% block content %}
@@ -28,6 +24,11 @@
   <article class="widget widget-skeleton"><div class="skeleton-shimmer"></div></article>
   <article class="widget widget-skeleton"><div class="skeleton-shimmer"></div></article>
 </section>
+
+{# FAB azul Atualizar — padrão IAgro mobile (Mai/2026 — 2026-05-29) #}
+<button id="btnDashRefresh" class="dash-fab-refresh" title="Atualizar indicadores" aria-label="Atualizar indicadores">
+  <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+</button>
 {% endblock %}
 
 {% block extra_js %}

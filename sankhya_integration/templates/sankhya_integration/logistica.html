@@ -13,7 +13,7 @@
 {% endblock %}
 
 {% block extra_css %}
-  <link rel="stylesheet" href="{% static 'sankhya_integration/logistica.css' %}?v=3">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/logistica.css' %}?v=6">
 {% endblock %}
 
 {% block content %}
@@ -183,15 +183,7 @@
       </div>
     </div>
 
-    {# FAB azul Atualizar (acima) #}
-    <button type="button" class="m-fab m-fab--secondary" id="m_lg_fabAtualizar" aria-label="Atualizar">
-      <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
-    </button>
-
-    {# FAB verde Nova rota #}
-    <button type="button" class="m-fab" id="m_lg_fabNova" aria-label="Nova rota">
-      <i class="ph ph-plus" aria-hidden="true"></i>
-    </button>
+    {% include "sankhya_integration/_m_fabs.html" with fab_primario_id="m_lg_fabNova" fab_primario_label="Nova rota" fab_secundario_id="m_lg_fabAtualizar" fab_secundario_label="Atualizar lista" %}
 
     {# Bottom nav #}
     <nav class="m-bottom-nav">
@@ -216,28 +208,15 @@
 
   {# ----------------- TELA 2: DETALHE ----------------- #}
   <section class="m-screen m-screen--detalhe" data-screen="detalhe">
-    <header class="m-screen-header">
-      <button type="button" class="m-iconbtn m-back-btn" aria-label="Voltar">
-        <i class="ph ph-arrow-left" aria-hidden="true"></i>
-      </button>
-      <div class="m-screen-title-block">
-        <h1 class="m-screen-title" id="m_lg_detTitulo">Viagem —</h1>
-        <small class="m-screen-subtitle" id="m_lg_detSubtitulo">—</small>
-      </div>
-      <button type="button" class="m-iconbtn" id="m_lg_detImprimir" aria-label="Ficha de impressão">
-        <i class="ph ph-printer" aria-hidden="true"></i>
-      </button>
-      <button type="button" class="m-iconbtn" id="m_lg_detEditar" aria-label="Editar viagem">
-        <i class="ph ph-pencil-simple" aria-hidden="true"></i>
-      </button>
-    </header>
+    {% include "sankhya_integration/_m_header_interno.html" with modulo_nome="Logística" subtela_nome="Viagem" %}
 
     <div class="m-screen-body">
-      {# Hero verde com Nº VIAGEM em destaque #}
+      {# Linha de identificação (Nº + data por extenso) #}
       <div class="m-lg-hero">
-        <div class="m-lg-hero-label">VIAGEM Nº</div>
-        <div class="m-lg-hero-numviagem" id="m_lg_detNumViagem">—</div>
-        <div class="m-lg-hero-data" id="m_lg_detDataExtenso">—</div>
+        <span class="m-lg-hero-label">Viagem Nº</span>
+        <span class="m-lg-hero-numviagem" id="m_lg_detNumViagem">—</span>
+        <span class="m-lg-hero-sep">·</span>
+        <span class="m-lg-hero-data" id="m_lg_detDataExtenso">—</span>
       </div>
 
       {# Placa em destaque + hora #}
@@ -286,18 +265,23 @@
         <div class="m-lg-obs-conteudo" id="m_lg_detObs">—</div>
       </div>
 
-      {# Ações #}
-      <div class="m-lg-acoes">
-        <button type="button" class="m-lg-acao-btn m-lg-acao-btn--imprimir" id="m_lg_btnImprimir">
-          <i class="ph ph-printer" aria-hidden="true"></i>
-          <span>Ver ficha de impressão</span>
-        </button>
-        <button type="button" class="m-lg-acao-btn m-lg-acao-btn--cancelar" id="m_lg_btnExcluir">
-          <i class="ph ph-trash" aria-hidden="true"></i>
-          <span>Excluir viagem</span>
-        </button>
-      </div>
     </div>
+
+    {# Rodapé fixo com ações: imprimir, editar, excluir #}
+    <footer class="m-lg-detalhe-footer">
+      <button type="button" class="m-lg-foot-btn" id="m_lg_footImprimir" aria-label="Ver ficha de impressão">
+        <i class="ph ph-printer" aria-hidden="true"></i>
+        <span>Imprimir</span>
+      </button>
+      <button type="button" class="m-lg-foot-btn" id="m_lg_footEditar" aria-label="Editar viagem">
+        <i class="ph ph-pencil-simple" aria-hidden="true"></i>
+        <span>Editar</span>
+      </button>
+      <button type="button" class="m-lg-foot-btn m-lg-foot-btn--danger" id="m_lg_footExcluir" aria-label="Excluir viagem">
+        <i class="ph ph-trash" aria-hidden="true"></i>
+        <span>Excluir</span>
+      </button>
+    </footer>
   </section>
 
   {# ----------------- SHEET: NOVA / EDITAR VIAGEM ----------------- #}
@@ -586,6 +570,6 @@
 {% endblock %}
 
 {% block extra_js %}
-  <script src="{% static 'sankhya_integration/logistica.js' %}?v=3"></script>
-  <script src="{% static 'sankhya_integration/logistica_mobile.js' %}?v=3" defer></script>
+  <script src="{% static 'sankhya_integration/logistica.js' %}?v=5"></script>
+  <script src="{% static 'sankhya_integration/logistica_mobile.js' %}?v=7" defer></script>
 {% endblock %}

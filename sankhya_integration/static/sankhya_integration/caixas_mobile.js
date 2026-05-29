@@ -262,11 +262,9 @@
         $('#m_cx_detCodparc').textContent  = `CODPARC ${c.codparc}`;
         $('#m_cx_detSaldo').textContent    = fmtNum(c.saldo);
         $('#m_cx_statEnv').textContent     = fmtNum(c.caixas_enviadas);
-        $('#m_cx_statDev').textContent     = fmtNum(c.caixas_devolvidas);
         $('#m_cx_statCol').textContent     = fmtNum(c.caixas_coletadas);
         $('#m_cx_statQue').textContent     = fmtNum(c.caixas_quebradas);
         $('#m_cx_statPer').textContent     = fmtNum(c.caixas_perdidas);
-        $('#m_cx_semPeso').hidden          = !c.sem_peso;
         $('#m_cx_timelineDias').textContent = ESTADO.timelineDias;
 
         $('#m_cx_timeline').innerHTML = '<div class="m-empty-state"><i class="ph ph-clock"></i><span>Carregando timeline…</span></div>';
@@ -293,12 +291,14 @@
         }
 
         const mapaTipo = {
-            'SAIDA':         { classe: 'm-cx-evento--saida',     icone: 'ph-arrow-up-right',   label: 'Saída' },
-            'DEVOLUCAO':     { classe: 'm-cx-evento--devolucao', icone: 'ph-arrow-down-left',  label: 'Devolução' },
-            'COLETA':        { classe: 'm-cx-evento--coleta',    icone: 'ph-truck',            label: 'Coleta' },
+            'VIAGEM':        { classe: 'm-cx-evento--viagem',    icone: 'ph-truck',            label: 'Viagem' },
+            'COLETA':        { classe: 'm-cx-evento--coleta',    icone: 'ph-arrow-down-left',  label: 'Coleta' },
             'QUEBRA':        { classe: 'm-cx-evento--quebra',    icone: 'ph-warning',          label: 'Quebra' },
             'PERDA':         { classe: 'm-cx-evento--perda',     icone: 'ph-x-circle',         label: 'Perda' },
             'AJUSTE_SALDO':  { classe: 'm-cx-evento--ajuste',    icone: 'ph-pencil-simple',    label: 'Ajuste' },
+            // Legado (eventos pre-2026-05-29):
+            'SAIDA':         { classe: 'm-cx-evento--saida',     icone: 'ph-arrow-up-right',   label: 'Saída (legado)' },
+            'DEVOLUCAO':     { classe: 'm-cx-evento--devolucao', icone: 'ph-arrow-down-left',  label: 'Devolução (legado)' },
         };
 
         const html = ESTADO.eventos.map((e, idx) => {
@@ -307,22 +307,30 @@
             const data = fmtData(e.data);
 
             let infoExtra = '';
-            if (e.nunota) {
+            if (e.tipo === 'VIAGEM' && e.num_viagem) {
+                const desc = e.descricao ? ` — ${escapeHtml(e.descricao)}` : '';
+                infoExtra = `<div class="m-cx-evento__desc">Viagem #${e.num_viagem}${desc}</div>`;
+                if (e.observacao) {
+                    infoExtra += `<div class="m-cx-evento__obs">${escapeHtml(e.observacao)}</div>`;
+                }
+            } else if (e.nunota) {
                 const notaLbl = e.numnota ? `Nota ${e.numnota}` : `NUNOTA ${e.nunota}`;
                 infoExtra = `<div class="m-cx-evento__desc">${escapeHtml(notaLbl)}${e.descricao ? ' — ' + escapeHtml(e.descricao) : ''}</div>`;
             } else if (e.observacao) {
                 infoExtra = `<div class="m-cx-evento__desc">${escapeHtml(e.observacao)}</div>`;
             }
 
-            const usuario = e.nomeusu ? ` · ${escapeHtml(e.nomeusu)}` : '';
+            const usuario = (e.tipo === 'COLETA' && e.motorista_nome)
+                ? ` · Motorista: ${escapeHtml(e.motorista_nome)}`
+                : (e.nomeusu ? ` · ${escapeHtml(e.nomeusu)}` : '');
             const estornadoTag = e.estornado ? '<span class="m-cx-evento__estornado-tag">ESTORNADO</span>' : '';
 
-            // Sinal: AJUSTE_SALDO pode ser negativo; SAIDA é positivo; demais descontam
+            // Sinal: AJUSTE_SALDO pode ser negativo; VIAGEM/SAIDA é positivo; demais descontam
             let sinal, qtdExibida;
             if (e.tipo === 'AJUSTE_SALDO') {
                 qtdExibida = Math.abs(e.qtd_caixas);
                 sinal = e.qtd_caixas >= 0 ? '+' : '−';
-            } else if (e.tipo === 'SAIDA') {
+            } else if (e.tipo === 'VIAGEM' || e.tipo === 'SAIDA') {
                 qtdExibida = e.qtd_caixas;
                 sinal = '+';
             } else {
@@ -331,15 +339,26 @@
             }
 
             const podeEstornar = e.id_coleta && !e.estornado;
-            const swipeBtn = podeEstornar
+            const swipeBtnEstornar = podeEstornar
                 ? `<button type="button" class="m-cx-evento__swipe-estornar" data-id="${e.id_coleta}" aria-label="Estornar">
                        <i class="ph ph-arrow-counter-clockwise"></i>
                    </button>`
                 : '';
 
+            // Eventos do tipo VIAGEM podem ser "transferidos" pra Logística (swipe-direita)
+            const podeTransferir = e.tipo === 'VIAGEM' && e.viagem_id;
+            const swipeBtnTransferir = podeTransferir
+                ? `<button type="button" class="m-cx-evento__swipe-transferir" data-viagem-id="${e.viagem_id}" aria-label="Abrir viagem na Logística">
+                       <i class="ph ph-arrow-square-out"></i>
+                   </button>`
+                : '';
+
+            const viagemIdAttr = podeTransferir ? ` data-viagem-id="${e.viagem_id}"` : '';
+
             return `
-                <div class="m-cx-evento-wrap" data-idx="${idx}">
-                    ${swipeBtn}
+                <div class="m-cx-evento-wrap" data-idx="${idx}"${viagemIdAttr}>
+                    ${swipeBtnEstornar}
+                    ${swipeBtnTransferir}
                     <div class="m-cx-evento ${m.classe} ${estornadoCls}">
                         <div class="m-cx-evento__icone"><i class="ph ${m.icone}"></i></div>
                         <div class="m-cx-evento__corpo">
@@ -359,16 +378,23 @@
         setupSwipeEventos();
     }
 
-    // -------------------- Swipe-to-estornar nos eventos manuais --------------------
+    // -------------------- Swipe nos eventos da timeline --------------------
+    // Esquerda → estornar (coletas manuais)
+    // Direita  → transferir pra Logística (cards de Viagem)
     const SWIPE_REVEAL_PX  = 56;
     const SWIPE_TRIGGER_PX = 28;
 
     function setupSwipeEventos() {
         const wraps = $$('.m-cx-evento-wrap');
         wraps.forEach(wrap => {
-            const btn = wrap.querySelector('.m-cx-evento__swipe-estornar');
+            const btnEstornar = wrap.querySelector('.m-cx-evento__swipe-estornar');
+            const btnTransferir = wrap.querySelector('.m-cx-evento__swipe-transferir');
             const card = wrap.querySelector('.m-cx-evento');
-            if (!btn || !card) return;
+            if (!card) return;
+            if (!btnEstornar && !btnTransferir) return;   // card sem ações disponíveis
+
+            const podeEstornar = !!btnEstornar;
+            const podeTransferir = !!btnTransferir;
 
             let startX = 0, startY = 0, dx = 0, dy = 0, axisLocked = '';
             let starting = false;
@@ -391,11 +417,18 @@
                     axisLocked = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
                 }
                 if (axisLocked !== 'x') return;
-                const aberto = wrap.dataset.swipeOpen === '1';
-                const base = aberto ? -SWIPE_REVEAL_PX : 0;
+                const abertoEsq = wrap.dataset.swipeOpen === '1';
+                const abertoDir = wrap.dataset.swipeRight === '1';
+                let base = 0;
+                if (abertoEsq) base = -SWIPE_REVEAL_PX;
+                else if (abertoDir) base = SWIPE_REVEAL_PX;
                 let v = base + dx;
+                // Resistência elástica nas pontas
                 if (v < -SWIPE_REVEAL_PX) v = -SWIPE_REVEAL_PX + (v + SWIPE_REVEAL_PX) * 0.3;
-                if (v > 0) v = v * 0.3;
+                if (v > SWIPE_REVEAL_PX) v = SWIPE_REVEAL_PX + (v - SWIPE_REVEAL_PX) * 0.3;
+                // Bloquear direção sem botão disponível
+                if (v < 0 && !podeEstornar) v = v * 0.3;
+                if (v > 0 && !podeTransferir) v = v * 0.3;
                 card.style.transform = `translateX(${v}px)`;
             };
 
@@ -403,19 +436,35 @@
                 if (!starting) return;
                 starting = false;
                 if (axisLocked !== 'x') return;
-                const aberto = wrap.dataset.swipeOpen === '1';
-                if (aberto) {
+                const abertoEsq = wrap.dataset.swipeOpen === '1';
+                const abertoDir = wrap.dataset.swipeRight === '1';
+
+                if (abertoEsq) {
+                    // Aberto pra esquerda — só fecha se swipou pra direita forte
                     if (dx > SWIPE_TRIGGER_PX) {
                         wrap.dataset.swipeOpen = '0';
                         card.style.transform = '';
                     } else {
                         card.style.transform = `translateX(-${SWIPE_REVEAL_PX}px)`;
                     }
-                } else {
+                } else if (abertoDir) {
+                    // Aberto pra direita — só fecha se swipou pra esquerda forte
                     if (dx < -SWIPE_TRIGGER_PX) {
+                        wrap.dataset.swipeRight = '0';
+                        card.style.transform = '';
+                    } else {
+                        card.style.transform = `translateX(${SWIPE_REVEAL_PX}px)`;
+                    }
+                } else {
+                    // Fechado — abrir conforme direção e disponibilidade
+                    if (dx < -SWIPE_TRIGGER_PX && podeEstornar) {
                         fecharTodosSwipesEventos(wrap);
                         wrap.dataset.swipeOpen = '1';
                         card.style.transform = `translateX(-${SWIPE_REVEAL_PX}px)`;
+                    } else if (dx > SWIPE_TRIGGER_PX && podeTransferir) {
+                        fecharTodosSwipesEventos(wrap);
+                        wrap.dataset.swipeRight = '1';
+                        card.style.transform = `translateX(${SWIPE_REVEAL_PX}px)`;
                     } else {
                         card.style.transform = '';
                     }
@@ -426,26 +475,43 @@
             card.addEventListener('touchmove',  onMove,  { passive: true });
             card.addEventListener('touchend',   onEnd);
 
-            // Click no card aberto fecha o swipe (cancelar implícito)
+            // Click no card aberto fecha qualquer swipe (cancelar implícito)
             card.addEventListener('click', () => {
-                if (wrap.dataset.swipeOpen === '1') {
+                if (wrap.dataset.swipeOpen === '1' || wrap.dataset.swipeRight === '1') {
                     wrap.dataset.swipeOpen = '0';
+                    wrap.dataset.swipeRight = '0';
                     card.style.transform = '';
                 }
             });
 
-            // Click no botão dispara estornar
-            btn.addEventListener('click', async () => {
-                const id = parseInt(btn.dataset.id, 10);
-                await estornarColeta(id);
-            });
+            // Click no botão estornar
+            if (btnEstornar) {
+                btnEstornar.addEventListener('click', async (ev) => {
+                    ev.stopPropagation();
+                    const id = parseInt(btnEstornar.dataset.id, 10);
+                    await estornarColeta(id);
+                });
+            }
+            // Click no botão transferir → abrir Logística mobile na viagem
+            if (btnTransferir) {
+                btnTransferir.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    const viagemId = parseInt(btnTransferir.dataset.viagemId, 10);
+                    if (!viagemId) return;
+                    window.location.href = '/sankhya/logistica/?viagem=' + viagemId;
+                });
+            }
         });
     }
 
     function fecharTodosSwipesEventos(except) {
-        $$('.m-cx-evento-wrap[data-swipe-open="1"]').forEach(wrap => {
+        $$('.m-cx-evento-wrap').forEach(wrap => {
             if (wrap === except) return;
+            const abertoEsq = wrap.dataset.swipeOpen === '1';
+            const abertoDir = wrap.dataset.swipeRight === '1';
+            if (!abertoEsq && !abertoDir) return;
             wrap.dataset.swipeOpen = '0';
+            wrap.dataset.swipeRight = '0';
             const card = wrap.querySelector('.m-cx-evento');
             if (card) card.style.transform = '';
         });
@@ -480,11 +546,10 @@
                 return;
             }
             showToast('Lançamento estornado.', 'success');
-            // Recarrega saldo + timeline atual
+            // Recarrega saldo + timeline atual SEM navegar (já está na tela detalhe)
             await carregarSaldo();
             if (ESTADO.clienteAtivo) {
-                // Atualiza tela detalhe in-place
-                abrirDetalheCliente(ESTADO.clienteAtivo);
+                await recarregarDetalheSemNavegar(ESTADO.clienteAtivo);
             }
         } catch (err) {
             showToast('Falha de comunicação: ' + err.message, 'error');
@@ -492,6 +557,19 @@
     }
 
     // -------------------- Sheet: Lançar coleta --------------------
+    function aplicarVisibilidadeMotoristaCx() {
+        const motivoEl = document.querySelector('input[name="m_cx_motivo"]:checked');
+        const motivo = (motivoEl && motivoEl.value) || 'COLETA';
+        const wrap = $('#m_cx_colMotoristaWrap');
+        if (!wrap) return;
+        // Motorista só faz sentido em COLETA (caixas voltando do cliente)
+        wrap.style.display = (motivo === 'COLETA') ? '' : 'none';
+        if (motivo !== 'COLETA') {
+            $('#m_cx_colMotoristaCodparc').value = '';
+            $('#m_cx_colMotorista').value = '';
+        }
+    }
+
     function abrirSheetColeta(prefillCodparc, prefillNome) {
         // Reset
         $('#m_cx_colCodparc').value = '';
@@ -499,8 +577,11 @@
         $('#m_cx_colData').valueAsDate = new Date();
         $('#m_cx_colQtd').value = '';
         $('#m_cx_colObs').value = '';
+        $('#m_cx_colMotorista').value = '';
+        $('#m_cx_colMotoristaCodparc').value = '';
         const r = document.querySelector('input[name="m_cx_motivo"][value="COLETA"]');
         if (r) r.checked = true;
+        aplicarVisibilidadeMotoristaCx();
         const msg = $('#m_cx_colMsg');
         msg.hidden = true;
 
@@ -526,7 +607,25 @@
                 pickDescr:  (it) => it.nomeparc,
                 renderItem: (it) => `${it.codparc} — ${it.nomeparc}`,
             });
+
+            // Typeahead motorista — reusa endpoint da Logística (tipo=4=MOTORISTA)
+            window.IAgro.attachTypeahead({
+                inputId:    'm_cx_colMotorista',
+                hiddenId:   'm_cx_colMotoristaCodparc',
+                dropdownId: 'm_cx_colMotoristaDropdown',
+                url:        '/sankhya/logistica/api/parceiros/?tipo=4',
+                positionFixed: true,
+                pickItems:  (data) => data.parceiros || [],
+                pickCod:    (it) => it.codparc,
+                pickDescr:  (it) => it.nomeparc,
+                renderItem: (it) => `${it.codparc} — ${it.nomeparc}`,
+            });
         }
+
+        // Listener nos motivos: mostra/esconde motorista
+        document.querySelectorAll('input[name="m_cx_motivo"]').forEach(el => {
+            el.addEventListener('change', aplicarVisibilidadeMotoristaCx);
+        });
 
         $('#m_cx_colSalvar').addEventListener('click', async () => {
             const msg = $('#m_cx_colMsg');
@@ -535,6 +634,7 @@
             const data    = $('#m_cx_colData').value;
             const motivo  = (document.querySelector('input[name="m_cx_motivo"]:checked') || {}).value || 'COLETA';
             const obs     = $('#m_cx_colObs').value.trim();
+            const codparcMotorista = parseInt($('#m_cx_colMotoristaCodparc').value || '0', 10);
 
             if (!codparc || !data) {
                 msg.textContent = 'Cliente e data são obrigatórios.';
@@ -548,11 +648,19 @@
                 msg.hidden = false;
                 return;
             }
+            if (motivo === 'COLETA' && !codparcMotorista) {
+                msg.textContent = 'Motorista é obrigatório em coletas. Informe quem foi buscar as caixas.';
+                msg.className = 'm-cx-msg is-error';
+                msg.hidden = false;
+                return;
+            }
 
             try {
-                const resp = await window.IAgro.postJSON('/sankhya/caixas/api/coleta/criar/', {
+                const payload = {
                     codparc, qtd_caixas: qtd, data_coleta: data, motivo, observacao: obs,
-                });
+                };
+                if (codparcMotorista) payload.codparc_motorista = codparcMotorista;
+                const resp = await window.IAgro.postJSON('/sankhya/caixas/api/coleta/criar/', payload);
                 const body = resp.body || {};
                 if (!resp.ok || !body.ok) {
                     msg.textContent = body.error || `Erro HTTP ${resp.status}`;
@@ -563,7 +671,9 @@
                 showToast('Coleta lançada.', 'success');
                 closeSheet('coleta');
                 await carregarSaldo();
-                if (ESTADO.clienteAtivo) abrirDetalheCliente(ESTADO.clienteAtivo);
+                if (ESTADO.clienteAtivo) {
+                    await recarregarDetalheSemNavegar(ESTADO.clienteAtivo);
+                }
             } catch (err) {
                 msg.textContent = 'Falha de comunicação: ' + err.message;
                 msg.className = 'm-cx-msg is-error';
@@ -572,22 +682,42 @@
         });
     }
 
-    // -------------------- Atualizar saldo (refresh-pesos TEMP) --------------------
+    // Recarrega o detalhe do cliente atual SEM navegar (sem pushScreen).
+    // Usado pelo botão Atualizar da tela detalhe.
+    async function recarregarDetalheSemNavegar(codparc) {
+        const c = ESTADO.clientes.find(x => x.codparc === codparc);
+        if (!c) return;
+        $('#m_cx_detNome').textContent     = c.nomeparc;
+        $('#m_cx_detCodparc').textContent  = `CODPARC ${c.codparc}`;
+        $('#m_cx_detSaldo').textContent    = fmtNum(c.saldo);
+        $('#m_cx_statEnv').textContent     = fmtNum(c.caixas_enviadas);
+        $('#m_cx_statCol').textContent     = fmtNum(c.caixas_coletadas);
+        $('#m_cx_statQue').textContent     = fmtNum(c.caixas_quebradas);
+        $('#m_cx_statPer').textContent     = fmtNum(c.caixas_perdidas);
+        try {
+            const resp = await fetch(`/sankhya/caixas/api/timeline/${codparc}/?dias=${ESTADO.timelineDias}`);
+            const data = await resp.json();
+            if (data.ok) {
+                ESTADO.eventos = data.eventos || [];
+                renderTimeline();
+            }
+        } catch (err) {
+            console.warn('recarregarDetalhe mobile falhou:', err);
+        }
+    }
+
+    // Atualizar saldo da LISTA — não navega pra detalhe (Mai/2026 — 2026-05-29).
     async function atualizarSaldo() {
         const fab = $('#m_cx_fabAtualizar');
         const banner = $('#m_cx_banner');
         const bannerMsg = $('#m_cx_bannerMsg');
         setLoading(fab, true);
         if (banner) {
-            bannerMsg.textContent = 'Processando pesos das notas…';
+            bannerMsg.textContent = 'Atualizando saldo…';
             banner.hidden = false;
         }
         try {
-            const resp = await window.IAgro.postJSON('/sankhya/caixas/api/refresh-pesos/', {});
-            const body = resp.body || {};
-            if (body.ok && body.linhas_atualizadas > 0) {
-                showToast(`${body.linhas_atualizadas} vendas atualizadas com peso.`, 'success');
-            }
+            await window.IAgro.postJSON('/sankhya/caixas/api/refresh-pesos/', {});
         } catch (err) {
             console.warn('refresh-pesos mobile falhou:', err);
         } finally {
@@ -595,7 +725,22 @@
             setLoading(fab, false);
         }
         await carregarSaldo();
-        if (ESTADO.clienteAtivo) abrirDetalheCliente(ESTADO.clienteAtivo);
+    }
+
+    // Atualizar a partir da tela DETALHE — recarrega só o detalhe atual.
+    async function atualizarDetalheAtual() {
+        const fab = $('#m_cx_fabAtualizarDetalhe');
+        setLoading(fab, true);
+        try {
+            await window.IAgro.postJSON('/sankhya/caixas/api/refresh-pesos/', {});
+        } catch (err) {
+            console.warn('refresh-pesos detalhe falhou:', err);
+        }
+        await carregarSaldo();   // mantém o array ESTADO.clientes em dia
+        if (ESTADO.clienteAtivo) {
+            await recarregarDetalheSemNavegar(ESTADO.clienteAtivo);
+        }
+        setLoading(fab, false);
     }
 
     // -------------------- Bottom nav --------------------
@@ -672,18 +817,26 @@
 
     // -------------------- FABs --------------------
     function setupFabs() {
-        $('#m_cx_fabColeta').addEventListener('click', () => {
-            abrirSheetColeta(null, null);
-        });
-        $('#m_cx_fabAtualizar').addEventListener('click', () => {
-            atualizarSaldo();
-        });
-        $('#m_cx_fabColetaCliente').addEventListener('click', () => {
-            const c = ESTADO.clienteAtivo
-                ? ESTADO.clientes.find(x => x.codparc === ESTADO.clienteAtivo)
-                : null;
-            abrirSheetColeta(ESTADO.clienteAtivo, c ? c.nomeparc : null);
-        });
+        // Tela LISTA: só FAB azul Atualizar (Mai/2026 — 2026-05-29: FAB verde removido)
+        const fabAtualizar = $('#m_cx_fabAtualizar');
+        if (fabAtualizar) {
+            fabAtualizar.addEventListener('click', () => { atualizarSaldo(); });
+        }
+
+        // Tela DETALHE: FAB verde "+" (lançar coleta) + FAB azul Atualizar
+        const fabColetaCliente = $('#m_cx_fabColetaCliente');
+        if (fabColetaCliente) {
+            fabColetaCliente.addEventListener('click', () => {
+                const c = ESTADO.clienteAtivo
+                    ? ESTADO.clientes.find(x => x.codparc === ESTADO.clienteAtivo)
+                    : null;
+                abrirSheetColeta(ESTADO.clienteAtivo, c ? c.nomeparc : null);
+            });
+        }
+        const fabAtualizarDetalhe = $('#m_cx_fabAtualizarDetalhe');
+        if (fabAtualizarDetalhe) {
+            fabAtualizarDetalhe.addEventListener('click', () => { atualizarDetalheAtual(); });
+        }
     }
 
     // -------------------- Boot --------------------

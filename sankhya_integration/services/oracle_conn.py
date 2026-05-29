@@ -13976,17 +13976,21 @@ def consultar_saldo_caixas(filtros: Optional[dict] = None) -> list:
       - apenas_saldo_positivo: bool (default True) — esconde clientes saldo 0
       - codparc: int    — filtra um cliente específico (drill-down)
 
-    Comportamento quando `apenas_saldo_positivo=False`:
-      Inclui clientes que TÊM vendas TOP 35/37 'L' mas cuja fórmula resulta
-      em 0 caixas calculadas (CODVOL='KG' sem PESO populado — caso típico
-      de vendas legadas). Operador precisa ajustar saldo manualmente via
-      AJUSTE_SALDO. Sem esse fallback, esses clientes (ex: Assaí/Sendas)
-      ficavam invisíveis na tela.
+    Fonte de saídas (Mai/2026 — 2026-05-29): viagens lançadas manualmente na
+    Logística (AD_VIAGEM_ENTREGA + AD_VIAGEM_DESTINO). Cada destino de viagem
+    soma `QTD_CAIXAS` ao cliente. Vendas TOP 35/37 e devoluções TOP 36 NÃO
+    descontam mais — fluxo "tudo manual via Logística + AD_COLETA_CAIXAS".
+    Operador faz AJUSTE_SALDO retroativo nos clientes principais (Assaí,
+    Sendas, etc) pra cadastrar saldo inicial. Filtro plástica/papelão também
+    removido — Logística não conhece CODPROD por destino, toda viagem conta.
 
     Retorna lista de dicts ordenada por saldo DESC:
       [{'codparc', 'nomeparc', 'caixas_enviadas', 'caixas_devolvidas',
         'caixas_coletadas', 'caixas_perdidas', 'caixas_quebradas',
         'caixas_ajuste', 'saldo', 'ultima_saida', 'ultima_coleta'}, ...]
+
+    Os campos `caixas_devolvidas` e `sem_peso` permanecem no retorno por
+    compat com frontend, sempre `0` e `False` respectivamente.
     """
     filtros = filtros or {}
     apenas_saldo_positivo = bool(filtros.get('apenas_saldo_positivo', True))
@@ -13995,64 +13999,28 @@ def consultar_saldo_caixas(filtros: Optional[dict] = None) -> list:
 
     binds: dict = {}
 
-    # Filtro de produto: exclui linhas cujo CODPROD está em AD_PRODUTO_CAIXA
-    # como PAPELAO. Produtos não cadastrados caem em PLASTICA por default.
-    filtro_plastica = (
-        "AND NOT EXISTS (SELECT 1 FROM AD_PRODUTO_CAIXA pc "
-        "                WHERE pc.CODPROD = i.CODPROD "
-        "                  AND pc.TIPO_CAIXA = 'PAPELAO')"
-    )
-
-    # WHERE de cliente
+    # WHERE de cliente — aplicado em d.CODPARC_DESTINO
     where_parceiro = []
     if codparc_filtro:
-        where_parceiro.append("c.CODPARC = :codparc")
+        where_parceiro.append("d.CODPARC_DESTINO = :codparc")
         binds['codparc'] = int(codparc_filtro)
     if q_filtro:
         where_parceiro.append("UPPER(par.NOMEPARC) LIKE :q")
         binds['q'] = f"%{q_filtro}%"
     where_parceiro_sql = (" AND " + " AND ".join(where_parceiro)) if where_parceiro else ""
 
-    # Fórmula (Mai/2026 — 2026-05-18 final):
-    # Caixas reais = CEIL(QTDNEG / TGFITE.PESO) quando PESO está populado
-    # (vendas IAgro recentes via Rastreio). Vendas legadas (sem PESO) NÃO
-    # entram no cálculo de saídas — operador usa AJUSTE_SALDO pra clientes
-    # importantes (Assaí, Sendas) cujas vendas vêm faturadas direto no Sankhya.
-    #
-    # Histórico: tentamos cascata com tabela AD_PESO_CAIXA_PRODUTO (cadastro
-    # de peso por produto). Descartado porque peso varia por LOTE — cadastro
-    # fixo por produto era chute (~50% errado). Esperar IAgro virar fluxo
-    # padrão é o caminho honesto: novas vendas trazem PESO real via Rastreio.
+    # Saídas via Logística (substitui TOP 35/37). Cada destino soma QTD_CAIXAS.
     sql_saidas = f"""
-        SELECT c.CODPARC,
+        SELECT d.CODPARC_DESTINO,
                par.NOMEPARC,
-               SUM(CEIL(NVL(i.QTDNEG, 0) / i.PESO)) AS caixas,
-               MAX(c.DTNEG) AS ultima
-          FROM TGFCAB c
-          JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
-          JOIN TGFPAR par ON par.CODPARC = c.CODPARC
-         WHERE c.CODTIPOPER IN (35, 37)
-           AND c.STATUSNOTA = 'L'
-           AND NVL(i.QTDNEG, 0) > 0
-           AND NVL(i.PESO, 0) > 0
-           {filtro_plastica}
+               SUM(NVL(d.QTD_CAIXAS, 0)) AS caixas,
+               MAX(v.DATA_VIAGEM)        AS ultima
+          FROM SANKHYA.AD_VIAGEM_ENTREGA v
+          JOIN SANKHYA.AD_VIAGEM_DESTINO d ON d.VIAGEM_ID = v.ID
+          JOIN SANKHYA.TGFPAR par ON par.CODPARC = d.CODPARC_DESTINO
+         WHERE 1=1
            {where_parceiro_sql}
-         GROUP BY c.CODPARC, par.NOMEPARC
-    """
-
-    # Devoluções: TOP 36 STATUSNOTA='L' — mesma fórmula
-    sql_devolucoes = f"""
-        SELECT c.CODPARC,
-               SUM(CEIL(NVL(i.QTDNEG, 0) / i.PESO)) AS caixas
-          FROM TGFCAB c
-          JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
-         WHERE c.CODTIPOPER = 36
-           AND c.STATUSNOTA = 'L'
-           AND NVL(i.QTDNEG, 0) > 0
-           AND NVL(i.PESO, 0) > 0
-           {filtro_plastica}
-           {(" AND c.CODPARC = :codparc" if codparc_filtro else "")}
-         GROUP BY c.CODPARC
+         GROUP BY d.CODPARC_DESTINO, par.NOMEPARC
     """
 
     # Coletas manuais agregadas por motivo + última data
@@ -14066,13 +14034,14 @@ def consultar_saldo_caixas(filtros: Optional[dict] = None) -> list:
          GROUP BY CODPARC, MOTIVO
     """.format(filtro_codparc=("AND CODPARC = :codparc" if codparc_filtro else ""))
 
+    binds_dev = {'codparc': int(codparc_filtro)} if codparc_filtro else {}
     resultado: dict[int, dict] = {}
 
     try:
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
 
-            # Saídas (sempre) — base do dicionário
+            # Saídas via Logística — base do dicionário
             cur.execute(sql_saidas, binds)
             for r in cur.fetchall():
                 cp = int(r[0])
@@ -14080,7 +14049,7 @@ def consultar_saldo_caixas(filtros: Optional[dict] = None) -> list:
                     'codparc':           cp,
                     'nomeparc':          (r[1] or '').strip() or '—',
                     'caixas_enviadas':   int(r[2] or 0),
-                    'caixas_devolvidas': 0,
+                    'caixas_devolvidas': 0,    # legado — sempre 0 (TOP 36 removida)
                     'caixas_coletadas':  0,
                     'caixas_perdidas':   0,
                     'caixas_quebradas':  0,
@@ -14088,65 +14057,8 @@ def consultar_saldo_caixas(filtros: Optional[dict] = None) -> list:
                     'saldo':             int(r[2] or 0),
                     'ultima_saida':      r[3].strftime('%Y-%m-%d') if r[3] else None,
                     'ultima_coleta':     None,
-                    'sem_peso':          False,  # marca cliente que tem vendas só em KG sem PESO
+                    'sem_peso':          False,  # legado — sempre False (sem PESO no cálculo)
                 }
-
-            # Clientes "fantasma": têm vendas TOP 35/37 'L' mas nenhuma com
-            # CODVOL='CX' nem PESO populado. Só entram quando o operador
-            # marca "Incluir saldo zerado". Caso típico: Assaí/Sendas em KG.
-            if not apenas_saldo_positivo:
-                where_fantasma = []
-                binds_f = {}
-                if codparc_filtro:
-                    where_fantasma.append("c.CODPARC = :codparc")
-                    binds_f['codparc'] = int(codparc_filtro)
-                if q_filtro:
-                    where_fantasma.append("UPPER(par.NOMEPARC) LIKE :q")
-                    binds_f['q'] = f"%{q_filtro}%"
-                where_fantasma_sql = (" AND " + " AND ".join(where_fantasma)) if where_fantasma else ""
-                cur.execute(f"""
-                    SELECT c.CODPARC, par.NOMEPARC, MAX(c.DTNEG)
-                      FROM TGFCAB c
-                      JOIN TGFPAR par ON par.CODPARC = c.CODPARC
-                     WHERE c.CODTIPOPER IN (35, 37)
-                       AND c.STATUSNOTA = 'L'
-                       AND EXISTS (
-                           SELECT 1 FROM TGFITE i
-                            WHERE i.NUNOTA = c.NUNOTA
-                              AND NVL(i.QTDNEG, 0) > 0
-                       )
-                       {filtro_plastica.replace('NOT EXISTS', 'AND NOT EXISTS').replace('AND AND', 'AND') if False else ''}
-                       {where_fantasma_sql}
-                     GROUP BY c.CODPARC, par.NOMEPARC
-                """, binds_f)
-                for r in cur.fetchall():
-                    cp = int(r[0])
-                    if cp in resultado:
-                        continue  # já apareceu via saídas calculadas
-                    resultado[cp] = {
-                        'codparc':           cp,
-                        'nomeparc':          (r[1] or '').strip() or '—',
-                        'caixas_enviadas':   0,
-                        'caixas_devolvidas': 0,
-                        'caixas_coletadas':  0,
-                        'caixas_perdidas':   0,
-                        'caixas_quebradas':  0,
-                        'caixas_ajuste':     0,
-                        'saldo':             0,
-                        'ultima_saida':      r[2].strftime('%Y-%m-%d') if r[2] else None,
-                        'ultima_coleta':     None,
-                        'sem_peso':          True,  # operador pode usar AJUSTE_SALDO pra cadastrar saldo conhecido
-                    }
-
-            # Devoluções
-            binds_dev = {'codparc': int(codparc_filtro)} if codparc_filtro else {}
-            cur.execute(sql_devolucoes, binds_dev)
-            for r in cur.fetchall():
-                cp = int(r[0])
-                if cp not in resultado:
-                    continue  # cliente sem saída mas com devolução é caso raríssimo; ignora
-                resultado[cp]['caixas_devolvidas'] = int(r[1] or 0)
-                resultado[cp]['saldo'] -= int(r[1] or 0)
 
             # Coletas (schema-resilient — só se a tabela existir).
             # AJUSTE_SALDO permite QTD negativa: SOMA ao saldo (operador
@@ -14231,10 +14143,18 @@ def obter_timeline_caixas(codparc: int, dias: int = 90) -> list:
         codparc: CODPARC do cliente (obrigatório).
         dias:    janela em dias retroativa a partir de hoje (default 90).
 
+    Fonte de saídas (Mai/2026 — 2026-05-29): viagens lançadas na Logística
+    (AD_VIAGEM_ENTREGA + AD_VIAGEM_DESTINO). Cada destino vira 1 evento
+    tipo='VIAGEM'. Vendas TOP 35/37 e devoluções TOP 36 NÃO geram eventos.
+
     Retorna lista ordenada por data DESC:
-      [{'tipo': 'SAIDA'|'DEVOLUCAO'|'COLETA'|'QUEBRA'|'PERDA',
-        'data', 'nunota', 'qtd_caixas', 'descricao', 'observacao',
-        'id_coleta', 'estornado'}, ...]
+      [{'tipo': 'VIAGEM'|'COLETA'|'QUEBRA'|'PERDA'|'AJUSTE_SALDO',
+        'data', 'qtd_caixas', 'descricao', 'observacao',
+        'id_coleta', 'estornado',
+        # Campos extras quando tipo='VIAGEM':
+        'viagem_id', 'num_viagem', 'placa', 'motorista', 'hora_saida',
+        # Campos legados (sempre None quando tipo='VIAGEM'):
+        'nunota', 'numnota', 'top'}, ...]
     """
     if not codparc:
         return []
@@ -14242,57 +14162,32 @@ def obter_timeline_caixas(codparc: int, dias: int = 90) -> list:
     eventos: list[dict] = []
     binds = {'codparc': int(codparc), 'dias': int(max(1, min(dias, 730)))}
 
-    filtro_plastica = (
-        "AND NOT EXISTS (SELECT 1 FROM AD_PRODUTO_CAIXA pc "
-        "                WHERE pc.CODPROD = i.CODPROD "
-        "                  AND pc.TIPO_CAIXA = 'PAPELAO')"
-    )
-
-    # Fórmula (Mai/2026 — 2026-05-18 final):
-    # Caixas = CEIL(QTDNEG / TGFITE.PESO). Vendas sem PESO não entram —
-    # ver doc em consultar_saldo_caixas.
-    sql_saidas = f"""
-        SELECT c.DTNEG,
-               c.NUNOTA,
-               c.NUMNOTA,
-               c.CODTIPOPER,
-               SUM(CEIL(NVL(i.QTDNEG, 0) / i.PESO)) AS caixas,
-               LISTAGG(pr.DESCRPROD, ', ') WITHIN GROUP (ORDER BY pr.DESCRPROD) AS produtos
-          FROM TGFCAB c
-          JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
-          JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
-         WHERE c.CODPARC = :codparc
-           AND c.CODTIPOPER IN (35, 37)
-           AND c.STATUSNOTA = 'L'
-           AND NVL(i.QTDNEG, 0) > 0
-           AND NVL(i.PESO, 0) > 0
-           AND c.DTNEG >= TRUNC(SYSDATE) - :dias
-           {filtro_plastica}
-         GROUP BY c.DTNEG, c.NUNOTA, c.NUMNOTA, c.CODTIPOPER
-         ORDER BY c.DTNEG DESC
+    # Saídas via Logística (substitui TOP 35/37 e devolução TOP 36)
+    sql_viagens = """
+        SELECT v.DATA_VIAGEM,
+               v.ID                  AS viagem_id,
+               v.NUM_VIAGEM,
+               d.QTD_CAIXAS,
+               ve.PLACA,
+               ve.MARCAMODELO,
+               motorp.NOMEPARC       AS motorista_nome,
+               v.OBSERVACAO          AS obs_viagem,
+               d.OBSERVACAO          AS obs_destino,
+               v.HORA_SAIDA
+          FROM SANKHYA.AD_VIAGEM_ENTREGA  v
+          JOIN SANKHYA.AD_VIAGEM_DESTINO  d ON d.VIAGEM_ID = v.ID
+          LEFT JOIN SANKHYA.TGFVEI ve     ON ve.CODVEICULO = v.CODVEICULO
+          LEFT JOIN SANKHYA.TGFPAR motorp ON motorp.CODPARC = v.CODPARC_MOTORISTA
+         WHERE d.CODPARC_DESTINO = :codparc
+           AND v.DATA_VIAGEM >= TRUNC(SYSDATE) - :dias
+         ORDER BY v.DATA_VIAGEM DESC, v.HORA_SAIDA DESC
     """
 
-    sql_devolucoes = f"""
-        SELECT c.DTNEG,
-               c.NUNOTA,
-               c.NUMNOTA,
-               SUM(CEIL(NVL(i.QTDNEG, 0) / i.PESO)) AS caixas,
-               LISTAGG(pr.DESCRPROD, ', ') WITHIN GROUP (ORDER BY pr.DESCRPROD) AS produtos
-          FROM TGFCAB c
-          JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
-          JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
-         WHERE c.CODPARC = :codparc
-           AND c.CODTIPOPER = 36
-           AND c.STATUSNOTA = 'L'
-           AND NVL(i.QTDNEG, 0) > 0
-           AND NVL(i.PESO, 0) > 0
-           AND c.DTNEG >= TRUNC(SYSDATE) - :dias
-           {filtro_plastica}
-         GROUP BY c.DTNEG, c.NUNOTA, c.NUMNOTA
-         ORDER BY c.DTNEG DESC
-    """
-
-    sql_coletas = """
+    # SQL coletas — schema-resilient: inclui CODPARC_MOTORISTA + JOIN TGFPAR
+    # quando a coluna existe (migration AD_COLETA_CAIXAS_MIGRATION_MOTORISTA
+    # aplicada). Em coletas pré-Mai/2026-05-29, motorista_nome vem NULL.
+    # Definido inline depois de abrir o cursor (precisa do cur pra checagem).
+    sql_coletas_legado = """
         SELECT ID, DATA_COLETA, MOTIVO, QTD_CAIXAS, OBSERVACAO, ESTORNADO,
                CODUSU, NOMEUSU, CRIADO_EM
           FROM AD_COLETA_CAIXAS
@@ -14300,42 +14195,82 @@ def obter_timeline_caixas(codparc: int, dias: int = 90) -> list:
            AND DATA_COLETA >= TRUNC(SYSDATE) - :dias
          ORDER BY DATA_COLETA DESC, ID DESC
     """
+    sql_coletas_com_motorista = """
+        SELECT cc.ID, cc.DATA_COLETA, cc.MOTIVO, cc.QTD_CAIXAS, cc.OBSERVACAO,
+               cc.ESTORNADO, cc.CODUSU, cc.NOMEUSU, cc.CRIADO_EM,
+               cc.CODPARC_MOTORISTA,
+               pmot.NOMEPARC AS MOTORISTA_NOME
+          FROM SANKHYA.AD_COLETA_CAIXAS cc
+          LEFT JOIN SANKHYA.TGFPAR pmot ON pmot.CODPARC = cc.CODPARC_MOTORISTA
+         WHERE cc.CODPARC = :codparc
+           AND cc.DATA_COLETA >= TRUNC(SYSDATE) - :dias
+         ORDER BY cc.DATA_COLETA DESC, cc.ID DESC
+    """
 
     try:
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
 
-            cur.execute(sql_saidas, binds)
+            cur.execute(sql_viagens, binds)
             for r in cur.fetchall():
-                eventos.append({
-                    'tipo':         'SAIDA',
-                    'data':         r[0].strftime('%Y-%m-%d') if r[0] else None,
-                    'nunota':       int(r[1]) if r[1] else None,
-                    'numnota':      int(r[2]) if r[2] else None,
-                    'top':          int(r[3]) if r[3] else None,
-                    'qtd_caixas':   int(r[4] or 0),
-                    'descricao':    (r[5] or '')[:200] if r[5] else '',
-                    'observacao':   None,
-                    'id_coleta':    None,
-                    'estornado':    False,
-                })
+                placa = (r[4] or '').strip()
+                marcamodelo = (r[5] or '').strip()
+                motorista = (r[6] or '').strip()
+                obs_viagem = r[7]
+                if hasattr(obs_viagem, 'read'):
+                    try: obs_viagem = obs_viagem.read()
+                    except Exception: obs_viagem = ''
+                obs_destino = r[8]
+                if hasattr(obs_destino, 'read'):
+                    try: obs_destino = obs_destino.read()
+                    except Exception: obs_destino = ''
+                hora_saida = (r[9] or '').strip()
+                num_viagem = int(r[2]) if r[2] is not None else None
 
-            cur.execute(sql_devolucoes, binds)
-            for r in cur.fetchall():
+                # descricao = placa + modelo
+                if placa and marcamodelo:
+                    descricao = f"Placa {placa} · {marcamodelo}"
+                elif placa:
+                    descricao = f"Placa {placa}"
+                else:
+                    descricao = '—'
+
+                # observacao = #viagem + hora + motorista + obs gestor + obs destino
+                partes = []
+                if num_viagem and hora_saida:
+                    partes.append(f"Viagem #{num_viagem}: {hora_saida}")
+                elif num_viagem:
+                    partes.append(f"Viagem #{num_viagem}")
+                if motorista:
+                    partes.append(motorista)
+                if obs_viagem:
+                    partes.append(f"Gestor: {(obs_viagem or '').strip()[:200]}")
+                if obs_destino:
+                    partes.append(f"Destino: {(obs_destino or '').strip()[:200]}")
+                observacao = ' · '.join(partes) if partes else None
+
                 eventos.append({
-                    'tipo':         'DEVOLUCAO',
+                    'tipo':         'VIAGEM',
                     'data':         r[0].strftime('%Y-%m-%d') if r[0] else None,
-                    'nunota':       int(r[1]) if r[1] else None,
-                    'numnota':      int(r[2]) if r[2] else None,
-                    'top':          36,
+                    'nunota':       None,
+                    'numnota':      None,
+                    'top':          None,
                     'qtd_caixas':   int(r[3] or 0),
-                    'descricao':    (r[4] or '')[:200] if r[4] else '',
-                    'observacao':   None,
+                    'descricao':    descricao,
+                    'observacao':   observacao,
                     'id_coleta':    None,
                     'estornado':    False,
+                    'viagem_id':    int(r[1]) if r[1] is not None else None,
+                    'num_viagem':   num_viagem,
+                    'placa':        placa or None,
+                    'motorista':    motorista or None,
+                    'hora_saida':   hora_saida or None,
                 })
 
             if _existe_coluna(cur, 'AD_COLETA_CAIXAS', 'ID'):
+                # Escolhe SQL conforme migration do motorista foi aplicada
+                tem_col_motorista = _existe_coluna(cur, 'AD_COLETA_CAIXAS', 'CODPARC_MOTORISTA')
+                sql_coletas = sql_coletas_com_motorista if tem_col_motorista else sql_coletas_legado
                 cur.execute(sql_coletas, binds)
                 for r in cur.fetchall():
                     motivo = (r[2] or '').upper()
@@ -14343,6 +14278,12 @@ def obter_timeline_caixas(codparc: int, dias: int = 90) -> list:
                     if hasattr(obs_clob, 'read'):
                         try: obs_clob = obs_clob.read()
                         except Exception: obs_clob = ''
+                    # Colunas extras quando schema novo: r[9]=CODPARC_MOTORISTA, r[10]=MOTORISTA_NOME
+                    motorista_codparc = None
+                    motorista_nome = None
+                    if tem_col_motorista and len(r) >= 11:
+                        motorista_codparc = int(r[9]) if r[9] is not None else None
+                        motorista_nome = (r[10] or '').strip() or None
                     eventos.append({
                         'tipo':         motivo,  # COLETA | QUEBRA | PERDA | AJUSTE_SALDO
                         'data':         r[1].strftime('%Y-%m-%d') if r[1] else None,
@@ -14356,12 +14297,32 @@ def obter_timeline_caixas(codparc: int, dias: int = 90) -> list:
                         'estornado':    (r[5] or 'N') == 'S',
                         'codusu':       int(r[6]) if r[6] else None,
                         'nomeusu':      (r[7] or '').strip() or None,
+                        'motorista_codparc': motorista_codparc,
+                        'motorista_nome':    motorista_nome,
                     })
     except Exception:
         logger.exception("Falha em obter_timeline_caixas (codparc=%s)", codparc)
         return []
 
-    eventos.sort(key=lambda e: (e['data'] or '', e['tipo']), reverse=True)
+    # Ordenação cronológica DESC (recentes em cima). No mesmo dia, segue
+    # a ordem natural do fluxo operacional: VIAGEM acontece primeiro (manhã —
+    # caixas saem do pátio), COLETA depois (cliente devolve), QUEBRA/PERDA/
+    # AJUSTE são descobertas posteriores ainda. Logo, na timeline DESC, VIAGEM
+    # aparece ACIMA de COLETA no mesmo dia (mantém narrativa cronológica
+    # legível: "primeiro entreguei, depois recolhi"). Mai/2026 — 2026-05-29.
+    ORDEM_INTRA_DIA = {
+        'VIAGEM':       1,   # entrega — primeiro evento do dia
+        'SAIDA':        1,   # legado (TOP 35/37) — equivalente a VIAGEM
+        'COLETA':       2,
+        'DEVOLUCAO':    2,   # legado (TOP 36) — equivalente a COLETA
+        'QUEBRA':       3,
+        'PERDA':        4,
+        'AJUSTE_SALDO': 5,
+    }
+    eventos.sort(
+        key=lambda e: (e['data'] or '', -ORDEM_INTRA_DIA.get(e['tipo'], 99)),
+        reverse=True,
+    )
     return eventos
 
 
@@ -14500,13 +14461,20 @@ def criar_coleta_caixas_banco(dados: dict, codusu: int, nomeusu: str = '') -> di
     """B1 — INSERT em AD_COLETA_CAIXAS pra registrar coleta/quebra/perda/ajuste.
 
     Payload (`dados`):
-      codparc:     int (obrigatório — cliente)
-      qtd_caixas:  int (obrigatório)
-                   - COLETA/QUEBRA/PERDA: > 0
-                   - AJUSTE_SALDO: != 0 (positivo soma saldo, negativo desconta)
-      data_coleta: str 'YYYY-MM-DD' (obrigatório, não-futura)
-      motivo:      'COLETA' | 'QUEBRA' | 'PERDA' | 'AJUSTE_SALDO'
-      observacao:  str (opcional, máx 500 chars — recomendado em AJUSTE_SALDO)
+      codparc:           int (obrigatório — cliente)
+      qtd_caixas:        int (obrigatório)
+                         - COLETA/QUEBRA/PERDA: > 0
+                         - AJUSTE_SALDO: != 0 (positivo soma saldo, negativo desconta)
+      data_coleta:       str 'YYYY-MM-DD' (obrigatório, não-futura)
+      motivo:            'COLETA' | 'QUEBRA' | 'PERDA' | 'AJUSTE_SALDO'
+      observacao:        str (opcional, máx 500 chars — recomendado em AJUSTE_SALDO)
+      codparc_motorista: int — TGFPAR.CODPARC do motorista que buscou as caixas
+                         (Mai/2026 — 2026-05-29). OBRIGATÓRIO quando motivo=COLETA,
+                         opcional nas demais. Validado contra AD_PARCEIRO_TIPO
+                         tipo=4 (MOTORISTA — mesma fonte da Logística).
+
+    CODUSU/NOMEUSU registram o GESTOR que clicou o lançamento;
+    CODPARC_MOTORISTA registra QUEM foi buscar fisicamente.
 
     Retorno:
       {'ok': True, 'id': <novo_id>}
@@ -14529,6 +14497,12 @@ def criar_coleta_caixas_banco(dados: dict, codusu: int, nomeusu: str = '') -> di
     motivo      = (dados.get('motivo') or '').upper().strip()
     observacao  = (dados.get('observacao') or '').strip()[:500]
 
+    # codparc_motorista — novo campo (Mai/2026 — 2026-05-29)
+    try:
+        codparc_motorista = int(dados.get('codparc_motorista') or 0) or None
+    except (TypeError, ValueError):
+        codparc_motorista = None
+
     if not codparc:                erros.append('codparc obrigatório')
     if not data_coleta:            erros.append('data_coleta obrigatória')
     if motivo not in ('COLETA', 'QUEBRA', 'PERDA', 'AJUSTE_SALDO'):
@@ -14541,6 +14515,12 @@ def criar_coleta_caixas_banco(dados: dict, codusu: int, nomeusu: str = '') -> di
     else:
         if qtd_caixas <= 0:
             erros.append('qtd_caixas deve ser > 0')
+
+    # MOTORISTA obrigatório em COLETA (Mai/2026 — 2026-05-29)
+    if motivo == 'COLETA' and not codparc_motorista:
+        erros.append('motorista obrigatório em coletas (informe quem foi buscar as caixas)')
+    if codparc_motorista is not None and codparc_motorista <= 0:
+        erros.append('codparc_motorista inválido')
 
     # Data não-futura
     try:
@@ -14558,29 +14538,61 @@ def criar_coleta_caixas_banco(dados: dict, codusu: int, nomeusu: str = '') -> di
         with obter_conexao_oracle() as conn:
             cur = conn.cursor()
 
-            # Valida CODPARC existe em TGFPAR
+            # Valida CODPARC do cliente existe em TGFPAR
             cur.execute("SELECT 1 FROM TGFPAR WHERE CODPARC = :c", c=codparc)
             if not cur.fetchone():
                 return {'ok': False, 'error': f'Cliente {codparc} não encontrado em TGFPAR.'}
 
-            # INSERT
+            # Valida MOTORISTA quando preenchido — existe em TGFPAR + tem tipo
+            # MOTORISTA cadastrado em AD_PARCEIRO_TIPO (tipo=4, mesma fonte da
+            # Logística). Mai/2026 — 2026-05-29.
+            if codparc_motorista:
+                cur.execute(
+                    """
+                    SELECT p.NOMEPARC
+                      FROM SANKHYA.TGFPAR p
+                      JOIN SANKHYA.AD_PARCEIRO_TIPO pt
+                        ON pt.CODPARC = p.CODPARC
+                     WHERE p.CODPARC = :cp
+                       AND pt.AD_CODTIPPARC = 4
+                    """,
+                    cp=codparc_motorista,
+                )
+                row = cur.fetchone()
+                if not row:
+                    return {'ok': False, 'error': (
+                        f'Parceiro {codparc_motorista} não está cadastrado como motorista. '
+                        'Cadastre como tipo MOTORISTA antes (mesma fonte usada na Logística).'
+                    )}
+
+            # INSERT — schema-resilient: inclui CODPARC_MOTORISTA só se a coluna
+            # existe (migration AD_COLETA_CAIXAS_MIGRATION_MOTORISTA.sql aplicada)
+            tem_col_motorista = _existe_coluna(cur, 'AD_COLETA_CAIXAS', 'CODPARC_MOTORISTA')
+
+            colunas = ['ID', 'CODPARC', 'QTD_CAIXAS', 'DATA_COLETA', 'MOTIVO',
+                       'OBSERVACAO', 'CODUSU', 'NOMEUSU']
+            valores = ['SEQ_AD_COLETA_CAIXAS.NEXTVAL', ':codparc', ':qtd',
+                       "TO_DATE(:dt, 'YYYY-MM-DD')", ':motivo', ':obs',
+                       ':codusu', ':nomeusu']
+            binds = {
+                'codparc': codparc, 'qtd': qtd_caixas, 'dt': data_coleta,
+                'motivo': motivo, 'obs': observacao or None,
+                'codusu': int(codusu), 'nomeusu': (nomeusu or '')[:80] or None,
+            }
+            if tem_col_motorista and codparc_motorista:
+                colunas.append('CODPARC_MOTORISTA')
+                valores.append(':codparc_motorista')
+                binds['codparc_motorista'] = codparc_motorista
+
             id_var = cur.var(int)
-            cur.execute(
-                """
-                INSERT INTO AD_COLETA_CAIXAS
-                    (ID, CODPARC, QTD_CAIXAS, DATA_COLETA, MOTIVO, OBSERVACAO,
-                     CODUSU, NOMEUSU)
-                VALUES
-                    (SEQ_AD_COLETA_CAIXAS.NEXTVAL, :codparc, :qtd,
-                     TO_DATE(:dt, 'YYYY-MM-DD'), :motivo, :obs,
-                     :codusu, :nomeusu)
-                RETURNING ID INTO :id_out
-                """,
-                codparc=codparc, qtd=qtd_caixas, dt=data_coleta,
-                motivo=motivo, obs=observacao or None,
-                codusu=int(codusu), nomeusu=(nomeusu or '')[:80] or None,
-                id_out=id_var,
+            binds['id_out'] = id_var
+
+            sql_insert = (
+                f"INSERT INTO AD_COLETA_CAIXAS ({', '.join(colunas)}) "
+                f"VALUES ({', '.join(valores)}) "
+                f"RETURNING ID INTO :id_out"
             )
+            cur.execute(sql_insert, binds)
             novo_id = int(id_var.getvalue()[0])
             conn.commit()
 
@@ -14598,6 +14610,7 @@ def criar_coleta_caixas_banco(dados: dict, codusu: int, nomeusu: str = '') -> di
                     'id': novo_id, 'codparc': codparc, 'qtd_caixas': qtd_caixas,
                     'data_coleta': data_coleta, 'motivo': motivo,
                     'observacao': observacao,
+                    'codparc_motorista': codparc_motorista,
                 },
             )
         except Exception:

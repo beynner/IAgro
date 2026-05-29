@@ -218,7 +218,7 @@ Consulta no Sankhya: `SELECT CODGRUPO, NOMEGRUPO FROM TSIGRU ORDER BY CODGRUPO`.
 | Configurações (hub) | 1, 6 |
 | Usuários | 1, 6 |
 | Ajustes Admin (caixas + combustível) | 1, 6 _(Mai/2026 — 2026-05-28)_ |
-| Caixas | 1, 6, 8, 9, 10, 11 |
+| Caixas | 1, 6, 8, 9, 10, 11 _(departamento Frota desde Mai/2026 — 2026-05-29, migrado de Administrativo)_ |
 | Logística | 1, 6, 10 _(Mai/2026 — 2026-05-29, módulo persistente)_ |
 
 ---

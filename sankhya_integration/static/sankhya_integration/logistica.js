@@ -257,9 +257,11 @@
 
     async function apiCarregarViagens(filtros) {
         const params = new URLSearchParams();
-        if (filtros && filtros.data_de)  params.set('data_de', filtros.data_de);
-        if (filtros && filtros.data_ate) params.set('data_ate', filtros.data_ate);
-        if (filtros && filtros.q)        params.set('q', filtros.q);
+        if (filtros && filtros.data_de)            params.set('data_de', filtros.data_de);
+        if (filtros && filtros.data_ate)           params.set('data_ate', filtros.data_ate);
+        if (filtros && filtros.codparc_motorista)  params.set('codparc_motorista', filtros.codparc_motorista);
+        if (filtros && filtros.codveiculo)         params.set('codveiculo', filtros.codveiculo);
+        if (filtros && filtros.q)                  params.set('q', filtros.q);
         params.set('limite', '300');
         const data = await apiGet('/sankhya/logistica/api/viagens/?' + params.toString());
         if (!data.ok) throw new Error(data.error || 'Falha ao carregar viagens');
@@ -312,6 +314,38 @@
         return apiPost('/sankhya/logistica/api/viagem/' + viagemId + '/excluir/', { motivo: motivo || '' });
     }
 
+    function filtrosEstado() {
+        return {
+            data_de: ESTADO.filtroDataIni || '',
+            data_ate: ESTADO.filtroDataFim || ESTADO.filtroDataIni || '',
+            codparc_motorista: ESTADO.filtroCodparcMotorista || 0,
+            codveiculo: ESTADO.filtroCodveiculo || 0,
+            q: (ESTADO.filtroBusca || '').trim(),
+        };
+    }
+
+    let _refetchTimer = null;
+    let _refetchToken = 0;
+    function aplicarFiltrosBackend(opts) {
+        const debounceMs = (opts && typeof opts.debounceMs === 'number') ? opts.debounceMs : 250;
+        if (_refetchTimer) clearTimeout(_refetchTimer);
+        _refetchTimer = setTimeout(async function () {
+            const meuToken = ++_refetchToken;
+            try {
+                const rotas = await apiCarregarViagens(filtrosEstado());
+                if (meuToken !== _refetchToken) return;   // resposta obsoleta — descarta
+                MOCK_ROTAS = rotas;
+                renderTudo();
+            } catch (e) {
+                if (meuToken !== _refetchToken) return;
+                console.error('Falha ao filtrar viagens:', e);
+                if (window.IAgro && IAgro.showToast) {
+                    IAgro.showToast('Erro ao filtrar: ' + e.message, 'error');
+                }
+            }
+        }, debounceMs);
+    }
+
     async function recarregarDadosBackend() {
         try {
             const [veics, motoristas, clientes, ajudantes, rotas] = await Promise.all([
@@ -319,10 +353,7 @@
                 apiCarregarParceiros(TIPO_MOTORISTA),
                 apiCarregarParceiros(TIPO_CLIENTE),
                 apiCarregarParceiros(TIPO_AJUDANTE),
-                apiCarregarViagens({
-                    data_de: ESTADO.filtroDataIni,
-                    data_ate: ESTADO.filtroDataFim,
-                }),
+                apiCarregarViagens(filtrosEstado()),
             ]);
 
             VEICULOS_MOCK = veics.map(function (v) {
@@ -443,29 +474,11 @@
     // -------------------------------------------------------------------------
     // FILTRAGEM
     // -------------------------------------------------------------------------
+    // Backend já entrega a lista filtrada por ESTADO. Aqui só ordena.
     function rotasFiltradas() {
-        const ini = ESTADO.filtroDataIni || '';
-        const fim = ESTADO.filtroDataFim || ini;
-        const busca = normalizar(ESTADO.filtroBusca);
-
-        return MOCK_ROTAS.filter(function (r) {
-            if (ini && r.data < ini) return false;
-            if (fim && r.data > fim) return false;
-            if (ESTADO.filtroCodparcMotorista && r.codparc_motorista !== ESTADO.filtroCodparcMotorista) return false;
-            if (ESTADO.filtroCodveiculo && r.codveiculo !== ESTADO.filtroCodveiculo) return false;
-            if (busca) {
-                const pm = placaModelo(r);
-                const destinos = (r.destinos || []).map(function (d) { return nomeDestino(d.codparc); }).join(' ');
-                const haystack = normalizar(
-                    r.num_viagem + ' ' + pm.placa + ' ' + pm.modelo + ' ' +
-                    nomeMotorista(r) + ' ' + nomeAjudantes(r) + ' ' + destinos
-                );
-                if (haystack.indexOf(busca) < 0) return false;
-            }
-            return true;
-        }).sort(function (a, b) {
+        return MOCK_ROTAS.slice().sort(function (a, b) {
             if (a.data !== b.data) return a.data < b.data ? 1 : -1;
-            return a.hora_saida.localeCompare(b.hora_saida);
+            return (a.hora_saida || '').localeCompare(b.hora_saida || '');
         });
     }
 
@@ -1140,19 +1153,23 @@
         dataIni.value = ESTADO.filtroDataIni;
         dataFim.value = ESTADO.filtroDataFim;
 
-        const replicar = function () {
+        // Replicação dataIni → dataFim (sempre, paridade com convenção iOS Safari)
+        const replicarDataFim = function () {
             const v = dataIni.value;
             if (v) dataFim.value = v;
+        };
+        // change: aplica estado + dispara refetch. input: só replica (sem refetch a cada keystroke)
+        dataIni.addEventListener('input', replicarDataFim);
+        dataIni.addEventListener('change', function () {
+            replicarDataFim();
             ESTADO.filtroDataIni = dataIni.value;
             ESTADO.filtroDataFim = dataFim.value;
-            renderTudo();
-        };
-        dataIni.addEventListener('change', replicar);
-        dataIni.addEventListener('input', replicar);
+            aplicarFiltrosBackend();
+        });
 
         dataFim.addEventListener('change', function () {
             ESTADO.filtroDataFim = dataFim.value;
-            renderTudo();
+            aplicarFiltrosBackend();
         });
 
         const shift = function (delta) {
@@ -1164,27 +1181,23 @@
             dataFim.value = iso;
             ESTADO.filtroDataIni = iso;
             ESTADO.filtroDataFim = iso;
-            renderTudo();
+            aplicarFiltrosBackend({ debounceMs: 0 });
         };
         document.getElementById('lgPrevDay').addEventListener('click', function () { shift(-1); });
         document.getElementById('lgNextDay').addEventListener('click', function () { shift(1); });
 
-        let buscaTimer = null;
         busca.addEventListener('input', function () {
-            clearTimeout(buscaTimer);
-            buscaTimer = setTimeout(function () {
-                ESTADO.filtroBusca = busca.value;
-                renderTudo();
-            }, 250);
+            ESTADO.filtroBusca = busca.value;
+            aplicarFiltrosBackend({ debounceMs: 350 });
         });
 
         motoSel.addEventListener('change', function () {
             ESTADO.filtroCodparcMotorista = parseInt(motoSel.value, 10) || 0;
-            renderTudo();
+            aplicarFiltrosBackend({ debounceMs: 0 });
         });
         veicSel.addEventListener('change', function () {
             ESTADO.filtroCodveiculo = parseInt(veicSel.value, 10) || 0;
-            renderTudo();
+            aplicarFiltrosBackend({ debounceMs: 0 });
         });
 
         document.getElementById('lgLimparFiltros').addEventListener('click', function () {
@@ -1198,7 +1211,7 @@
             busca.value = '';
             motoSel.value = '';
             veicSel.value = '';
-            renderTudo();
+            aplicarFiltrosBackend({ debounceMs: 0 });
         });
     }
 

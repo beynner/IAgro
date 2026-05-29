@@ -19,7 +19,7 @@
 {% endblock %}
 
 {% block extra_css %}
-  <link rel="stylesheet" href="{% static 'sankhya_integration/classificacao.css' %}?v=7">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/classificacao.css' %}?v=9">
 {% endblock %}
 
 {% block content %}
@@ -286,26 +286,11 @@
         </div>
       </div>
 
-      <button type="button" class="m-fab m-fab--secondary" id="m_clss_fabAtualizarLista" aria-label="Atualizar lista">
-        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
-      </button>
+      {% include "sankhya_integration/_m_fabs.html" with fab_secundario_id="m_clss_fabAtualizarLista" fab_secundario_label="Atualizar lista" fab_primario_ocultar=True %}
     </section>
 
     <section class="m-screen m-screen--detalhe" data-screen="detalhe">
-      <header class="m-screen-header">
-        <button type="button" class="m-iconbtn" data-back-to="lista" aria-label="Voltar">
-          <i class="ph ph-arrow-left" aria-hidden="true"></i>
-        </button>
-        <div class="m-screen-title-block">
-          {# Título e subtítulo intencionalmente vazios — info do lote e fornecedor agora aparece no hero card abaixo (Mai/2026 — 2026-05-27) #}
-        </div>
-        <button type="button" class="m-iconbtn" id="m_clss_btnDescarte" aria-label="Descarte">
-          <i class="ph ph-trash" aria-hidden="true"></i>
-        </button>
-        <button type="button" class="m-iconbtn" id="m_clss_btnEditarItens" aria-label="Editar itens classificados">
-          <i class="ph ph-pencil-simple" aria-hidden="true"></i>
-        </button>
-      </header>
+      {% include "sankhya_integration/_m_header_interno.html" with modulo_nome="Classificação" subtela_nome="Lote" %}
 
       <div class="m-screen-body">
         <div class="m-clss-hero">
@@ -380,12 +365,7 @@
         </div>
       </div>
 
-      <button type="button" class="m-fab m-fab--secondary" id="m_clss_fabAtualizarLote" aria-label="Atualizar lote">
-        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
-      </button>
-      <button type="button" class="m-fab" id="m_clss_fabAdd" aria-label="Adicionar classificação">
-        <i class="ph ph-plus" aria-hidden="true"></i>
-      </button>
+      {% include "sankhya_integration/_m_fabs.html" with fab_primario_id="m_clss_fabAdd" fab_primario_label="Adicionar classificação" fab_secundario_id="m_clss_fabAtualizarLote" fab_secundario_label="Atualizar lote" %}
     </section>
 
     <nav class="m-bottom-nav" aria-label="Navegação do módulo">
@@ -922,5 +902,5 @@
   </script>
 
   <script src="{% static 'sankhya_integration/classificacao.js' %}?v=1003" defer></script>
-  <script src="{% static 'sankhya_integration/classificacao_mobile.js' %}?v=17" defer></script>
+  <script src="{% static 'sankhya_integration/classificacao_mobile.js' %}?v=18" defer></script>
 {% endblock %}

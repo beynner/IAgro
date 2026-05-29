@@ -1,0 +1,41 @@
+{% load static %}
+{% comment %}
+Partial: FABs do padrão IAgro Mobile (verde primário + azul secundário)
+
+Padrão consolidado em TODAS as telas que precisam de "adicionar/atualizar":
+  - Verde Agromil → ação POSITIVA (criar, adicionar, novo)
+  - Azul info     → ação de ATUALIZAR (refresh, recarregar)
+
+Parâmetros (via {% include with %}):
+  - fab_primario_id:       id do botão verde (ex: "m_cx_fabAdd")
+  - fab_primario_icone:    classe Phosphor (default "ph-plus")
+  - fab_primario_label:    aria-label do botão verde (default "Adicionar")
+  - fab_secundario_id:     id do botão azul (ex: "m_cx_fabRefresh")
+  - fab_secundario_icone:  classe Phosphor (default "ph-arrows-clockwise")
+  - fab_secundario_label:  aria-label do botão azul (default "Atualizar")
+  - fab_primario_ocultar:  True → não renderiza o FAB verde
+  - fab_secundario_ocultar: True → não renderiza o FAB azul
+
+Uso típico (ambos FABs):
+  {% include "sankhya_integration/_m_fabs.html"
+     with fab_primario_id="m_lg_fabNova"
+          fab_primario_label="Nova viagem"
+          fab_secundario_id="m_lg_fabAtualizar"
+          fab_secundario_label="Atualizar lista" %}
+
+Uso só com FAB verde:
+  {% include "sankhya_integration/_m_fabs.html"
+     with fab_primario_id="m_xx_fabAdd" fab_secundario_ocultar=True %}
+
+Detalhes da diretriz em .claude/conventions.md → "🧩 Partial _m_fabs.html"
+{% endcomment %}
+{% if not fab_secundario_ocultar %}
+<button type="button" class="m-fab m-fab--secondary" id="{{ fab_secundario_id }}" aria-label="{{ fab_secundario_label|default:'Atualizar' }}">
+    <i class="ph {{ fab_secundario_icone|default:'ph-arrows-clockwise' }}" aria-hidden="true"></i>
+</button>
+{% endif %}
+{% if not fab_primario_ocultar %}
+<button type="button" class="m-fab" id="{{ fab_primario_id }}" aria-label="{{ fab_primario_label|default:'Adicionar' }}">
+    <i class="ph {{ fab_primario_icone|default:'ph-plus' }}" aria-hidden="true"></i>
+</button>
+{% endif %}

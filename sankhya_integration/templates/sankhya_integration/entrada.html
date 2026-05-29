@@ -6,7 +6,7 @@
 
 {% block extra_css %}
   <meta name="app-version" content="{{ APP_VERSION }}">
-  <link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}?v=39">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/entrada.css' %}?v=42">
 {% endblock %}
 
 {% block header_title %}ENTRADA IAGRO{% endblock %}
@@ -202,31 +202,12 @@
         </div>
       </div>
 
-      <button type="button" class="m-fab m-fab--secondary" id="m_fabAtualizar" aria-label="Atualizar">
-        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
-      </button>
-      <button type="button" class="m-fab" id="m_fabNova" aria-label="Nova nota">
-        <i class="ph ph-plus" aria-hidden="true"></i>
-      </button>
+      {% include "sankhya_integration/_m_fabs.html" with fab_primario_id="m_fabNova" fab_primario_label="Nova nota" fab_secundario_id="m_fabAtualizar" fab_secundario_label="Atualizar lista" %}
     </section>
 
     {# ===== TELA 2: Detalhe da Nota (itens) ===== #}
     <section class="m-screen m-screen--detalhe" data-screen="detalhe">
-      <header class="m-screen-header">
-        <button type="button" class="m-iconbtn" data-back-to="lista" aria-label="Voltar">
-          <i class="ph ph-arrow-left" aria-hidden="true"></i>
-        </button>
-        <div class="m-screen-title-block">
-          <h1 class="m-screen-title" id="m_detalheNome">—</h1>
-          <span class="m-screen-subtitle" id="m_detalheMeta">NF — · 0 itens · 0% conf</span>
-        </div>
-        <button type="button" class="m-iconbtn m-iconbtn--danger" id="m_btnExcluirNota" aria-label="Excluir nota">
-          <i class="ph ph-trash" aria-hidden="true"></i>
-        </button>
-        <button type="button" class="m-iconbtn" data-open-sheet="cabec" aria-label="Editar cabeçalho">
-          <i class="ph ph-pencil-simple" aria-hidden="true"></i>
-        </button>
-      </header>
+      {% include "sankhya_integration/_m_header_interno.html" with modulo_nome="Entrada" subtela_nome="Nota" %}
 
       <div class="m-screen-body">
         <div class="m-entrada-hero">
@@ -299,27 +280,12 @@
         </div>
       </div>
 
-      <button type="button" class="m-fab m-fab--secondary" id="m_fabAtualizarItens" aria-label="Atualizar itens">
-        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
-      </button>
-      <button type="button" class="m-fab" id="m_fabItem" aria-label="Novo item">
-        <i class="ph ph-plus" aria-hidden="true"></i>
-      </button>
+      {% include "sankhya_integration/_m_fabs.html" with fab_primario_id="m_fabItem" fab_primario_label="Novo item" fab_secundario_id="m_fabAtualizarItens" fab_secundario_label="Atualizar itens" %}
     </section>
 
     {# ===== TELA 3: Conferir Item (a mais usada) ===== #}
     <section class="m-screen m-screen--item" data-screen="item">
-      <header class="m-screen-header">
-        <button type="button" class="m-iconbtn" data-back-to="detalhe" aria-label="Voltar">
-          <i class="ph ph-arrow-left" aria-hidden="true"></i>
-        </button>
-        <div class="m-screen-title-block">
-          <h1 class="m-screen-title" id="m_conf_pos">Item 2 de 8</h1>
-        </div>
-        <button type="button" class="m-iconbtn m-iconbtn--reserved" aria-label="Scan código de barras (em breve)" disabled title="Em breve (fase 2)">
-          <i class="ph ph-qr-code" aria-hidden="true"></i>
-        </button>
-      </header>
+      {% include "sankhya_integration/_m_header_interno.html" with modulo_nome="Entrada" subtela_nome="Conferir item" %}
 
       <div class="m-screen-body m-item-edit">
         <div class="m-item-hero">
@@ -897,5 +863,5 @@
 
 {% block extra_js %}
   <script src="{% static 'sankhya_integration/entrada.js' %}?v=10" defer></script>
-  <script src="{% static 'sankhya_integration/entrada_mobile.js' %}?v=37" defer></script>
+  <script src="{% static 'sankhya_integration/entrada_mobile.js' %}?v=38" defer></script>
 {% endblock %}

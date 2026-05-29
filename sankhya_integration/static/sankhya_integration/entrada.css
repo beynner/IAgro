@@ -1118,19 +1118,30 @@ table { width: 100%; border-collapse: collapse; table-layout: fixed; }
     border-radius: var(--m-radius);
     overflow: hidden;
 }
+/* Botões revelados pelo swipe esquerda (88px total) — paridade card de NOTA */
+.entrada-mobile .m-card-item__swipe-edit,
 .entrada-mobile .m-card-item__swipe-del {
     position: absolute;
-    top: 0; right: 0; bottom: 0;
+    top: 0; bottom: 0;
     width: 44px;
-    background: var(--m-danger);
-    color: #fff;
     border: none;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     z-index: 0;
+    color: #fff;
 }
+.entrada-mobile .m-card-item__swipe-edit {
+    right: 44px;
+    background: #2563eb;   /* azul edit (paridade card de NOTA) */
+}
+.entrada-mobile .m-card-item__swipe-edit:active { background: #1d4ed8; }
+.entrada-mobile .m-card-item__swipe-del {
+    right: 0;
+    background: var(--m-danger);
+}
+.entrada-mobile .m-card-item__swipe-edit i,
 .entrada-mobile .m-card-item__swipe-del i { font-size: 16px; line-height: 1; }
 .entrada-mobile .m-card-item__swipe-del:active { background: #991b1b; }
 

@@ -212,12 +212,9 @@
         $('#cxDetalheCodparc').textContent  = `CODPARC ${cliente.codparc}`;
         $('#cxDetalheSaldo').textContent    = fmtNum(cliente.saldo);
         $('#cxStatEnviadas').textContent    = fmtNum(cliente.caixas_enviadas);
-        $('#cxStatDevolvidas').textContent  = fmtNum(cliente.caixas_devolvidas);
         $('#cxStatColetadas').textContent   = fmtNum(cliente.caixas_coletadas);
         $('#cxStatQuebradas').textContent   = fmtNum(cliente.caixas_quebradas);
         $('#cxStatPerdidas').textContent    = fmtNum(cliente.caixas_perdidas);
-        // Alerta pra clientes sem PESO (Assaí/Sendas)
-        $('#cxSemPesoAlerta').hidden = !cliente.sem_peso;
 
         const tl = $('#cxTimeline');
         tl.innerHTML = '<div class="cx-empty">Carregando timeline…</div>';
@@ -242,12 +239,14 @@
         }
 
         const mapaTipo = {
-            'SAIDA':         { classe: 'cx-evento--saida',     icone: 'ph-arrow-up-right',   label: 'Saída (venda)' },
-            'DEVOLUCAO':     { classe: 'cx-evento--devolucao', icone: 'ph-arrow-down-left',  label: 'Devolução (TOP 36)' },
-            'COLETA':        { classe: 'cx-evento--coleta',    icone: 'ph-truck',            label: 'Coleta' },
+            'VIAGEM':        { classe: 'cx-evento--viagem',    icone: 'ph-truck',            label: 'Viagem' },
+            'COLETA':        { classe: 'cx-evento--coleta',    icone: 'ph-arrow-down-left',  label: 'Coleta' },
             'QUEBRA':        { classe: 'cx-evento--quebra',    icone: 'ph-warning',          label: 'Quebra' },
             'PERDA':         { classe: 'cx-evento--perda',     icone: 'ph-x-circle',         label: 'Perda' },
-            'AJUSTE_SALDO':  { classe: 'cx-evento--ajuste',    icone: 'ph-pencil-simple',    label: 'Ajuste de saldo' },  // legado — eventos antigos
+            'AJUSTE_SALDO':  { classe: 'cx-evento--ajuste',    icone: 'ph-pencil-simple',    label: 'Ajuste de saldo' },
+            // Legado (eventos pre-2026-05-29 — só renderiza se aparecerem):
+            'SAIDA':         { classe: 'cx-evento--saida',     icone: 'ph-arrow-up-right',   label: 'Saída (legado)' },
+            'DEVOLUCAO':     { classe: 'cx-evento--devolucao', icone: 'ph-arrow-down-left',  label: 'Devolução (legado)' },
         };
 
         const html = eventos.map(e => {
@@ -256,23 +255,32 @@
             const data = fmtData(e.data);
 
             let infoExtra = '';
-            if (e.nunota) {
+            if (e.tipo === 'VIAGEM' && e.num_viagem) {
+                const tituloViagem = `Viagem #${e.num_viagem}`;
+                const detalhe = e.descricao ? ` — ${escapeHtml(e.descricao)}` : '';
+                infoExtra = `<div class="cx-evento-desc">${escapeHtml(tituloViagem)}${detalhe}</div>`;
+                if (e.observacao) {
+                    infoExtra += `<div class="cx-evento-obs">${escapeHtml(e.observacao)}</div>`;
+                }
+            } else if (e.nunota) {
                 const notaLbl = e.numnota ? `Nota ${e.numnota}` : `NUNOTA ${e.nunota}`;
                 infoExtra = `<div class="cx-evento-desc">${escapeHtml(notaLbl)}${e.descricao ? ' — ' + escapeHtml(e.descricao) : ''}</div>`;
             } else if (e.observacao) {
                 infoExtra = `<div class="cx-evento-desc">${escapeHtml(e.observacao)}</div>`;
             }
-            const usuario = e.nomeusu ? ` · por ${escapeHtml(e.nomeusu)}` : '';
+            const usuario = (e.tipo === 'COLETA' && e.motorista_nome)
+                ? ` · Motorista: ${escapeHtml(e.motorista_nome)}`
+                : (e.nomeusu ? ` · por ${escapeHtml(e.nomeusu)}` : '');
             const estornadoBadge = e.estornado ? ' <small style="color:#dc2626">(estornado)</small>' : '';
 
             // AJUSTE_SALDO mostra sinal real da qtd (pode ser + ou −).
-            // SAIDA é + (sai do nosso estoque, soma saldo em campo).
-            // Outros tipos (DEVOLUCAO/COLETA/QUEBRA/PERDA) descontam saldo → −.
+            // VIAGEM/SAIDA é + (sai do nosso estoque, soma saldo em campo).
+            // Outros tipos (COLETA/QUEBRA/PERDA/DEVOLUCAO) descontam saldo → −.
             let sinal, qtdExibida;
             if (e.tipo === 'AJUSTE_SALDO') {
                 qtdExibida = Math.abs(e.qtd_caixas);
                 sinal = e.qtd_caixas >= 0 ? '+' : '−';
-            } else if (e.tipo === 'SAIDA') {
+            } else if (e.tipo === 'VIAGEM' || e.tipo === 'SAIDA') {
                 qtdExibida = e.qtd_caixas;
                 sinal = '+';
             } else {
@@ -424,7 +432,36 @@
                 pickDescr:  (it) => it.nomeparc,
                 renderItem: (it) => `${it.codparc} — ${it.nomeparc}`,
             });
+
+            // Typeahead Motorista (AD_PARCEIRO_TIPO tipo=4) — mesma fonte da Logística
+            window.IAgro.attachTypeahead({
+                inputId:    'cxColetaMotorista',
+                hiddenId:   'cxColetaMotoristaCodparc',
+                dropdownId: 'cxColetaMotoristaDropdown',
+                url:        '/sankhya/logistica/api/parceiros/?tipo=4',
+                pickItems:  (data) => data.parceiros || [],
+                pickCod:    (it) => it.codparc,
+                pickDescr:  (it) => it.nomeparc,
+                renderItem: (it) => `${it.codparc} — ${it.nomeparc}`,
+            });
         }
+
+        // Visibilidade condicional do campo Motorista (só em COLETA)
+        const aplicarVisibilidadeMotorista = () => {
+            const motivo = (document.querySelector('input[name="motivo"]:checked') || {}).value || 'COLETA';
+            const wrap   = $('#cxColetaMotoristaWrap');
+            const ehColeta = motivo === 'COLETA';
+            if (wrap) wrap.style.display = ehColeta ? '' : 'none';
+            if (!ehColeta) {
+                $('#cxColetaMotorista').value = '';
+                $('#cxColetaMotoristaCodparc').value = '';
+            }
+        };
+        document.querySelectorAll('input[name="motivo"]').forEach(r => {
+            r.addEventListener('change', aplicarVisibilidadeMotorista);
+        });
+        // Inicializa visibilidade ao abrir modal
+        aplicarVisibilidadeMotorista();
 
         $('#cxColetaSalvar').addEventListener('click', async () => {
             const msgEl = $('#cxColetaMsg');

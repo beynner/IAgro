@@ -1200,6 +1200,11 @@
     -webkit-overflow-scrolling: touch;
 }
 
+/* Na tela detalhe não tem bottom-nav (é o rodapé de ações); padding-bottom só pra respiro */
+.logistica-mobile .m-screen--detalhe .m-screen-body {
+    padding-bottom: 16px;
+}
+
 .logistica-mobile .m-iconbtn {
     width: var(--m-touch-target);
     height: var(--m-touch-target);
@@ -1425,38 +1430,42 @@
     margin-top: 1px;
 }
 
-/* Detalhe (tela 2) */
+/* Breadcrumb global vive em global.css → .m-breadcrumb* */
+
+/* Detalhe (tela 2) — linha única de identificação */
 .logistica-mobile .m-lg-hero {
-    background: linear-gradient(135deg, var(--m-primary) 0%, var(--m-primary-dark) 100%);
-    color: #fff;
-    border-radius: var(--m-radius-sm);
-    padding: 16px;
-    margin-bottom: 12px;
-    box-shadow: var(--m-shadow);
-    text-align: center;
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 4px 2px 10px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--m-border-soft);
 }
 
 .logistica-mobile .m-lg-hero-label {
     font-size: 11px;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    opacity: 0.85;
-    margin-bottom: 4px;
+    letter-spacing: 0.06em;
+    color: var(--m-text-muted);
+    font-weight: 600;
 }
 
 .logistica-mobile .m-lg-hero-numviagem {
-    font-size: 36px;
-    font-weight: 900;
+    font-size: 16px;
+    font-weight: 800;
     font-family: monospace;
-    letter-spacing: 0.04em;
-    line-height: 1;
+    color: var(--m-text);
+}
+
+.logistica-mobile .m-lg-hero-sep {
+    color: var(--m-text-muted);
+    opacity: 0.5;
 }
 
 .logistica-mobile .m-lg-hero-data {
     font-size: 13px;
-    margin-top: 8px;
-    opacity: 0.95;
-    font-style: italic;
+    color: var(--m-text-muted);
 }
 
 .logistica-mobile .m-lg-placa-card {
@@ -1657,11 +1666,10 @@
     flex-shrink: 0;
 }
 
-/* Observação bloco */
+/* Observação bloco — neutro (sem cor laranja) */
 .logistica-mobile .m-lg-obs-bloco {
-    background: var(--m-warning-soft);
-    border: 1px solid #fed7aa;
-    border-left: 4px solid var(--m-warning);
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
     border-radius: var(--m-radius-sm);
     padding: 12px 14px;
     margin-bottom: 14px;
@@ -1675,7 +1683,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--m-warning);
+    color: var(--m-text-muted);
     margin-bottom: 6px;
 }
 
@@ -1685,32 +1693,43 @@
     line-height: 1.45;
 }
 
-/* Ações */
-.logistica-mobile .m-lg-acoes {
+/* Rodapé fixo de ações da tela detalhe (Imprimir · Editar · Excluir)
+   Mesma identidade visual do bottom-nav da lista — ícone + label, sem fundo por botão */
+.logistica-mobile .m-lg-detalhe-footer {
+    flex-shrink: 0;
     display: flex;
-    flex-direction: column;
-    gap: 8px;
+    height: calc(var(--m-bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--m-surface);
+    border-top: 1px solid var(--m-border);
 }
 
-.logistica-mobile .m-lg-acao-btn {
-    border: 1px solid var(--m-border);
-    background: var(--m-surface);
-    border-radius: var(--m-radius-sm);
-    padding: 12px 14px;
+.logistica-mobile .m-lg-foot-btn {
+    flex: 1;
+    border: none;
+    background: transparent;
     display: inline-flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    font-size: 14px;
+    gap: 2px;
+    font-size: 10px;
     font-weight: 600;
-    color: var(--m-text);
+    color: var(--m-text-muted);
     cursor: pointer;
+    padding: 4px 0;
+    position: relative;
 }
 
-.logistica-mobile .m-lg-acao-btn .ph { font-size: 18px; }
+.logistica-mobile .m-lg-foot-btn .ph { font-size: 18px; }
 
-.logistica-mobile .m-lg-acao-btn--imprimir { color: var(--m-info); border-color: #93c5fd; background: var(--m-info-soft); }
-.logistica-mobile .m-lg-acao-btn--cancelar { color: var(--m-danger); border-color: #fecaca; background: var(--m-danger-soft); }
+.logistica-mobile .m-lg-foot-btn:active { color: var(--m-text); }
+.logistica-mobile .m-lg-foot-btn:active .ph::before { font-family: 'Phosphor-Fill'; }
+
+.logistica-mobile .m-lg-foot-btn--danger {
+    color: var(--m-danger);
+}
+.logistica-mobile .m-lg-foot-btn--danger:active { color: var(--m-danger); }
 
 /* FAB */
 .logistica-mobile .m-fab {

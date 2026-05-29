@@ -1,32 +1,39 @@
 # Módulo Controle de Caixas (Vasilhame Retornável)
 
-Controle de circulação de caixas plásticas entre Agromil e clientes. Saídas derivadas em runtime das vendas via `CEIL(QTDNEG / TGFITE.PESO)` quando peso populado; coletas/quebras/perdas registradas manualmente; produtos de papelão excluídos via cadastro explícito (gerenciado fora do módulo).
+Controle de circulação de caixas plásticas entre Agromil e clientes. **Saídas vêm da Logística** (viagens lançadas manualmente, `AD_VIAGEM_DESTINO.QTD_CAIXAS`); coletas/quebras/perdas registradas manualmente via `AD_COLETA_CAIXAS`.
 
 Lançado Mai/2026 (2026-05-18) — Cat A + Cat B (DDLs + B1/B2/B3 + AJUSTE_SALDO) **em produção**.
+
+**Mai/2026 — 2026-05-29** — fonte das saídas migrada de vendas (TGFITE TOP 35/37) pra Logística + campo Motorista obrigatório em COLETA + módulo migrado pro **departamento Frota** na sidebar (era Administrativo):
+- ✅ **Saídas via Logística**: cada destino de viagem (`AD_VIAGEM_DESTINO`) soma `QTD_CAIXAS` ao saldo do cliente. Vendas TOP 35/37 e devoluções TOP 36 **não contam mais** no cálculo.
+- ✅ **Motorista obrigatório em COLETA** (Mai/2026 — 2026-05-29 — Cat B + Cat A entregues): nova coluna `AD_COLETA_CAIXAS.CODPARC_MOTORISTA` registra quem foi buscar fisicamente. CODUSU/NOMEUSU continuam sendo do GESTOR que clicou. Typeahead usa mesma fonte da Logística (`AD_PARCEIRO_TIPO` tipo=4). Schema-resilient: serve antes/depois da migration. Modal desktop + sheet mobile com typeahead + visibilidade condicional (oculto em QUEBRA/PERDA). Renderer da timeline mostra "Motorista: X" no card COLETA em vez do gestor. **⚠ Pendente apenas: aplicar a DDL no Oracle** (`AD_COLETA_CAIXAS_MIGRATION_MOTORISTA.sql`) — backend tolera ausência via `_existe_coluna`.
+- ✅ **Reset operacional**: clientes Assaí/Sendas/etc com saldo histórico baseado em vendas caem pra 0. Operador faz **AJUSTE_SALDO** retroativo nos principais via `/sankhya/configuracoes/ajustes/`.
+- ✅ **Filtro plástica/papelão removido**: Logística não conhece CODPROD por destino — toda viagem conta integral. `AD_PRODUTO_CAIXA` permanece como cadastro, mas não é consultada mais pelo módulo Caixas.
+- ✅ **Eventos `tipo='VIAGEM'`** na timeline: mostra placa, motorista, hora, nº viagem, observação do gestor.
 
 **Mai/2026 — 2026-05-28** — feature pruning + redesign mobile:
 - ✅ **Aba "Tipo de caixa por produto" removida** do módulo (desktop + mobile). Cadastro fica em tela admin futura ou via Sankhya.
 - ✅ **Botão "Ajustar saldo" + motivo AJUSTE_SALDO removidos** da UI. Ajustes excepcionais migraram pra tela administrativa dedicada em `/sankhya/configuracoes/ajustes/` (card "Ajustes" no hub Configurações). Backend de Caixas continua reconhecendo AJUSTE_SALDO nas queries de saldo/timeline pra exibir eventos lançados pela tela admin.
 - ✅ **Mobile app-like implementado** — 2 telas + 2 sheets + bottom nav 3 itens. Detalhes em "📱 Redesign Mobile app-like" abaixo.
 
-> **Decisão de Mai/2026 (2026-05-18)**: descoberto que `CODVOL='CX'` na Agromil **não** significa "QTDNEG é nº de caixas" — sempre kg. Tentamos tabela `AD_PESO_CAIXA_PRODUTO` pra cadastrar peso default por produto, mas peso varia por lote (tomate 20 ou 22 kg). Reverter e **esperar IAgro virar fluxo único** — assim vendas trazem PESO real do Rastreio.
+> **Histórico — decisão 2026-05-18**: descoberto que `CODVOL='CX'` na Agromil **não** significa "QTDNEG é nº de caixas" — sempre kg. Tentamos tabela `AD_PESO_CAIXA_PRODUTO` pra cadastrar peso default por produto, descartado porque peso varia por lote. Esperar IAgro virar fluxo único pra vendas trazerem PESO real do Rastreio. Em 2026-05-29 o problema foi resolvido por outra via: fonte das saídas migrou pra Logística (lançamento manual), eliminando dependência de PESO no documento fiscal.
 
 ---
 
 ## Premissa Arquitetural
 
-**Saídas e devoluções não são persistidas.** São calculadas em runtime a partir de TGFITE TOP 35/37 'L' (saída) e TOP 36 'L' (devolução), usando `CEIL(QTDNEG / PESO)` por linha. Mesma fórmula da etiqueta SafeTrace — garante consistência: a quantidade de etiquetas que sai com o pedido é exatamente a quantidade que aparece como "caixas enviadas" no controle.
+**Saídas vêm da Logística** (Mai/2026 — 2026-05-29). Cada viagem lançada em `AD_VIAGEM_ENTREGA` com seus destinos em `AD_VIAGEM_DESTINO` soma `QTD_CAIXAS` ao saldo do cliente correspondente. Operador da expedição planeja a rota → caixas saem do estoque pra circular em campo.
 
 **Coletas, quebras e perdas vivem em `AD_COLETA_CAIXAS`.** Soft-delete via `ESTORNADO='S'` preserva audit. Operador estorna lançamentos errados sem perder histórico.
 
-**Tipos de caixa em `AD_PRODUTO_CAIXA`.** Mapeamento CODPROD → `PLASTICA` (retornável) | `PAPELAO` (descartável). Produto SEM linha = `PLASTICA` por default. Operador cadastra só as exceções (mudas, embalagens pequenas).
+**Tipos de caixa (`AD_PRODUTO_CAIXA`)**: tabela permanece no banco mas **não é mais consultada** pelo módulo Caixas — Logística agrega tudo em `QTD_CAIXAS` sem distinção de produto.
 
 ---
 
 ## Escopo
 
-- **Saldo por cliente**: lista clientes com caixas em campo, ordenado por saldo DESC
-- **Timeline por cliente**: eventos cronológicos (saídas + devoluções + coletas/quebras/perdas) DESC. Eventos legados de AJUSTE_SALDO ainda aparecem com sinal natural
+- **Saldo por cliente**: lista clientes com caixas em campo, ordenado por saldo DESC. Fonte de saídas: Logística
+- **Timeline por cliente**: eventos cronológicos (viagens + coletas/quebras/perdas/ajustes) DESC
 - **Lançamento manual de coleta**: data, qtd, motivo (COLETA/QUEBRA/PERDA), observação
 - **Estorno de coleta**: soft-delete preservando audit
 - **Indicadores agregados**: caixas em campo total, clientes com saldo, quebradas/perdidas

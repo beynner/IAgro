@@ -4,6 +4,42 @@ Lista de pegadinhas que **já causaram bugs** ou que podem causar se tocadas sem
 
 ---
 
+## FAB primário cortado pelo bottom-nav em tela detalhe mobile (Mai/2026 — 2026-05-29)
+
+Existia regra global em `global.css` que assumia *"telas internas (`data-screen` ≠ `lista`) não têm bottom-nav"* e jogava o FAB primário pra `bottom: 16px`:
+
+```css
+/* REMOVIDO em 2026-05-29 */
+.m-screen[data-screen]:not([data-screen="lista"]) .m-fab {
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+```
+
+Especificidade da regra global era `(0,3,0)` — vencia as regras base dos módulos `(0,2,0)`. Resultado: em **todos** os 6 módulos com tela detalhe que mantém o bottom-nav (Entrada, Classificação, Caixas, Rastreio, Combustível, Logística), o FAB verde caía em `bottom: 16px` e ficava cortado/oculto dentro do bottom-nav. O secundário (azul Atualizar) ficava em `bottom: 76px` (16+60) — visível mas com o verde sumindo embaixo.
+
+**Causa raiz**: a premissa "tela interna não tem bottom-nav" era falsa em todos os módulos IAgro mobile. Bottom-nav fica fora das `<section class="m-screen">` num único `<nav>` visível em todas as telas.
+
+**Solução**: regra global removida. Cada módulo define sua própria regra base `.{modulo}-mobile .m-fab { bottom: var(--m-bottom-nav-h) + 16px + env(safe-area) }` e ela vale em todas as telas. Telas internas SEM bottom-nav (ex: `m-screen--lightbox` do Combustível) podem sobrescrever localmente.
+
+**Lição**: regras globais que presumem comportamento de templates específicos quebram silenciosamente quando aparece módulo novo seguindo o padrão "padrão". Em CSS de design system, prefira regras `opt-in` (módulo aplica classe específica pra ativar) em vez de `opt-out` via `:not()`.
+
+---
+
+## Badge de ambiente bloqueava cliques no header mobile (Mai/2026 — 2026-05-29)
+
+O `.env-badge` (HOMOLOGAÇÃO/PRODUÇÃO) ficava com `position: fixed; top: 12px; z-index: 10000; padding: 4px 16px` como pílula sólida atravessando o topo. Em mobile, a pílula cobria a engrenagem de Configurações e o user-badge — operador não conseguia clicar.
+
+**Fix em `global.css`**:
+- `background: none`, sem padding/border/shadow — texto puro
+- `color: rgba(220, 38, 38, 0.55)` (ou rgba(22, 163, 74, 0.55) em produção) — translúcido
+- `letter-spacing: 0.18em` — efeito marca d'água
+- `pointer-events: none; user-select: none` — cliques passam direto
+- `z-index: 20` — acima do `.content-header (z-index: 10; background: #fff)` (caso contrário fica atrás do fundo branco)
+
+**Lição**: `z-index: 1` num badge fica atrás de `.content-header` que tem fundo `#fff`. Pra "marca d'água atrás do conteúdo do header" mas visível, precisa estar **acima** do `.content-header` (fundo branco) e **abaixo** dos elementos clicáveis do header com `pointer-events: none`.
+
+---
+
 ## Oracle 11g — `FETCH FIRST N ROWS ONLY` não funciona (Mai/2026 — 2026-05-29)
 
 Padrão Oracle 12c+ pra limitar resultados:

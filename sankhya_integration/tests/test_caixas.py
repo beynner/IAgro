@@ -84,21 +84,22 @@ class ConsultarSaldoCaixasServiceTest(TestCase):
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn._existe_coluna', return_value=True)
     def test_saldo_basico(self, _mock_existe, mock_conn):
-        # Mock: 2 clientes com saídas + 1 com devolução + coletas mistas
+        """Saldo via Logística (AD_VIAGEM_*) + coletas em AD_COLETA_CAIXAS.
+
+        Mai/2026 — 2026-05-29: TOP 35/37 e TOP 36 NÃO contam mais.
+        """
         cursor = MagicMock()
         cursor.fetchall.side_effect = [
-            # Saídas
+            # Saídas via Logística (AD_VIAGEM_DESTINO agregadas)
             [
                 (123, 'ASSAI CEILANDIA', 100, dt.datetime(2026, 5, 17)),
                 (456, 'PAO DE ACUCAR', 60, dt.datetime(2026, 5, 16)),
             ],
-            # Devoluções
-            [(456, 10)],
             # Coletas
             [
                 (123, 'COLETA', 30, dt.datetime(2026, 5, 17)),
                 (123, 'QUEBRA', 5, dt.datetime(2026, 5, 16)),
-                (456, 'COLETA', 50, dt.datetime(2026, 5, 18)),
+                (456, 'COLETA', 60, dt.datetime(2026, 5, 18)),  # PAO zera todo
             ],
         ]
         conn = MagicMock()
@@ -108,8 +109,8 @@ class ConsultarSaldoCaixasServiceTest(TestCase):
         from sankhya_integration.services.oracle_conn import consultar_saldo_caixas
         linhas = consultar_saldo_caixas()
 
-        # ASSAI: 100 enviadas - 30 coleta - 5 quebra = 65
-        # PAO:   60 enviadas - 10 devolução - 50 coleta = 0 (escondido)
+        # ASSAI: 100 viagens - 30 coleta - 5 quebra = 65
+        # PAO:   60 viagens - 60 coleta = 0 (escondido)
         codparcs = [l['codparc'] for l in linhas]
         self.assertIn(123, codparcs)
         self.assertNotIn(456, codparcs)  # saldo 0 escondido por default
@@ -118,17 +119,17 @@ class ConsultarSaldoCaixasServiceTest(TestCase):
         self.assertEqual(l['caixas_coletadas'], 30)
         self.assertEqual(l['caixas_quebradas'], 5)
         self.assertEqual(l['saldo'], 65)
+        self.assertEqual(l['caixas_devolvidas'], 0)   # legado, sempre 0
+        self.assertFalse(l['sem_peso'])                # legado, sempre False
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn._existe_coluna', return_value=True)
     def test_incluir_saldo_zerado(self, _mock_existe, mock_conn):
-        # Ordem das queries: saídas → fantasma → devoluções → coletas
+        """Quando apenas_saldo_positivo=False, cliente com saldo 0 ainda aparece."""
         cursor = MagicMock()
         cursor.fetchall.side_effect = [
-            [(456, 'PAO DE ACUCAR', 60, dt.datetime(2026, 5, 16))],  # saídas
-            [],                                                       # fantasma (456 já no resultado)
-            [(456, 10)],                                              # devoluções
-            [(456, 'COLETA', 50, dt.datetime(2026, 5, 18))],          # coletas
+            [(456, 'PAO DE ACUCAR', 60, dt.datetime(2026, 5, 16))],   # saídas via Logística
+            [(456, 'COLETA', 60, dt.datetime(2026, 5, 18))],           # coletas zeram
         ]
         conn = MagicMock()
         conn.cursor.return_value = cursor
@@ -142,12 +143,10 @@ class ConsultarSaldoCaixasServiceTest(TestCase):
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn._existe_coluna', return_value=False)
     def test_schema_resilient_sem_tabela_coleta(self, _mock_existe, mock_conn):
-        """Quando AD_COLETA_CAIXAS não existe (migration não rodou),
-        retorna saldo só com saídas - devoluções."""
+        """Quando AD_COLETA_CAIXAS não existe, retorna só saídas via Logística."""
         cursor = MagicMock()
         cursor.fetchall.side_effect = [
             [(123, 'ASSAI', 100, dt.datetime(2026, 5, 17))],
-            [],  # sem devoluções
         ]
         conn = MagicMock()
         conn.cursor.return_value = cursor
@@ -155,8 +154,8 @@ class ConsultarSaldoCaixasServiceTest(TestCase):
 
         from sankhya_integration.services.oracle_conn import consultar_saldo_caixas
         linhas = consultar_saldo_caixas()
-        # _existe_coluna=False bloqueia a 3ª query (coletas)
-        self.assertEqual(cursor.execute.call_count, 2)
+        # _existe_coluna=False bloqueia a 2ª query (coletas); só roda saídas
+        self.assertEqual(cursor.execute.call_count, 1)
         self.assertEqual(linhas[0]['saldo'], 100)
         self.assertEqual(linhas[0]['caixas_coletadas'], 0)
 
@@ -171,14 +170,11 @@ class ConsultarSaldoCaixasServiceTest(TestCase):
     def test_ajuste_saldo_soma_no_total(self, _mock_existe, mock_conn):
         """AJUSTE_SALDO entra na fórmula somando (positivo soma, negativo desconta)."""
         cursor = MagicMock()
-        # Cliente recém-iniciado: 100 enviadas + ajuste inicial +50 (caixas legadas)
-        # − coleta 30 = 120 saldo
+        # 100 viagens + ajuste +50 (caixas legadas) − coleta 30 = 120
         cursor.fetchall.side_effect = [
-            # Saídas
+            # Saídas Logística
             [(123, 'CLIENTE TESTE', 100, dt.datetime(2026, 5, 17))],
-            # Devoluções
-            [],
-            # Coletas (3 motivos diferentes)
+            # Coletas (motivos misturados)
             [
                 (123, 'COLETA', 30, dt.datetime(2026, 5, 18)),
                 (123, 'AJUSTE_SALDO', 50, dt.datetime(2026, 5, 18)),
@@ -192,7 +188,7 @@ class ConsultarSaldoCaixasServiceTest(TestCase):
         linhas = consultar_saldo_caixas()
         self.assertEqual(len(linhas), 1)
         l = linhas[0]
-        # 100 enviadas - 30 coleta + 50 ajuste = 120
+        # 100 viagens - 30 coleta + 50 ajuste = 120
         self.assertEqual(l['caixas_enviadas'], 100)
         self.assertEqual(l['caixas_coletadas'], 30)
         self.assertEqual(l['caixas_ajuste'], 50)
@@ -203,10 +199,9 @@ class ConsultarSaldoCaixasServiceTest(TestCase):
     def test_ajuste_saldo_negativo_desconta(self, _mock_existe, mock_conn):
         """AJUSTE_SALDO com qtd negativa desconta do saldo."""
         cursor = MagicMock()
-        # 100 enviadas + ajuste -10 (5 caixas a menos no balanço) = 90 saldo
+        # 100 viagens + ajuste -10 = 90 saldo
         cursor.fetchall.side_effect = [
             [(123, 'CLIENTE TESTE', 100, dt.datetime(2026, 5, 17))],
-            [],
             [(123, 'AJUSTE_SALDO', -10, dt.datetime(2026, 5, 18))],
         ]
         conn = MagicMock()
@@ -222,13 +217,12 @@ class ConsultarSaldoCaixasServiceTest(TestCase):
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn._existe_coluna', return_value=True)
     def test_cliente_so_com_ajuste_entra_no_resultado(self, _mock_existe, mock_conn):
-        """Cliente sem vendas mas com AJUSTE_SALDO entra (saldo inicial puro)."""
+        """Cliente sem viagens mas com AJUSTE_SALDO entra (saldo inicial puro)."""
         cursor = MagicMock()
         cursor.fetchall.side_effect = [
-            [],                                       # nenhuma saída
-            [],                                       # nenhuma devolução
-            [(999, 'AJUSTE_SALDO', 80, dt.datetime(2026, 5, 18))],  # só ajuste
-            [(999, 'CLIENTE LEGADO')],                # SELECT NOMEPARC pros órfãos
+            [],                                                       # nenhuma viagem
+            [(999, 'AJUSTE_SALDO', 80, dt.datetime(2026, 5, 18))],   # só ajuste
+            [(999, 'CLIENTE LEGADO')],                                # SELECT NOMEPARC pros órfãos
         ]
         conn = MagicMock()
         conn.cursor.return_value = cursor
@@ -246,16 +240,13 @@ class ConsultarSaldoCaixasServiceTest(TestCase):
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn._existe_coluna', return_value=True)
-    def test_cliente_sem_peso_aparece_quando_incluir_zerados(self, _mock_existe, mock_conn):
-        """Cliente com vendas KG sem PESO (Assaí/Sendas) aparece quando toggle
-        'Incluir saldo zerado' está marcado, com flag sem_peso=True.
-        Ordem das queries: saídas → fantasma → devoluções → coletas."""
+    def test_sem_peso_sempre_false_legado(self, _mock_existe, mock_conn):
+        """Mai/2026 — 2026-05-29: flag sem_peso legada SEMPRE retorna False
+        (bloco fantasma removido com migração pra Logística)."""
         cursor = MagicMock()
         cursor.fetchall.side_effect = [
-            [],                                                       # saídas: nenhuma com PESO/CX
-            [(6, 'ASSAI CEILANDIA', dt.datetime(2026, 5, 17))],       # fantasma: traz Assaí
-            [],                                                       # devoluções
-            [],                                                       # coletas
+            [(123, 'ASSAI', 100, dt.datetime(2026, 5, 17))],   # viagens
+            [],                                                  # coletas
         ]
         conn = MagicMock()
         conn.cursor.return_value = cursor
@@ -264,22 +255,15 @@ class ConsultarSaldoCaixasServiceTest(TestCase):
         from sankhya_integration.services.oracle_conn import consultar_saldo_caixas
         linhas = consultar_saldo_caixas(filtros={'apenas_saldo_positivo': False})
         self.assertEqual(len(linhas), 1)
-        l = linhas[0]
-        self.assertEqual(l['codparc'], 6)
-        self.assertEqual(l['nomeparc'], 'ASSAI CEILANDIA')
-        self.assertEqual(l['saldo'], 0)
-        self.assertTrue(l['sem_peso'])
+        self.assertFalse(linhas[0]['sem_peso'])
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn._existe_coluna', return_value=True)
-    def test_cliente_sem_peso_NAO_aparece_default(self, _mock_existe, mock_conn):
-        """Por default (apenas_saldo_positivo=True), clientes sem caixa calculada
-        ficam fora — só apareciam clientes com saldo > 0. A 4ª query (fantasma)
-        NÃO deve ser disparada."""
+    def test_sem_viagens_e_sem_coletas_retorna_vazio(self, _mock_existe, mock_conn):
+        """Sem viagens cadastradas e sem coletas — retorno vazio."""
         cursor = MagicMock()
         cursor.fetchall.side_effect = [
-            [],   # saídas
-            [],   # devoluções (não tem fantasma porque apenas_saldo_positivo=True)
+            [],   # viagens
             [],   # coletas
         ]
         conn = MagicMock()
@@ -287,19 +271,18 @@ class ConsultarSaldoCaixasServiceTest(TestCase):
         mock_conn.return_value.__enter__.return_value = conn
 
         from sankhya_integration.services.oracle_conn import consultar_saldo_caixas
-        linhas = consultar_saldo_caixas()  # default apenas_saldo_positivo=True
+        linhas = consultar_saldo_caixas()
         self.assertEqual(linhas, [])
-        # Confirma que a 4ª query (fantasma) NÃO foi chamada
-        self.assertEqual(cursor.execute.call_count, 3)
+        # 2 execute: viagens + coletas (sem bloco fantasma)
+        self.assertEqual(cursor.execute.call_count, 2)
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn._existe_coluna', return_value=True)
     def test_filtro_codparc_drill_down(self, _mock_existe, mock_conn):
         cursor = MagicMock()
         cursor.fetchall.side_effect = [
-            [(123, 'ASSAI', 100, dt.datetime(2026, 5, 17))],
-            [],
-            [],
+            [(123, 'ASSAI', 100, dt.datetime(2026, 5, 17))],   # viagens
+            [],                                                  # coletas
         ]
         conn = MagicMock()
         conn.cursor.return_value = cursor
@@ -327,14 +310,23 @@ class ObterTimelineCaixasServiceTest(TestCase):
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
     @patch('sankhya_integration.services.oracle_conn._existe_coluna', return_value=True)
     def test_eventos_combinados(self, _mock_existe, mock_conn):
+        """Timeline mistura VIAGEM (Logística) + COLETA (manual).
+
+        Mai/2026 — 2026-05-29: tipo SAIDA (TOP 35/37) e DEVOLUCAO (TOP 36) removidos.
+        """
         cursor = MagicMock()
         cursor.fetchall.side_effect = [
-            # Saídas
-            [(dt.datetime(2026, 5, 15), 999, 6242, 35, 100, 'TOMATE')],
-            # Devoluções
-            [(dt.datetime(2026, 5, 16), 1001, 0, 5, 'TOMATE')],
-            # Coletas
-            [(7, dt.datetime(2026, 5, 17), 'COLETA', 30, 'motorista trouxe', 'N', 1, 'TESTE', None)],
+            # Viagens (AD_VIAGEM_ENTREGA + AD_VIAGEM_DESTINO)
+            # cols: DATA_VIAGEM, ID, NUM_VIAGEM, QTD_CAIXAS, PLACA, MARCAMODELO,
+            #       motorista_nome, OBS_VIAGEM, OBS_DESTINO, HORA_SAIDA
+            [(
+                dt.datetime(2026, 5, 15), 42, 7, 100,
+                'OVT0B50', 'VW/10.160 DRC 4X2',
+                'WELLINGTON SILVA LEMOS', 'sem obs', None, '06:00',
+            )],
+            # Coletas — schema novo (11 cols, +CODPARC_MOTORISTA +MOTORISTA_NOME)
+            [(7, dt.datetime(2026, 5, 17), 'COLETA', 30, 'motorista trouxe',
+              'N', 1, 'TESTE', None, 24, 'WELLINGTON SILVA LEMOS')],
         ]
         conn = MagicMock()
         conn.cursor.return_value = cursor
@@ -343,14 +335,71 @@ class ObterTimelineCaixasServiceTest(TestCase):
         from sankhya_integration.services.oracle_conn import obter_timeline_caixas
         eventos = obter_timeline_caixas(codparc=123, dias=30)
         tipos = sorted([e['tipo'] for e in eventos])
-        self.assertEqual(tipos, ['COLETA', 'DEVOLUCAO', 'SAIDA'])
+        self.assertEqual(tipos, ['COLETA', 'VIAGEM'])
 
-        ev_saida = next(e for e in eventos if e['tipo'] == 'SAIDA')
-        self.assertEqual(ev_saida['qtd_caixas'], 100)
-        self.assertEqual(ev_saida['top'], 35)
+        ev_viagem = next(e for e in eventos if e['tipo'] == 'VIAGEM')
+        self.assertEqual(ev_viagem['qtd_caixas'], 100)
+        self.assertEqual(ev_viagem['num_viagem'], 7)
+        self.assertEqual(ev_viagem['viagem_id'], 42)
+        self.assertEqual(ev_viagem['placa'], 'OVT0B50')
+        self.assertEqual(ev_viagem['motorista'], 'WELLINGTON SILVA LEMOS')
+        self.assertEqual(ev_viagem['hora_saida'], '06:00')
+        # Campos legados zerados em VIAGEM
+        self.assertIsNone(ev_viagem['nunota'])
+        self.assertIsNone(ev_viagem['top'])
+        # Descrição = "Placa X · modelo"
+        self.assertIn('OVT0B50', ev_viagem['descricao'])
+        self.assertIn('VW/10.160', ev_viagem['descricao'])
+
         ev_coleta = next(e for e in eventos if e['tipo'] == 'COLETA')
         self.assertEqual(ev_coleta['estornado'], False)
         self.assertEqual(ev_coleta['id_coleta'], 7)
+        # Motorista (Mai/2026 — 2026-05-29): retornado pra exibir na timeline
+        self.assertEqual(ev_coleta['motorista_codparc'], 24)
+        self.assertEqual(ev_coleta['motorista_nome'], 'WELLINGTON SILVA LEMOS')
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    @patch('sankhya_integration.services.oracle_conn._existe_coluna', return_value=True)
+    def test_ordem_intra_dia_viagem_antes_coleta(self, _mock_existe, mock_conn):
+        """Mesmo dia: VIAGEM acima de COLETA na timeline DESC (cronologia).
+
+        Operador entrega → coleta depois. Timeline mostra "primeiro entreguei,
+        depois recolhi". Mai/2026 — 2026-05-29.
+        """
+        cursor = MagicMock()
+        cursor.fetchall.side_effect = [
+            # Viagem hoje + viagem ontem (datas diferentes pra ordem primária)
+            [
+                (dt.datetime(2026, 5, 26), 42, 7, 100,
+                 'OVT0B50', 'VW', 'WELLINGTON', None, None, '06:00'),
+                (dt.datetime(2026, 5, 25), 41, 6, 50,
+                 'PBW', 'MB', 'ALVERI', None, None, '03:00'),
+            ],
+            # Coleta hoje + coleta ontem (mesmo dia que as viagens) — schema novo (11 cols)
+            [
+                (7, dt.datetime(2026, 5, 26), 'COLETA', 30, 'obs', 'N', 1, 'OPERADOR', None, None, None),
+                (8, dt.datetime(2026, 5, 25), 'COLETA', 20, 'obs', 'N', 1, 'OPERADOR', None, None, None),
+            ],
+        ]
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        mock_conn.return_value.__enter__.return_value = conn
+
+        from sankhya_integration.services.oracle_conn import obter_timeline_caixas
+        eventos = obter_timeline_caixas(codparc=123, dias=30)
+
+        # Ordem esperada (DESC por data, intra-dia: VIAGEM antes COLETA):
+        #   1. 26/05 VIAGEM (mais recente, viagem do dia)
+        #   2. 26/05 COLETA (mais recente, coleta do dia — depois da viagem)
+        #   3. 25/05 VIAGEM (mais antiga, viagem do dia)
+        #   4. 25/05 COLETA (mais antiga, coleta do dia — depois da viagem)
+        ordem = [(e['data'], e['tipo']) for e in eventos]
+        self.assertEqual(ordem, [
+            ('2026-05-26', 'VIAGEM'),
+            ('2026-05-26', 'COLETA'),
+            ('2026-05-25', 'VIAGEM'),
+            ('2026-05-25', 'COLETA'),
+        ])
 
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle',
            side_effect=Exception('Oracle off'))
@@ -619,13 +668,18 @@ class CriarColetaServiceTest(TestCase):
             self.assertFalse(r['ok'], f"motivo={motivo} deveria bloquear qtd<0")
             self.assertIn('> 0', r['error'])
 
+    @patch('sankhya_integration.services.oracle_conn._existe_coluna', return_value=False)
     @patch('sankhya_integration.services.oracle_conn.registrar_auditoria')
     @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
-    def test_insere_com_sucesso(self, mock_conn, _mock_audit):
+    def test_insere_com_sucesso(self, mock_conn, _mock_audit, _mock_existe):
         cursor = MagicMock()
-        # 1ª query: SELECT 1 FROM TGFPAR — cliente existe
-        cursor.fetchone.return_value = (1,)
-        # var(int) retorna um cursor.var-like
+        # Sequência de fetchone:
+        #   1. SELECT 1 FROM TGFPAR — cliente existe
+        #   2. SELECT motorista — está cadastrado como tipo MOTORISTA
+        cursor.fetchone.side_effect = [
+            (1,),
+            ('WELLINGTON SILVA LEMOS',),
+        ]
         var_obj = MagicMock()
         var_obj.getvalue.return_value = [42]
         cursor.var.return_value = var_obj
@@ -636,10 +690,11 @@ class CriarColetaServiceTest(TestCase):
         from sankhya_integration.services.oracle_conn import criar_coleta_caixas_banco
         r = criar_coleta_caixas_banco(
             {'codparc': 123, 'qtd_caixas': 30, 'data_coleta': '2026-05-18',
-             'motivo': 'COLETA', 'observacao': 'motorista trouxe'},
+             'motivo': 'COLETA', 'observacao': 'motorista trouxe',
+             'codparc_motorista': 24},
             codusu=1, nomeusu='TESTE',
         )
-        self.assertTrue(r['ok'])
+        self.assertTrue(r['ok'], r.get('error'))
         self.assertEqual(r['id'], 42)
         conn.commit.assert_called_once()
 
@@ -651,13 +706,68 @@ class CriarColetaServiceTest(TestCase):
         conn.cursor.return_value = cursor
         mock_conn.return_value.__enter__.return_value = conn
 
+        # Motivo QUEBRA (não exige motorista) — o teste é sobre cliente inexistente
         from sankhya_integration.services.oracle_conn import criar_coleta_caixas_banco
         r = criar_coleta_caixas_banco(
-            {'codparc': 999999, 'qtd_caixas': 5, 'data_coleta': '2026-05-18', 'motivo': 'COLETA'},
+            {'codparc': 999999, 'qtd_caixas': 5, 'data_coleta': '2026-05-18', 'motivo': 'QUEBRA'},
             codusu=1,
         )
         self.assertFalse(r['ok'])
         self.assertIn('não encontrado', r['error'])
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_coleta_sem_motorista_rejeita(self, _mock):
+        """COLETA exige motorista — Mai/2026 — 2026-05-29."""
+        from sankhya_integration.services.oracle_conn import criar_coleta_caixas_banco
+        r = criar_coleta_caixas_banco(
+            {'codparc': 123, 'qtd_caixas': 30, 'data_coleta': '2026-05-18', 'motivo': 'COLETA'},
+            codusu=1,
+        )
+        self.assertFalse(r['ok'])
+        self.assertIn('motorista', r['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn._existe_coluna', return_value=False)
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_motorista_nao_cadastrado_rejeita(self, mock_conn, _mock_existe):
+        """Parceiro existe mas não tem tipo MOTORISTA → erro humanizado."""
+        cursor = MagicMock()
+        # cliente existe + motorista NÃO está em AD_PARCEIRO_TIPO
+        cursor.fetchone.side_effect = [(1,), None]
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        mock_conn.return_value.__enter__.return_value = conn
+
+        from sankhya_integration.services.oracle_conn import criar_coleta_caixas_banco
+        r = criar_coleta_caixas_banco(
+            {'codparc': 123, 'qtd_caixas': 30, 'data_coleta': '2026-05-18',
+             'motivo': 'COLETA', 'codparc_motorista': 9999},
+            codusu=1,
+        )
+        self.assertFalse(r['ok'])
+        self.assertIn('motorista', r['error'].lower())
+        self.assertIn('cadastr', r['error'].lower())
+
+    @patch('sankhya_integration.services.oracle_conn._existe_coluna', return_value=False)
+    @patch('sankhya_integration.services.oracle_conn.registrar_auditoria')
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_quebra_sem_motorista_aceita(self, mock_conn, _mock_audit, _mock_existe):
+        """QUEBRA/PERDA/AJUSTE não exigem motorista."""
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (1,)   # só cliente — não há segundo fetchone de motorista
+        var_obj = MagicMock()
+        var_obj.getvalue.return_value = [99]
+        cursor.var.return_value = var_obj
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        mock_conn.return_value.__enter__.return_value = conn
+
+        from sankhya_integration.services.oracle_conn import criar_coleta_caixas_banco
+        r = criar_coleta_caixas_banco(
+            {'codparc': 123, 'qtd_caixas': 2, 'data_coleta': '2026-05-18', 'motivo': 'QUEBRA'},
+            codusu=1,
+        )
+        self.assertTrue(r['ok'], r.get('error'))
+        self.assertEqual(r['id'], 99)
 
     @patch('sankhya_integration.services.oracle_conn.verificar_permissao_escrita', return_value=False)
     def test_bloqueia_quando_escrita_desabilitada(self, _mock):

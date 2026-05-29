@@ -560,6 +560,7 @@ Controle de vasilhame retornável (caixa plástica) circulando entre Agromil e c
 ### Tabela `AD_COLETA_CAIXAS`
 
 DDL em [`sankhya_integration/sql/AD_COLETA_CAIXAS.sql`](../sankhya_integration/sql/AD_COLETA_CAIXAS.sql).
+Migration motorista em [`AD_COLETA_CAIXAS_MIGRATION_MOTORISTA.sql`](../sankhya_integration/sql/AD_COLETA_CAIXAS_MIGRATION_MOTORISTA.sql) (Mai/2026 — 2026-05-29).
 
 | Coluna | Tipo | Função |
 |---|---|---|
@@ -571,9 +572,12 @@ DDL em [`sankhya_integration/sql/AD_COLETA_CAIXAS.sql`](../sankhya_integration/s
 | `OBSERVACAO` | VARCHAR2(500) | Texto livre opcional (recomendado em AJUSTE_SALDO) |
 | `ESTORNADO` | CHAR(1) DEFAULT 'N' | Soft-delete pra preservar audit |
 | `ESTORNADO_EM`, `ESTORNADO_POR`, `MOTIVO_ESTORNO` | — | Audit do estorno |
-| `CODUSU`, `NOMEUSU`, `CRIADO_EM` | — | Audit da criação |
+| `CODUSU`, `NOMEUSU`, `CRIADO_EM` | — | Audit do GESTOR que lançou |
+| `CODPARC_MOTORISTA` | NUMBER NULL | **(Mai/2026 — 2026-05-29)** FK lógica TGFPAR — motorista que buscou as caixas. Validado via `AD_PARCEIRO_TIPO` tipo=4 (mesma fonte da Logística). **Obrigatório em motivo=COLETA**, opcional nas demais. NULL em coletas anteriores à migration |
 
 Índices: `IDX_AD_COLETA_CODPARC(CODPARC, ESTORNADO)` + `IDX_AD_COLETA_DATA(DATA_COLETA DESC)`.
+
+**Distinção crítica** (Mai/2026 — 2026-05-29): CODUSU/NOMEUSU registram **quem lançou** (gestor) · CODPARC_MOTORISTA registra **quem executou** (motorista). Operador insere via UI obrigatoriamente em coletas. Schema-resilient: `criar_coleta_caixas_banco` e `obter_timeline_caixas` cobrem antes/depois da migration via `_existe_coluna`.
 
 ### Tabela `AD_PRODUTO_CAIXA`
 
@@ -589,21 +593,28 @@ DDL em [`sankhya_integration/sql/AD_PRODUTO_CAIXA.sql`](../sankhya_integration/s
 
 ### Fórmula de saldo (calculada em runtime, não persistida)
 
+**Mai/2026 — 2026-05-29**: fonte das saídas migrou de vendas (TOP 35/37) pra Logística. Vendas e devoluções fiscais não contam mais.
+
 ```
-saldo_cliente = Σ caixas_enviadas (TOP 35/37 'L')
-              − Σ caixas_devolvidas (TOP 36 'L')
+saldo_cliente = Σ QTD_CAIXAS de AD_VIAGEM_DESTINO (cliente como destino, qualquer data)
               − Σ AD_COLETA_CAIXAS (motivo IN COLETA/QUEBRA/PERDA, ESTORNADO='N')
-              + Σ AD_COLETA_CAIXAS (motivo = AJUSTE_SALDO, ESTORNADO='N')   ← com sinal natural (pos soma, neg desconta)
+              + Σ AD_COLETA_CAIXAS (motivo = AJUSTE_SALDO, ESTORNADO='N')   ← sinal natural (pos soma, neg desconta)
 ```
 
-Onde `caixas` por TGFITE = `CEIL(QTDNEG / TGFITE.PESO)` quando `PESO > 0`. Descoberto Mai/2026 (2026-05-18) que `CODVOL='CX'` na Agromil NÃO significa "QTDNEG é nº de caixas" — QTDNEG está sempre em kg, mesmo em vendas marcadas CX. Vendas sem PESO populado (legadas, faturadas direto no Sankhya sem passar pelo Rastreio) ficam **fora do cálculo automático**; operador usa `AJUSTE_SALDO` pra clientes importantes (Assaí/Sendas) cujo saldo precisa ser controlado. Conforme IAgro vira fluxo único, novas vendas trazem PESO real (gravado no modal de vínculo do Rastreio) e saldo passa a funcionar naturalmente. Filtro de plástica: `NOT EXISTS (SELECT 1 FROM AD_PRODUTO_CAIXA WHERE CODPROD=i.CODPROD AND TIPO_CAIXA='PAPELAO')`.
+Cada viagem cadastrada na Logística (`AD_VIAGEM_ENTREGA` + `AD_VIAGEM_DESTINO`) representa caixas saindo do estoque pra circular em campo. Operador da expedição planeja a rota → caixas vão pra cliente.
+
+Filtro plástica/papelão (`AD_PRODUTO_CAIXA`) **removido** — Logística não conhece CODPROD por destino, agrega tudo em `QTD_CAIXAS`. Cadastro permanece no banco como documentação operacional.
+
+**Reset histórico**: clientes Assaí/Sendas/etc com saldo baseado em vendas antes de 2026-05-29 caem pra 0. Operador faz **AJUSTE_SALDO** retroativo via `/sankhya/configuracoes/ajustes/`.
+
+**Histórico — fórmula anterior (descontinuada 2026-05-29)**: usava `CEIL(QTDNEG / TGFITE.PESO)` em TGFITE TOP 35/37 STATUSNOTA='L' (e TOP 36 pra devolução). Dependência de `PESO > 0` deixava clientes Assaí/Sendas (vendas em KG sem PESO) fora do cálculo, exigindo AJUSTE_SALDO manual. Migração pra Logística resolveu eliminando dependência do documento fiscal.
 
 ### Funções service (`oracle_conn.py`)
 
 | Função | Operação | Cat |
 |---|---|:-:|
-| `consultar_saldo_caixas(filtros)` | Saldo agregado por CODPARC. Filtros: `q`, `apenas_saldo_positivo`, `codparc`. Schema-resilient via `_existe_coluna` | A |
-| `obter_timeline_caixas(codparc, dias)` | Timeline cronológica DESC (saídas + devoluções + coletas) | A |
+| `consultar_saldo_caixas(filtros)` | Saldo agregado por CODPARC: SAÍDAS via Logística (AD_VIAGEM_*) + COLETAS via AD_COLETA_CAIXAS. Filtros: `q`, `apenas_saldo_positivo`, `codparc`. Schema-resilient via `_existe_coluna` | A |
+| `obter_timeline_caixas(codparc, dias)` | Timeline cronológica DESC: eventos `tipo='VIAGEM'` (com placa, motorista, num_viagem) + COLETA/QUEBRA/PERDA/AJUSTE_SALDO | A |
 | `listar_coletas_caixas(filtros, limite, offset)` | Paginação ROW_NUMBER de AD_COLETA_CAIXAS + JOIN TGFPAR | A |
 | `listar_produtos_caixa(tipo?)` | Lista AD_PRODUTO_CAIXA + JOIN TGFPRO | A |
 | `criar_coleta_caixas_banco` | INSERT em AD_COLETA_CAIXAS + audit | **B1** (pendente) |

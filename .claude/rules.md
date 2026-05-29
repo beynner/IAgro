@@ -198,3 +198,94 @@ Depois da resposta, aplicar o padrão correspondente (frontend + backend) confor
 - Mover campo de uma tela pra outra → confirmar se o padrão original ainda faz sentido
 - Refatorar typeahead existente que pareça "inconsistente" → confirmar antes
 - Criar novo módulo com campo Produto → perguntar logo no plano
+
+---
+
+## 12. Templates mobile — partial `_m_header_interno.html` é OBRIGATÓRIO em telas internas (Mai/2026 — 2026-05-29)
+
+**Toda `<section class="m-screen">` que NÃO seja a tela `lista` (ex: detalhe, item, cliente, viagem, lightbox, etc) DEVE usar o partial Django:**
+
+```django
+<section class="m-screen m-screen--detalhe" data-screen="detalhe">
+    {% include "sankhya_integration/_m_header_interno.html"
+       with modulo_nome="Entrada" subtela_nome="Nota" %}
+
+    <div class="m-screen-body"> ... </div>
+</section>
+```
+
+**Onde aplica**:
+- Toda tela interna mobile NOVA — sempre incluir o partial
+- Toda tela interna mobile EXISTENTE que for refatorada — migrar pro partial se ainda tem header inline duplicado
+
+**Estrutura renderizada** (padrão IAgro Mobile):
+```
+[← back]   Módulo / Sub-tela          [👤 USUÁRIO]  Sair
+```
+
+**NÃO duplicar inline** as classes `.m-breadcrumb*`, `.m-user-badge`, `.m-logout-link`. Elas vivem em `global.css` e são consumidas pelo partial. Qualquer instância nova de `<h1 class="m-screen-title">Nome fixo</h1>` em tela interna é violação dessa regra.
+
+**Documentação obrigatória do partial**: use **`{% comment %}...{% endcomment %}`** (multi-line). NUNCA `{# ... #}` multi-linha — Django interpreta `{% block %}` literal dentro do texto e quebra com `TemplateSyntaxError: Unclosed tag`. Vide [`gotchas.md`](gotchas.md) → "Comentários Django `{# #}` são single-line".
+
+**Exceção: tela `lista`**: já tem padrão próprio (hambúrguer da sidebar em vez de back). Hoje é declarada inline em cada módulo. Se aparecer demanda, criamos um segundo partial `_m_header_lista.html` — por ora é aceitável a duplicação porque varia menos.
+
+**Exceção: telas com botões extras** (ex: lápis/lixeira no header): se houver ações específicas inadiáveis no header da tela interna, declarar inline preservando user-badge + Sair + breadcrumb + classes globais. Mas avaliar primeiro se essas ações não cabem melhor em:
+- Bottom-nav "Mais"
+- Footer fixo de ações (ver `.m-lg-detalhe-footer` da Logística)
+- Swipe-actions do card
+
+Detalhes da diretriz em [`conventions.md`](conventions.md) → "🧩 Partial `_m_header_interno.html`".
+
+### Checklist obrigatório ao gerar tela mobile nova
+
+1. Criou `<section class="m-screen" data-screen="X">`?
+2. É a tela `lista` (raiz do módulo)? → header próprio com `m-sidebar-toggle`
+3. É **qualquer outra** (detalhe, item, lightbox, etc)? → **partial `_m_header_interno.html`** com `modulo_nome` e `subtela_nome`
+4. NUNCA copiar `<h1 class="m-screen-title">...</h1>` inline em tela interna sem o partial
+5. NUNCA criar classes locais `.{modulo}-mobile .m-*-breadcrumb*` — usar globais
+
+Falhar em qualquer item viola essa regra.
+
+---
+
+## 13. Templates mobile — partial `_m_fabs.html` é OBRIGATÓRIO pra FABs (Mai/2026 — 2026-05-29)
+
+**Todo template mobile que precise de FAB (verde "adicionar" ou azul "atualizar") DEVE usar o partial:**
+
+```django
+{% include "sankhya_integration/_m_fabs.html"
+   with fab_primario_id="m_xx_fabAdd"
+        fab_primario_label="Adicionar X"
+        fab_secundario_id="m_xx_fabRefresh"
+        fab_secundario_label="Atualizar" %}
+```
+
+**Padrão visual fixo** (definido em `global.css`, não escopado):
+- **FAB verde Agromil** 48px (`background: var(--m-primary)`) — ação POSITIVA (criar, adicionar, novo)
+- **FAB azul info** 42px (`background: var(--m-info)`) — ATUALIZAR (refresh, recarregar)
+- Posicionados em `position: absolute; right: 14px; bottom: <calc bottom-nav + safe-area>`
+- Verde tem ícone `ph-plus` por default
+- Azul tem ícone `ph-arrows-clockwise` (plural — 2 setas) por default
+
+**Variantes**:
+- Só verde: `with fab_secundario_ocultar=True`
+- Só azul: `with fab_primario_ocultar=True`
+- Ícone custom: `fab_primario_icone="ph-truck"` (qualquer Phosphor)
+
+**Posição em telas internas**: o seletor global `.m-screen:not([data-screen="lista"]) .m-fab` ajusta o FAB pra base segura (sem bottom-nav) automaticamente. Não escrever override por módulo.
+
+**NÃO duplicar inline** classe `.m-fab` ou `.m-fab--secondary` em template novo. Toda instância é violação dessa regra. Classes CSS vivem em `global.css` desde 2026-05-29 — qualquer redefinição local é dead code.
+
+**NÃO criar variantes locais** `.{modulo}-mobile .m-fab*`. Se precisar customizar pra um caso específico (cor diferente, posição diferente), abrir conversa antes — é sinal de quebra de padrão.
+
+Detalhes da diretriz em [`conventions.md`](conventions.md) → "🧩 Partial `_m_fabs.html`".
+
+### Checklist obrigatório ao gerar tela mobile com FAB
+
+1. Vai ter botão "+" (criar/adicionar)? → FAB verde via partial (parâmetro primário)
+2. Vai ter botão "atualizar/refresh"? → FAB azul via partial (parâmetro secundário)
+3. Vai ter ambos? → ambos params preenchidos
+4. NUNCA escrever `<button class="m-fab">...</button>` inline
+5. NUNCA criar `.m-fab` em CSS de módulo — a classe é global
+
+Falhar em qualquer item viola essa regra.
