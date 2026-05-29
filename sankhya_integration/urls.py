@@ -264,6 +264,17 @@ urlpatterns = [
     path('configuracoes/',                             views.view_configuracoes_painel,   name='view_configuracoes_painel'),
 
     # ==============================================================================
+    # 🛠 AJUSTES ADMINISTRATIVOS (Mai/2026 — 2026-05-28)
+    # Tela /sankhya/configuracoes/ajustes/ com sub-abas Caixas + Combustível.
+    # Lançamentos manuais excepcionais. Acesso restrito (grupos 1+6).
+    # ==============================================================================
+    path('configuracoes/ajustes/',                     views.view_configuracoes_ajustes,  name='view_configuracoes_ajustes'),
+    path('configuracoes/api/ajustes/caixas/criar/',    views.api_ajustes_caixas_criar,    name='api_ajustes_caixas_criar'),
+    path('configuracoes/api/ajustes/caixas/listar/',   views.api_ajustes_caixas_listar,   name='api_ajustes_caixas_listar'),
+    path('configuracoes/api/ajustes/combustivel/criar/',  views.api_ajustes_combustivel_criar,  name='api_ajustes_combustivel_criar'),
+    path('configuracoes/api/ajustes/combustivel/listar/', views.api_ajustes_combustivel_listar, name='api_ajustes_combustivel_listar'),
+
+    # ==============================================================================
     # 👥 MÓDULO USUÁRIOS (Mai/2026) — gestão de acesso TSIUSU/TSIGPU
     # Cat A entregue (leituras + página). Escritas Cat B em stubs 501.
     # ==============================================================================
@@ -294,4 +305,20 @@ urlpatterns = [
     path('caixas/api/produto/upsert/',                 views.api_caixas_produto_upsert,    name='api_caixas_produto_upsert'),
     # [TEMPORÁRIO Mai/2026] Backfill PESO via moda TOP 26 — REMOVER quando IAgro virar fluxo único
     path('caixas/api/refresh-pesos/',                  views.api_caixas_refresh_pesos,     name='api_caixas_refresh_pesos'),
+
+    # ==============================================================================
+    # 🚚 LOGÍSTICA (Mai/2026 — schema persistente — 2026-05-29)
+    # ==============================================================================
+    path('logistica/',                                 views.view_logistica_painel,                  name='view_logistica_painel'),
+    # APIs de leitura (Cat A)
+    path('logistica/api/tipos-parceiro/',              views.api_logistica_listar_tipos_parceiro,    name='api_logistica_listar_tipos_parceiro'),
+    path('logistica/api/parceiros/',                   views.api_logistica_parceiros_por_tipo,       name='api_logistica_parceiros_por_tipo'),
+    path('logistica/api/veiculos/',                    views.api_logistica_veiculos,                 name='api_logistica_veiculos'),
+    path('logistica/api/viagens/',                     views.api_logistica_listar_viagens,           name='api_logistica_listar_viagens'),
+    path('logistica/api/viagem/<int:viagem_id>/',      views.api_logistica_obter_viagem,             name='api_logistica_obter_viagem'),
+    path('logistica/api/viagem/<int:viagem_id>/ficha-pdf/', views.api_logistica_ficha_pdf,           name='api_logistica_ficha_pdf'),
+    # APIs de escrita (Cat B aplicadas — 2026-05-29)
+    path('logistica/api/viagem/criar/',                views.api_logistica_criar_viagem,             name='api_logistica_criar_viagem'),
+    path('logistica/api/viagem/<int:viagem_id>/editar/', views.api_logistica_editar_viagem,          name='api_logistica_editar_viagem'),
+    path('logistica/api/viagem/<int:viagem_id>/excluir/', views.api_logistica_excluir_viagem,        name='api_logistica_excluir_viagem'),
 ]

@@ -519,6 +519,121 @@
 
 ---
 
+### 1.18 Tabelas de Viagem / MDFe (planejado leitura — Logística Cat B futuro)
+
+**Mapeadas em Mai/2026 (2026-05-29) via smoke completo no Oracle Agromil.** Documentadas como dependência **planejada (leitura apenas)** para o módulo Logística — operador emite MDFe no Sankhya nativo, IAgro só correlaciona via `NUVIAG` opcional.
+
+**Achado-chave**: as 6 tabelas têm **ZERO triggers próprias** (diferente de TGFCAB/TGFITE/TGFVAR/TGFFIN). Apenas `TRG_INC_UPD_TGFCAB_ORD` em TGFCAB referencia TGFVIAG como leitura. Java do Sankhya escreve direto.
+
+#### 1.18.1 TGFVIAG — Cabeçalho da viagem fiscal
+
+**Volume Agromil (Mai/2026):** 1.089 viagens (crescimento ~30%/ano).
+
+**Operações do IAgro:** **SELECT apenas** (ponte fiscal opcional via `AD_VIAGEM_ENTREGA.NUVIAG_SANKHYA`).
+
+**Colunas usadas pelo IAgro:**
+- `NUVIAG` — PK
+- `CODEMP` — FK TSIEMP
+- `SERIE` — Série do MDFe
+- `STATUSDOC` — `'C'` (encerrado/confirmado fiscal) / `'E'` (excluído) — 98% das viagens são 'C'
+- `CODVEIPRIN` — FK TGFVEI (veículo principal)
+- `CODVEIREB1, CODVEIREB2, CODVEIREB3` — FK TGFVEI (até 3 reboques)
+- `TIPAMB` — Ambiente SEFAZ (1=produção, 2=homologação)
+- `TIPMODALMDFE` — Modal de transporte (`'1'` rodoviário — 100% na Agromil)
+- `DHALTER, CODUSU` — Audit
+
+**FK:** 4× TGFVEI, TSIEMP, TSIUSU.
+
+**Sem motorista nem ajudantes nesse envelope** — Sankhya espera CODMOTORISTA via TGFEMDF como evento "Inclusão de Condutor", mas Agromil **NÃO USA esse fluxo** (0% de cobertura).
+
+#### 1.18.2 TGFMDFE — Dados do manifesto SEFAZ
+
+**Volume:** 1.050 manifestos (quase 1:1 com TGFVIAG na Agromil).
+
+**Operações do IAgro:** **SELECT apenas** — pra exibir status, chave, peso bruto, UFs.
+
+**Colunas relevantes:**
+- PK composta `(NUVIAG, SEQMDFE)` — permite múltiplos MDFe por viagem
+- `NUMMDFE` — Número sequencial visível
+- `STATUSMDFE` — Status SEFAZ
+- `CHAVEMDFE` — Chave de 44 dígitos da NFe MDFe
+- `DHEMISS, DHRECIBO` — Datas
+- `UFINICIAL, UFFINAL` — FK TSIUFS
+- `PESOBRUTOTOT` — Peso bruto total
+- `XML, XMLPROTAUT, XMLENVCLI` — CLOBs com XML SEFAZ (não usados pelo IAgro)
+- 30+ colunas fiscais adicionais (geocodes carregamento/descarregamento, modal aquaviário, etc.) — não relevantes
+
+**FK:** TGFVIAG, TSIUFS×2, TSIUSU.
+
+#### 1.18.3 TGFNMDFE — NFs vinculadas ao manifesto
+
+**Volume:** 1.588 vínculos. Distribuição: 76% das viagens têm exatamente 2 NFs (padrão Agromil: 1-2 lojas Assaí por carregamento).
+
+**Operações do IAgro:** **SELECT apenas** — pra mostrar quais TGFCAB (NFs) estão num MDFe.
+
+**Colunas:**
+- PK composta `(NUVIAG, SEQMDFE, NUNOTA)`
+- `STATUSENVIO, INDREENTREGA` — Flags SEFAZ
+
+**FK:** TGFMDFE, TGFCAB (NUNOTA).
+
+#### 1.18.4 TGFEMDF — Eventos do MDFe
+
+**Volume:** 979 eventos. Distribuição real Agromil:
+- `CODEVE='110112'` (Encerramento) — 918 eventos
+- `CODEVE='110111'` (Cancelamento) — 61 eventos
+- `CODMOTORISTA` populado em **0 dos 979 eventos** — Agromil não usa Inclusão de Condutor SEFAZ
+
+**Operações do IAgro:** **SELECT apenas** (futuro — mostrar timeline de eventos do MDFe).
+
+**FK:** TGFMDFE, TGFPAR (CODMOTORISTA), TSICID, TSIUFS.
+
+#### 1.18.5 TGFOMDF — Ocorrências livres
+
+**Volume:** 748 ocorrências (campo CLOB `OCORRENCIAS`).
+
+**Operações do IAgro:** **SELECT apenas** (futuro).
+
+**FK:** TGFMDFE, TSIUSU.
+
+#### 1.18.6 TGFNCTE — XMLs do CT-e por NUNOTA
+
+**Volume:** 1.916 linhas. Não vinculada diretamente à viagem.
+
+**Operações do IAgro:** **SELECT apenas** (futuro — anexar PDF do CT-e à NF).
+
+**FK:** PK = NUNOTA (1:1 com TGFCAB de CT-e).
+
+#### Triggers — ausência confirmada
+
+```
+TGFVIAG    → 0 triggers
+TGFMDFE    → 0 triggers
+TGFNMDFE   → 0 triggers
+TGFOMDF    → 0 triggers
+TGFEMDF    → 0 triggers
+TGFNCTE    → 0 triggers
+```
+
+Apenas `TRG_INC_UPD_TGFCAB_ORD` (em TGFCAB, não nas 6) faz **leitura** de TGFVIAG.
+
+**Por que IAgro NÃO escreve em TGFVIAG/TGFMDFE** (apesar de ausência de triggers):
+1. Java do Sankhya pode escrever direto via rotina nativa de emissão MDFe — INSERT IAgro pode ser ignorado/sobrescrito
+2. Falta semântica operacional (motorista, ajudantes, destinos com qtd_caixas, observação do gestor) — adicionar `AD_*` poluiria envelope fiscal
+3. STATUSDOC fiscal (`'C'`/`'E'`) conflita com status operacional IAgro (Planejada/Em rota/Concluída)
+4. Spin-off futuro: replicar TGFVIAG+TGFMDFE (43 colunas fiscais + XMLs SEFAZ) é caro; AD_VIAGEM_ENTREGA paralela é trivial
+5. Sem ambiente de homologação Sankhya pra validar INSERT manual
+
+**Arquitetura recomendada** (Opção C — ponte fiscal opcional):
+- `AD_VIAGEM_ENTREGA` (IAgro operacional) — motorista + ajudantes + destinos + qtd_caixas + obs + status
+- Campo `NUVIAG_SANKHYA` opcional pra correlacionar quando MDFe é emitido
+- Função aditiva Cat A `consultar_mdfe_da_viagem(nuviag)` — SELECT em TGFVIAG + TGFMDFE + TGFNMDFE pra exibir badge `📋 MDFe N (chave XX...)` na rota IAgro
+- Zero escrita pelo IAgro nas 6 tabelas Sankhya
+
+Detalhes em [`modules/logistica.md`](modules/logistica.md) → "Ponte fiscal opcional com TGFVIAG".
+
+---
+
 ## 2. Triggers Sankhya Conhecidas (Mapa de Riscos)
 
 ### 2.1 Triggers em TGFCAB
@@ -720,6 +835,11 @@ Estrutura completa em `.claude/modules/rastreio.md` → "Fluxo unificado de reso
 
 **Propósito:** Metadados de requisição de combustível (TOP 53, antes era TOP 26).
 
+**Mai/2026 — 2026-05-28**: ALTER aplicado (migration `AD_REQUISICAO_COMBUSTIVEL_MIGRATION_AJUSTE.sql`) tornou `CODVEICULO NULL` permitido e ampliou CHECK de `TIPO` pra aceitar `AJUSTE_AVULSO` (ajuste manual de saldo do tanque sem veículo, lançado pela tela admin `/sankhya/configuracoes/ajustes/`). Quando `TIPO='AJUSTE_AVULSO'`:
+- TGFCAB criada é **TOP 10** (qtd positiva → entrada, soma saldo) ou **TOP 53** (qtd negativa → saída, desconta saldo)
+- View `ANDRE_IAGRO_SALDO_COMBUSTIVEL` reflete automaticamente — não precisa alterar a view porque AJUSTE_AVULSO não é EXTERNA_POSTO (filtro `NOT EXISTS EXTERNA_POSTO` não exclui)
+- Sem TGFFIN (ajuste interno, sem financeiro)
+
 Estrutura completa em `.claude/modules/combustivel.md`.
 
 ---
@@ -765,6 +885,60 @@ Detalhes em `.claude/modules/caixas.md` e `.claude/schema.md` §7.8.
 **Tabelas Sankhya consumidas (LEITURA APENAS):** apenas via view (que por sua vez consulta TGFCAB, TGFITE, TGFVAR, TGFPRO, TGFPAR). Nenhuma escrita em tabela Sankhya nativa.
 
 **Zero impacto em queries existentes:** tabela auxiliar 100% isolada; outras funções continuam apontadas pra view real.
+
+---
+
+### 5.11 Módulo Logística — `AD_TIPO_PARCEIRO` + `AD_PARCEIRO_TIPO` + `AD_VIAGEM_*` (Mai/2026 — 2026-05-29)
+
+Pacote completo de 5 tabelas pro módulo Logística. Detalhes operacionais em [`.claude/modules/logistica.md`](modules/logistica.md).
+
+#### Cadastro de tipos de parceiro
+
+| Tabela | DDL | Propósito |
+|---|---|---|
+| `AD_TIPO_PARCEIRO` | [AD_TIPO_PARCEIRO.sql](../sankhya_integration/sql/AD_TIPO_PARCEIRO.sql) | Cadastro genérico de tipos. PK `ID`, UNIQUE `CODIGO`. Seed inicial 7 tipos com IDs fixos 1-7 (CLIENTE, FORNECEDOR, USUARIO, MOTORISTA, AJUDANTE, TRANSPORTADORA, VENDEDOR). Sequence `SEQ_AD_TIPO_PARCEIRO` start=100 pra tipos novos. |
+| `AD_PARCEIRO_TIPO` | [AD_PARCEIRO_TIPO.sql](../sankhya_integration/sql/AD_PARCEIRO_TIPO.sql) | Junção N:N parceiro × tipo. PK composta `(CODPARC, AD_CODTIPPARC)`. Índice reverso `(AD_CODTIPPARC, CODPARC)` pra typeahead. FKs lógicas (sem constraint física) pra TGFPAR e AD_TIPO_PARCEIRO. |
+
+**Migração one-time** copiou flags TGFPAR → AD_PARCEIRO_TIPO: 381 CLIENTE + 457 FORNECEDOR + 3 USUARIO + 24 MOTORISTA + 4 TRANSPORTADORA + 16 VENDEDOR = **885 vínculos** (`NOMEUSU='MIGRACAO_INICIAL'`). Reversível via DELETE. Sankhya nativo intocado. Tipo AJUDANTE (ID=5) só IAgro.
+
+#### Tabelas de viagem
+
+| Tabela | DDL | Propósito |
+|---|---|---|
+| `AD_VIAGEM_ENTREGA` | [AD_VIAGEM_ENTREGA.sql](../sankhya_integration/sql/AD_VIAGEM_ENTREGA.sql) | Cabeçalho. PK `ID` (via `SEQ_AD_VIAGEM_ENTREGA`), UNIQUE `NUM_VIAGEM` (gerado por `MAX+1`), DATE+HORA, CODVEICULO (FK lógica TGFVEI), CODPARC_MOTORISTA (FK lógica TGFPAR + tipo=4), OBSERVACAO, audit. CHECK regex HH:MM. 3 índices (DATA, MOTORISTA, VEICULO). |
+| `AD_VIAGEM_DESTINO` | [AD_VIAGEM_DESTINO.sql](../sankhya_integration/sql/AD_VIAGEM_DESTINO.sql) | Paradas. FK ON DELETE CASCADE com AD_VIAGEM_ENTREGA. UNIQUE `(VIAGEM_ID, ORDEM)`. CHECK QTD>0. Sequence `SEQ_AD_VIAGEM_DESTINO`. |
+| `AD_VIAGEM_AJUDANTE` | [AD_VIAGEM_AJUDANTE.sql](../sankhya_integration/sql/AD_VIAGEM_AJUDANTE.sql) | N:N viagem × ajudante. PK composta `(VIAGEM_ID, CODPARC_AJUDANTE)`. FK ON DELETE CASCADE. CODPARC_AJUDANTE = parceiro com tipo=5 em AD_PARCEIRO_TIPO. |
+
+**Sem coluna STATUS** — exclusão é DELETE físico; histórico preservado via AD_AUDITORIA_GERAL com snapshot completo ANTES do DELETE.
+
+#### ALTER em AD_AUDITORIA_GERAL
+
+`CK_AD_AUDIT_MODULO` ampliado em 2026-05-29 pra aceitar `'logistica'` (necessário pras funções de escrita do módulo registrarem audit) e `'ajustes'` (proativo — módulo já existente cuja entrada faltava no enum).
+
+#### Funções service
+
+| Função | Cat | Operação |
+|---|---|---|
+| `listar_tipos_parceiro(incluir_inativos)` | A | SELECT AD_TIPO_PARCEIRO ordenado por ORDEM_EXIBICAO |
+| `consultar_parceiros_por_tipo(tipo_id, q, limite, somente_ativos)` | A | Typeahead via JOIN AD_PARCEIRO_TIPO + TGFPAR |
+| `consultar_veiculos_logistica(q, somente_ativos, limite)` | A | Typeahead TGFVEI (sem restrição de grupo) |
+| `consultar_proximo_num_viagem()` | A | `MAX(NUM_VIAGEM)+1` |
+| `listar_viagens(filtros, limite, offset)` | A | Listagem paginada com cabeçalho + destinos + ajudantes |
+| `obter_viagem_detalhe(viagem_id)` | A | Detalhe completo |
+| `criar_viagem_banco(dados, codusu, nomeusu)` | B | INSERT atômico cab + destinos + ajudantes + audit. Lock pessimista em MAX(NUM_VIAGEM). |
+| `editar_viagem_banco(viagem_id, dados, codusu, nomeusu)` | B | UPDATE diferencial preservando IDs estáveis dos destinos. NUM_VIAGEM imutável. |
+| `excluir_viagem_banco(viagem_id, codusu, nomeusu, motivo)` | B | DELETE físico cascata + snapshot no audit |
+
+#### Endpoints REST
+
+9 endpoints sob `/sankhya/logistica/api/` (6 GET + 3 POST + 1 PDF). Acesso `@exige_grupo('logistica')` — grupos 1 (Diretoria), 6 (Suporte), 10 (Administrativo).
+
+#### Tabelas Sankhya consumidas (LEITURA APENAS)
+
+- `TGFPAR` (via JOIN com AD_PARCEIRO_TIPO pra typeahead)
+- `TGFVEI` (typeahead de veículo)
+
+**Zero escrita em tabelas Sankhya nativas.** Spin-off futuro replica AD_VIAGEM_* sem custo adicional.
 
 ---
 

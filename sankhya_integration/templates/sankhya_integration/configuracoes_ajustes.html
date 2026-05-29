@@ -1,0 +1,157 @@
+{% extends "sankhya_integration/base.html" %}
+{% load static %}
+
+{% block title %}IAgro · Ajustes{% endblock %}
+{% block active_module %}configuracoes{% endblock %}
+{% block header_title %}AJUSTES ADMINISTRATIVOS{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/configuracoes_ajustes.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<div class="aj-layout">
+
+  <p class="aj-intro">
+    <i class="ph ph-warning-circle" aria-hidden="true"></i>
+    <span>
+      Lançamentos manuais excepcionais — saldo deve bater pela operação normal.
+      Use somente pra corrigir divergências físicas pontuais.
+      <strong>Justificativa obrigatória</strong> em todos os lançamentos.
+    </span>
+  </p>
+
+  {# Abas: Caixas (default) | Combustível #}
+  <nav class="aj-tabs" role="tablist">
+    <button type="button" class="aj-tab is-active" data-tab="caixas" role="tab" aria-selected="true">
+      <i class="ph ph-package" aria-hidden="true"></i>
+      <span>Caixas</span>
+    </button>
+    <button type="button" class="aj-tab" data-tab="combustivel" role="tab" aria-selected="false">
+      <i class="ph ph-gas-pump" aria-hidden="true"></i>
+      <span>Combustível</span>
+    </button>
+  </nav>
+
+  {# ============================ ABA CAIXAS ============================ #}
+  <article class="aj-pane" data-pane="caixas">
+    <div class="aj-pane-grid">
+      {# Form de lançamento #}
+      <section class="aj-form-panel">
+        <header class="aj-form-header">
+          <h3>Lançar ajuste de saldo de caixas</h3>
+          <p>
+            <strong>Positivo</strong> soma ao saldo do cliente (caixa apareceu / saldo inicial).
+            <strong>Negativo</strong> desconta (caixa sumiu sem motivo).
+          </p>
+        </header>
+        <div class="aj-form-body">
+          <div class="aj-form-row">
+            <label for="ajCxCliente">Cliente *</label>
+            <input type="text" id="ajCxCliente" placeholder="Buscar por nome ou CODPARC…" autocomplete="off" required>
+            <input type="hidden" id="ajCxCodparc">
+            <div id="ajCxClienteDropdown" class="dropdown-abs"></div>
+          </div>
+          <div class="aj-form-row">
+            <label for="ajCxData">Data *</label>
+            <input type="date" id="ajCxData" required>
+          </div>
+          <div class="aj-form-row">
+            <label for="ajCxQtd">Quantidade *</label>
+            <input type="number" id="ajCxQtd" step="1" placeholder="ex: 50 ou -30" required>
+            <small class="aj-form-hint">Positivo soma · Negativo desconta · Zero não permitido</small>
+          </div>
+          <div class="aj-form-row">
+            <label for="ajCxObs">Justificativa <span class="aj-req">*</span></label>
+            <textarea id="ajCxObs" rows="3" placeholder="Descreva o motivo do ajuste (mínimo 5 caracteres)" required></textarea>
+          </div>
+          <div class="aj-form-msg" id="ajCxMsg" hidden></div>
+        </div>
+        <footer class="aj-form-footer">
+          <button type="button" class="btn btn-primario" id="ajCxSalvar">
+            <i class="ph ph-check"></i>
+            <span>Lançar ajuste</span>
+          </button>
+        </footer>
+      </section>
+
+      {# Lista lateral: últimos ajustes #}
+      <section class="aj-lista-panel">
+        <header class="aj-lista-header">
+          <h3>Últimos ajustes de caixas</h3>
+          <button type="button" class="aj-btn-refresh" id="ajCxRefresh" title="Atualizar">
+            <i class="ph ph-arrows-clockwise"></i>
+          </button>
+        </header>
+        <div class="aj-lista-body" id="ajCxLista">
+          <div class="aj-empty">Carregando…</div>
+        </div>
+      </section>
+    </div>
+  </article>
+
+  {# ========================= ABA COMBUSTÍVEL ========================= #}
+  <article class="aj-pane" data-pane="combustivel" hidden>
+    <div class="aj-pane-grid">
+      {# Form de lançamento #}
+      <section class="aj-form-panel">
+        <header class="aj-form-header">
+          <h3>Lançar ajuste de combustível</h3>
+          <p>
+            <strong>Positivo</strong> entra no tanque (encontrou combustível no balanço).
+            <strong>Negativo</strong> desconta (perdido / consumo sem rastro).
+            Sem veículo — aparece na listagem do módulo Combustível como movimentação <strong>Ajuste</strong>.
+          </p>
+        </header>
+        <div class="aj-form-body">
+          <div class="aj-form-row">
+            <label for="ajCbProduto">Combustível *</label>
+            <input type="text" id="ajCbProduto" placeholder="Buscar Diesel S10, S500, ARLA…" autocomplete="off" required>
+            <input type="hidden" id="ajCbCodprod">
+            <div id="ajCbProdutoDropdown" class="dropdown-abs"></div>
+          </div>
+          <div class="aj-form-row">
+            <label for="ajCbData">Data *</label>
+            <input type="date" id="ajCbData" required>
+          </div>
+          <div class="aj-form-row">
+            <label for="ajCbQtd">Quantidade (LT) *</label>
+            <input type="number" id="ajCbQtd" step="0.01" placeholder="ex: 50.5 ou -30.25" required>
+            <small class="aj-form-hint">Positivo soma · Negativo desconta · Zero não permitido</small>
+          </div>
+          <div class="aj-form-row">
+            <label for="ajCbObs">Justificativa <span class="aj-req">*</span></label>
+            <textarea id="ajCbObs" rows="3" placeholder="Descreva o motivo do ajuste (mínimo 5 caracteres)" required></textarea>
+          </div>
+          <div class="aj-form-msg" id="ajCbMsg" hidden></div>
+        </div>
+        <footer class="aj-form-footer">
+          <button type="button" class="btn btn-primario" id="ajCbSalvar">
+            <i class="ph ph-check"></i>
+            <span>Lançar ajuste</span>
+          </button>
+        </footer>
+      </section>
+
+      {# Lista lateral: últimos ajustes #}
+      <section class="aj-lista-panel">
+        <header class="aj-lista-header">
+          <h3>Últimos ajustes de combustível</h3>
+          <button type="button" class="aj-btn-refresh" id="ajCbRefresh" title="Atualizar">
+            <i class="ph ph-arrows-clockwise"></i>
+          </button>
+        </header>
+        <div class="aj-lista-body" id="ajCbLista">
+          <div class="aj-empty">Carregando…</div>
+        </div>
+      </section>
+    </div>
+  </article>
+
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'sankhya_integration/configuracoes_ajustes.js' %}?v=1"></script>
+{% endblock %}

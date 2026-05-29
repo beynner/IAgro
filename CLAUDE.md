@@ -25,7 +25,8 @@ O sistema integra dados do Sankhya via Oracle e oferece **onze módulos operacio
 | Rastreio (WMS) | — | Vínculo de lotes a pedidos com auditoria e lock pessimista. Suporta vínculo manual pedido↔nota órfã e pedido retroativo. **Etiquetas SafeTrace 100×50mm** com QR + EAN13 (Zebra ZD220). Peso da etiqueta vem da TOP 26 (classificação) automaticamente — operador só digita se for múltiplos pesos ou override manual (Mai/2026 — 2026-05-16). **Saldo materializado em `AD_SALDO_LOTE_CACHE` com refresh por cron 5min** + cache Django 60s + WITH clause na query de pedidos (Mai/2026 — 2026-05-19): tela carrega em ~700ms (vs 25s antes) |
 | E-mail (importação) | 34 (após confirmação) | Coleta IMAP de pedidos com PDF anexo, parser via LLM local (Ollama), revisão humana |
 | Combustível (Frota) | 10 → 53 | Entrada de combustível (TOP 10) e requisições internas (TOP 53 — frota/maquinário/freteiro/posto externo). Discrimina frota própria + maquinário + freteiros. Inclui abastecimento externo (não desconta tanque interno) |
-| **Caixas** | — | Controle de vasilhame retornável (caixa plástica). Saldo por cliente derivado de vendas via `CEIL(QTDNEG/PESO)`; coletas/quebras/perdas/ajustes manuais em `AD_COLETA_CAIXAS`; tipo de caixa por produto em `AD_PRODUTO_CAIXA`. **Botão Atualizar faz backfill `[TEMPORÁRIO Mai/2026]`** via moda da TOP 26 enquanto IAgro não vira fluxo único. Acesso amplo (grupos 1/6/8/9/10/11). Mai/2026 — 2026-05-18 |
+| **Logística (Frota)** | — | **Módulo persistente em produção Mai/2026 — 2026-05-29.** Tela `/sankhya/logistica/` (grupos 1/6/10) pra planejar rotas: caminhão + motorista + ajudantes + destinos com qtd_caixas + obs. Schema próprio (`AD_VIAGEM_ENTREGA/DESTINO/AJUDANTE` com FK CASCADE) + cadastro genérico de tipos de parceiro (`AD_TIPO_PARCEIRO` + `AD_PARCEIRO_TIPO` N:N) substituindo flags TGFPAR — **885 vínculos migrados** das flags nativas. Frontend desktop+mobile via `LogisticaApi` (REST). **PDF reportlab A6 vertical** com PLACA gigante centralizada. 9 endpoints REST + 42 testes Cat A. Sankhya nativo intocado |
+| **Caixas** | — | Controle de vasilhame retornável (caixa plástica). Saldo por cliente derivado de vendas via `CEIL(QTDNEG/PESO)`; coletas/quebras/perdas manuais em `AD_COLETA_CAIXAS`. **Botão Atualizar faz backfill `[TEMPORÁRIO Mai/2026]`** via moda da TOP 26 enquanto IAgro não vira fluxo único. Acesso amplo (grupos 1/6/8/9/10/11). Mai/2026 — 2026-05-18, redesign mobile + cleanup 2026-05-28 (aba Produtos e Ajustar saldo movidos pra tela admin futura) |
 | **Relatórios** | — | Tela `/sankhya/relatorios/` (restrita Diretoria/Suporte/Comercial) com 5 sub-abas: Top Clientes/Produtos · Lotes Envelhecidos · Consumo por Veículo · Fluxo de Caixa · Margem por Venda. Lazy load + cache 5min na margem. Mai/2026 — 2026-05-17 |
 | **Auditoria Universal** | — | Tela `/sankhya/auditoria/` (restrita Diretoria/Suporte) consolidando AD_AUDITORIA_GERAL — todo evento de escrita do IAgro com snapshot antes/depois em JSON. 36 funções instrumentadas. Tela tem diff inteligente "antes→depois" + JSON técnico. **Acessada via engrenagem no header → Configurações** (não mais na sidebar) |
 
@@ -40,7 +41,7 @@ Todas as telas autenticadas usam o **novo layout**: sidebar lateral fixa (200px 
 
 **Sidebar agrupada por departamento, retrátil tipo acordeão** (Mai/2026 — 2026-05-18):
 - Painel no topo (todos)
-- 4 departamentos ativos: **Packing House** (Entrada/Classificação/Rastreio) · **Comercial** (Comercial/Relatórios) · **Administrativo** (Venda/Importação) · **Frota** (Combustível)
+- 4 departamentos ativos: **Packing House** (Entrada/Classificação/Rastreio) · **Comercial** (Comercial/Relatórios) · **Administrativo** (Venda/Importação) · **Frota** (Combustível/Logística)
 - 3 placeholders esmaecidos (roadmap visual): **Financeiro · DP/RH · Produção** — opacity 0.5, "Em breve" itálico, não clicáveis
 - Comportamento **acordeão**: 1 section aberta por vez. Click em outra fecha a anterior. Estado persistido em `localStorage:iagro:sidebar:section:v1`
 - Departamento do módulo ativo abre automaticamente (pré-paint script inline no `base.html`)
@@ -650,7 +651,119 @@ Backend continua usando 3 endpoints distintos (`URL_ENT_CRIAR` / `URL_REQ_CRIAR`
 
 Detalhes técnicos em [`modules/combustivel.md`](.claude/modules/combustivel.md) → "📱 Combustível Mobile — redesign app-like + UI v2 unificada".
 
+### 🛠 Ajustes Administrativos — tela dedicada no hub Configurações (Mai/2026 — 2026-05-28)
+
+Nova tela `/sankhya/configuracoes/ajustes/` (card "Ajustes" no hub, ícone `ph-sliders-horizontal`, acesso restrito a grupos 1+6 igual ao hub) com 2 sub-abas pra lançamentos manuais excepcionais:
+
+- **Caixas** — `AJUSTE_SALDO` em `AD_COLETA_CAIXAS`. Reusa 100% `criar_coleta_caixas_banco` com motivo fixo. Aceita qtd positiva (caixa apareceu / saldo inicial) ou negativa (caixa sumiu). Justificativa obrigatória (≥5 chars).
+- **Combustível** — `AJUSTE_AVULSO` em `AD_REQUISICAO_COMBUSTIVEL`. Cria TGFCAB **TOP 10** (positivo) ou **TOP 53** (negativo) sem veículo. CODPARC herdado da última TOP 10 do produto. Justificativa obrigatória.
+
+**Backend novo**: `criar_ajuste_combustivel_banco` (Cat B aplicada) + 4 endpoints REST. Audit em `AD_AUDITORIA_GERAL` (módulo='ajustes').
+
+**DDL aplicada**: `AD_REQUISICAO_COMBUSTIVEL_MIGRATION_AJUSTE.sql` — `CODVEICULO NULL` + CHECK ampliado pra `AJUSTE_AVULSO`. Idempotente.
+
+**Listagem do módulo Combustível** ganhou badge **"Ajuste"** indigo (`cb-badge-ajuste`) com ícone `ph-sliders-horizontal` — aparece tanto em entradas positivas (TOP 10) quanto saídas negativas (TOP 53). Desktop + mobile.
+
+**Cleanup**: módulos Caixas e Combustível **deixam de oferecer ajuste de saldo na UI própria**. Botão "Ajustar saldo" do módulo Caixas (removido em 2026-05-28) migrou pra essa tela. Backend continua reconhecendo eventos AJUSTE_SALDO/AJUSTE_AVULSO nas queries de leitura pra mostrar lançamentos feitos pela tela admin.
+
+**Validação**: `manage.py check` OK + esprima OK nos 3 JS modificados (configuracoes_ajustes.js + combustivel.js + combustivel_mobile.js) + zero IDs duplicados nos templates.
+
+Detalhes em [`modules/caixas.md`](.claude/modules/caixas.md) → migração pra tela admin + [`modules/combustivel.md`](.claude/modules/combustivel.md) → "🛠 Ajuste avulso administrativo".
+
+### 📦 Caixas Mobile — redesign app-like + cleanup (Mai/2026 — 2026-05-28)
+
+Quinto módulo com mobile + simplificação da UI desktop. **3 entregas combinadas:**
+
+- **Cleanup desktop**: aba "Tipo de caixa por produto" e botão "Ajustar saldo" removidos do módulo. Ajustes excepcionais e cadastro de papelão migram pra **tela administrativa futura**. Backend `AJUSTE_SALDO` continua nas queries de leitura pra eventos legados aparecerem na timeline, mas IAgro não cria mais via UI.
+- **Mobile app-like** (`caixas_mobile.js` ~620 linhas IIFE): 2 telas (`lista` + `detalheCliente`) + 2 sheets (`coleta` + `mais`) + bottom nav 3 itens (Saldo/Buscar/Mais) + 2 FABs (verde `+` lançar coleta + azul Atualizar com banner sticky).
+- **Estorno por swipe (Opção B — paridade desktop)**: eventos manuais ganham swipe esquerda 56px revelando botão âmbar `ph-arrow-counter-clockwise`. Fluxo idêntico ao desktop: `IAgro.confirmarAcao` + `window.prompt('Motivo do estorno…')` + POST `/api/coleta/<id>/estornar/`. Vendas/devoluções não têm swipe (sem `id_coleta`).
+
+**Componentes principais:**
+- Lista: 4 pílulas de resumo (Em campo/Clientes/Quebradas/Perdidas) + busca client-side (debounce 200ms, normaliza acentos) + cards de cliente 1 linha (nome + meta + saldo grande verde + chevron)
+- Detalhe: hero verde Agromil com saldo 36px + 5 stats grid 3×2 (Enviadas/Devolução/Coletadas/Quebradas/Perdidas — sem Ajuste) + alerta "sem peso" condicional + timeline cronológica DESC
+- Sheet coleta: typeahead cliente (positionFixed) + data (default hoje) + qtd numérica grande + **3 pills coloridas** de motivo (Coleta verde/Quebra âmbar/Perda vermelho) + observação textarea
+- Sheet mais: 2 atalhos (Atualizar saldo com banner sticky + Lançar coleta)
+
+**Zero backend novo** — reusa 5 endpoints existentes (saldo, timeline, coleta criar, coleta estornar, refresh-pesos TEMP).
+
+**Validação**: `manage.py check` OK + esprima OK nos 2 JS (desktop+mobile) + zero IDs duplicados no template + zero comentários Django multi-line. Cache CSS `?v=8`, JS desktop `?v=7`, JS mobile `?v=1`.
+
+Detalhes em [`modules/caixas.md`](.claude/modules/caixas.md) → "📱 Redesign Mobile app-like".
+
 **Limpeza arquitetural**: removidas todas as referências à página `/sankhya/compras/central/` que foi removida no início do projeto mas deixou código morto espalhado. View `view_central_compras` agora retorna 410 Gone (mantém só o ramo `?ajax_header=1` usado pra editar cabeçalho). 7 arquivos afetados — vide [`gotchas.md`](.claude/gotchas.md) → "Página compras/central foi removida".
+
+### 🚚 Logística — Módulo persistente (Mai/2026 — 2026-05-29)
+
+Tela `/sankhya/logistica/` (departamento Frota, acesso `1+6+10`) **agora com schema persistente em produção** pra planejar viagens — caminhão + motorista + ajudantes + **destinos com qtd_caixas por parada**.
+
+**Arquitetura final** (10 Cat B aplicadas + Cat A loop):
+
+| Pacote | Componentes |
+|---|---|
+| **Schema** | `AD_TIPO_PARCEIRO` (cadastro genérico, 7 seed) · `AD_PARCEIRO_TIPO` (junção N:N CODPARC × tipo, **885 vínculos migrados** das flags TGFPAR sem deletar nada) · `AD_VIAGEM_ENTREGA/DESTINO/AJUDANTE` (FK ON DELETE CASCADE) · ALTER `CK_AD_AUDIT_MODULO` aceita `'logistica'` + `'ajustes'` |
+| **Funções escrita Cat B** | `criar_viagem_banco` (atômica + lock pessimista MAX+1 + valida FKs lógicas) · `editar_viagem_banco` (UPDATE diferencial preservando IDs estáveis dos destinos por ORDEM + set diff de ajudantes + NUM_VIAGEM imutável) · `excluir_viagem_banco` (DELETE físico + FK CASCADE + snapshot ANTES no audit) |
+| **Funções leitura Cat A** | `listar_tipos_parceiro` · `consultar_parceiros_por_tipo(tipo_id, q, limite, somente_ativos)` · `consultar_veiculos_logistica` · `consultar_proximo_num_viagem` (MAX+1) · `listar_viagens` (ROW_NUMBER Oracle 11g + sub-fetch destinos/ajudantes) · `obter_viagem_detalhe` |
+| **REST** | 9 endpoints (6 GET + 3 POST + 1 PDF) sob `/sankhya/logistica/api/` |
+| **PDF** | `services/ficha_viagem_pdf.py` (A6 vertical reportlab) — **PLACA gigante Courier-Bold 24pt centralizada** + destinos numerados com seta `>` + quadro amarelo de observação + linha TOTAL. Substituiu `window.print()` |
+| **Frontend** | `LogisticaApi` (REST) exposto globalmente — desktop e mobile. Boot: fetch paralelo de 5 endpoints (veículos + 3 tipos de parceiros + viagens); recarga após cada operação. Mantém `LogisticaMock` pros helpers de display |
+| **Tests** | 42 testes Cat A em `test_logistica.py` (acesso por grupo, 8 cenários de validação de payload, services mockados, 9 endpoints com Client.get/post) |
+
+**Decisões consolidadas:**
+
+- **Tipos de parceiro genéricos** (`AD_TIPO_PARCEIRO`) substituem flags `TGFPAR.{CLIENTE,FORNECEDOR,MOTORISTA,...}` no contexto IAgro. Sankhya nativo permanece intocado com as flags em S — migração one-time só **copiou** (885 vínculos, `NOMEUSU='MIGRACAO_INICIAL'`, reversível). AJUDANTE (tipo=5) é só IAgro — sem flag nativa correspondente.
+- **Multiplicidade**: parceiro pode ter N tipos simultâneos (parceiro 536 ANDRE PATROCINIO = CLIENTE + FORNECEDOR via 2 linhas na junção). Mesma realidade do Sankhya nativo onde flags são independentes.
+- **NUM_VIAGEM começa em 1** e cresce por `MAX+1` (visível ao operador, separado do `ID` PK do sequence). Lock pessimista resolve concorrência; `UNIQUE` é rede de proteção.
+- **Sem coluna STATUS** — exclusão é DELETE físico; histórico em `AD_AUDITORIA_GERAL` com snapshot completo. Justificativa: VBA atual não usa status; IAgro evita complexidade sem demanda.
+- **FK CASCADE** em destinos e ajudantes → DELETE de viagem remove tudo atomicamente. Validado via smoke real (3 destinos + 1 ajudante sumiram juntos).
+- **`verificar_permissao_escrita()`** em todas as escritas (defesa anti-fakes do incidente Mai/2026 — 2026-05-18).
+- **Sankhya nativo** (TGFCAB/TGFITE/TGFPAR/TGFVEI) **intocado em todas as operações**. Spin-off futuro replica `AD_VIAGEM_*` sem custo.
+
+**URLs principais:**
+- `GET /sankhya/logistica/api/viagens/?data_de=...&data_ate=...` — listagem com `proximo_num_viagem` no payload
+- `GET /sankhya/logistica/api/viagem/<id>/ficha-pdf/` — PDF A6 inline
+- `POST /sankhya/logistica/api/viagem/criar/`
+- `POST /sankhya/logistica/api/viagem/<id>/editar/`
+- `POST /sankhya/logistica/api/viagem/<id>/excluir/` (body `{motivo}` opcional)
+
+**Análise prévia da Sankhya Viagens/MDFe** (mantida pra referência futura): 6 tabelas fiscais (TGFVIAG, TGFMDFE, TGFNMDFE, TGFEMDF, TGFOMDF, TGFNCTE) com ZERO triggers próprias mas 43 colunas fiscais e XMLs SEFAZ — reuso descartado em favor de `AD_VIAGEM_*` paralela. Operador emite MDFe no Sankhya nativo se precisar; IAgro pode futuramente correlacionar via campo `NUVIAG_SANKHYA` NULLABLE (não implementado nesta entrega). Detalhes em [`dependencias_sankhya.md`](.claude/dependencias_sankhya.md) §1.18 + [`modules/logistica.md`](.claude/modules/logistica.md) → "Ponte fiscal opcional com TGFVIAG".
+
+Cache CSS `?v=3`, JS desktop `?v=3`, JS mobile `?v=3`.
+
+### 🚚 Logística — simulação UI (substituída em 2026-05-29 pelo módulo persistente)
+
+**Componentes entregues**:
+
+| Camada | Arquivo |
+|---|---|
+| View | `view_logistica_painel` em [views.py](sankhya_integration/views.py) — render do template, sem fetch |
+| Template | [logistica.html](sankhya_integration/templates/sankhya_integration/logistica.html) — 2 containers paralelos desktop + mobile + modal de edição + modal de ficha |
+| CSS | [logistica.css](sankhya_integration/static/sankhya_integration/logistica.css) — layout desktop + bloco "REDESIGN MOBILE-FIRST" + ficha vertical com `@media print` |
+| JS desktop | [logistica.js](sankhya_integration/static/sankhya_integration/logistica.js) — mock TGFPAR (35+ parceiros, 3 tipos) + 8 veículos + 8 viagens exemplo. Expõe `window.LogisticaMock` |
+| JS mobile | [logistica_mobile.js](sankhya_integration/static/sankhya_integration/logistica_mobile.js) — reusa `LogisticaMock` |
+
+**Modelo de dados (planejado pra Cat B futuro)**:
+- `AD_VIAGEM_ENTREGA` (cabeçalho — NUM_VIAGEM sequencial visível, DATA, HORA, CODVEICULO, CODPARC_MOTORISTA, OBSERVACAO, STATUS soft-delete + audit)
+- `AD_VIAGEM_DESTINO` (auxiliar — VIAGEM_ID, ORDEM, CODPARC_DESTINO, QTD_CAIXAS, OBSERVACAO)
+- `AD_VIAGEM_AJUDANTE` (N:N — VIAGEM_ID, CODPARC_AJUDANTE)
+
+**Convenção TGFPAR**: motorista, ajudante e destino vêm todos de **TGFPAR com discriminador por TIPO** (operador confirmou que cada parceiro Sankhya pode ter tipo: cliente, fornecedor, motorista, etc). Investigar `TGFPAR.CODTIPPARC` ou similar no Sankhya antes de implementar Cat B.
+
+**UX desktop**: layout 4 cards de resumo no topo + grid sidebar de filtros (220px) + lista de cards horizontais. Cards têm Nº VIAGEM em destaque na lateral esquerda (estilo "etiqueta numerada"), placa + motorista + ajudantes + preview dos 3 primeiros destinos + qtd total caixas + botão impressora. Click no card abre modal de edição em 2 colunas (dados gerais à esquerda + sub-tabela de destinos editável à direita com typeahead de cliente + qtd numérica por linha).
+
+**UX mobile**: 2 telas (lista + detalhe) + 3 sheets (rota nova/editar + filtros + mais) + bottom nav 4 itens + 2 FABs (verde "+" + azul "Atualizar"). Hero do detalhe com Nº VIAGEM gigante em fundo verde + card destacando placa + lista de destinos numerados com qtd. Botão "Ver ficha" abre o mesmo modal de impressão do desktop.
+
+**Ficha de impressão** (modal vertical 420px estilo papel A6): "ROTA" gigante centralizado + "VIAGEM Nº NNNN" + data por extenso (`quinta-feira, 28/05/2026`) + hora destacada + motorista (nome grande) + ajudantes + **PLACA gigante** (48px monospace — motorista identifica caminhão de longe no pátio) + destinos numerados com seta `>` e qtd + linha de total + quadro de observação + rodapé "IAgro · Logística". Botão "Imprimir" usa `window.print()` com CSS `@media print` escondendo tudo menos a ficha (toolbar e sombras removidas).
+
+**Decisões consolidadas**:
+1. Tudo mock por enquanto — refresh limpa edições (esperado em simulação)
+2. NUM_VIAGEM separado do ID PK — operador conhece o número (espelha VBA). Inicia em 3049 na simulação
+3. **Sem status** (Planejada/Em rota/Concluída) — VBA atual não usa, IAgro não cria complexidade até demanda. Soft-delete via `STATUS='EXCLUIDA'` se vier
+4. Qtd_caixas é **manual** — responsável da rota digita. Integração com vendas/classificação fica pra fase 2
+5. Botão Imprimir usa `window.print()` no MVP — no real, vira PDF reportlab com mesmo layout
+
+**Pendência conhecida (operador mencionou)**: "no sankhya tem viagens, pra fazer o MDFe. mas depois vemos isso". Integração com módulo de Viagens do Sankhya + emissão MDFe fica como backlog longo prazo.
+
+Detalhes em [`modules/logistica.md`](.claude/modules/logistica.md).
 
 ### Backlog planejado
 
@@ -724,3 +837,4 @@ Os arquivos abaixo são carregados automaticamente como parte deste documento.
 @.claude/modules/combustivel.md
 @.claude/modules/relatorios.md
 @.claude/modules/caixas.md
+@.claude/modules/logistica.md

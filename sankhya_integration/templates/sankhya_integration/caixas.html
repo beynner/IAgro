@@ -6,10 +6,6 @@
 {% block header_title %}CONTROLE DE CAIXAS{% endblock %}
 
 {% block header_actions %}
-  <button type="button" id="btnAjustarSaldo" class="btn btn-acao-ajuste" title="Cadastrar saldo inicial ou ajustar divergência (uso excepcional)">
-    <i class="ph ph-pencil-simple" aria-hidden="true"></i>
-    <span>Ajustar saldo</span>
-  </button>
   <button type="button" id="btnLancarColeta" class="btn btn-primario" title="Lançar coleta, quebra ou perda de caixas">
     <i class="ph ph-truck" aria-hidden="true"></i>
     <span>Lançar coleta</span>
@@ -17,10 +13,14 @@
 {% endblock %}
 
 {% block extra_css %}
-  <link rel="stylesheet" href="{% static 'sankhya_integration/caixas.css' %}?v=7">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/caixas.css' %}?v=9">
 {% endblock %}
 
 {% block content %}
+<div class="caixas-portal">
+
+{# ============================== DESKTOP ============================== #}
+<div class="caixas-desktop">
 <div class="cx-layout">
 
   {# Indicadores agregados (topo) #}
@@ -47,22 +47,18 @@
     </div>
   </header>
 
-  {# Abas: Saldo (default) + Cadastro de Produtos #}
-  <nav class="cx-tabs" role="tablist">
-    <button type="button" class="cx-tab is-active" data-tab="saldo" role="tab" aria-selected="true">
+  {# Header com refresh #}
+  <header class="cx-toolbar">
+    <h2 class="cx-toolbar-titulo">
       <i class="ph ph-list-checks" aria-hidden="true"></i>
       <span>Saldo por cliente</span>
-    </button>
-    <button type="button" class="cx-tab" data-tab="produtos" role="tab" aria-selected="false">
-      <i class="ph ph-package" aria-hidden="true"></i>
-      <span>Tipo de caixa por produto</span>
-    </button>
+    </h2>
     <button type="button" id="cxBtnRefresh" class="cx-btn-refresh" title="Atualizar dados">
       <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
     </button>
-  </nav>
+  </header>
 
-  {# ============================== ABA SALDO ============================== #}
+  {# ============================== SALDO ============================== #}
   <article class="cx-pane cx-pane--saldo" data-pane="saldo">
 
     <div class="cx-pane-grid">
@@ -145,17 +141,10 @@
                 <span class="cx-stat-valor" id="cxStatPerdidas">—</span>
               </div>
             </div>
-            <div class="cx-stat cx-stat--ajuste">
-              <i class="ph ph-pencil-simple" aria-hidden="true"></i>
-              <div class="cx-stat-info">
-                <span class="cx-stat-label">Ajuste</span>
-                <span class="cx-stat-valor" id="cxStatAjuste">—</span>
-              </div>
-            </div>
           </div>
           <div class="cx-sem-peso-alerta" id="cxSemPesoAlerta" hidden>
             <i class="ph ph-info" aria-hidden="true"></i>
-            <span>Este cliente tem vendas mas sem peso de caixa registrado. Saldo precisa ser informado via <strong>Ajustar saldo</strong>.</span>
+            <span>Este cliente tem vendas mas sem peso de caixa registrado. Saldo será ajustado pela tela administrativa.</span>
           </div>
 
           <header class="cx-timeline-header">
@@ -176,52 +165,287 @@
     </div>
   </article>
 
-  {# ========================== ABA PRODUTOS =========================== #}
-  <article class="cx-pane cx-pane--produtos" data-pane="produtos" hidden>
-    <header class="cx-pane-header">
-      <div>
-        <h3>Tipo de caixa por produto</h3>
-        <p class="cx-pane-hint">
-          Produtos cadastrados aqui têm seu tipo de caixa controlado.
-          <strong>Produto sem cadastro = PLÁSTICA</strong> (default — conta saldo).
-          Cadastre apenas as exceções (produtos que vão em papelão).
-        </p>
-      </div>
-      <button type="button" id="cxBtnNovoProduto" class="btn btn-primario">
-        <i class="ph ph-plus" aria-hidden="true"></i>
-        <span>Cadastrar produto</span>
-      </button>
-    </header>
-
-    <div class="cx-produtos-filtros">
-      <select id="cxProdFiltroTipo" class="cx-select">
-        <option value="">Todos</option>
-        <option value="PLASTICA">Plástica</option>
-        <option value="PAPELAO">Papelão</option>
-      </select>
-    </div>
-
-    <div class="cx-produtos-tabela-wrap">
-      <table class="cx-tabela" id="cxProdTabela">
-        <thead>
-          <tr>
-            <th>CODPROD</th>
-            <th>Produto</th>
-            <th>Vol</th>
-            <th>Tipo de caixa</th>
-            <th>Cadastrado por</th>
-            <th>Em</th>
-            <th>Ações</th>
-          </tr>
-        </thead>
-        <tbody id="cxProdTbody">
-          <tr><td colspan="7" class="cx-empty">Carregando…</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </article>
 
 </div>
+</div>{# /.caixas-desktop #}
+
+{# ============================== MOBILE =============================== #}
+<div class="caixas-mobile">
+
+  {# ----------------- TELA 1 — LISTA DE CLIENTES ----------------- #}
+  <section class="m-screen m-screen--lista is-active" data-screen="lista">
+    <header class="m-screen-header">
+      <button type="button" class="m-iconbtn m-sidebar-toggle" aria-label="Menu">
+        <i class="ph ph-list" aria-hidden="true"></i>
+      </button>
+      <h1 class="m-screen-title">Caixas</h1>
+      <div class="m-user-badge" title="{{ request.session.nomeusu|default:'Usuário' }}">
+        <i class="ph ph-user" aria-hidden="true"></i>
+        <span>{{ request.session.nomeusu|default:'Usuário' }}</span>
+      </div>
+      <a href="{% url 'logout' %}" class="m-logout-link" title="Encerrar sessão">Sair</a>
+    </header>
+
+    <div class="m-screen-body" id="m_cx_listaScroll">
+      {# Resumo agregado — 4 pílulas compactas #}
+      <div class="m-cx-resumo">
+        <div class="m-cx-resumo-card">
+          <span class="m-cx-resumo-label">Em campo</span>
+          <span class="m-cx-resumo-valor" id="m_cx_resEmCampo">—</span>
+        </div>
+        <div class="m-cx-resumo-card">
+          <span class="m-cx-resumo-label">Clientes</span>
+          <span class="m-cx-resumo-valor" id="m_cx_resClientes">—</span>
+        </div>
+        <div class="m-cx-resumo-card m-cx-resumo-card--warn">
+          <span class="m-cx-resumo-label">Quebradas</span>
+          <span class="m-cx-resumo-valor" id="m_cx_resQuebradas">—</span>
+        </div>
+        <div class="m-cx-resumo-card m-cx-resumo-card--danger">
+          <span class="m-cx-resumo-label">Perdidas</span>
+          <span class="m-cx-resumo-valor" id="m_cx_resPerdidas">—</span>
+        </div>
+      </div>
+
+      {# Busca client-side #}
+      <div class="m-cx-search">
+        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+        <input type="search" id="m_cx_search" placeholder="Buscar cliente…" autocomplete="off">
+      </div>
+
+      {# Lista de cards de cliente #}
+      <div class="m-cx-lista" id="m_cx_lista">
+        <div class="m-empty-state">
+          <i class="ph ph-package" aria-hidden="true"></i>
+          <span>Carregando clientes…</span>
+        </div>
+      </div>
+    </div>
+
+    {# FAB principal: lançar coleta #}
+    <button type="button" class="m-fab" id="m_cx_fabColeta" aria-label="Lançar coleta">
+      <i class="ph ph-plus" aria-hidden="true"></i>
+    </button>
+    {# FAB secundário: Atualizar #}
+    <button type="button" class="m-fab m-fab--secondary" id="m_cx_fabAtualizar" aria-label="Atualizar saldo (pode demorar)">
+      <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+    </button>
+
+    {# Bottom nav 3 itens #}
+    <nav class="m-bottom-nav">
+      <button class="m-bottom-nav__item is-active" data-nav="lista">
+        <i class="ph ph-list-checks" aria-hidden="true"></i><span>Saldo</span>
+      </button>
+      <button class="m-bottom-nav__item" data-nav="buscar">
+        <i class="ph ph-magnifying-glass" aria-hidden="true"></i><span>Buscar</span>
+      </button>
+      <button class="m-bottom-nav__item" data-nav="mais">
+        <i class="ph ph-dots-three" aria-hidden="true"></i><span>Mais</span>
+      </button>
+    </nav>
+  </section>
+
+  {# ----------------- TELA 2 — DETALHE DO CLIENTE ----------------- #}
+  <section class="m-screen m-screen--detalhe" data-screen="detalheCliente">
+    <header class="m-screen-header">
+      <button type="button" class="m-iconbtn m-back-btn" aria-label="Voltar">
+        <i class="ph ph-arrow-left" aria-hidden="true"></i>
+      </button>
+      <div class="m-screen-title-block">
+        <h1 class="m-screen-title m-screen-title--ellipsis" id="m_cx_detNome">—</h1>
+        <small class="m-screen-subtitle" id="m_cx_detCodparc">—</small>
+      </div>
+    </header>
+
+    <div class="m-screen-body" id="m_cx_detScroll">
+      {# Hero com saldo grande #}
+      <div class="m-cx-hero">
+        <div class="m-cx-hero-label">Saldo em campo</div>
+        <div class="m-cx-hero-valor" id="m_cx_detSaldo">—</div>
+      </div>
+
+      {# 5 stats em grid 3×2 (Ajuste removido — vai pra admin) #}
+      <div class="m-cx-stats">
+        <div class="m-cx-stat m-cx-stat--enviadas">
+          <i class="ph ph-arrow-up-right" aria-hidden="true"></i>
+          <div class="m-cx-stat-info">
+            <span class="m-cx-stat-label">Enviadas</span>
+            <span class="m-cx-stat-valor" id="m_cx_statEnv">—</span>
+          </div>
+        </div>
+        <div class="m-cx-stat m-cx-stat--devolvidas">
+          <i class="ph ph-arrow-down-left" aria-hidden="true"></i>
+          <div class="m-cx-stat-info">
+            <span class="m-cx-stat-label">Devolução</span>
+            <span class="m-cx-stat-valor" id="m_cx_statDev">—</span>
+          </div>
+        </div>
+        <div class="m-cx-stat m-cx-stat--coletadas">
+          <i class="ph ph-truck" aria-hidden="true"></i>
+          <div class="m-cx-stat-info">
+            <span class="m-cx-stat-label">Coletadas</span>
+            <span class="m-cx-stat-valor" id="m_cx_statCol">—</span>
+          </div>
+        </div>
+        <div class="m-cx-stat m-cx-stat--quebradas">
+          <i class="ph ph-warning" aria-hidden="true"></i>
+          <div class="m-cx-stat-info">
+            <span class="m-cx-stat-label">Quebradas</span>
+            <span class="m-cx-stat-valor" id="m_cx_statQue">—</span>
+          </div>
+        </div>
+        <div class="m-cx-stat m-cx-stat--perdidas">
+          <i class="ph ph-x-circle" aria-hidden="true"></i>
+          <div class="m-cx-stat-info">
+            <span class="m-cx-stat-label">Perdidas</span>
+            <span class="m-cx-stat-valor" id="m_cx_statPer">—</span>
+          </div>
+        </div>
+      </div>
+
+      {# Alerta "sem peso" condicional #}
+      <div class="m-cx-sem-peso" id="m_cx_semPeso" hidden>
+        <i class="ph ph-info" aria-hidden="true"></i>
+        <span>Cliente com vendas sem peso registrado. Saldo será ajustado pela tela administrativa.</span>
+      </div>
+
+      {# Timeline header #}
+      <div class="m-cx-timeline-header">
+        <span class="m-cx-timeline-titulo">Timeline (últimos <span id="m_cx_timelineDias">90</span> dias)</span>
+      </div>
+
+      {# Timeline #}
+      <div class="m-cx-timeline" id="m_cx_timeline">
+        <div class="m-empty-state">
+          <i class="ph ph-clock" aria-hidden="true"></i>
+          <span>Carregando timeline…</span>
+        </div>
+      </div>
+    </div>
+
+    {# FAB: lançar coleta do cliente atual #}
+    <button type="button" class="m-fab" id="m_cx_fabColetaCliente" aria-label="Lançar coleta deste cliente">
+      <i class="ph ph-plus" aria-hidden="true"></i>
+    </button>
+  </section>
+
+  {# ----------------- SHEET: LANÇAR COLETA ----------------- #}
+  <div class="m-sheet" data-sheet="coleta" aria-hidden="true">
+    <div class="m-sheet__backdrop" data-close-sheet></div>
+    <div class="m-sheet__content m-sheet__content--tall" role="dialog" aria-label="Lançar coleta">
+      <div class="m-sheet__handle"></div>
+      <header class="m-sheet__header">
+        <h2>Lançar coleta</h2>
+        <button type="button" class="m-iconbtn" data-close-sheet aria-label="Fechar">
+          <i class="ph ph-x" aria-hidden="true"></i>
+        </button>
+      </header>
+      <div class="m-sheet__body">
+        {# Cliente — typeahead #}
+        <div class="m-field-group">
+          <label class="m-field-label" for="m_cx_colCliente">Cliente</label>
+          <input type="text" id="m_cx_colCliente" class="m-field-input" placeholder="Buscar nome ou CODPARC…" autocomplete="off">
+          <input type="hidden" id="m_cx_colCodparc">
+          <div id="m_cx_colClienteDropdown" class="dropdown-abs"></div>
+        </div>
+
+        {# Data #}
+        <div class="m-field-group">
+          <label class="m-field-label" for="m_cx_colData">Data</label>
+          <input type="date" id="m_cx_colData" class="m-field-input">
+        </div>
+
+        {# Qtd #}
+        <div class="m-field-group">
+          <label class="m-field-label" for="m_cx_colQtd">Quantidade de caixas</label>
+          <input type="number" id="m_cx_colQtd" class="m-field-input m-field-input--lg" inputmode="numeric" min="1" step="1" placeholder="0">
+        </div>
+
+        {# Motivo — pills #}
+        <div class="m-field-group">
+          <label class="m-field-label">Motivo</label>
+          <div class="m-cx-motivo-pills">
+            <label class="m-cx-motivo-pill m-cx-motivo-pill--coleta">
+              <input type="radio" name="m_cx_motivo" value="COLETA" checked>
+              <span class="m-cx-motivo-conteudo">
+                <i class="ph ph-truck" aria-hidden="true"></i>
+                <span>Coleta</span>
+              </span>
+            </label>
+            <label class="m-cx-motivo-pill m-cx-motivo-pill--quebra">
+              <input type="radio" name="m_cx_motivo" value="QUEBRA">
+              <span class="m-cx-motivo-conteudo">
+                <i class="ph ph-warning" aria-hidden="true"></i>
+                <span>Quebra</span>
+              </span>
+            </label>
+            <label class="m-cx-motivo-pill m-cx-motivo-pill--perda">
+              <input type="radio" name="m_cx_motivo" value="PERDA">
+              <span class="m-cx-motivo-conteudo">
+                <i class="ph ph-x-circle" aria-hidden="true"></i>
+                <span>Perda</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        {# Observação #}
+        <div class="m-field-group">
+          <label class="m-field-label" for="m_cx_colObs">Observação (opcional)</label>
+          <textarea id="m_cx_colObs" class="m-field-input" rows="2" placeholder="ex: motorista trouxe na rota XYZ"></textarea>
+        </div>
+
+        <div class="m-cx-msg" id="m_cx_colMsg" hidden></div>
+      </div>
+      <footer class="m-sheet__footer">
+        <button type="button" class="m-btn-secondary" data-close-sheet>Cancelar</button>
+        <button type="button" class="m-btn-primary" id="m_cx_colSalvar">
+          <i class="ph ph-check" aria-hidden="true"></i>
+          <span>Salvar</span>
+        </button>
+      </footer>
+    </div>
+  </div>
+
+  {# ----------------- SHEET: MAIS ----------------- #}
+  <div class="m-sheet" data-sheet="mais" aria-hidden="true">
+    <div class="m-sheet__backdrop" data-close-sheet></div>
+    <div class="m-sheet__content" role="dialog" aria-label="Mais opções">
+      <div class="m-sheet__handle"></div>
+      <header class="m-sheet__header">
+        <h2>Mais</h2>
+        <button type="button" class="m-iconbtn" data-close-sheet aria-label="Fechar">
+          <i class="ph ph-x" aria-hidden="true"></i>
+        </button>
+      </header>
+      <div class="m-sheet__body">
+        <button type="button" class="m-mais-item" id="m_cx_maisAtualizar">
+          <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+          <div class="m-mais-info">
+            <span class="m-mais-titulo">Atualizar saldo</span>
+            <small class="m-mais-sub">Sincroniza pesos das vendas. Pode demorar alguns segundos.</small>
+          </div>
+        </button>
+        <button type="button" class="m-mais-item" id="m_cx_maisColeta">
+          <i class="ph ph-plus" aria-hidden="true"></i>
+          <div class="m-mais-info">
+            <span class="m-mais-titulo">Lançar coleta</span>
+            <small class="m-mais-sub">Registrar coleta, quebra ou perda</small>
+          </div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {# Banner sticky "Processando…" #}
+  <div class="m-cx-banner-processando" id="m_cx_banner" hidden>
+    <i class="ph ph-circle-notch" aria-hidden="true"></i>
+    <span id="m_cx_bannerMsg">Processando pesos das notas…</span>
+  </div>
+
+</div>{# /.caixas-mobile #}
+
+</div>{# /.caixas-portal #}
 
 {# ================== MODAL — LANÇAR COLETA (B1 stub) ================== #}
 <div class="modal-overlay cx-modal hidden" id="cxColetaModal" role="dialog" aria-modal="true" aria-hidden="true">
@@ -246,10 +470,7 @@
         </div>
         <div class="cx-form-row">
           <label for="cxColetaQtd">Quantidade de caixas *</label>
-          <input type="number" id="cxColetaQtd" step="1" required>
-          <small class="cx-form-hint" id="cxColetaQtdHint" hidden>
-            Em <strong>Ajuste</strong>: positivo soma ao saldo (caixa apareceu); negativo desconta (caixa sumiu sem registro).
-          </small>
+          <input type="number" id="cxColetaQtd" step="1" min="1" required>
         </div>
         <div class="cx-form-row">
           <label>Motivo *</label>
@@ -272,12 +493,6 @@
                 <i class="ph ph-x-circle"></i> Perda
               </span>
             </label>
-            <label class="cx-radio">
-              <input type="radio" name="motivo" value="AJUSTE_SALDO">
-              <span class="cx-radio-label cx-radio-label--ajuste">
-                <i class="ph ph-pencil-simple"></i> Ajuste de saldo <em>(excepcional)</em>
-              </span>
-            </label>
           </div>
         </div>
         <div class="cx-form-row">
@@ -297,55 +512,9 @@
   </div>
 </div>
 
-{# ============= MODAL — CADASTRAR PRODUTO (B3 stub) ================= #}
-<div class="modal-overlay cx-modal hidden" id="cxProdutoModal" role="dialog" aria-modal="true" aria-hidden="true">
-  <div class="modal-card cx-modal-card">
-    <header class="modal-header">
-      <h3>Tipo de caixa do produto</h3>
-      <button type="button" class="modal-close" data-modal-close>
-        <i class="ph ph-x" aria-hidden="true"></i>
-      </button>
-    </header>
-    <div class="modal-body">
-      <form id="cxProdutoForm">
-        <div class="cx-form-row">
-          <label for="cxProdSearch">Produto *</label>
-          <input type="text" id="cxProdSearch" placeholder="Buscar por código ou nome…" autocomplete="off" required>
-          <input type="hidden" id="cxProdCodprod">
-          <div id="cxProdSearchDropdown" class="dropdown-abs"></div>
-        </div>
-        <div class="cx-form-row">
-          <label>Tipo de caixa *</label>
-          <div class="cx-radios">
-            <label class="cx-radio">
-              <input type="radio" name="tipo_caixa" value="PLASTICA" checked>
-              <span class="cx-radio-label cx-radio-label--coleta">
-                <i class="ph ph-package"></i> Plástica (retornável — conta saldo)
-              </span>
-            </label>
-            <label class="cx-radio">
-              <input type="radio" name="tipo_caixa" value="PAPELAO">
-              <span class="cx-radio-label cx-radio-label--quebra">
-                <i class="ph ph-file-archive"></i> Papelão (descartável — ignora saldo)
-              </span>
-            </label>
-          </div>
-        </div>
-        <div class="cx-form-msg" id="cxProdMsg" hidden></div>
-      </form>
-    </div>
-    <footer class="modal-footer">
-      <button type="button" class="btn btn-secundario" data-modal-close>Cancelar</button>
-      <button type="button" class="btn btn-primario" id="cxProdSalvar">
-        <i class="ph ph-check"></i>
-        <span>Salvar</span>
-      </button>
-    </footer>
-  </div>
-</div>
-
 {% endblock %}
 
 {% block extra_js %}
-  <script src="{% static 'sankhya_integration/caixas.js' %}?v=6"></script>
+  <script src="{% static 'sankhya_integration/caixas.js' %}?v=7"></script>
+  <script src="{% static 'sankhya_integration/caixas_mobile.js' %}?v=1" defer></script>
 {% endblock %}

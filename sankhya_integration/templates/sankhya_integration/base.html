@@ -150,6 +150,12 @@
                         <span class="nav-icon"><i class="ph ph-gas-pump"></i></span>
                         <span class="nav-label">Combustível</span>
                     </a>
+                    {% if "1" in request.session.grupos or "6" in request.session.grupos or "10" in request.session.grupos %}
+                    <a href="/sankhya/logistica/" class="nav-item" data-mod="logistica" title="Frota · Logística (rotas de entrega)">
+                        <span class="nav-icon"><i class="ph ph-truck"></i></span>
+                        <span class="nav-label">Logística</span>
+                    </a>
+                    {% endif %}
                 </div>
             </div>
             {% endif %}
@@ -229,7 +235,8 @@
                     relatorios:     'comercial',
                     venda:          'administrativo',
                     email:          'administrativo',
-                    combustivel:    'frota'
+                    combustivel:    'frota',
+                    logistica:      'frota'
                 };
                 var secaoAbrir = mapModuloSecao[moduloAtivo] || '';
                 if (!secaoAbrir) {

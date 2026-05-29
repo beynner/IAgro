@@ -53,6 +53,8 @@ from .services.oracle_conn import (
     registrar_origem_preco_item,
     consultar_ultimo_preco_combustivel,
     criar_abastecimento_externo_banco,
+    # Ajuste avulso de combustível (Mai/2026 — 2026-05-28, tela admin de ajustes)
+    criar_ajuste_combustivel_banco,
     # Dashboard executivo (Mai/2026)
     consultar_indicadores_dashboard,
     # Auditoria universal (Mai/2026 — B1)
@@ -88,12 +90,24 @@ from .services.oracle_conn import (
     obter_dados_pedido_completo_para_impressao,
     listar_pedidos_para_impressao,
     consultar_pesos_referencia_por_codprods,
+    # Logística — leituras Cat A (Mai/2026 — 2026-05-29)
+    listar_tipos_parceiro,
+    consultar_parceiros_por_tipo,
+    consultar_veiculos_logistica,
+    consultar_proximo_num_viagem,
+    listar_viagens,
+    obter_viagem_detalhe,
+    # Logística — escritas Cat B (Mai/2026 — 2026-05-29)
+    criar_viagem_banco,
+    editar_viagem_banco,
+    excluir_viagem_banco,
 )
 from .services.etiqueta_lote import gerar_pdf_etiquetas
 from .services.pedido_venda_pdf import (
     gerar_pdf_pedidos_individual,
     gerar_pdf_pedidos_consolidado,
 )
+from .services.ficha_viagem_pdf import gerar_pdf_ficha_viagem
 
 from django.contrib import messages
 from django.core.cache import cache
@@ -6476,6 +6490,132 @@ def view_configuracoes_painel(request: HttpRequest) -> HttpResponse:
 
 
 # ==============================================================================
+# 🛠 AJUSTES ADMINISTRATIVOS (Mai/2026 — 2026-05-28)
+# Tela dedicada pra lançamentos manuais de ajuste de saldo:
+#   - Caixas: AJUSTE_SALDO em AD_COLETA_CAIXAS (positivo/negativo + obs obrigatória)
+#   - Combustível: AJUSTE_AVULSO em AD_REQUISICAO_COMBUSTIVEL (sem veículo)
+# Acesso restrito a Diretoria (1) + Suporte (6).
+# ==============================================================================
+
+@ensure_csrf_cookie
+@exige_grupo('ajustes')
+def view_configuracoes_ajustes(request: HttpRequest) -> HttpResponse:
+    """Tela de ajustes administrativos — sub-abas Caixas + Combustível."""
+    return render(request, "sankhya_integration/configuracoes_ajustes.html")
+
+
+@require_http_methods(["POST"])
+@exige_grupo('ajustes')
+def api_ajustes_caixas_criar(request: HttpRequest) -> JsonResponse:
+    """Cria AJUSTE_SALDO em AD_COLETA_CAIXAS (reusa criar_coleta_caixas_banco).
+
+    Payload: {codparc, qtd, data, observacao}
+    Frontend manda qtd com sinal (positivo soma, negativo desconta) e
+    observação obrigatória — backend força motivo='AJUSTE_SALDO'.
+    """
+    payload = _get_json_payload(request)
+    codusu  = request.session.get('codusu') or 0
+    nomeusu = request.session.get('nomeusu') or ''
+
+    try:
+        codparc = int(payload.get('codparc') or 0)
+    except (TypeError, ValueError):
+        codparc = 0
+    try:
+        qtd = int(payload.get('qtd') or 0)
+    except (TypeError, ValueError):
+        qtd = 0
+    data_str = (payload.get('data') or payload.get('data_coleta') or '').strip()
+    obs = (payload.get('observacao') or '').strip()
+
+    if len(obs) < 5:
+        return JsonResponse({
+            'ok': False,
+            'error': 'Justificativa obrigatória (mínimo 5 caracteres).',
+        }, status=400)
+
+    try:
+        result = criar_coleta_caixas_banco({
+            'codparc':     codparc,
+            'qtd_caixas':  qtd,
+            'data_coleta': data_str,
+            'motivo':      'AJUSTE_SALDO',
+            'observacao':  obs,
+        }, codusu=int(codusu), nomeusu=str(nomeusu))
+    except Exception as exc:
+        logger.exception("Falha em api_ajustes_caixas_criar")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+    if not result.get('ok'):
+        return JsonResponse(result, status=400)
+    return JsonResponse(result)
+
+
+@require_http_methods(["POST"])
+@exige_grupo('ajustes')
+def api_ajustes_combustivel_criar(request: HttpRequest) -> JsonResponse:
+    """Cria AJUSTE_AVULSO em AD_REQUISICAO_COMBUSTIVEL (sem veículo).
+
+    Payload: {codprod, qtd, data, observacao}
+    Qtd positiva → TGFCAB TOP 10 (entrada); negativa → TOP 53 (saída).
+    Aparece na listagem do módulo Combustível como movimentação tipo Ajuste.
+    """
+    payload = _get_json_payload(request)
+    codusu  = request.session.get('codusu') or 0
+    nomeusu = request.session.get('nomeusu') or ''
+
+    try:
+        result = criar_ajuste_combustivel_banco(payload, codusu=int(codusu), nomeusu=str(nomeusu))
+    except Exception as exc:
+        logger.exception("Falha em api_ajustes_combustivel_criar")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+    if not result.get('ok'):
+        return JsonResponse(result, status=400)
+    return JsonResponse(result)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('ajustes')
+def api_ajustes_caixas_listar(request: HttpRequest) -> JsonResponse:
+    """Lista últimos AJUSTE_SALDO (reusa listar_coletas_caixas filtrando motivo)."""
+    try:
+        limite = max(1, min(100, int(request.GET.get('limite') or 30)))
+    except (TypeError, ValueError):
+        limite = 30
+    incluir_estornadas = (request.GET.get('incluir_estornadas', 'false') or '').lower() in ('1', 'true', 'yes', 's')
+    try:
+        coletas_all = listar_coletas_caixas(filtros={
+            'incluir_estornadas': incluir_estornadas,
+        }, limite=300, offset=0)
+        # Filtra só AJUSTE_SALDO (listar_coletas_caixas aceita filtros COLETA/QUEBRA/PERDA
+        # mas não AJUSTE_SALDO; filtra client-side aqui)
+        ajustes = [c for c in coletas_all if c.get('motivo') == 'AJUSTE_SALDO'][:limite]
+        return JsonResponse({'ok': True, 'ajustes': ajustes})
+    except Exception as exc:
+        logger.exception("Falha em api_ajustes_caixas_listar")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('ajustes')
+def api_ajustes_combustivel_listar(request: HttpRequest) -> JsonResponse:
+    """Lista últimos AJUSTE_AVULSO de combustível (filtra movimentações)."""
+    try:
+        limite = max(1, min(100, int(request.GET.get('limite') or 30)))
+    except (TypeError, ValueError):
+        limite = 30
+    try:
+        movs_all = listar_movimentacoes_combustivel(filtros={}, limite=200, offset=0)
+        # Filtra só linhas com tipo='AJUSTE_AVULSO' (campo vem de AD_REQUISICAO_COMBUSTIVEL.TIPO)
+        ajustes = [m for m in movs_all if m.get('tipo') == 'AJUSTE_AVULSO'][:limite]
+        return JsonResponse({'ok': True, 'ajustes': ajustes})
+    except Exception as exc:
+        logger.exception("Falha em api_ajustes_combustivel_listar")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+# ==============================================================================
 # 👥 MÓDULO USUÁRIOS (Mai/2026)
 # Tela de gestão de acesso: lista TSIUSU, detalhe com grupos TSIGPU, catálogo
 # de grupos TSIGRU. Acesso restrito a grupos 1 (Diretoria) e 6 (Suporte).
@@ -7145,3 +7285,255 @@ def api_imprimir_pdf_consolidado(request: HttpRequest):
     response = HttpResponse(pdf_bytes, content_type='application/pdf')
     response['Content-Disposition'] = f'inline; filename="{fname}"'
     return response
+
+
+# ==============================================================================
+# 🚚 LOGÍSTICA (Mai/2026 — esquema persistente — 2026-05-29)
+# Tela de planejamento de rotas de entrega: caminhão, motorista, ajudantes,
+# horário de saída, qtd de caixas (manual por enquanto) e observação livre.
+# Schema definido em AD_VIAGEM_ENTREGA, AD_VIAGEM_DESTINO, AD_VIAGEM_AJUDANTE
+# + tipos genéricos em AD_TIPO_PARCEIRO/AD_PARCEIRO_TIPO.
+# ==============================================================================
+
+@ensure_csrf_cookie
+@exige_grupo('logistica')
+def view_logistica_painel(request: HttpRequest) -> HttpResponse:
+    """Tela de Logística — planejamento de rotas."""
+    return render(request, "sankhya_integration/logistica.html")
+
+
+@exige_grupo('logistica')
+def api_logistica_listar_tipos_parceiro(request: HttpRequest) -> JsonResponse:
+    """GET /sankhya/logistica/api/tipos-parceiro/ — lista AD_TIPO_PARCEIRO."""
+    try:
+        incluir_inativos = (request.GET.get('incluir_inativos') or '').lower() in ('1', 'true', 's')
+        tipos = listar_tipos_parceiro(incluir_inativos=incluir_inativos)
+        return JsonResponse({'ok': True, 'tipos': tipos})
+    except Exception as exc:
+        logger.exception("Falha em api_logistica_listar_tipos_parceiro")
+        return JsonResponse(
+            {'ok': False, 'error': humanizar_erro_oracle(exc)},
+            status=500,
+        )
+
+
+@exige_grupo('logistica')
+def api_logistica_parceiros_por_tipo(request: HttpRequest) -> JsonResponse:
+    """GET /sankhya/logistica/api/parceiros/?tipo=4&q=ALAN&limite=30
+
+    Typeahead — lista parceiros vinculados a um tipo via AD_PARCEIRO_TIPO.
+    """
+    try:
+        tipo = _converter_para_inteiro(request.GET.get('tipo'))
+        if not tipo:
+            return JsonResponse({'ok': False, 'error': 'Parâmetro tipo obrigatório.'}, status=400)
+        q = (request.GET.get('q') or '').strip()
+        limite = _converter_para_inteiro(request.GET.get('limite')) or 30
+        somente_ativos = (request.GET.get('somente_ativos') or 'true').lower() != 'false'
+
+        parceiros = consultar_parceiros_por_tipo(
+            tipo_id=tipo,
+            q=q,
+            limite=limite,
+            somente_ativos=somente_ativos,
+        )
+        return JsonResponse({'ok': True, 'parceiros': parceiros, 'total': len(parceiros)})
+    except Exception as exc:
+        logger.exception("Falha em api_logistica_parceiros_por_tipo")
+        return JsonResponse(
+            {'ok': False, 'error': humanizar_erro_oracle(exc)},
+            status=500,
+        )
+
+
+@exige_grupo('logistica')
+def api_logistica_veiculos(request: HttpRequest) -> JsonResponse:
+    """GET /sankhya/logistica/api/veiculos/?q=FORD&limite=50
+
+    Typeahead Veículo — SELECT TGFVEI.
+    """
+    try:
+        q = (request.GET.get('q') or '').strip()
+        limite = _converter_para_inteiro(request.GET.get('limite')) or 50
+        somente_ativos = (request.GET.get('somente_ativos') or 'true').lower() != 'false'
+
+        veiculos = consultar_veiculos_logistica(
+            q=q, somente_ativos=somente_ativos, limite=limite,
+        )
+        return JsonResponse({'ok': True, 'veiculos': veiculos, 'total': len(veiculos)})
+    except Exception as exc:
+        logger.exception("Falha em api_logistica_veiculos")
+        return JsonResponse(
+            {'ok': False, 'error': humanizar_erro_oracle(exc)},
+            status=500,
+        )
+
+
+@exige_grupo('logistica')
+def api_logistica_listar_viagens(request: HttpRequest) -> JsonResponse:
+    """GET /sankhya/logistica/api/viagens/
+    Filtros opcionais: data_de, data_ate, codparc_motorista, codveiculo, q.
+    Paginação: limite (default 100), offset.
+    """
+    try:
+        filtros = {
+            'data_de': (request.GET.get('data_de') or '').strip() or None,
+            'data_ate': (request.GET.get('data_ate') or '').strip() or None,
+            'codparc_motorista': _converter_para_inteiro(request.GET.get('codparc_motorista')),
+            'codveiculo': _converter_para_inteiro(request.GET.get('codveiculo')),
+            'q': (request.GET.get('q') or '').strip() or None,
+        }
+        limite = _converter_para_inteiro(request.GET.get('limite')) or 100
+        offset = _converter_para_inteiro(request.GET.get('offset')) or 0
+
+        viagens = listar_viagens(filtros=filtros, limite=limite, offset=offset)
+        proximo_num = consultar_proximo_num_viagem()
+        return JsonResponse({
+            'ok': True,
+            'viagens': viagens,
+            'total': len(viagens),
+            'proximo_num_viagem': proximo_num,
+        })
+    except Exception as exc:
+        logger.exception("Falha em api_logistica_listar_viagens")
+        return JsonResponse(
+            {'ok': False, 'error': humanizar_erro_oracle(exc)},
+            status=500,
+        )
+
+
+@exige_grupo('logistica')
+def api_logistica_obter_viagem(request: HttpRequest, viagem_id: int) -> JsonResponse:
+    """GET /sankhya/logistica/api/viagem/<id>/ — detalhe completo."""
+    try:
+        det = obter_viagem_detalhe(viagem_id)
+        if not det.get('ok'):
+            return JsonResponse(
+                {'ok': False, 'motivo': det.get('motivo', 'erro_oracle')},
+                status=404 if det.get('motivo') == 'nao_encontrada' else 400,
+            )
+        return JsonResponse({'ok': True, 'viagem': det['viagem']})
+    except Exception as exc:
+        logger.exception("Falha em api_logistica_obter_viagem")
+        return JsonResponse(
+            {'ok': False, 'error': humanizar_erro_oracle(exc)},
+            status=500,
+        )
+
+
+@require_http_methods(['POST'])
+@exige_grupo('logistica')
+def api_logistica_criar_viagem(request: HttpRequest) -> JsonResponse:
+    """POST /sankhya/logistica/api/viagem/criar/
+
+    Body JSON: {data_viagem, hora_saida, codveiculo, codparc_motorista,
+                observacao?, destinos[], ajudantes[]}
+    """
+    try:
+        payload = _get_json_payload(request) or {}
+        codusu = request.session.get('codusu')
+        nomeusu = request.session.get('nomeusu') or ''
+
+        res = criar_viagem_banco(
+            dados=payload,
+            codusu_logado=codusu,
+            nomeusu_logado=nomeusu,
+        )
+        if not res.get('ok'):
+            return JsonResponse(res, status=400)
+        return JsonResponse(res)
+    except Exception as exc:
+        logger.exception("Falha em api_logistica_criar_viagem")
+        return JsonResponse(
+            {'ok': False, 'error': humanizar_erro_oracle(exc)},
+            status=500,
+        )
+
+
+@require_http_methods(['POST'])
+@exige_grupo('logistica')
+def api_logistica_editar_viagem(request: HttpRequest, viagem_id: int) -> JsonResponse:
+    """POST /sankhya/logistica/api/viagem/<id>/editar/
+
+    Body JSON: mesmo formato de criar_viagem.
+    """
+    try:
+        payload = _get_json_payload(request) or {}
+        codusu = request.session.get('codusu')
+        nomeusu = request.session.get('nomeusu') or ''
+
+        res = editar_viagem_banco(
+            viagem_id=viagem_id,
+            dados=payload,
+            codusu_logado=codusu,
+            nomeusu_logado=nomeusu,
+        )
+        if not res.get('ok'):
+            return JsonResponse(res, status=400)
+        return JsonResponse(res)
+    except Exception as exc:
+        logger.exception("Falha em api_logistica_editar_viagem")
+        return JsonResponse(
+            {'ok': False, 'error': humanizar_erro_oracle(exc)},
+            status=500,
+        )
+
+
+@require_http_methods(['POST'])
+@exige_grupo('logistica')
+def api_logistica_excluir_viagem(request: HttpRequest, viagem_id: int) -> JsonResponse:
+    """POST /sankhya/logistica/api/viagem/<id>/excluir/
+
+    Body JSON opcional: {motivo: 'texto livre'}.
+    """
+    try:
+        payload = _get_json_payload(request) or {}
+        codusu = request.session.get('codusu')
+        nomeusu = request.session.get('nomeusu') or ''
+        motivo = (payload.get('motivo') or '').strip()
+
+        res = excluir_viagem_banco(
+            viagem_id=viagem_id,
+            codusu_logado=codusu,
+            nomeusu_logado=nomeusu,
+            motivo=motivo,
+        )
+        if not res.get('ok'):
+            return JsonResponse(res, status=400)
+        return JsonResponse(res)
+    except Exception as exc:
+        logger.exception("Falha em api_logistica_excluir_viagem")
+        return JsonResponse(
+            {'ok': False, 'error': humanizar_erro_oracle(exc)},
+            status=500,
+        )
+
+
+@exige_grupo('logistica')
+def api_logistica_ficha_pdf(request: HttpRequest, viagem_id: int) -> HttpResponse:
+    """GET /sankhya/logistica/api/viagem/<id>/ficha-pdf/ — ficha A6 vertical
+    para impressão (motorista). Retorna application/pdf inline.
+    """
+    try:
+        det = obter_viagem_detalhe(viagem_id)
+        if not det.get('ok'):
+            resposta = HttpResponse(
+                f"Viagem {viagem_id} não encontrada.",
+                content_type='text/plain; charset=utf-8',
+            )
+            resposta.status_code = 404
+            return resposta
+
+        pdf_bytes = gerar_pdf_ficha_viagem(det['viagem'])
+        resposta = HttpResponse(pdf_bytes, content_type='application/pdf')
+        num = det['viagem'].get('num_viagem', viagem_id)
+        resposta['Content-Disposition'] = f'inline; filename="rota_viagem_{num}.pdf"'
+        return resposta
+    except Exception as exc:
+        logger.exception("Falha em api_logistica_ficha_pdf")
+        resposta = HttpResponse(
+            f'Erro gerando ficha PDF: {humanizar_erro_oracle(exc)}',
+            content_type='text/plain; charset=utf-8',
+        )
+        resposta.status_code = 500
+        return resposta

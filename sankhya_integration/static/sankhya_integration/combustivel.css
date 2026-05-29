@@ -248,6 +248,8 @@
 .cb-badge-frete   { background: #e0e7ff; color: #3730a3; }
 /* Abastecimento externo (Mai/2026) — laranja-âmbar destacando que é fora do tanque */
 .cb-badge-externo { background: #ffedd5; color: #c2410c; border: 1px solid #fed7aa; }
+/* Ajuste avulso (Mai/2026 — 2026-05-28) — indigo discreto pra distinguir lançamentos administrativos */
+.cb-badge-ajuste  { background: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; }
 
 .cb-status-aberto { background: #fef3c7; color: #92400e; }
 .cb-status-conf   { background: #dcfce7; color: #15803d; }
@@ -1761,6 +1763,15 @@
 .combustivel-mobile .m-cb-mov-badge--maq {
     background: #fef3c7;
     color: #92400e;
+}
+.combustivel-mobile .m-cb-mov-badge--ajuste {
+    background: #e0e7ff;
+    color: #3730a3;
+    border: 1px solid #c7d2fe;
+}
+.combustivel-mobile .m-cb-mov-icone--ajuste {
+    background: #6366f1;
+    color: #fff;
 }
 .combustivel-mobile .m-cb-mov-prod {
     flex: 1;

@@ -476,9 +476,9 @@ agrupado por CODPROD
 |---|---|---|
 | `ID` | NUMBER PK | Sequence `SEQ_AD_REQUISICAO_COMBUSTIVEL` |
 | `NUNOTA` | NUMBER UNIQUE NOT NULL | FK lógica TGFCAB TOP **53** (era TOP 26 até 2026-05-13) |
-| `TIPO` | VARCHAR2(20) CHECK | `INTERNA_FROTA` \| `INTERNA_MAQUINARIO` \| `EXTERNA_FRETE` \| **`EXTERNA_POSTO`** (B7 Mai/2026) |
+| `TIPO` | VARCHAR2(20) CHECK | `INTERNA_FROTA` \| `INTERNA_MAQUINARIO` \| `EXTERNA_FRETE` \| **`EXTERNA_POSTO`** (B7 Mai/2026) \| **`AJUSTE_AVULSO`** (Mai/2026 — 2026-05-28, tela admin) |
 | `CATEGORIA` | VARCHAR2(20) DEFAULT 'COMBUSTIVEL' NOT NULL CHECK | `COMBUSTIVEL` \| `MANUTENCAO` (preparado pro módulo futuro de manutenção da frota) |
-| `CODVEICULO` | NUMBER NOT NULL | FK lógica TGFVEI |
+| `CODVEICULO` | NUMBER NULL | FK lógica TGFVEI. **NOT NULL → NULL em 2026-05-28** pra permitir `TIPO='AJUSTE_AVULSO'` (ajuste sem veículo) |
 | `CODPARC` | NUMBER NULL | **Obrigatório se TIPO='EXTERNA_POSTO'** — CODPARC do posto/fornecedor (Allianz, Semear, Agromil) |
 | `NUFIN_GERADO` | NUMBER NULL | Audit do NUFIN criado (só em EXTERNA_POSTO) |
 | `HODOMETRO_KM` | NUMBER(15,2) | km do veículo (obrigatório em INTERNA_FROTA + EXTERNA_POSTO; opcional em INTERNA_MAQUINARIO; NULL em EXTERNA_FRETE) |
@@ -488,7 +488,7 @@ agrupado por CODPROD
 | `CODUSU`, `NOMEUSU`, `CRIADO_EM` | — | Audit |
 
 **Constraints** (Oracle 11g — nomes ≤30 chars):
-- `CK_AD_REQ_COMBUST_TIPO` — `TIPO IN ('INTERNA_FROTA','INTERNA_MAQUINARIO','EXTERNA_FRETE','EXTERNA_POSTO')`
+- `CK_AD_REQ_COMBUST_TIPO` — `TIPO IN ('INTERNA_FROTA','INTERNA_MAQUINARIO','EXTERNA_FRETE','EXTERNA_POSTO','AJUSTE_AVULSO')`
 - `CK_AD_REQ_COMBUST_EXTPOSTO` — `TIPO <> 'EXTERNA_POSTO' OR CODPARC IS NOT NULL`
 - `CK_AD_REQ_COMBUST_CATEG` — `CATEGORIA IN ('COMBUSTIVEL','MANUTENCAO')`
 
@@ -496,6 +496,7 @@ agrupado por CODPROD
 - B1 (Mai/2026 inicial): DDL original com `MEDIDOR_ATUAL` + `MEDIDOR_TIPO`.
 - **B4 (Mai/2026)**: ALTER trocou pra 2 colunas dedicadas (`HODOMETRO_KM` + `HORIMETRO_H`) — frota própria precisa AMBOS simultaneamente.
 - **B7 (Mai/2026, 2026-05-13)** [[`AD_REQUISICAO_COMBUSTIVEL_MIGRATION_EXTERNO.sql`](../sankhya_integration/sql/AD_REQUISICAO_COMBUSTIVEL_MIGRATION_EXTERNO.sql)]: ADD `CATEGORIA`+`CODPARC`+`NUFIN_GERADO`, CHECK ampliado pra `EXTERNA_POSTO`. Suporta abastecimento externo (posto) sem desconto do tanque interno.
+- **Mai/2026 — 2026-05-28** [[`AD_REQUISICAO_COMBUSTIVEL_MIGRATION_AJUSTE.sql`](../sankhya_integration/sql/AD_REQUISICAO_COMBUSTIVEL_MIGRATION_AJUSTE.sql)]: `CODVEICULO` virou NULL permitido + CHECK ampliado pra `AJUSTE_AVULSO`. Suporta ajuste manual de saldo do tanque sem veículo, lançado pela tela admin `/sankhya/configuracoes/ajustes/`. Idempotente.
 
 ### Constantes Python de configuração (em `oracle_conn.py`)
 
@@ -692,6 +693,160 @@ DDL em [`AD_ITEM_PRECO_ORIGEM.sql`](../sankhya_integration/sql/AD_ITEM_PRECO_ORI
 - `POST /sankhya/venda/api/promocao/excluir/`
 
 Acesso: `@exige_grupo('venda')` (grupos 1, 6, 10).
+
+---
+
+## 7.10 Módulo Logística — `AD_TIPO_PARCEIRO` + `AD_PARCEIRO_TIPO` + `AD_VIAGEM_*` (Mai/2026 — 2026-05-29)
+
+Pacote completo de 5 tabelas auxiliares pro módulo Logística (planejamento de rotas de entrega). Schema em produção desde 2026-05-29. Detalhes operacionais em [`.claude/modules/logistica.md`](modules/logistica.md) e blueprint em [`.claude/dependencias_sankhya.md`](dependencias_sankhya.md) §5.11.
+
+### Cadastro de tipos de parceiro
+
+**`AD_TIPO_PARCEIRO`** — DDL em [`sankhya_integration/sql/AD_TIPO_PARCEIRO.sql`](../sankhya_integration/sql/AD_TIPO_PARCEIRO.sql).
+
+| Coluna | Tipo | Função |
+|---|---|---|
+| `ID` | NUMBER PK | Sequence `SEQ_AD_TIPO_PARCEIRO` start=100. IDs 1-7 reservados ao seed inicial |
+| `CODIGO` | VARCHAR2(20) UNIQUE | Identificador textual estável (`CLIENTE`, `MOTORISTA`, etc.) usado em código |
+| `DESCRICAO` | VARCHAR2(100) | Texto humano exibido na UI |
+| `ATIVO` | CHAR(1) DEFAULT 'S' CHECK in ('S','N') | Liga/desliga tipo sem perder vínculos históricos |
+| `ORDEM_EXIBICAO` | NUMBER DEFAULT 999 | Controla ordem dos chips/dropdowns |
+| `CODUSU`, `NOMEUSU`, `CRIADO_EM` | — | Audit |
+
+**Seed inicial** (IDs 1-7 fixos):
+
+| ID | CODIGO | DESCRICAO | ORDEM |
+|---|---|---|---|
+| 1 | CLIENTE | Cliente (recebe vendas) | 10 |
+| 2 | FORNECEDOR | Fornecedor (entrega mercadoria) | 20 |
+| 3 | USUARIO | Usuario do sistema | 30 |
+| 4 | MOTORISTA | Motorista de entrega | 40 |
+| 5 | AJUDANTE | Ajudante de motorista | 50 |
+| 6 | TRANSPORTADORA | Transportadora terceira (PJ) | 60 |
+| 7 | VENDEDOR | Vendedor comissionado | 70 |
+
+**`AD_PARCEIRO_TIPO`** — DDL em [`AD_PARCEIRO_TIPO.sql`](../sankhya_integration/sql/AD_PARCEIRO_TIPO.sql).
+
+| Coluna | Tipo | Função |
+|---|---|---|
+| `CODPARC` | NUMBER NOT NULL | FK lógica → TGFPAR.CODPARC |
+| `AD_CODTIPPARC` | NUMBER NOT NULL | FK lógica → AD_TIPO_PARCEIRO.ID |
+| `CODUSU`, `NOMEUSU`, `CRIADO_EM` | — | Audit |
+| **PK composta** | `(CODPARC, AD_CODTIPPARC)` | Impossível duplicar mesmo vínculo |
+| **Índice reverso** | `IDX_AD_PARC_TIPO_TIPO (AD_CODTIPPARC, CODPARC)` | Typeahead "lista MOTORISTAs" usa index-only scan |
+
+**Migração one-time aplicada** (Mai/2026 — 2026-05-29): copia flags TGFPAR → AD_PARCEIRO_TIPO. **885 vínculos**:
+
+| Flag TGFPAR | Tipo destino | Linhas migradas |
+|---|---|---|
+| CLIENTE='S' | 1 | 381 |
+| FORNECEDOR='S' | 2 | 457 |
+| USUARIO='S' | 3 | 3 |
+| MOTORISTA='S' | 4 | 24 |
+| TRANSPORTADORA='S' | 6 | 4 |
+| VENDEDOR='S' | 7 | 16 |
+
+`NOMEUSU='MIGRACAO_INICIAL'` marca origem. Reversível via `DELETE WHERE NOMEUSU='MIGRACAO_INICIAL'`. Sankhya nativo **intocado** — flags continuam em S. AJUDANTE (tipo=5) é só IAgro — sem flag nativa correspondente; cadastro manual via INSERT em AD_PARCEIRO_TIPO.
+
+### Tabelas de viagem
+
+**`AD_VIAGEM_ENTREGA`** — DDL em [`AD_VIAGEM_ENTREGA.sql`](../sankhya_integration/sql/AD_VIAGEM_ENTREGA.sql).
+
+| Coluna | Tipo | Função |
+|---|---|---|
+| `ID` | NUMBER PK | Sequence `SEQ_AD_VIAGEM_ENTREGA` start=1 |
+| `NUM_VIAGEM` | NUMBER UNIQUE | Sequencial visível ao operador. Gerado por `MAX(NUM_VIAGEM)+1` (sem sequence) |
+| `DATA_VIAGEM` | DATE NOT NULL | Data planejada |
+| `HORA_SAIDA` | VARCHAR2(5) NOT NULL | `'HH:MM'`. CHECK regex `^[0-2][0-9]:[0-5][0-9]$` |
+| `CODVEICULO` | NUMBER NOT NULL | FK lógica TGFVEI (validado ativo) |
+| `CODPARC_MOTORISTA` | NUMBER NOT NULL | FK lógica TGFPAR + AD_PARCEIRO_TIPO tipo=4 |
+| `OBSERVACAO` | VARCHAR2(1000) | Texto livre |
+| `CODUSU`, `NOMEUSU`, `CRIADO_EM` | — | Audit criação |
+| `ATUALIZADO_EM`, `ATUALIZADO_POR` | — | Preenchido em `editar_viagem_banco` |
+
+Índices: `IDX_AD_VIAGEM_DATA (DATA_VIAGEM)`, `IDX_AD_VIAGEM_MOTORISTA (CODPARC_MOTORISTA)`, `IDX_AD_VIAGEM_VEICULO (CODVEICULO)`.
+
+**Sem coluna STATUS** — exclusão é DELETE físico; histórico em AD_AUDITORIA_GERAL com snapshot ANTES.
+
+**`AD_VIAGEM_DESTINO`** — DDL em [`AD_VIAGEM_DESTINO.sql`](../sankhya_integration/sql/AD_VIAGEM_DESTINO.sql).
+
+| Coluna | Tipo | Função |
+|---|---|---|
+| `ID` | NUMBER PK | Sequence `SEQ_AD_VIAGEM_DESTINO` |
+| `VIAGEM_ID` | NUMBER NOT NULL | FK `AD_VIAGEM_ENTREGA.ID` **ON DELETE CASCADE** |
+| `ORDEM` | NUMBER NOT NULL | Posição 1..N. UNIQUE composta `(VIAGEM_ID, ORDEM)` |
+| `CODPARC_DESTINO` | NUMBER NOT NULL | FK lógica TGFPAR + AD_PARCEIRO_TIPO tipo=1 (CLIENTE) |
+| `QTD_CAIXAS` | NUMBER NOT NULL | CHECK > 0 |
+| `OBSERVACAO` | VARCHAR2(500) | Texto livre da parada |
+| `CRIADO_EM` | TIMESTAMP | Audit |
+
+Índice extra: `IDX_AD_VIAGEM_DEST_PARC (CODPARC_DESTINO)` pra relatório "viagens passando pela loja X".
+
+**`AD_VIAGEM_AJUDANTE`** — DDL em [`AD_VIAGEM_AJUDANTE.sql`](../sankhya_integration/sql/AD_VIAGEM_AJUDANTE.sql).
+
+| Coluna | Tipo | Função |
+|---|---|---|
+| `VIAGEM_ID` | NUMBER NOT NULL | FK `AD_VIAGEM_ENTREGA.ID` **ON DELETE CASCADE** |
+| `CODPARC_AJUDANTE` | NUMBER NOT NULL | FK lógica TGFPAR + AD_PARCEIRO_TIPO tipo=5 (AJUDANTE) |
+| `CRIADO_EM` | TIMESTAMP | Audit |
+| **PK composta** | `(VIAGEM_ID, CODPARC_AJUDANTE)` | Sem sequence; PK basta. Evita duplicar mesmo ajudante |
+
+Índice reverso: `IDX_AD_VIAGEM_AJUD_PARC (CODPARC_AJUDANTE)` pra "viagens do ajudante X".
+
+### ALTER em AD_AUDITORIA_GERAL
+
+`CK_AD_AUDIT_MODULO` ampliado em 2026-05-29 pra aceitar `'logistica'` (necessário pras funções de escrita do módulo registrarem audit) e `'ajustes'` (proativo). Enum final:
+
+```sql
+MODULO IN ('venda','combustivel','rastreio','comercial','entrada',
+           'classificacao','email','caixas','logistica','ajustes')
+```
+
+### Funções service principais
+
+| Função | Cat | Operação |
+|---|---|---|
+| `listar_tipos_parceiro(incluir_inativos)` | A | SELECT AD_TIPO_PARCEIRO ordenado |
+| `consultar_parceiros_por_tipo(tipo_id, q, limite, somente_ativos)` | A | Typeahead via JOIN AD_PARCEIRO_TIPO + TGFPAR |
+| `consultar_veiculos_logistica(q, somente_ativos, limite)` | A | Typeahead TGFVEI (sem restrição CODGRUPOPROD) |
+| `consultar_proximo_num_viagem()` | A | `MAX(NUM_VIAGEM)+1` |
+| `listar_viagens(filtros, limite, offset)` | A | Paginação ROW_NUMBER + sub-fetch destinos/ajudantes |
+| `obter_viagem_detalhe(viagem_id)` | A | Cabeçalho + destinos (com ID estável) + ajudantes |
+| `criar_viagem_banco(dados, codusu, nomeusu)` | B | INSERT atômico + lock pessimista MAX+1 + valida FKs lógicas + audit |
+| `editar_viagem_banco(viagem_id, dados, codusu, nomeusu)` | B | UPDATE diferencial preservando IDs estáveis. NUM_VIAGEM imutável |
+| `excluir_viagem_banco(viagem_id, codusu, nomeusu, motivo)` | B | DELETE físico + FK CASCADE + snapshot pré-DELETE |
+
+### Endpoints REST
+
+7 endpoints sob `/sankhya/logistica/api/` + tela `/sankhya/logistica/`:
+
+```
+GET  /sankhya/logistica/                                  → view_logistica_painel
+GET  /sankhya/logistica/api/tipos-parceiro/
+GET  /sankhya/logistica/api/parceiros/?tipo=N&q=...
+GET  /sankhya/logistica/api/veiculos/?q=...
+GET  /sankhya/logistica/api/viagens/?data_de=...&data_ate=...
+GET  /sankhya/logistica/api/viagem/<id>/
+GET  /sankhya/logistica/api/viagem/<id>/ficha-pdf/        → PDF A6 inline
+POST /sankhya/logistica/api/viagem/criar/
+POST /sankhya/logistica/api/viagem/<id>/editar/
+POST /sankhya/logistica/api/viagem/<id>/excluir/
+```
+
+Acesso: `@exige_grupo('logistica')` (grupos 1, 6, 10).
+
+### Tabelas Sankhya consumidas (LEITURA APENAS)
+
+- `TGFPAR` (via JOIN com AD_PARCEIRO_TIPO pra typeahead, e validação em escritas)
+- `TGFVEI` (typeahead veículo + validação ativo)
+
+**Zero escrita em tabelas Sankhya nativas.** Spin-off futuro replica `AD_VIAGEM_*` sem custo adicional.
+
+### Sequences criadas
+
+- `SEQ_AD_TIPO_PARCEIRO` (start=100)
+- `SEQ_AD_VIAGEM_ENTREGA` (start=1)
+- `SEQ_AD_VIAGEM_DESTINO` (start=1)
 
 ---
 

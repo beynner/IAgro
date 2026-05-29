@@ -1,0 +1,2098 @@
+/* =============================================================================
+   Logística — Rotas de entrega (Mai/2026 — simulação UI v2)
+   Layout: resumo topo + grid (filtros 220px / lista de cards)
+   Modal de viagem em 2 colunas (dados + destinos)
+   Ficha de impressão dedicada
+   ============================================================================= */
+
+/* ------- Switch desktop vs mobile ------- */
+.logistica-portal {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.logistica-desktop {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.logistica-mobile {
+    display: none;
+}
+
+.lg-layout {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* ------- Resumo agregado (topo, 4 cards) ------- */
+.lg-resumo {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.lg-resumo-card {
+    background: var(--cor-fundo-painel);
+    border: 1px solid var(--cor-borda);
+    border-radius: var(--raio-borda, 6px);
+    padding: 8px 12px;
+    box-shadow: var(--sombra-painel);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.lg-resumo-label {
+    font-size: 11px;
+    color: var(--cor-texto-secundario-cinza, #6b7280);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+}
+
+.lg-resumo-valor {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--cor-acao-primaria, #5e7e4a);
+    line-height: 1;
+}
+
+.lg-resumo-hint {
+    font-size: 10px;
+    color: var(--cor-texto-secundario-cinza, #9ca3af);
+}
+
+.lg-resumo-card--info    .lg-resumo-valor { color: #2563eb; }
+.lg-resumo-card--warn    .lg-resumo-valor { color: #d97706; }
+.lg-resumo-card--success .lg-resumo-valor { color: #16a34a; }
+
+/* ------- Toolbar ------- */
+.lg-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    background: var(--cor-fundo-painel);
+    border: 1px solid var(--cor-borda);
+    border-radius: var(--raio-borda, 6px);
+    padding: 8px 14px;
+    box-shadow: var(--sombra-painel);
+}
+
+.lg-toolbar-titulo {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--cor-texto-primario-escuro, #1f2937);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.lg-toolbar-titulo .ph { font-size: 18px; color: var(--cor-acao-primaria, #5e7e4a); }
+
+.lg-btn-refresh {
+    border: 1px solid var(--cor-borda);
+    background: var(--cor-fundo-painel);
+    border-radius: 50%;
+    width: 36px; height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--cor-texto-primario-escuro);
+    transition: all 0.15s ease;
+}
+.lg-btn-refresh:hover { background: #f3f4f6; }
+.lg-btn-refresh .ph { font-size: 16px; }
+.lg-btn-refresh.is-loading .ph { animation: ia-girar 0.8s linear infinite; }
+
+/* ------- Pane: grid 2 colunas ------- */
+.lg-pane {
+    flex: 1;
+    min-height: 0;
+    background: var(--cor-fundo-painel);
+    border: 1px solid var(--cor-borda);
+    border-radius: var(--raio-borda, 6px);
+    box-shadow: var(--sombra-painel);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.lg-pane-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* ------- Sidebar de filtros ------- */
+.lg-filtros-panel {
+    border-right: 1px solid var(--cor-borda);
+    background: #fafafa;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.lg-filtros-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--cor-borda);
+}
+
+.lg-filtros-header h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--cor-texto-primario-escuro);
+}
+
+.lg-filtros-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.lg-filtro-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.lg-filtro-label {
+    font-size: 11px;
+    color: var(--cor-texto-secundario-cinza, #6b7280);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+}
+
+.lg-filtro-input {
+    border: 1px solid var(--cor-borda);
+    border-radius: 5px;
+    padding: 6px 8px;
+    font-size: 13px;
+    background: #fff;
+    color: var(--cor-texto-primario-escuro);
+    min-width: 0;
+}
+
+.lg-data-nav {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.lg-data-nav .lg-filtro-input { flex: 1; min-width: 0; }
+.lg-sep { font-size: 11px; color: #9ca3af; }
+
+.btn-mini-nav {
+    border: 1px solid var(--cor-borda);
+    background: #fff;
+    border-radius: 5px;
+    width: 26px; height: 26px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--cor-texto-primario-escuro);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    flex-shrink: 0;
+}
+.btn-mini-nav:hover { background: #f3f4f6; }
+
+.lg-filtro-busca {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.lg-filtro-busca .ph {
+    position: absolute;
+    left: 8px;
+    font-size: 14px;
+    color: #9ca3af;
+}
+
+.lg-filtro-busca input {
+    border: 1px solid var(--cor-borda);
+    border-radius: 5px;
+    padding: 6px 8px 6px 28px;
+    width: 100%;
+    font-size: 13px;
+    background: #fff;
+}
+
+.lg-filtros-footer {
+    border-top: 1px solid var(--cor-borda);
+    padding: 8px 14px;
+}
+
+.btn-link {
+    border: none;
+    background: transparent;
+    color: var(--cor-texto-secundario-cinza, #6b7280);
+    cursor: pointer;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+}
+.btn-link:hover { color: var(--cor-acao-perigo, #dc2626); }
+
+/* ------- Lista de rotas ------- */
+.lg-rotas-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.lg-rotas-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--cor-borda);
+    background: #fff;
+}
+
+.lg-rotas-header h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--cor-texto-primario-escuro);
+}
+
+.lg-rotas-contador {
+    font-size: 11px;
+    color: var(--cor-texto-secundario-cinza, #6b7280);
+    background: #f3f4f6;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 600;
+}
+
+.lg-rotas-lista {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Card de viagem (desktop) — 2 linhas, layout moderno */
+.lg-card {
+    border: 1px solid var(--cor-borda);
+    border-left: 4px solid var(--cor-acao-primaria, #5e7e4a);
+    border-radius: 8px;
+    background: #fff;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    grid-template-rows: auto auto;
+    grid-template-areas:
+        "numviagem cabecalho destinos qtd"
+        "numviagem detalhe destinos qtd";
+    gap: 4px 14px;
+    align-items: center;
+}
+
+.lg-card:hover {
+    border-color: var(--cor-acao-primaria, #5e7e4a);
+    border-left-color: var(--cor-acao-primaria);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    transform: translateY(-1px);
+}
+
+/* Nº da viagem em destaque (lateral esquerda) */
+.lg-card-numviagem {
+    grid-area: numviagem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0 12px;
+    border-right: 1px solid var(--cor-borda);
+    min-width: 70px;
+}
+
+.lg-card-numviagem-label {
+    font-size: 9px;
+    color: var(--cor-texto-secundario-cinza, #9ca3af);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+}
+
+.lg-card-numviagem-valor {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--cor-acao-primaria, #5e7e4a);
+    line-height: 1;
+    font-family: monospace;
+}
+
+.lg-card-cabecalho {
+    grid-area: cabecalho;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.lg-card-placa {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--cor-texto-primario-escuro);
+    font-family: monospace;
+    letter-spacing: 0.04em;
+}
+
+.lg-card-modelo {
+    font-size: 11px;
+    color: var(--cor-texto-secundario-cinza, #6b7280);
+}
+
+.lg-card-datahora {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--cor-texto-secundario-cinza, #6b7280);
+    font-weight: 600;
+}
+
+.lg-card-detalhe {
+    grid-area: detalhe;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--cor-texto-primario-escuro);
+    flex-wrap: wrap;
+}
+
+.lg-card-detalhe .lg-card-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.lg-card-detalhe .ph { font-size: 13px; color: #9ca3af; }
+
+.lg-card-destinos {
+    grid-area: destinos;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 14px;
+    border-left: 1px dashed var(--cor-borda);
+    font-size: 11px;
+    color: var(--cor-texto-secundario-cinza, #6b7280);
+    min-width: 160px;
+    max-width: 280px;
+}
+
+.lg-card-destinos-titulo {
+    font-size: 9px;
+    color: var(--cor-texto-secundario-cinza, #9ca3af);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+
+.lg-card-destino-linha {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    overflow: hidden;
+}
+
+.lg-card-destino-linha .lg-card-destino-cliente {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--cor-texto-primario-escuro);
+    font-weight: 500;
+}
+
+.lg-card-destino-linha .lg-card-destino-qtd {
+    font-size: 10px;
+    color: var(--cor-acao-primaria, #5e7e4a);
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.lg-card-destinos-mais {
+    font-size: 10px;
+    color: #9ca3af;
+    font-style: italic;
+}
+
+.lg-card-direita {
+    grid-area: qtd;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    flex-shrink: 0;
+    padding-left: 8px;
+    border-left: 1px solid var(--cor-borda);
+}
+
+.lg-card-qtd {
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--cor-acao-primaria, #5e7e4a);
+    line-height: 1;
+}
+
+.lg-card-qtd small {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--cor-texto-secundario-cinza);
+    display: block;
+    margin-top: 2px;
+}
+
+.lg-card-imprimir {
+    border: 1px solid var(--cor-borda);
+    background: #fff;
+    border-radius: 5px;
+    width: 30px; height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--cor-acao-primaria, #5e7e4a);
+}
+.lg-card-imprimir:hover { background: #f0f5ec; border-color: var(--cor-acao-primaria); }
+.lg-card-imprimir .ph { font-size: 14px; }
+
+.lg-empty {
+    padding: 32px;
+    text-align: center;
+    color: var(--cor-texto-secundario-cinza, #9ca3af);
+    font-size: 13px;
+}
+
+/* ------- Modal nova/editar (desktop) — 2 colunas ------- */
+.lg-modal-card {
+    width: min(960px, 96vw);
+    max-height: 92vh;
+    max-height: 92dvh;
+}
+
+.lg-modal-card .modal-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.lg-modal-card .modal-header h3 { flex: 1; margin: 0; }
+
+.lg-modal-numviagem {
+    background: var(--cor-acao-primaria, #5e7e4a);
+    color: #fff;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: monospace;
+}
+
+.lg-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+}
+
+.lg-form-col {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.lg-form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+    position: relative;
+}
+
+.lg-form-row label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--cor-texto-primario-escuro);
+}
+
+.lg-form-row label small {
+    color: var(--cor-texto-secundario-cinza, #9ca3af);
+    font-weight: 500;
+    font-size: 11px;
+    margin-left: 4px;
+}
+
+.lg-form-row input[type="text"],
+.lg-form-row input[type="date"],
+.lg-form-row input[type="time"],
+.lg-form-row input[type="number"],
+.lg-form-row textarea {
+    border: 1px solid var(--cor-borda);
+    border-radius: 5px;
+    padding: 8px 10px;
+    font-size: 13px;
+    background: #fff;
+    color: var(--cor-texto-primario-escuro);
+    width: 100%;
+    box-sizing: border-box;
+    font-family: inherit;
+}
+
+.lg-form-row textarea { resize: vertical; min-height: 60px; }
+
+.lg-form-row--double {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.lg-form-row--double > div { display: flex; flex-direction: column; gap: 4px; }
+
+.lg-form-hint {
+    font-size: 11px;
+    color: var(--cor-texto-secundario-cinza, #9ca3af);
+    margin-top: 4px;
+}
+
+/* Chips de ajudantes */
+.lg-chips-wrap, .m-lg-chips-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.lg-chip-pessoa {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #f0f5ec;
+    border: 1px solid #c8d6bf;
+    color: #4a633a;
+    padding: 3px 8px 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+}
+
+.lg-chip-pessoa .lg-chip-remove {
+    border: none;
+    background: transparent;
+    color: #4a633a;
+    cursor: pointer;
+    padding: 0 0 0 4px;
+    font-size: 14px;
+    line-height: 1;
+}
+.lg-chip-pessoa .lg-chip-remove:hover { color: var(--cor-acao-perigo, #dc2626); }
+
+/* Lista de destinos no form (desktop) */
+.lg-destinos-label {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.lg-destinos-label > span:first-child {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.lg-destinos-total-form {
+    font-size: 12px;
+    color: var(--cor-texto-secundario-cinza, #6b7280);
+    font-weight: 500;
+}
+
+.lg-destinos-total-form strong {
+    color: var(--cor-acao-primaria, #5e7e4a);
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.lg-destinos-edit {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: #f9fafb;
+    border: 1px solid var(--cor-borda);
+    border-radius: 6px;
+    padding: 8px;
+    min-height: 60px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.lg-destinos-edit-empty {
+    text-align: center;
+    font-size: 12px;
+    color: #9ca3af;
+    padding: 16px;
+    font-style: italic;
+}
+
+.lg-destino-linha {
+    display: grid;
+    grid-template-columns: 26px 1fr 84px 32px;
+    gap: 6px;
+    align-items: center;
+    background: #fff;
+    border: 1px solid var(--cor-borda);
+    border-radius: 5px;
+    padding: 6px;
+    position: relative;
+}
+
+.lg-destino-ordem {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: var(--cor-acao-primaria, #5e7e4a);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.lg-destino-cliente-wrap {
+    position: relative;
+    min-width: 0;
+}
+
+.lg-destino-cliente-wrap input {
+    border: 1px solid var(--cor-borda);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 12px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.lg-destino-qtd {
+    border: 1px solid var(--cor-borda);
+    border-radius: 4px;
+    padding: 5px 6px;
+    font-size: 13px;
+    text-align: center;
+    width: 100%;
+    box-sizing: border-box;
+    font-weight: 600;
+}
+
+.lg-destino-remover {
+    border: none;
+    background: transparent;
+    color: var(--cor-acao-perigo, #dc2626);
+    cursor: pointer;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.lg-destino-remover:hover { background: #fef2f2; }
+.lg-destino-remover .ph { font-size: 15px; }
+
+.lg-btn-add-destino, .m-btn-add-destino {
+    margin-top: 8px;
+    background: var(--cor-acao-primaria, #5e7e4a);
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    align-self: flex-start;
+}
+.lg-btn-add-destino:hover, .m-btn-add-destino:hover { background: var(--cor-acao-primaria-hover, #4a6e3e); }
+
+.lg-form-msg {
+    padding: 8px 12px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    border-radius: 5px;
+    font-size: 12px;
+    margin-top: 8px;
+}
+
+.lg-form-msg--success {
+    background: #d1fae5;
+    border-color: #6ee7b7;
+    color: #065f46;
+}
+
+/* ------- Modal de Ficha de impressão ------- */
+.lg-ficha-overlay {
+    background: rgba(0,0,0,0.55);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.lg-ficha-overlay:not(.hidden) {
+    display: flex !important;
+}
+
+.lg-ficha-wrap {
+    background: #fff;
+    border-radius: 8px;
+    width: min(420px, 96vw);
+    max-height: 95vh;
+    max-height: 95dvh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    overflow: hidden;
+}
+
+.lg-ficha-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--cor-borda);
+    background: #f9fafb;
+}
+
+.lg-ficha-toolbar .modal-close {
+    width: 32px; height: 32px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.lg-ficha-toolbar .modal-close:hover { background: #f3f4f6; }
+.lg-ficha-toolbar .modal-close .ph { font-size: 18px; }
+
+.lg-ficha-toolbar h3 {
+    flex: 1;
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--cor-texto-primario-escuro);
+}
+
+.lg-ficha-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    background: #e5e7eb;
+}
+
+/* Folha da ficha (papel) */
+.lg-ficha {
+    background: #fff;
+    border-radius: 4px;
+    padding: 24px 28px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    font-family: Georgia, 'Times New Roman', serif;
+    color: #111;
+    min-height: 540px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.lg-ficha-cabecalho {
+    text-align: center;
+    border-bottom: 2px solid #111;
+    padding-bottom: 10px;
+}
+
+.lg-ficha-titulo {
+    font-size: 38px;
+    font-weight: 900;
+    letter-spacing: 0.18em;
+    line-height: 1;
+    margin: 0;
+}
+
+.lg-ficha-numviagem {
+    font-size: 16px;
+    font-weight: 700;
+    color: #5e7e4a;
+    font-family: monospace;
+    margin-top: 6px;
+    letter-spacing: 0.04em;
+}
+
+.lg-ficha-data-bloco {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 13px;
+    color: #555;
+}
+
+.lg-ficha-data-extenso {
+    font-style: italic;
+}
+
+.lg-ficha-saida {
+    font-weight: 600;
+}
+
+.lg-ficha-saida-hora {
+    font-size: 18px;
+    font-weight: 700;
+    color: #111;
+    font-family: monospace;
+}
+
+.lg-ficha-pessoas {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.lg-ficha-linha {
+    display: grid;
+    grid-template-columns: 88px 1fr;
+    gap: 12px;
+    align-items: baseline;
+}
+
+.lg-ficha-linha-label {
+    font-size: 12px;
+    color: #555;
+}
+
+.lg-ficha-motorista {
+    font-size: 30px;
+    font-weight: 900;
+    line-height: 1.1;
+    color: #111;
+    letter-spacing: 0.02em;
+}
+
+.lg-ficha-ajudantes {
+    font-size: 15px;
+    color: #111;
+    font-weight: 600;
+}
+
+.lg-ficha-placa {
+    text-align: center;
+    margin: 6px 0;
+    padding: 10px 0;
+    border-top: 1px dashed #ccc;
+    border-bottom: 1px dashed #ccc;
+}
+
+.lg-ficha-placa-valor {
+    font-size: 48px;
+    font-weight: 900;
+    font-family: monospace;
+    letter-spacing: 0.08em;
+    color: #111;
+    line-height: 1;
+}
+
+.lg-ficha-placa-modelo {
+    font-size: 12px;
+    color: #555;
+    margin-top: 4px;
+}
+
+.lg-ficha-destinos {
+    margin-top: 8px;
+}
+
+.lg-ficha-destinos-titulo {
+    font-size: 13px;
+    font-weight: 700;
+    color: #111;
+    margin-bottom: 8px;
+}
+
+.lg-ficha-destinos-lista {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.lg-ficha-destinos-lista li {
+    display: grid;
+    grid-template-columns: 24px 1fr auto;
+    gap: 8px;
+    font-size: 14px;
+    color: #111;
+    padding: 4px 0;
+    border-bottom: 1px dotted #e5e7eb;
+}
+
+.lg-ficha-destino-arrow {
+    color: #5e7e4a;
+    font-weight: 700;
+}
+
+.lg-ficha-destino-nome {
+    font-weight: 600;
+}
+
+.lg-ficha-destino-obs {
+    font-size: 11px;
+    color: #777;
+    font-style: italic;
+    display: block;
+    margin-top: 2px;
+}
+
+.lg-ficha-destino-qtd {
+    font-size: 13px;
+    font-weight: 700;
+    color: #5e7e4a;
+    white-space: nowrap;
+}
+
+.lg-ficha-total {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 2px solid #111;
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.lg-ficha-total-valor {
+    color: #5e7e4a;
+    font-size: 18px;
+}
+
+.lg-ficha-obs {
+    margin-top: 10px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    padding: 8px 10px;
+    min-height: 60px;
+}
+
+.lg-ficha-obs-titulo {
+    font-size: 11px;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.lg-ficha-obs-texto {
+    font-size: 12px;
+    color: #111;
+    line-height: 1.4;
+}
+
+.lg-ficha-rodape {
+    margin-top: auto;
+    padding-top: 14px;
+    text-align: center;
+    font-size: 11px;
+    color: #999;
+    font-style: italic;
+    font-family: cursive, fantasy;
+}
+
+/* Print — ao usar window.print(), só mostra a ficha */
+@media print {
+    body * { visibility: hidden; }
+    #lgFichaModal, #lgFichaModal * { visibility: visible; }
+    #lgFichaModal {
+        position: absolute !important;
+        left: 0; top: 0; right: 0; bottom: 0;
+        background: #fff !important;
+        padding: 0 !important;
+    }
+    .lg-ficha-toolbar { display: none !important; }
+    .lg-ficha-area { background: #fff !important; padding: 0 !important; }
+    .lg-ficha-wrap { box-shadow: none !important; border-radius: 0 !important; }
+    .lg-ficha { box-shadow: none !important; padding: 16mm !important; min-height: auto !important; }
+}
+
+/* =============================================================================
+   RESPONSIVO PARA TABLET / MOBILE
+   ============================================================================= */
+
+@media (max-width: 1280px) {
+    .lg-card { grid-template-columns: auto 1fr auto auto; }
+    .lg-card-destinos { min-width: 140px; max-width: 220px; }
+}
+
+@media (max-width: 1100px) {
+    .lg-card {
+        grid-template-columns: auto 1fr auto;
+        grid-template-areas:
+            "numviagem cabecalho qtd"
+            "numviagem detalhe qtd"
+            "destinos destinos destinos";
+    }
+    .lg-card-destinos {
+        padding-left: 0;
+        border-left: none;
+        border-top: 1px dashed var(--cor-borda);
+        padding-top: 6px;
+        margin-top: 4px;
+        max-width: none;
+    }
+}
+
+@media (max-width: 1024px) {
+    .lg-pane-grid { grid-template-columns: 180px 1fr; }
+    .lg-form-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 900px) {
+    body[data-active-module="logistica"] .logistica-desktop { display: none !important; }
+    body[data-active-module="logistica"] .logistica-mobile { display: block; }
+    body[data-active-module="logistica"] .content-header,
+    body[data-active-module="logistica"] .ia-footer-inline { display: none; }
+    body[data-active-module="logistica"] .main-layout {
+        padding: 0 !important;
+        overflow: hidden !important;
+    }
+}
+
+/* =============================================================================
+   REDESIGN MOBILE-FIRST — Logística (Mai/2026)
+   ============================================================================= */
+
+.logistica-mobile {
+    --m-bg:            #f8fafc;
+    --m-surface:       #ffffff;
+    --m-border:        #e5e7eb;
+    --m-border-soft:   #f1f5f9;
+    --m-text:          #1f2937;
+    --m-text-muted:    #6b7280;
+    --m-primary:       #5e7e4a;
+    --m-primary-dark:  #4a6e3e;
+    --m-primary-soft:  #eaf0e8;
+    --m-warning:       #d97706;
+    --m-warning-soft:  #fff7ed;
+    --m-danger:        #dc2626;
+    --m-danger-soft:   #fef2f2;
+    --m-info:          #2563eb;
+    --m-info-soft:     #eff6ff;
+    --m-success:       #16a34a;
+    --m-radius-sm:     7px;
+    --m-shadow:        0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --m-header-h:      48px;
+    --m-bottom-nav-h:  52px;
+    --m-touch-target:  40px;
+
+    position: fixed;
+    inset: 0;
+    background: var(--m-bg);
+    overflow: hidden;
+    z-index: 1;
+}
+
+/* Telas */
+.logistica-mobile .m-screen {
+    position: absolute;
+    inset: 0;
+    background: var(--m-bg);
+    display: none;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.28s ease-out;
+}
+
+.logistica-mobile .m-screen.is-active {
+    display: flex;
+    transform: translateX(0);
+}
+
+.logistica-mobile .m-screen-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: var(--m-header-h);
+    padding: 0 8px;
+    background: var(--m-surface);
+    border-bottom: 1px solid var(--m-border);
+    flex-shrink: 0;
+}
+
+.logistica-mobile .m-screen-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--m-text);
+    flex: 1;
+    min-width: 0;
+}
+
+.logistica-mobile .m-screen-title-block {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.logistica-mobile .m-screen-subtitle {
+    font-size: 11px;
+    color: var(--m-text-muted);
+    line-height: 1.1;
+}
+
+.logistica-mobile .m-screen-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 12px calc(var(--m-bottom-nav-h) + 80px + env(safe-area-inset-bottom, 0px)) 12px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.logistica-mobile .m-iconbtn {
+    width: var(--m-touch-target);
+    height: var(--m-touch-target);
+    border: none;
+    background: transparent;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--m-text);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.logistica-mobile .m-iconbtn .ph { font-size: 22px; }
+
+/* User badge + Sair */
+.logistica-mobile .m-user-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    background: #f0f5ec;
+    color: #4a633a;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.logistica-mobile .m-user-badge i { font-size: 12px; flex-shrink: 0; }
+
+.logistica-mobile .m-logout-link {
+    font-size: 11px;
+    color: var(--m-danger);
+    font-weight: 600;
+    text-decoration: none;
+    padding: 5px 6px;
+}
+
+/* Resumo pílulas */
+.logistica-mobile .m-lg-resumo-pills {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    padding: 10px 12px 4px 12px;
+    flex-shrink: 0;
+}
+
+.logistica-mobile .m-lg-pill {
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-radius: var(--m-radius-sm);
+    padding: 8px 6px;
+    text-align: center;
+    box-shadow: var(--m-shadow);
+}
+
+.logistica-mobile .m-lg-pill-label {
+    display: block;
+    font-size: 9px;
+    color: var(--m-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 2px;
+}
+
+.logistica-mobile .m-lg-pill-valor {
+    display: block;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--m-primary);
+    line-height: 1;
+}
+
+.logistica-mobile .m-lg-pill--info    .m-lg-pill-valor { color: var(--m-info); }
+.logistica-mobile .m-lg-pill--warn    .m-lg-pill-valor { color: var(--m-warning); }
+.logistica-mobile .m-lg-pill--success .m-lg-pill-valor { color: var(--m-success); }
+
+/* Busca */
+.logistica-mobile .m-lg-search {
+    position: relative;
+    margin: 4px 12px 8px 12px;
+    flex-shrink: 0;
+}
+
+.logistica-mobile .m-lg-search .ph {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 16px;
+    color: var(--m-text-muted);
+}
+
+.logistica-mobile .m-lg-search input {
+    width: 100%;
+    border: 1px solid var(--m-border);
+    border-radius: 999px;
+    padding: 10px 12px 10px 36px;
+    background: var(--m-surface);
+    font-size: 16px;
+    box-sizing: border-box;
+    color: var(--m-text);
+}
+
+/* Lista de cards (mobile) */
+.logistica-mobile .m-lg-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 12px calc(var(--m-bottom-nav-h) + 100px + env(safe-area-inset-bottom, 0px)) 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.logistica-mobile .m-lg-card {
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-left: 4px solid var(--m-primary);
+    border-radius: var(--m-radius-sm);
+    padding: 10px 12px;
+    box-shadow: var(--m-shadow);
+    display: grid;
+    grid-template-columns: 48px 1fr auto;
+    gap: 10px;
+    cursor: pointer;
+    align-items: center;
+}
+
+.logistica-mobile .m-lg-card-numviagem {
+    text-align: center;
+    border-right: 1px solid var(--m-border-soft);
+    padding-right: 8px;
+}
+
+.logistica-mobile .m-lg-card-num {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--m-primary);
+    font-family: monospace;
+    line-height: 1;
+}
+
+.logistica-mobile .m-lg-card-num-label {
+    display: block;
+    font-size: 8px;
+    color: var(--m-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+    margin-top: 2px;
+}
+
+.logistica-mobile .m-lg-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.logistica-mobile .m-lg-card-placa {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--m-text);
+    font-family: monospace;
+    letter-spacing: 0.04em;
+}
+
+.logistica-mobile .m-lg-card-motorista {
+    font-size: 12px;
+    color: var(--m-text);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.logistica-mobile .m-lg-card-motorista .ph { font-size: 12px; color: var(--m-text-muted); }
+
+.logistica-mobile .m-lg-card-hora {
+    font-size: 11px;
+    color: var(--m-text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.logistica-mobile .m-lg-card-hora .ph { font-size: 12px; }
+
+.logistica-mobile .m-lg-card-destinos-mini {
+    font-size: 10px;
+    color: var(--m-text-muted);
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.logistica-mobile .m-lg-card-direita {
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.logistica-mobile .m-lg-card-qtd {
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--m-primary);
+    line-height: 1;
+}
+
+.logistica-mobile .m-lg-card-qtd small {
+    display: block;
+    font-size: 9px;
+    color: var(--m-text-muted);
+    font-weight: 500;
+    margin-top: 1px;
+}
+
+/* Detalhe (tela 2) */
+.logistica-mobile .m-lg-hero {
+    background: linear-gradient(135deg, var(--m-primary) 0%, var(--m-primary-dark) 100%);
+    color: #fff;
+    border-radius: var(--m-radius-sm);
+    padding: 16px;
+    margin-bottom: 12px;
+    box-shadow: var(--m-shadow);
+    text-align: center;
+}
+
+.logistica-mobile .m-lg-hero-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.85;
+    margin-bottom: 4px;
+}
+
+.logistica-mobile .m-lg-hero-numviagem {
+    font-size: 36px;
+    font-weight: 900;
+    font-family: monospace;
+    letter-spacing: 0.04em;
+    line-height: 1;
+}
+
+.logistica-mobile .m-lg-hero-data {
+    font-size: 13px;
+    margin-top: 8px;
+    opacity: 0.95;
+    font-style: italic;
+}
+
+.logistica-mobile .m-lg-placa-card {
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-radius: var(--m-radius-sm);
+    padding: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    box-shadow: var(--m-shadow);
+}
+
+.logistica-mobile .m-lg-placa-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+}
+
+.logistica-mobile .m-lg-placa-label {
+    font-size: 10px;
+    color: var(--m-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+}
+
+.logistica-mobile .m-lg-placa-valor {
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--m-text);
+    font-family: monospace;
+    letter-spacing: 0.06em;
+    line-height: 1;
+}
+
+.logistica-mobile .m-lg-placa-modelo {
+    font-size: 11px;
+    color: var(--m-text-muted);
+}
+
+.logistica-mobile .m-lg-hora-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: var(--m-primary-soft);
+    border-radius: var(--m-radius-sm);
+    padding: 8px 12px;
+    color: var(--m-primary-dark);
+}
+
+.logistica-mobile .m-lg-hora-info .ph { font-size: 18px; }
+
+.logistica-mobile .m-lg-hora-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    margin-top: 2px;
+}
+
+.logistica-mobile .m-lg-hora-valor {
+    font-size: 16px;
+    font-weight: 800;
+    font-family: monospace;
+}
+
+/* Info rows */
+.logistica-mobile .m-lg-info {
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-radius: var(--m-radius-sm);
+    margin-bottom: 12px;
+    box-shadow: var(--m-shadow);
+}
+
+.logistica-mobile .m-lg-info-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--m-border-soft);
+    gap: 12px;
+}
+
+.logistica-mobile .m-lg-info-row:last-child { border-bottom: none; }
+
+.logistica-mobile .m-lg-info-label {
+    font-size: 11px;
+    color: var(--m-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.logistica-mobile .m-lg-info-label .ph { font-size: 13px; }
+
+.logistica-mobile .m-lg-info-valor {
+    font-size: 13px;
+    color: var(--m-text);
+    font-weight: 600;
+    text-align: right;
+    word-break: break-word;
+}
+
+/* Destinos no detalhe */
+.logistica-mobile .m-lg-destinos-bloco {
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-radius: var(--m-radius-sm);
+    margin-bottom: 12px;
+    box-shadow: var(--m-shadow);
+    overflow: hidden;
+}
+
+.logistica-mobile .m-lg-destinos-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--m-border-soft);
+    background: var(--m-primary-soft);
+}
+
+.logistica-mobile .m-lg-destinos-titulo {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--m-primary-dark);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.logistica-mobile .m-lg-destinos-total {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--m-primary-dark);
+}
+
+.logistica-mobile .m-lg-destinos-lista {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.logistica-mobile .m-lg-destinos-lista li {
+    display: grid;
+    grid-template-columns: 26px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--m-border-soft);
+}
+
+.logistica-mobile .m-lg-destinos-lista li:last-child { border-bottom: none; }
+
+.logistica-mobile .m-lg-destino-num {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: var(--m-primary);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.logistica-mobile .m-lg-destino-nome {
+    font-size: 13px;
+    color: var(--m-text);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.logistica-mobile .m-lg-destino-obs {
+    font-size: 11px;
+    color: var(--m-text-muted);
+    font-style: italic;
+}
+
+.logistica-mobile .m-lg-destino-qtd {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--m-primary);
+    flex-shrink: 0;
+}
+
+/* Observação bloco */
+.logistica-mobile .m-lg-obs-bloco {
+    background: var(--m-warning-soft);
+    border: 1px solid #fed7aa;
+    border-left: 4px solid var(--m-warning);
+    border-radius: var(--m-radius-sm);
+    padding: 12px 14px;
+    margin-bottom: 14px;
+}
+
+.logistica-mobile .m-lg-obs-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--m-warning);
+    margin-bottom: 6px;
+}
+
+.logistica-mobile .m-lg-obs-conteudo {
+    font-size: 13px;
+    color: var(--m-text);
+    line-height: 1.45;
+}
+
+/* Ações */
+.logistica-mobile .m-lg-acoes {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.logistica-mobile .m-lg-acao-btn {
+    border: 1px solid var(--m-border);
+    background: var(--m-surface);
+    border-radius: var(--m-radius-sm);
+    padding: 12px 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--m-text);
+    cursor: pointer;
+}
+
+.logistica-mobile .m-lg-acao-btn .ph { font-size: 18px; }
+
+.logistica-mobile .m-lg-acao-btn--imprimir { color: var(--m-info); border-color: #93c5fd; background: var(--m-info-soft); }
+.logistica-mobile .m-lg-acao-btn--cancelar { color: var(--m-danger); border-color: #fecaca; background: var(--m-danger-soft); }
+
+/* FAB */
+.logistica-mobile .m-fab {
+    position: fixed;
+    right: 16px;
+    bottom: calc(var(--m-bottom-nav-h) + 16px + env(safe-area-inset-bottom, 0px));
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    background: var(--m-primary);
+    color: #fff;
+    border: none;
+    box-shadow: 0 4px 12px rgba(94, 126, 74, 0.35);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 5;
+}
+
+.logistica-mobile .m-fab .ph { font-size: 22px; }
+
+.logistica-mobile .m-fab--secondary {
+    width: 42px; height: 42px;
+    background: var(--m-info);
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.35);
+    bottom: calc(var(--m-bottom-nav-h) + 76px + env(safe-area-inset-bottom, 0px));
+}
+
+.logistica-mobile .m-fab--secondary.is-loading .ph { animation: m-spin 0.8s linear infinite; }
+
+@keyframes m-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+/* Bottom nav */
+.logistica-mobile .m-bottom-nav {
+    position: fixed;
+    left: 0; right: 0;
+    bottom: 0;
+    height: calc(var(--m-bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--m-surface);
+    border-top: 1px solid var(--m-border);
+    display: flex;
+    z-index: 4;
+}
+
+.logistica-mobile .m-bottom-nav__item {
+    flex: 1;
+    border: none;
+    background: transparent;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--m-text-muted);
+    cursor: pointer;
+    padding: 4px 0;
+    position: relative;
+}
+
+.logistica-mobile .m-bottom-nav__item .ph { font-size: 18px; }
+.logistica-mobile .m-bottom-nav__item.is-active { color: var(--m-primary); }
+.logistica-mobile .m-bottom-nav__item.is-active .ph::before { font-family: 'Phosphor-Fill'; }
+
+.logistica-mobile .m-bottom-nav__item.has-filtros-ativos { color: var(--m-primary); }
+.logistica-mobile .m-bottom-nav__item.has-filtros-ativos i::before { font-family: 'Phosphor-Fill'; }
+.logistica-mobile .m-bottom-nav__item.has-filtros-ativos::after {
+    content: '';
+    position: absolute;
+    top: 6px; right: 22%;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--m-danger);
+    box-shadow: 0 0 0 2px var(--m-surface);
+}
+
+/* Bottom sheets */
+.logistica-mobile .m-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: none;
+}
+
+.logistica-mobile .m-sheet[aria-hidden="false"] { display: block; }
+
+.logistica-mobile .m-sheet__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    animation: m-fade-in 0.2s ease-out;
+}
+
+.logistica-mobile .m-sheet__content {
+    position: absolute;
+    left: 0; right: 0;
+    bottom: 0;
+    background: var(--m-surface);
+    border-radius: 14px 14px 0 0;
+    max-height: 86vh;
+    max-height: 86dvh;
+    display: flex;
+    flex-direction: column;
+    animation: m-slide-up 0.25s ease-out;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.logistica-mobile .m-sheet__content--tall {
+    height: 92vh;
+    height: 92dvh;
+    max-height: 92vh;
+    max-height: 92dvh;
+}
+
+.logistica-mobile .m-sheet__handle {
+    width: 36px; height: 4px;
+    background: var(--m-border);
+    border-radius: 2px;
+    margin: 10px auto 4px auto;
+}
+
+.logistica-mobile .m-sheet__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--m-border-soft);
+    flex-shrink: 0;
+}
+
+.logistica-mobile .m-sheet__header h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--m-text);
+}
+
+.logistica-mobile .m-sheet__body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
+}
+
+.logistica-mobile .m-sheet__footer {
+    border-top: 1px solid var(--m-border-soft);
+    padding: 10px 14px;
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.logistica-mobile .m-sheet__footer > * { flex: 1; }
+
+@keyframes m-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes m-slide-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+/* Form fields */
+.logistica-mobile .m-field-group {
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.logistica-mobile .m-field-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--m-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.logistica-mobile .m-field-input {
+    border: 1px solid var(--m-border);
+    border-radius: var(--m-radius-sm);
+    padding: 10px 12px;
+    font-size: 16px;
+    background: var(--m-surface);
+    color: var(--m-text);
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 42px;
+    font-family: inherit;
+}
+
+.logistica-mobile textarea.m-field-input {
+    min-height: 60px;
+    resize: vertical;
+}
+
+.logistica-mobile .m-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.logistica-mobile .m-field-half { margin-bottom: 0; }
+
+.logistica-mobile .m-lg-data-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.logistica-mobile .m-lg-data-row .m-field-input { flex: 1; min-width: 0; }
+.logistica-mobile .m-lg-sep { font-size: 11px; color: var(--m-text-muted); }
+
+/* Sub-lista de destinos no form mobile */
+.logistica-mobile .m-lg-destinos-edit {
+    background: #f9fafb;
+    border: 1px solid var(--m-border);
+    border-radius: var(--m-radius-sm);
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 40px;
+}
+
+.logistica-mobile .m-lg-destinos-edit-empty {
+    padding: 12px;
+    text-align: center;
+    color: var(--m-text-muted);
+    font-size: 12px;
+    font-style: italic;
+}
+
+.logistica-mobile .m-lg-destino-edit-row {
+    background: var(--m-surface);
+    border: 1px solid var(--m-border);
+    border-radius: 5px;
+    padding: 6px;
+    display: grid;
+    grid-template-columns: 24px 1fr 70px 28px;
+    gap: 6px;
+    align-items: center;
+}
+
+.logistica-mobile .m-lg-destino-edit-ordem {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: var(--m-primary);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.logistica-mobile .m-lg-destino-edit-row input {
+    border: 1px solid var(--m-border);
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 14px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.logistica-mobile .m-lg-destino-edit-qtd { text-align: center; font-weight: 600; }
+
+.logistica-mobile .m-lg-destino-edit-remover {
+    border: none;
+    background: transparent;
+    color: var(--m-danger);
+    cursor: pointer;
+    border-radius: 50%;
+    width: 26px; height: 26px;
+}
+
+/* Botão add destino mobile */
+.logistica-mobile .m-btn-add-destino {
+    margin-top: 6px;
+    background: var(--m-primary);
+    color: #fff;
+    border: none;
+    border-radius: var(--m-radius-sm);
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    align-self: stretch;
+    justify-content: center;
+}
+
+/* Mensagem do form */
+.logistica-mobile .m-lg-msg {
+    padding: 10px 12px;
+    background: var(--m-danger-soft);
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    border-radius: var(--m-radius-sm);
+    font-size: 13px;
+    margin-top: 8px;
+}
+
+.logistica-mobile .m-lg-msg--success {
+    background: #d1fae5;
+    border-color: #6ee7b7;
+    color: #065f46;
+}
+
+/* Botões padronizados */
+.logistica-mobile .m-btn-primary {
+    background: var(--m-primary);
+    color: #fff;
+    border: none;
+    border-radius: var(--m-radius-sm);
+    padding: 12px 16px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.logistica-mobile .m-btn-primary .ph { font-size: 16px; }
+
+.logistica-mobile .m-btn-secondary {
+    background: transparent;
+    color: var(--m-text);
+    border: 1px solid var(--m-border);
+    border-radius: var(--m-radius-sm);
+    padding: 12px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+/* Empty state */
+.logistica-mobile .m-empty-state {
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--m-text-muted);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.logistica-mobile .m-empty-state .ph { font-size: 36px; opacity: 0.5; }
+.logistica-mobile .m-empty-state span { font-size: 13px; }
+
+/* Sheet de "Mais" — itens */
+.logistica-mobile .m-mais-item {
+    width: 100%;
+    border: 1px solid var(--m-border);
+    background: var(--m-surface);
+    border-radius: var(--m-radius-sm);
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    margin-bottom: 8px;
+    text-align: left;
+}
+
+.logistica-mobile .m-mais-item .ph { font-size: 22px; color: var(--m-primary); flex-shrink: 0; }
+.logistica-mobile .m-mais-info { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.logistica-mobile .m-mais-titulo { font-size: 14px; font-weight: 600; color: var(--m-text); }
+.logistica-mobile .m-mais-sub { font-size: 11px; color: var(--m-text-muted); }
+
+@media (max-width: 520px) {
+    body[data-active-module="logistica"] .lg-modal-card,
+    body[data-active-module="logistica"] .lg-ficha-wrap {
+        width: 100vw !important;
+        max-width: 100vw !important;
+        height: 100vh !important;
+        max-height: 100vh !important;
+        height: 100dvh !important;
+        max-height: 100dvh !important;
+        border-radius: 0 !important;
+    }
+}

@@ -118,6 +118,7 @@
             case 'INTERNA_FROTA':       return 'cb-badge cb-badge-frota';
             case 'INTERNA_MAQUINARIO':  return 'cb-badge cb-badge-maquina';
             case 'EXTERNA_POSTO':       return 'cb-badge cb-badge-externo';
+            case 'AJUSTE_AVULSO':       return 'cb-badge cb-badge-ajuste';
             default:                    return 'cb-badge';
         }
     }
@@ -127,6 +128,7 @@
             case 'INTERNA_FROTA':       return 'Interna';
             case 'INTERNA_MAQUINARIO':  return 'Máquina';
             case 'EXTERNA_POSTO':       return '<i class="ph ph-globe"></i> Externo';
+            case 'AJUSTE_AVULSO':       return '<i class="ph ph-sliders-horizontal"></i> Ajuste';
             default:                    return '—';
         }
     }

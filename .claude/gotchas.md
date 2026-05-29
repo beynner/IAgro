@@ -4,6 +4,63 @@ Lista de pegadinhas que **já causaram bugs** ou que podem causar se tocadas sem
 
 ---
 
+## Oracle 11g — `FETCH FIRST N ROWS ONLY` não funciona (Mai/2026 — 2026-05-29)
+
+Padrão Oracle 12c+ pra limitar resultados:
+```sql
+SELECT * FROM tabela ORDER BY x DESC FETCH FIRST 10 ROWS ONLY
+```
+**Falha em Oracle 11g** com `ORA-00933: SQL command not properly ended`.
+
+**Fix obrigatório**: usar `ROWNUM` envolvido em subquery (gotcha já documentado em "Paginação Oracle — usar `ROW_NUMBER`, não `OFFSET FETCH`"):
+```sql
+SELECT * FROM (
+    SELECT t.*
+      FROM tabela t
+     ORDER BY x DESC
+)
+ WHERE ROWNUM <= 10
+```
+
+**Aconteceu de novo** no smoke `_apply_migracao_tipos.py` da migração inicial Logística — query de validação top-10 quebrou no Oracle 11g. Lição: smokes que rodam validações ad-hoc também precisam usar padrão 11g.
+
+---
+
+## `consultar_parceiros_por_tipo(CLIENTE)` retorna parceiro `CODPARC=0` "<SEM PARCEIRO>" (Mai/2026 — 2026-05-29)
+
+Resultado real do `AD_PARCEIRO_TIPO` migrado das flags TGFPAR: a Agromil tem **1 parceiro com CODPARC=0** (`<SEM PARCEIRO>`) que foi marcado `CLIENTE='S'` no Sankhya nativo (provavelmente conta interna de venda avulsa). Esse parceiro aparece como primeiro resultado em qualquer typeahead de CLIENTE ordenado por NOMEPARC ASC (porque `<` vem antes de letras).
+
+**Implicações:**
+- `clientes[0]['codparc'] == 0` em smokes que usam o primeiro cliente — quebra validação de FK lógica (CODPARC=0 não é válido)
+- Frontend deve filtrar `codparc > 0` ao popular dropdowns de destino — operador nunca selecionaria "<SEM PARCEIRO>"
+
+**Smoke pattern correto:**
+```python
+clientes_raw = consultar_parceiros_por_tipo(TIPO_PARCEIRO_CLIENTE, limite=10)
+clientes = [c for c in clientes_raw if c['codparc'] > 0][:2]
+```
+
+Tests com mocks naturalmente não pegam isso porque dão `[{'codparc': 100, ...}]` controlado.
+
+---
+
+## Lock pessimista em `MAX(NUM_VIAGEM)+1` não é trivial em Oracle (Mai/2026 — 2026-05-29)
+
+Em SQL Server existe `SELECT ... WITH (TABLOCKX)` direto. Em Oracle, `SELECT MAX(NUM_VIAGEM) ... FOR UPDATE` numa linha agregada **não funciona** — você não pode bloquear uma agregação.
+
+**Estratégia adotada em `criar_viagem_banco`:**
+1. `SELECT NVL(MAX(NUM_VIAGEM), 0) + 1` simples (sem FOR UPDATE) — rápido com índice da UK
+2. UNIQUE constraint `UK_AD_VIAGEM_NUM` rejeita colisão se 2 transações concorrentes pegarem mesmo MAX
+3. Em caso de colisão (raro: gap entre SELECT e INSERT < 1ms), cliente refaz com novo MAX+1
+
+Funciona porque o INSERT acontece imediatamente após o SELECT, e a `UNIQUE` é a rede de proteção final. Para volume típico do IAgro (operador planejando ~5-10 viagens/dia), o gap é estatisticamente irrelevante.
+
+Se aparecer demanda de **alta concorrência**, evoluir pra:
+- Sequence dedicada `SEQ_AD_VIAGEM_NUM_VIAGEM` — garante unicidade, mas pula números em rollback (operador vê "Nº 1, 2, 4, 5..." que confunde)
+- Mutex via `DBMS_LOCK.REQUEST` (overhead maior)
+
+---
+
 ## Página `compras/central/` foi removida — só ramo AJAX vivo (Mai/2026 — 2026-05-27)
 
 A página `/sankhya/compras/central/` (template `compras_central.html`) foi **removida no início do projeto** quando o fluxo migrou pra modais no Portal. O template **não existe** no projeto, mas o código deixou referências mortas espalhadas em vários lugares — descoberto quando o redesign mobile da Entrada tentou redirecionar pra essa URL e quebrou com `TemplateDoesNotExist`.
@@ -79,7 +136,7 @@ Fix obrigatório:
 .m-ras-list[hidden] { display: none !important; }
 ```
 
-Padrão a aplicar sempre que misturar `display: flex/grid` com toggle via `hidden`. Em Mai/2026 — 2026-05-28 isso causou "lista de pedidos não aparece quando troca toggle no Rastreio Mobile".
+Padrão a aplicar sempre que misturar `display: flex/grid` com toggle via `hidden`. Em Mai/2026 — 2026-05-28 isso causou "lista de pedidos não aparece quando troca toggle no Rastreio Mobile" e na mesma data atingiu o **banner "Processando pesos das notas…" do Caixas Mobile** (banner sticky com `display: flex` ficava infinito visível mesmo após `banner.hidden = true` no JS — operador via mensagem permanente após clicar Atualizar). Fix idêntico: `.m-cx-banner-processando[hidden] { display: none !important }`. Aplicado preventivamente também em `.m-cx-sem-peso` que tem mesma combinação.
 
 ### Refresh `AD_SALDO_LOTE_CACHE` em paralelo com queries de pedidos → 500
 

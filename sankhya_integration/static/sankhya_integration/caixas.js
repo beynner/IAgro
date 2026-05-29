@@ -13,13 +13,11 @@
 
     // Estado global da tela
     const state = {
-        abaAtiva:        'saldo',
         clientes:        [],
         clienteAtivo:    null,    // codparc selecionado
         incluirZerados:  false,
         buscaQ:          '',
         carregadoSaldo:  false,
-        carregadoProds:  false,
         timelineDias:    90,
     };
 
@@ -49,29 +47,9 @@
         }
     }
 
-    // -------------------------------------------------------- Aba: troca tabs
+    // ---------------------------------------------------------- Refresh
 
-    function setupTabs() {
-        $$('.cx-tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                const alvo = tab.dataset.tab;
-                if (!alvo || alvo === state.abaAtiva) return;
-                state.abaAtiva = alvo;
-
-                $$('.cx-tab').forEach(t => {
-                    const ativo = t.dataset.tab === alvo;
-                    t.classList.toggle('is-active', ativo);
-                    t.setAttribute('aria-selected', ativo ? 'true' : 'false');
-                });
-                $$('.cx-pane').forEach(p => {
-                    p.hidden = p.dataset.pane !== alvo;
-                });
-
-                if (alvo === 'saldo' && !state.carregadoSaldo) carregarSaldo(true);
-                if (alvo === 'produtos' && !state.carregadoProds) carregarProdutos(true);
-            });
-        });
-
+    function setupRefresh() {
         $('#cxBtnRefresh').addEventListener('click', async () => {
             // =================================================================
             // !!! TEMPORÁRIO Mai/2026 — REMOVER QUANDO IAGRO VIRAR FLUXO ÚNICO
@@ -103,8 +81,7 @@
             // -- FIM DO BLOCO TEMPORÁRIO --
             // =================================================================
 
-            if (state.abaAtiva === 'saldo') carregarSaldo(true);
-            else if (state.abaAtiva === 'produtos') carregarProdutos(true);
+            carregarSaldo(true);
         });
     }
 
@@ -239,9 +216,6 @@
         $('#cxStatColetadas').textContent   = fmtNum(cliente.caixas_coletadas);
         $('#cxStatQuebradas').textContent   = fmtNum(cliente.caixas_quebradas);
         $('#cxStatPerdidas').textContent    = fmtNum(cliente.caixas_perdidas);
-        // Ajuste pode ser negativo — mostra sinal
-        const aj = cliente.caixas_ajuste || 0;
-        $('#cxStatAjuste').textContent = (aj > 0 ? '+' : '') + fmtNum(aj);
         // Alerta pra clientes sem PESO (Assaí/Sendas)
         $('#cxSemPesoAlerta').hidden = !cliente.sem_peso;
 
@@ -273,7 +247,7 @@
             'COLETA':        { classe: 'cx-evento--coleta',    icone: 'ph-truck',            label: 'Coleta' },
             'QUEBRA':        { classe: 'cx-evento--quebra',    icone: 'ph-warning',          label: 'Quebra' },
             'PERDA':         { classe: 'cx-evento--perda',     icone: 'ph-x-circle',         label: 'Perda' },
-            'AJUSTE_SALDO':  { classe: 'cx-evento--ajuste',    icone: 'ph-pencil-simple',    label: 'Ajuste de saldo' },
+            'AJUSTE_SALDO':  { classe: 'cx-evento--ajuste',    icone: 'ph-pencil-simple',    label: 'Ajuste de saldo' },  // legado — eventos antigos
         };
 
         const html = eventos.map(e => {
@@ -395,62 +369,6 @@
         });
     }
 
-    // -------------------------------------------- Aba PRODUTOS
-
-    async function carregarProdutos(forcar = false) {
-        if (state.carregadoProds && !forcar) return;
-        const tbody = $('#cxProdTbody');
-        tbody.innerHTML = '<tr><td colspan="7" class="cx-empty">Carregando…</td></tr>';
-        setLoading($('#cxBtnRefresh'), true);
-
-        const tipo = $('#cxProdFiltroTipo').value;
-        const url = tipo ? `/sankhya/caixas/api/produtos/?tipo=${tipo}` : '/sankhya/caixas/api/produtos/';
-
-        try {
-            const resp = await fetch(url);
-            const data = await resp.json();
-            if (!data.ok) throw new Error(data.error || 'Falha');
-            state.carregadoProds = true;
-            renderProdutos(data.produtos || []);
-        } catch (err) {
-            tbody.innerHTML = `<tr><td colspan="7" class="cx-erro">${err.message}</td></tr>`;
-            console.error('carregarProdutos', err);
-        } finally {
-            setLoading($('#cxBtnRefresh'), false);
-        }
-    }
-
-    function renderProdutos(produtos) {
-        const tbody = $('#cxProdTbody');
-        if (produtos.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="cx-empty">Nenhum produto cadastrado. Produtos sem cadastro são tratados como PLÁSTICA por default.</td></tr>';
-            return;
-        }
-        const html = produtos.map(p => {
-            const tagCls = p.tipo_caixa === 'PLASTICA' ? 'cx-tag--plastica' : 'cx-tag--papelao';
-            return `
-                <tr data-codprod="${p.codprod}">
-                    <td>${p.codprod}</td>
-                    <td>${escapeHtml(p.descrprod)}</td>
-                    <td>${escapeHtml(p.codvol || 'KG')}</td>
-                    <td><span class="cx-tag ${tagCls}">${p.tipo_caixa}</span></td>
-                    <td>${escapeHtml(p.nomeusu || '—')}</td>
-                    <td>${p.criado_em || '—'}</td>
-                    <td>
-                        <button type="button" class="btn btn-secundario" data-acao="editar" data-codprod="${p.codprod}" data-tipo="${p.tipo_caixa}" title="Alterar tipo">
-                            <i class="ph ph-pencil"></i>
-                        </button>
-                    </td>
-                </tr>
-            `;
-        }).join('');
-        tbody.innerHTML = html;
-    }
-
-    function setupProdutosFiltro() {
-        $('#cxProdFiltroTipo').addEventListener('change', () => carregarProdutos(true));
-    }
-
     // ------------------------------------- Modal Lançar coleta (B1 stub)
 
     function setupModalColeta() {
@@ -464,12 +382,9 @@
                 $('#cxColetaCliente').value = nomeparc || '';
                 $('#cxColetaCodparc').value = codparc;
             }
-            // Pré-seleciona motivo (default COLETA, mas pode vir AJUSTE_SALDO)
+            // Pré-seleciona motivo (default COLETA)
             const r = document.querySelector(`input[name="motivo"][value="${motivoPre}"]`);
-            if (r) {
-                r.checked = true;
-                r.dispatchEvent(new Event('change'));  // dispara toggle do hint
-            }
+            if (r) r.checked = true;
             modal.classList.remove('hidden');
             modal.setAttribute('aria-hidden', 'false');
         };
@@ -487,15 +402,6 @@
                 abrir(null, null, 'COLETA');
             }
         });
-        $('#btnAjustarSaldo').addEventListener('click', () => {
-            // Botão dedicado: já abre com AJUSTE_SALDO selecionado
-            if (state.clienteAtivo) {
-                const c = state.clientes.find(x => x.codparc === state.clienteAtivo);
-                abrir(state.clienteAtivo, c ? c.nomeparc : '', 'AJUSTE_SALDO');
-            } else {
-                abrir(null, null, 'AJUSTE_SALDO');
-            }
-        });
         $('#cxBtnColetaCliente').addEventListener('click', () => {
             const c = state.clientes.find(x => x.codparc === state.clienteAtivo);
             abrir(state.clienteAtivo, c ? c.nomeparc : '', 'COLETA');
@@ -504,24 +410,6 @@
         modal.querySelectorAll('[data-modal-close]').forEach(b => b.addEventListener('click', fechar));
         modal.addEventListener('click', e => {
             if (e.target === modal) fechar();
-        });
-
-        // Toggle visual quando muda motivo: AJUSTE_SALDO mostra hint e permite negativo
-        const qtdInput = $('#cxColetaQtd');
-        const qtdHint  = $('#cxColetaQtdHint');
-        modal.querySelectorAll('input[name="motivo"]').forEach(radio => {
-            radio.addEventListener('change', () => {
-                const ehAjuste = radio.checked && radio.value === 'AJUSTE_SALDO';
-                if (ehAjuste) {
-                    qtdInput.removeAttribute('min');
-                    qtdHint.hidden = false;
-                } else {
-                    qtdInput.setAttribute('min', '1');
-                    qtdHint.hidden = true;
-                    // Se estava negativo e mudou pra outro motivo, zera
-                    if (parseInt(qtdInput.value, 10) < 0) qtdInput.value = '';
-                }
-            });
         });
 
         // Typeahead de parceiro (B1 vai precisar de fato — por enquanto stub bloqueia)
@@ -547,29 +435,15 @@
             const motivo  = (document.querySelector('input[name="motivo"]:checked') || {}).value || 'COLETA';
             const obs     = $('#cxColetaObs').value.trim();
 
-            const ehAjuste = motivo === 'AJUSTE_SALDO';
-
             if (!codparc || !data) {
                 msgEl.textContent = 'Cliente e data são obrigatórios.';
                 msgEl.className = 'cx-form-msg is-error';
                 msgEl.hidden = false;
                 return;
             }
-            if (ehAjuste && (isNaN(qtd) || qtd === 0)) {
-                msgEl.textContent = 'Em ajuste de saldo, qtd deve ser diferente de zero (positivo soma, negativo desconta).';
-                msgEl.className = 'cx-form-msg is-error';
-                msgEl.hidden = false;
-                return;
-            }
-            if (!ehAjuste && (isNaN(qtd) || qtd < 1)) {
+            if (isNaN(qtd) || qtd < 1) {
                 msgEl.textContent = 'Quantidade deve ser > 0.';
                 msgEl.className = 'cx-form-msg is-error';
-                msgEl.hidden = false;
-                return;
-            }
-            if (ehAjuste && !obs) {
-                msgEl.textContent = 'Em ajuste de saldo, descreva o motivo na observação (boa prática de auditoria).';
-                msgEl.className = 'cx-form-msg is-warn';
                 msgEl.hidden = false;
                 return;
             }
@@ -597,96 +471,12 @@
         });
     }
 
-    // ---------------------------------- Modal Cadastrar produto (B3 stub)
-
-    function setupModalProduto() {
-        const modal = $('#cxProdutoModal');
-        const abrir = (codprod = null, tipoAtual = 'PLASTICA') => {
-            $('#cxProdutoForm').reset();
-            $('#cxProdMsg').hidden = true;
-            if (codprod) {
-                $('#cxProdCodprod').value = codprod;
-                // Marca o tipo atual
-                const radio = document.querySelector(`input[name="tipo_caixa"][value="${tipoAtual}"]`);
-                if (radio) radio.checked = true;
-            }
-            modal.classList.remove('hidden');
-            modal.setAttribute('aria-hidden', 'false');
-        };
-        const fechar = () => {
-            modal.classList.add('hidden');
-            modal.setAttribute('aria-hidden', 'true');
-        };
-
-        $('#cxBtnNovoProduto').addEventListener('click', () => abrir());
-        modal.querySelectorAll('[data-modal-close]').forEach(b => b.addEventListener('click', fechar));
-        modal.addEventListener('click', e => { if (e.target === modal) fechar(); });
-
-        // Click em editar dentro da tabela
-        $('#cxProdTbody').addEventListener('click', e => {
-            const btn = e.target.closest('button[data-acao="editar"]');
-            if (!btn) return;
-            abrir(parseInt(btn.dataset.codprod, 10), btn.dataset.tipo);
-        });
-
-        // Typeahead produto (filtro hortifrúti — grupo_inicia_com=1)
-        if (window.IAgro && window.IAgro.attachTypeahead) {
-            window.IAgro.attachTypeahead({
-                inputId:    'cxProdSearch',
-                hiddenId:   'cxProdCodprod',
-                dropdownId: 'cxProdSearchDropdown',
-                url:        '/sankhya/produtos/search/',
-                extraQuery: 'grupo_inicia_com=1',
-                pickItems:  (data) => data.results || data.items || [],
-                pickCod:    (it) => it.cod || it.codprod,
-                pickDescr:  (it) => it.descr || it.descrprod,
-                renderItem: (it) => `${it.cod || it.codprod} — ${it.descr || it.descrprod}`,
-            });
-        }
-
-        $('#cxProdSalvar').addEventListener('click', async () => {
-            const msgEl = $('#cxProdMsg');
-            const codprod = parseInt($('#cxProdCodprod').value || '0', 10);
-            const tipo    = (document.querySelector('input[name="tipo_caixa"]:checked') || {}).value || 'PLASTICA';
-
-            if (!codprod) {
-                msgEl.textContent = 'Selecione um produto.';
-                msgEl.className = 'cx-form-msg is-error';
-                msgEl.hidden = false;
-                return;
-            }
-
-            try {
-                const resp = await window.IAgro.postJSON('/sankhya/caixas/api/produto/upsert/', {
-                    codprod, tipo_caixa: tipo,
-                });
-                const body = resp.body || {};
-                if (!resp.ok || !body.ok) {
-                    msgEl.textContent = body.error || `Erro HTTP ${resp.status}`;
-                    msgEl.className = 'cx-form-msg is-error';
-                    msgEl.hidden = false;
-                    return;
-                }
-                showToast('Tipo de caixa cadastrado.', 'success');
-                fechar();
-                carregarProdutos(true);
-                carregarSaldo(true);  // re-cálculo do saldo (filtra papelão)
-            } catch (err) {
-                msgEl.textContent = 'Falha de comunicação: ' + err.message;
-                msgEl.className = 'cx-form-msg is-error';
-                msgEl.hidden = false;
-            }
-        });
-    }
-
     // ------------------------------------------------------- Boot
 
     document.addEventListener('DOMContentLoaded', () => {
-        setupTabs();
+        setupRefresh();
         setupFiltros();
-        setupProdutosFiltro();
         setupModalColeta();
-        setupModalProduto();
         carregarSaldo(true);
     });
 })();

@@ -588,15 +588,18 @@
         const r = it.requisicao || {};
         const ehReq = it.tipo_movimento === 'REQUISICAO';
         const ehExterno = ehReq && r.tipo === 'EXTERNA_POSTO';
-        const parceiroOuVei = ehReq ? (r.placa || it.nomeparc || '—') : (it.nomeparc || '—');
+        const ehAjuste = r.tipo === 'AJUSTE_AVULSO';
+        const parceiroOuVei = ehAjuste ? (it.nomeparc || it.descrprod || 'Ajuste') : (ehReq ? (r.placa || it.nomeparc || '—') : (it.nomeparc || '—'));
 
         let iconeCls, ico;
-        if (ehExterno) { iconeCls = 'm-cb-mov-icone--ext'; ico = 'ph-globe'; }
+        if (ehAjuste) { iconeCls = 'm-cb-mov-icone--ajuste'; ico = 'ph-sliders-horizontal'; }
+        else if (ehExterno) { iconeCls = 'm-cb-mov-icone--ext'; ico = 'ph-globe'; }
         else if (ehReq) { iconeCls = 'm-cb-mov-icone--req'; ico = 'ph-clipboard-text'; }
         else { iconeCls = 'm-cb-mov-icone--ent'; ico = 'ph-tray-arrow-down'; }
 
         let badge = '';
-        if (ehExterno) badge = '<span class="m-cb-mov-badge m-cb-mov-badge--ext">EXTERNA</span>';
+        if (ehAjuste) badge = '<span class="m-cb-mov-badge m-cb-mov-badge--ajuste">Ajuste</span>';
+        else if (ehExterno) badge = '<span class="m-cb-mov-badge m-cb-mov-badge--ext">EXTERNA</span>';
         else if (ehReq && r.tipo === 'INTERNA_FROTA') badge = '<span class="m-cb-mov-badge m-cb-mov-badge--frota">Interna</span>';
         else if (ehReq && r.tipo === 'INTERNA_MAQUINARIO') badge = '<span class="m-cb-mov-badge m-cb-mov-badge--maq">Máquina</span>';
 

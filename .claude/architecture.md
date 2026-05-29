@@ -43,7 +43,8 @@ IAgro/
 │   │   ├── venda.html
 │   │   ├── venda_modais.html    # Modais do portal de Venda
 │   │   ├── rastreio.html
-│   │   └── relatorios.html      # 📊 Mai/2026 — 2026-05-17
+│   │   ├── relatorios.html      # 📊 Mai/2026 — 2026-05-17
+│   │   └── logistica.html       # 🚚 Mai/2026 — módulo persistente (2026-05-29)
 │   │
 │   ├── static/sankhya_integration/
 │   │   ├── global.css                       # Tokens de design + componentes globais
@@ -59,7 +60,9 @@ IAgro/
 │   │   ├── comercialImpressao.js            # Sub-módulo Comercial
 │   │   ├── venda.css / venda.js
 │   │   ├── rastreio.css / rastreio.js
-│   │   └── relatorios.css / relatorios.js   # 📊 Mai/2026 — 2026-05-17
+│   │   ├── relatorios.css / relatorios.js   # 📊 Mai/2026 — 2026-05-17
+│   │   ├── logistica.css / logistica.js     # 🚚 Mai/2026 — desktop (LogisticaApi REST)
+│   │   └── logistica_mobile.js              # 🚚 Mai/2026 — mobile (LogisticaApi REST)
 │   │
 │   ├── sql/
 │   │   ├── ANDRE_IAGRO_SALDO_LOTE.sql        # DDL da view do WMS (versionado)
@@ -76,12 +79,13 @@ IAgro/
 │       ├── test_margem_lote.py              # 13 testes (Comercial card Margem)
 │       ├── test_views_combustivel.py        # 84 testes
 │       ├── test_views_email_pedidos.py      # 40+ testes
-│       └── test_relatorios.py               # 56 testes (Módulo Relatórios MVP)
+│       ├── test_relatorios.py               # 56 testes (Módulo Relatórios MVP)
+│       └── test_logistica.py                # 42 testes (Módulo Logística persistente)
 │
 └── images/                      # Imagens (logo, etc.) — também em STATICFILES_DIRS
 ```
 
-**Total de testes:** ~470 (em maio/2026 com 56 testes novos do módulo Relatórios), todos passando, todos sem dependência de Oracle real.
+**Total de testes:** ~512 (em maio/2026 com 56 testes do módulo Relatórios + 42 do módulo Logística — 2026-05-29), todos passando, todos sem dependência de Oracle real.
 
 ---
 
@@ -135,6 +139,25 @@ IAgro/
 /sankhya/relatorios/api/consumo-veiculos/         → GET ranking consumo combustível
 /sankhya/relatorios/api/fluxo-caixa/              → GET TGFFIN projeção 30/60/90d
 /sankhya/relatorios/api/margem-venda/             → GET margem por cliente/produto (cache 5min)
+
+# APIs de Ajustes Administrativos (Mai/2026 — 2026-05-28, exige grupo 'ajustes' = 1, 6)
+/sankhya/configuracoes/ajustes/                          → tela HTML com 2 sub-abas
+/sankhya/configuracoes/api/ajustes/caixas/criar/         → POST AJUSTE_SALDO em AD_COLETA_CAIXAS
+/sankhya/configuracoes/api/ajustes/caixas/listar/        → GET últimos AJUSTE_SALDO
+/sankhya/configuracoes/api/ajustes/combustivel/criar/    → POST AJUSTE_AVULSO (TOP 10 se +, TOP 53 se −, sem veículo)
+/sankhya/configuracoes/api/ajustes/combustivel/listar/   → GET últimos AJUSTE_AVULSO
+
+# Logística (Mai/2026 — 2026-05-29, módulo persistente, exige grupo 'logistica' = 1, 6, 10)
+/sankhya/logistica/                                      → tela HTML (LogisticaApi REST)
+/sankhya/logistica/api/tipos-parceiro/                   → GET cadastro AD_TIPO_PARCEIRO
+/sankhya/logistica/api/parceiros/?tipo=N&q=...           → GET typeahead via AD_PARCEIRO_TIPO N:N
+/sankhya/logistica/api/veiculos/?q=...                   → GET typeahead TGFVEI
+/sankhya/logistica/api/viagens/?data_de=...&data_ate=... → GET listagem paginada
+/sankhya/logistica/api/viagem/<id>/                      → GET detalhe completo
+/sankhya/logistica/api/viagem/<id>/ficha-pdf/            → GET PDF A6 vertical reportlab
+/sankhya/logistica/api/viagem/criar/                     → POST cria viagem (atômica + lock)
+/sankhya/logistica/api/viagem/<id>/editar/               → POST UPDATE diferencial
+/sankhya/logistica/api/viagem/<id>/excluir/              → POST DELETE cascata + audit
 ```
 
 ---
@@ -192,6 +215,11 @@ Consulta no Sankhya: `SELECT CODGRUPO, NOMEGRUPO FROM TSIGRU ORDER BY CODGRUPO`.
 | Rastreio | 1, 6, 8, 10 _(Comercial perdeu acesso em 2026-05-14)_ |
 | Combustível | 1, 6, 10, 11 _(Administrativo ganhou acesso em 2026-05-14)_ |
 | Relatórios | 1, 6, 9 |
+| Configurações (hub) | 1, 6 |
+| Usuários | 1, 6 |
+| Ajustes Admin (caixas + combustível) | 1, 6 _(Mai/2026 — 2026-05-28)_ |
+| Caixas | 1, 6, 8, 9, 10, 11 |
+| Logística | 1, 6, 10 _(Mai/2026 — 2026-05-29, módulo persistente)_ |
 
 ---
 

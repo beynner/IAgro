@@ -1,8 +1,13 @@
 # Módulo Controle de Caixas (Vasilhame Retornável)
 
-Controle de circulação de caixas plásticas entre Agromil e clientes. Saídas derivadas em runtime das vendas via `CEIL(QTDNEG / TGFITE.PESO)` quando peso populado; coletas/quebras/perdas registradas manualmente; ajustes excepcionais via motivo dedicado; produtos de papelão excluídos via cadastro explícito.
+Controle de circulação de caixas plásticas entre Agromil e clientes. Saídas derivadas em runtime das vendas via `CEIL(QTDNEG / TGFITE.PESO)` quando peso populado; coletas/quebras/perdas registradas manualmente; produtos de papelão excluídos via cadastro explícito (gerenciado fora do módulo).
 
 Lançado Mai/2026 (2026-05-18) — Cat A + Cat B (DDLs + B1/B2/B3 + AJUSTE_SALDO) **em produção**.
+
+**Mai/2026 — 2026-05-28** — feature pruning + redesign mobile:
+- ✅ **Aba "Tipo de caixa por produto" removida** do módulo (desktop + mobile). Cadastro fica em tela admin futura ou via Sankhya.
+- ✅ **Botão "Ajustar saldo" + motivo AJUSTE_SALDO removidos** da UI. Ajustes excepcionais migraram pra tela administrativa dedicada em `/sankhya/configuracoes/ajustes/` (card "Ajustes" no hub Configurações). Backend de Caixas continua reconhecendo AJUSTE_SALDO nas queries de saldo/timeline pra exibir eventos lançados pela tela admin.
+- ✅ **Mobile app-like implementado** — 2 telas + 2 sheets + bottom nav 3 itens. Detalhes em "📱 Redesign Mobile app-like" abaixo.
 
 > **Decisão de Mai/2026 (2026-05-18)**: descoberto que `CODVOL='CX'` na Agromil **não** significa "QTDNEG é nº de caixas" — sempre kg. Tentamos tabela `AD_PESO_CAIXA_PRODUTO` pra cadastrar peso default por produto, mas peso varia por lote (tomate 20 ou 22 kg). Reverter e **esperar IAgro virar fluxo único** — assim vendas trazem PESO real do Rastreio.
 
@@ -21,12 +26,15 @@ Lançado Mai/2026 (2026-05-18) — Cat A + Cat B (DDLs + B1/B2/B3 + AJUSTE_SALDO
 ## Escopo
 
 - **Saldo por cliente**: lista clientes com caixas em campo, ordenado por saldo DESC
-- **Timeline por cliente**: eventos cronológicos (saídas + devoluções + coletas/quebras/perdas/ajustes) DESC
-- **Lançamento manual de coleta**: data, qtd, motivo (COLETA/QUEBRA/PERDA/AJUSTE_SALDO), observação
-- **Ajuste de saldo**: motivo `AJUSTE_SALDO` permite qtd positiva (caixa apareceu / saldo inicial) **ou negativa** (caixa sumiu sem motivo registrado). Uso excepcional — saldo deve bater pela operação normal
+- **Timeline por cliente**: eventos cronológicos (saídas + devoluções + coletas/quebras/perdas) DESC. Eventos legados de AJUSTE_SALDO ainda aparecem com sinal natural
+- **Lançamento manual de coleta**: data, qtd, motivo (COLETA/QUEBRA/PERDA), observação
 - **Estorno de coleta**: soft-delete preservando audit
-- **Cadastro de tipo de caixa por produto**: marca produtos de papelão pra não contar saldo
 - **Indicadores agregados**: caixas em campo total, clientes com saldo, quebradas/perdidas
+
+### Fora de escopo (movido pra outras telas)
+
+- **Ajuste de saldo** — tela admin dedicada (futuro). Backend `AJUSTE_SALDO` continua existindo pra eventos legados, mas IAgro não cria mais via UI deste módulo.
+- **Tipo de caixa por produto** (AD_PRODUTO_CAIXA) — gerenciar via tela admin ou diretamente no banco/Sankhya.
 
 ---
 
@@ -215,5 +223,100 @@ Desaconselhado **B**: select com default no modal é o "esquece" mais comum em q
 
 **Nenhum dos 3 caminhos implementado ainda.** Voltar a esse ponto quando o operador decidir qual opção quer começar. Por enquanto:
 - Cadastros globais (`AD_PRODUTO_CAIXA`) cobrem só PLÁSTICA vs PAPELÃO
-- Casos REPOLHO+Palmas/Araguaína e ABÓBORA JAPONESA fora do DF estão sendo contados erroneamente como plástica → operador precisa fazer AJUSTE_SALDO manual nos clientes afetados pra compensar
+- Casos REPOLHO+Palmas/Araguaína e ABÓBORA JAPONESA fora do DF estão sendo contados erroneamente como plástica → operador precisa fazer AJUSTE_SALDO manual nos clientes afetados pra compensar (via tela admin futura)
 - Decisão pendente registrada aqui em 2026-05-18
+
+---
+
+## 📱 Redesign Mobile app-like (Mai/2026 — 2026-05-28)
+
+Mesma arquitetura padrão dos outros módulos (Entrada/Classificação/Rastreio/Combustível). HTML único com 2 containers paralelos (`.caixas-desktop` + `.caixas-mobile`), escopados por `body[data-active-module="caixas"]` em viewport ≤900px. Desktop preservado.
+
+### Estrutura mobile
+
+| Componente | Arquivo |
+|---|---|
+| Template | `caixas.html` — bloco `.caixas-mobile` com 2 telas + 2 sheets + banner sticky |
+| CSS | `caixas.css` — bloco "REDESIGN MOBILE-FIRST" no fim, escopado |
+| JS | `caixas_mobile.js` (~620 linhas IIFE) — só ativa ≤900px |
+
+### 2 telas mobile
+
+1. **Lista de clientes** (`lista`)
+   - Header: hambúrguer + título + user badge + Sair
+   - Resumo agregado em **4 pílulas compactas**: Em campo · Clientes · Quebradas · Perdidas (verde/verde/âmbar/vermelho)
+   - Campo de busca client-side (debounce 200ms, normaliza acentos)
+   - Cards de cliente 1 linha: nome + meta (CODPARC · última mov) + saldo grande verde + chevron
+   - **FAB verde `+`**: lançar coleta sem cliente pré-selecionado
+   - **FAB azul Atualizar** (acima): dispara `/api/refresh-pesos/` com banner sticky "Processando…"
+   - Bottom nav 3 itens: Saldo · Buscar · Mais
+2. **Detalhe do cliente** (`detalheCliente`)
+   - Header: back + nome (ellipsis) + CODPARC subtítulo
+   - **Hero verde Agromil**: "Saldo em campo" + valor 36px branco
+   - **5 stats em grid 3×2**: Enviadas (verde) · Devolução (ciano) · Coletadas (ciano) · Quebradas (âmbar) · Perdidas (vermelho)
+   - Alerta "sem peso" condicional (amarelo, paridade desktop)
+   - Timeline de eventos cronológicos DESC
+   - **FAB verde `+`** pré-preenche o cliente atual ao abrir sheet de coleta
+
+### 2 bottom sheets
+
+- **`coleta`** — Form de lançar coleta:
+  - Typeahead cliente (reusa `IAgro.attachTypeahead` com `positionFixed: true`)
+  - Data (default hoje)
+  - Qtd numérica grande
+  - **Motivo em 3 pills coloridas** (radio): Coleta (verde) · Quebra (âmbar) · Perda (vermelho)
+  - Observação textarea
+  - Cancelar + Salvar
+- **`mais`** — 2 atalhos:
+  - Atualizar saldo (dispara backfill com banner)
+  - Lançar coleta (pré-preenche cliente se tela detalhe ativa)
+
+### Estornar — Opção B implementada (paridade desktop)
+
+Eventos manuais (com `id_coleta`, não estornados) ganham **swipe esquerda 56px** revelando botão âmbar com `ph-arrow-counter-clockwise`. Tap:
+
+1. `IAgro.confirmarAcao` (modal de confirmação com tipo aviso) — operador lê e confirma
+2. `window.prompt('Motivo do estorno…')` — texto livre, default "Lançamento incorreto"
+3. POST `/api/coleta/<id>/estornar/` com `{motivo_estorno}`
+4. Toast de sucesso + reload saldo + refresh do detalhe
+
+Vendas e devoluções (sem `id_coleta`) não revelam botão de swipe — esses são derivados de TGFCAB e só podem ser "estornados" via NF reversa no Sankhya.
+
+### Componentes-chave do mobile
+
+- **User badge + Sair** no header da tela `lista` (paridade Entrada/Combustível). Some em telas internas.
+- **Phosphor Icons** padronizados — `ph-plus` (FAB), `ph-arrows-clockwise` (atualizar com plural — 2 setas), `ph-arrow-counter-clockwise` (estornar), `ph-truck`/`ph-warning`/`ph-x-circle` (motivos).
+- **Cards de cliente NÃO têm swipe** — só tap pra entrar no detalhe. Decisão consciente: ações de lançar coleta vão por FAB; sem destrutivas direto na lista.
+- **Click no card em swipe-open fecha o swipe** (cancelar implícito — padrão consolidado em [`conventions.md`](../conventions.md)).
+- **Reset de swipes** em `setActiveScreen` + `openSheet` — evita estado "preso" entre navegações.
+- **iOS Safari**: `font-size: 16px` em inputs (evita zoom), `type=number` aceita só ponto decimal.
+
+### Backend reusado (zero novo endpoint)
+
+| Endpoint | Mobile usa pra |
+|---|---|
+| `GET /api/saldo/?q=&apenas_saldo_positivo=&codparc=` | Lista de clientes + resumo |
+| `GET /api/timeline/<codparc>/?dias=N` | Timeline da tela detalhe |
+| `POST /api/coleta/criar/` | Sheet de coleta |
+| `POST /api/coleta/<id>/estornar/` | Swipe → estornar (Opção B) |
+| `POST /api/refresh-pesos/` | FAB azul Atualizar + sheet Mais (backfill TEMP Mai/2026) |
+
+### Decisões pragmáticas vs desktop
+
+| Aspecto | Desktop | Mobile |
+|---|---|---|
+| Estrutura | 2 colunas (clientes + detalhe) | Stack de telas (lista → detalhe) |
+| Filtro "Incluir saldo zerado" | Checkbox no header da lista | **Removido** (raramente útil em mobile; default já mostra só saldo > 0) |
+| Cliente sem peso | Alerta amarelo no detalhe | Idem — copy aponta pra tela admin |
+| Botão Atualizar | Botão circular no toolbar | FAB azul secundário + entrada no sheet "Mais" |
+| Estorno | Botão inline + confirmarAcao + prompt | **Swipe esquerda** + confirmarAcao + prompt (Opção B) |
+
+### Cache busting
+
+CSS `?v=8` · JS desktop `?v=7` · JS mobile `?v=1` (Mai/2026 — 2026-05-28).
+
+### Limitações conscientes
+
+- **Sem aba Produtos** (decisão de produto — removida desktop e mobile)
+- **Sem ajuste de saldo** (movido pra tela admin futura)
+- **Sem filtro de período da timeline** mobile (default 90 dias, paridade desktop)

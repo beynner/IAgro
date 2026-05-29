@@ -254,6 +254,48 @@ Antes: `max-height: 320px` fixo cortava a lista na metade do card. Agora flex co
 
 ---
 
+## 🛠 Ajuste avulso administrativo — TIPO='AJUSTE_AVULSO' (Mai/2026 — 2026-05-28)
+
+Lançamento manual de ajuste de saldo do tanque, **sem veículo**, feito pela tela administrativa `/sankhya/configuracoes/ajustes/` (acesso restrito a grupos 1+6). Cobre divergências físicas: combustível encontrado/perdido no balanço, consumo sem rastro.
+
+### Regra do sinal
+
+- **Qtd positiva** → cria TGFCAB **TOP 10 (entrada)** STATUSNOTA='L' direto. Soma ao saldo do tanque via view `ANDRE_IAGRO_SALDO_COMBUSTIVEL`.
+- **Qtd negativa** → cria TGFCAB **TOP 53 (saída)**. Desconta saldo. Operador confirma no Sankhya pra finalizar.
+
+Em ambos os casos, INSERT em `AD_REQUISICAO_COMBUSTIVEL` com `TIPO='AJUSTE_AVULSO'`, `CODVEICULO=NULL`, justificativa preservada na `OBSERVACAO`. Sem TGFFIN (ajuste interno, sem financeiro).
+
+### Função service e endpoints
+
+| Componente | Detalhe |
+|---|---|
+| `criar_ajuste_combustivel_banco(dados, codusu, nomeusu)` em `oracle_conn.py` | Validações: codprod (CODGRUPOPROD=200400), qtd != 0, observação ≥ 5 chars, data não-futura. CODPARC herdado da última entrada TOP 10 do mesmo produto (satisfaz trigger `TRG_INC_TGFCAB`). Saída valida saldo via view. Audit em `AD_AUDITORIA_GERAL` (módulo='ajustes') |
+| `POST /sankhya/configuracoes/api/ajustes/combustivel/criar/` | Payload `{codprod, qtd, data, observacao}` |
+| `GET /sankhya/configuracoes/api/ajustes/combustivel/listar/` | Lista últimos AJUSTE_AVULSO filtrando movimentações |
+
+### DDL aplicada
+
+Migration `sankhya_integration/sql/AD_REQUISICAO_COMBUSTIVEL_MIGRATION_AJUSTE.sql`:
+- `MODIFY CODVEICULO NULL` (era NOT NULL)
+- `CK_AD_REQ_COMBUST_TIPO` ganhou `AJUSTE_AVULSO`
+
+Idempotente: detecta estado atual antes de cada operação. **Precisa ser aplicada manualmente no Oracle antes de testar.**
+
+### Listagem do módulo Combustível mostra ajustes
+
+`listar_movimentacoes_combustivel` ganhou LEFT JOIN com `AD_REQUISICAO_COMBUSTIVEL` na perna de entrada (TOP 10) pra retornar `REQ_TIPO` quando linha for AJUSTE_AVULSO. Sem isso, ajustes positivos apareciam sem badge.
+
+Frontend desktop (`combustivel.js`) e mobile (`combustivel_mobile.js`) ganharam badge **"Ajuste"** indigo (`cb-badge-ajuste` / `m-cb-mov-badge--ajuste`) + ícone `ph-sliders-horizontal`. Aparece tanto em entradas (TOP 10 positivo) quanto em saídas (TOP 53 negativo).
+
+### Decisões consolidadas
+
+1. **CODPARC herdado** da última TOP 10 do produto — Sankhya exige FK válida em TGFPAR. Sem entrada anterior, função retorna erro pedindo pra lançar TOP 10 antes
+2. **VLRUNIT=0** — ajuste não tem precificação (não é compra real, é correção contábil)
+3. **OBSERVACAO** persiste justificativa do operador + prefixo automático `"Ajuste IAgro (entrada/saída):"`
+4. **Sem estorno dedicado** — exclusão segue caminho da requisição normal (`excluir_requisicao_combustivel_banco`) pra ajustes negativos. Ajustes positivos (TOP 10) precisam estorno via Sankhya (TGFCAB 'L' bloqueia exclusão IAgro)
+
+---
+
 ## ⚠ Mudança crítica de TOP (Mai/2026, 2026-05-13)
 
 **TOP 26 → TOP 53** em todo o módulo. TOP 26 é exclusiva da Classificação de mercadoria (hortifrúti); requisições internas e abastecimentos externos do módulo Combustível usam **TOP 53 — REQUISIÇÃO INTERNA** (`TIPMOV='Q'`, ativa).

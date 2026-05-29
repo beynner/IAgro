@@ -9782,13 +9782,17 @@ def listar_movimentacoes_combustivel(filtros: dict = None, limite: int = 100, of
     # linhas com a mesma NUNOTA (corrige bug onde DIESEL S10 aparecia com qtd
     # somada de S10 + S500). Filtro CODGRUPOPROD=:grupo_i garante que linhas
     # de outros grupos da mesma nota não aparecem.
+    # Mai/2026 (2026-05-28): LEFT JOIN AD_REQUISICAO_COMBUSTIVEL pra detectar
+    # entradas TOP 10 que são AJUSTE_AVULSO positivo (lançadas pela tela admin
+    # de ajustes). Linhas sem AD_REQ — entradas normais de compra — retornam
+    # NULL em REQ_TIPO, comportamento idêntico ao anterior.
     base_select_entrada = f"""
         SELECT
           'ENTRADA'                              AS TIPO_MOVIMENTO,
           c.NUNOTA, c.NUMNOTA, c.CODEMP, c.CODPARC,
           p.NOMEPARC, c.DTNEG, c.STATUSNOTA, c.VLRNOTA, c.QTDVOL,
-          NULL                                   AS REQ_ID,
-          NULL                                   AS REQ_TIPO,
+          r.ID                                   AS REQ_ID,
+          r.TIPO                                 AS REQ_TIPO,
           NULL                                   AS REQ_CODVEICULO,
           NULL                                   AS REQ_PLACA,
           NULL                                   AS REQ_MARCAMODELO,
@@ -9801,6 +9805,7 @@ def listar_movimentacoes_combustivel(filtros: dict = None, limite: int = 100, of
         JOIN TGFITE i  ON i.NUNOTA = c.NUNOTA
         JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD AND pr.CODGRUPOPROD = :grupo_i
         LEFT JOIN TGFPAR p ON p.CODPARC = c.CODPARC
+        LEFT JOIN AD_REQUISICAO_COMBUSTIVEL r ON r.NUNOTA = c.NUNOTA
         WHERE {' AND '.join(where_entrada)}
     """
     base_select_requisicao = f"""
@@ -11170,6 +11175,242 @@ def criar_entrada_combustivel_banco(dados: dict, codusu: int, nomeusu: str = '')
 
     except Exception as exc:
         logger.exception("Falha em criar_entrada_combustivel_banco")
+        return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+
+def criar_ajuste_combustivel_banco(dados: dict, codusu: int, nomeusu: str = '') -> dict:
+    """Cria ajuste avulso de combustível (Mai/2026 — 2026-05-28).
+
+    Lançamento administrativo SEM veículo — operador corrige saldo do tanque
+    quando há divergência entre o sistema e a realidade física. Acessível
+    apenas via tela /sankhya/configuracoes/ajustes/ (grupos 1+6).
+
+    Aceita os 2 sinais:
+      - qtd > 0: encontrou combustível no balanço → cria TGFCAB TOP 10
+        (entrada) que SOMA ao saldo da view ANDRE_IAGRO_SALDO_COMBUSTIVEL
+      - qtd < 0: combustível perdido / não rastreado → cria TGFCAB TOP 53
+        (requisição interna sem veículo) que DESCONTA do saldo
+
+    Em AMBOS os casos cria linha em AD_REQUISICAO_COMBUSTIVEL com
+    TIPO='AJUSTE_AVULSO', CODVEICULO=NULL, justificativa preservada na
+    OBSERVACAO. Aparece na listagem unificada de movimentações como Ajuste.
+
+    Payload (`dados`):
+      codprod:     int (combustível CODGRUPOPROD=200400)
+      qtd:         float (!= 0; positivo soma, negativo desconta)
+      data:        'YYYY-MM-DD' (default hoje)
+      observacao:  str obrigatória (mín 5 chars — justificativa)
+
+    Sem TGFFIN (ajuste interno, sem financeiro). CODPARC herdado da última
+    entrada TOP 10 do produto pra satisfazer trigger TRG_INC_TGFCAB.
+
+    Retorno:
+      {'ok': True, 'nunota': int, 'requisicao_id': int, 'top': 10|53, 'qtd_abs': float}
+      {'ok': False, 'error': str}
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
+
+    # 1. Validações
+    erros = []
+    try:
+        codprod = int(dados.get('codprod') or 0)
+    except (TypeError, ValueError):
+        codprod = 0
+    try:
+        qtd = float(dados.get('qtd') or 0)
+    except (TypeError, ValueError):
+        qtd = 0.0
+    observacao = (dados.get('observacao') or '').strip()
+    data_str   = (dados.get('data') or '').strip()
+
+    if not codprod:        erros.append('codprod obrigatório')
+    if qtd == 0:           erros.append('qtd deve ser != 0 (positivo soma, negativo desconta)')
+    if len(observacao) < 5: erros.append('justificativa obrigatória (mínimo 5 caracteres)')
+
+    # Data: default hoje quando vazio; formato ISO
+    if data_str:
+        try:
+            data_evento = _date.fromisoformat(data_str)
+        except (TypeError, ValueError):
+            erros.append('data inválida (use YYYY-MM-DD)')
+            data_evento = _date.today()
+    else:
+        data_evento = _date.today()
+
+    if data_evento > _date.today():
+        erros.append('data não pode ser futura')
+
+    if erros:
+        return {'ok': False, 'error': ' · '.join(erros)}
+
+    # Decide TOP pelo sinal — qtd em TGFITE é sempre positiva
+    qtd_abs = abs(qtd)
+    nova_top = 10 if qtd > 0 else 53
+    descr_sinal = 'entrada' if qtd > 0 else 'saída'
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 2. Valida produto (combustível CODGRUPOPROD=200400)
+            cur.execute("""
+                SELECT CODGRUPOPROD, DESCRPROD, CODVOL
+                  FROM TGFPRO WHERE CODPROD = :cp AND ATIVO = 'S'
+            """, cp=codprod)
+            row_prod = cur.fetchone()
+            if not row_prod:
+                return {'ok': False, 'error': f'Produto {codprod} não encontrado ou inativo.'}
+            codgrupo, descrprod, codvol = row_prod
+            if codgrupo != CODGRUPOPROD_COMBUSTIVEL:
+                return {'ok': False, 'error':
+                    f'Produto {codprod} ({descrprod}) não é combustível (grupo {codgrupo}).'}
+            if codprod not in CAPACIDADE_TANQUE:
+                return {'ok': False, 'error':
+                    f'Produto {codprod} ({descrprod}) não tem tanque mapeado no IAgro.'}
+
+            # 3. Se for saída, valida saldo (igual requisição normal)
+            if qtd < 0:
+                cur.execute("""
+                    SELECT QTD_DISPONIVEL FROM SANKHYA.ANDRE_IAGRO_SALDO_COMBUSTIVEL
+                     WHERE CODPROD = :cp
+                """, cp=codprod)
+                row_saldo = cur.fetchone()
+                disponivel_view = float(row_saldo[0]) if row_saldo and row_saldo[0] is not None else 0.0
+                disponivel = disponivel_view + float(SALDO_INICIAL_TANQUE.get(codprod, 0))
+                if qtd_abs > disponivel:
+                    return {'ok': False, 'error':
+                        f'Saldo insuficiente. Disponível: {disponivel:.2f} {codvol or "L"} · '
+                        f'Tentativa de descontar: {qtd_abs:.2f}.'}
+
+            # 4. Herda CODEMP e CODPARC do último TOP 10 do produto (trigger
+            # TRG_INC_TGFCAB exige CODPARC válido em TGFPAR)
+            cur.execute("""
+                SELECT MAX(c.CODEMP), MAX(c.CODPARC)
+                  FROM TGFCAB c
+                  JOIN TGFITE i ON i.NUNOTA = c.NUNOTA
+                 WHERE c.CODTIPOPER = 10
+                   AND c.STATUSNOTA <> 'E'
+                   AND i.CODPROD = :cp
+            """, cp=codprod)
+            row_origem = cur.fetchone()
+            codemp = int(row_origem[0]) if row_origem and row_origem[0] else 1
+            codparc_origem = int(row_origem[1]) if row_origem and row_origem[1] else None
+            if not codparc_origem:
+                return {'ok': False, 'error':
+                    f'Sem entrada anterior pra herdar CODPARC. Lance uma entrada TOP 10 '
+                    f'do produto {descrprod} antes do ajuste.'}
+
+            # 5. INSERT TGFCAB (TOP 10 ou 53)
+            dtneg_str = data_evento.strftime('%d/%m/%Y')
+            obs_curta = f"Ajuste IAgro ({descr_sinal}): {observacao[:140]}"[:200]
+
+            cab_resp = inserir_cabecalho_nota_banco({
+                'CODEMP':      codemp,
+                'CODPARC':     codparc_origem,
+                'CODTIPOPER':  nova_top,
+                'CODNAT':      30070200,
+                'CODCENCUS':   10100,
+                'CODTIPVENDA': 11,
+                'DTNEG':       dtneg_str,
+                'DTMOV':       dtneg_str,
+                'OBSERVACAO':  obs_curta,
+            }, conexao_existente=conn)
+            if not cab_resp.get('ok'):
+                return {'ok': False, 'error':
+                    f'Falha ao criar cabeçalho TOP {nova_top}: {cab_resp.get("error", "desconhecido")}'}
+            nunota = int(cab_resp['nunota'])
+
+            # Saída TOP 53 nasce em aberto. Entrada TOP 10 fica em 'L' (paridade
+            # com entradas reais — compra de combustível também grava STATUSNOTA='L').
+            if nova_top == 10:
+                cur.execute(
+                    "UPDATE TGFCAB SET STATUSNOTA='L', DTFATUR=SYSDATE WHERE NUNOTA = :n",
+                    n=nunota,
+                )
+
+            # 6. INSERT TGFITE (CODAGREGACAO=NULL — segregação)
+            item_resp = inserir_item_nota_banco({
+                'NUNOTA':       nunota,
+                'CODPROD':      codprod,
+                'QTDNEG':       qtd_abs,
+                'VLRUNIT':      0,           # ajuste sem precificação
+                'CODVOL':       codvol or 'L',
+                'CODAGREGACAO': None,
+            }, gerar_lote_auto=False, conexao_existente=conn)
+            if not item_resp.get('ok'):
+                return {'ok': False, 'error':
+                    f'Falha ao criar item: {item_resp.get("error", "desconhecido")}'}
+
+            recalcular_totais_nota_banco(nunota, conexao_existente=conn)
+
+            # 7. INSERT AD_REQUISICAO_COMBUSTIVEL (TIPO='AJUSTE_AVULSO', sem veículo)
+            req_id_var = cur.var(int)
+            cur.execute("""
+                INSERT INTO AD_REQUISICAO_COMBUSTIVEL (
+                    ID, NUNOTA, TIPO, CODVEICULO, CODPARC,
+                    HODOMETRO_KM, HORIMETRO_H,
+                    DOC_FRETE_REF, OBSERVACAO, NUFIN_GERADO,
+                    CODUSU, NOMEUSU
+                ) VALUES (
+                    SEQ_AD_REQUISICAO_COMBUSTIVEL.NEXTVAL, :nun, 'AJUSTE_AVULSO', NULL, NULL,
+                    NULL, NULL,
+                    NULL, :obs, NULL,
+                    :codusu, :nomeusu
+                )
+                RETURNING ID INTO :req_id
+            """, {
+                'nun': nunota,
+                'obs': observacao[:500],
+                'codusu':  int(codusu),
+                'nomeusu': (nomeusu or '')[:60] or None,
+                'req_id':  req_id_var,
+            })
+            req_id = req_id_var.getvalue()
+            if isinstance(req_id, list):
+                req_id = req_id[0]
+
+            conn.commit()
+
+        # 8. Audit pós-commit (tolerante a falha)
+        try:
+            registrar_auditoria(
+                modulo='ajustes',
+                operacao='CRIAR_AJUSTE_COMBUSTIVEL',
+                tabela_alvo='AD_REQUISICAO_COMBUSTIVEL',
+                registro_id=str(int(req_id)),
+                codusu=int(codusu),
+                nomeusu=nomeusu or '',
+                snapshot_antes=None,
+                snapshot_depois={
+                    'requisicao_id': int(req_id),
+                    'nunota': nunota,
+                    'top': nova_top,
+                    'codprod': codprod,
+                    'descrprod': descrprod,
+                    'qtd_abs': qtd_abs,
+                    'qtd_assinada': qtd,
+                    'data': data_evento.strftime('%Y-%m-%d'),
+                    'observacao': observacao,
+                },
+            )
+        except Exception:
+            logger.warning("Audit falhou ao registrar CRIAR_AJUSTE_COMBUSTIVEL nunota=%s", nunota)
+
+        logger.info(
+            "Ajuste combustível criado: NUNOTA=%s req_id=%s prod=%s qtd=%+.2f obs=%s",
+            nunota, int(req_id), codprod, qtd, observacao[:60],
+        )
+        return {
+            'ok': True,
+            'nunota': nunota,
+            'requisicao_id': int(req_id),
+            'top': nova_top,
+            'qtd_abs': qtd_abs,
+        }
+
+    except Exception as exc:
+        logger.exception("Falha em criar_ajuste_combustivel_banco")
         return {'ok': False, 'error': humanizar_erro_oracle(exc)}
 
 
@@ -14981,3 +15222,1188 @@ def consultar_pesos_referencia_por_codprods(codprods: list[int]) -> dict[int, fl
         if peso > 0:
             out[cp] = peso
     return out
+
+
+# =============================================================================
+# Módulo Logística — funções de leitura (Mai/2026 — 2026-05-29)
+# =============================================================================
+# Ver `.claude/modules/logistica.md` para detalhes do modelo de dados.
+# Tabelas: AD_VIAGEM_ENTREGA, AD_VIAGEM_DESTINO, AD_VIAGEM_AJUDANTE,
+# AD_TIPO_PARCEIRO, AD_PARCEIRO_TIPO.
+
+# Constantes de tipo de parceiro (espelha seed inicial — IDs 1-7 reservados)
+TIPO_PARCEIRO_CLIENTE        = 1
+TIPO_PARCEIRO_FORNECEDOR     = 2
+TIPO_PARCEIRO_USUARIO        = 3
+TIPO_PARCEIRO_MOTORISTA      = 4
+TIPO_PARCEIRO_AJUDANTE       = 5
+TIPO_PARCEIRO_TRANSPORTADORA = 6
+TIPO_PARCEIRO_VENDEDOR       = 7
+
+
+def listar_tipos_parceiro(incluir_inativos: bool = False) -> list:
+    """Lista tipos de parceiro cadastrados em AD_TIPO_PARCEIRO.
+
+    Retorno: lista de dicts {id, codigo, descricao, ativo, ordem_exibicao}
+    ordenada por ORDEM_EXIBICAO ASC, DESCRICAO ASC.
+    """
+    where = "" if incluir_inativos else "WHERE ATIVO = 'S'"
+    sql = f"""
+        SELECT ID, CODIGO, DESCRICAO, ATIVO, ORDEM_EXIBICAO
+          FROM SANKHYA.AD_TIPO_PARCEIRO
+          {where}
+         ORDER BY ORDEM_EXIBICAO ASC, DESCRICAO ASC
+    """
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql)
+            rows = cur.fetchall()
+    except Exception:
+        logger.exception("Falha em listar_tipos_parceiro")
+        return []
+
+    return [
+        {
+            'id': int(r[0]),
+            'codigo': r[1],
+            'descricao': r[2],
+            'ativo': r[3],
+            'ordem_exibicao': int(r[4]) if r[4] is not None else 999,
+        }
+        for r in rows
+    ]
+
+
+def consultar_parceiros_por_tipo(
+    tipo_id: int,
+    q: str = '',
+    limite: int = 30,
+    somente_ativos: bool = True,
+) -> list:
+    """Typeahead — lista TGFPAR vinculados ao tipo via AD_PARCEIRO_TIPO.
+
+    Args:
+        tipo_id: ID em AD_TIPO_PARCEIRO (use constantes TIPO_PARCEIRO_*).
+        q: termo de busca livre (UPPER LIKE em CODPARC, NOMEPARC, RAZAOSOCIAL).
+        limite: linhas máximas (default 30, max 500).
+        somente_ativos: se True (default), filtra TGFPAR.ATIVO='S'.
+
+    Retorno: lista [{codparc, nomeparc, razaosocial, ativo}], ordenada por
+    NOMEPARC ASC. Lista vazia em caso de erro Oracle (tolerância logada).
+    """
+    tipo_id = int(tipo_id)
+    limite = max(1, min(int(limite or 30), 500))
+
+    where_extra = "AND p.ATIVO = 'S'" if somente_ativos else ""
+    where_busca = ""
+    binds = {'tipo_id': tipo_id, 'limite': limite}
+
+    if q:
+        q_norm = str(q).strip().upper()
+        if q_norm:
+            where_busca = """
+                AND (UPPER(p.NOMEPARC)    LIKE :q
+                  OR UPPER(p.RAZAOSOCIAL) LIKE :q
+                  OR TO_CHAR(p.CODPARC)   LIKE :q)
+            """
+            binds['q'] = f"%{q_norm}%"
+
+    sql = f"""
+        SELECT * FROM (
+            SELECT p.CODPARC, p.NOMEPARC, p.RAZAOSOCIAL, p.ATIVO
+              FROM SANKHYA.AD_PARCEIRO_TIPO pt
+              JOIN SANKHYA.TGFPAR p ON p.CODPARC = pt.CODPARC
+             WHERE pt.AD_CODTIPPARC = :tipo_id
+               {where_extra}
+               {where_busca}
+             ORDER BY p.NOMEPARC ASC
+        )
+         WHERE ROWNUM <= :limite
+    """
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, binds)
+            rows = cur.fetchall()
+    except Exception:
+        logger.exception("Falha em consultar_parceiros_por_tipo")
+        return []
+
+    return [
+        {
+            'codparc': int(r[0]),
+            'nomeparc': r[1] or '',
+            'razaosocial': r[2] or '',
+            'ativo': r[3] or '',
+        }
+        for r in rows
+    ]
+
+
+def consultar_veiculos_logistica(
+    q: str = '',
+    somente_ativos: bool = True,
+    limite: int = 50,
+) -> list:
+    """Typeahead Veículo para Logística — SELECT TGFVEI sem restrição de grupo.
+
+    Args:
+        q: termo livre (UPPER LIKE em PLACA, MARCAMODELO).
+        somente_ativos: ATIVO='S' (default True).
+        limite: máximo de linhas (default 50).
+
+    Retorno: [{codveiculo, placa, marcamodelo, especietipo, proprio, ativo,
+              codparc, nomeparc}] ordenado por PLACA.
+    """
+    limite = max(1, min(int(limite or 50), 500))
+    where_extra = "WHERE v.ATIVO = 'S'" if somente_ativos else "WHERE 1=1"
+    binds = {'limite': limite}
+
+    if q:
+        q_norm = str(q).strip().upper()
+        if q_norm:
+            where_extra += " AND (UPPER(v.PLACA) LIKE :q OR UPPER(v.MARCAMODELO) LIKE :q)"
+            binds['q'] = f"%{q_norm}%"
+
+    sql = f"""
+        SELECT * FROM (
+            SELECT v.CODVEICULO, v.PLACA, v.MARCAMODELO, v.ESPECIETIPO,
+                   v.PROPRIO, v.ATIVO, v.CODPARC, p.NOMEPARC
+              FROM SANKHYA.TGFVEI v
+              LEFT JOIN SANKHYA.TGFPAR p ON p.CODPARC = v.CODPARC
+              {where_extra}
+             ORDER BY v.PLACA ASC
+        )
+         WHERE ROWNUM <= :limite
+    """
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, binds)
+            rows = cur.fetchall()
+    except Exception:
+        logger.exception("Falha em consultar_veiculos_logistica")
+        return []
+
+    return [
+        {
+            'codveiculo': int(r[0]),
+            'placa': r[1] or '',
+            'marcamodelo': r[2] or '',
+            'especietipo': r[3] or '',
+            'proprio': r[4] or '',
+            'ativo': r[5] or '',
+            'codparc': int(r[6]) if r[6] is not None else None,
+            'nomeparc': r[7] or '',
+        }
+        for r in rows
+    ]
+
+
+def consultar_proximo_num_viagem() -> int:
+    """Calcula próximo NUM_VIAGEM (visível ao operador) como MAX+1.
+
+    Sem sequence dedicada — operador espera continuidade visual após
+    exclusões. ID interno é gerado por SEQ_AD_VIAGEM_ENTREGA separadamente.
+
+    Retorno: int >= 1. Em caso de erro Oracle, retorna 1.
+    """
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT NVL(MAX(NUM_VIAGEM), 0) + 1 FROM SANKHYA.AD_VIAGEM_ENTREGA")
+            row = cur.fetchone()
+            return int(row[0]) if row and row[0] is not None else 1
+    except Exception:
+        logger.exception("Falha em consultar_proximo_num_viagem")
+        return 1
+
+
+def listar_viagens(filtros: dict = None, limite: int = 100, offset: int = 0) -> list:
+    """Lista viagens (cabeçalho) + sub-fetch de destinos e ajudantes.
+
+    Filtros (todos opcionais):
+      - data_de / data_ate (str 'YYYY-MM-DD')
+      - codparc_motorista (int)
+      - codveiculo (int)
+      - q (str — busca em motorista NOMEPARC e veículo PLACA)
+
+    Retorno: lista de dicts com cabeçalho + destinos (full) + ajudantes (full).
+    Paginação via ROW_NUMBER (Oracle 11g compat).
+    """
+    filtros = filtros or {}
+    limite = max(1, min(int(limite or 100), 500))
+    offset = max(0, int(offset or 0))
+
+    where = ["1=1"]
+    binds = {}
+
+    if filtros.get('data_de'):
+        where.append("v.DATA_VIAGEM >= TO_DATE(:data_de, 'YYYY-MM-DD')")
+        binds['data_de'] = str(filtros['data_de'])[:10]
+    if filtros.get('data_ate'):
+        where.append("v.DATA_VIAGEM <= TO_DATE(:data_ate, 'YYYY-MM-DD')")
+        binds['data_ate'] = str(filtros['data_ate'])[:10]
+    if filtros.get('codparc_motorista'):
+        where.append("v.CODPARC_MOTORISTA = :codparc_motorista")
+        binds['codparc_motorista'] = int(filtros['codparc_motorista'])
+    if filtros.get('codveiculo'):
+        where.append("v.CODVEICULO = :codveiculo")
+        binds['codveiculo'] = int(filtros['codveiculo'])
+    if filtros.get('q'):
+        q_norm = str(filtros['q']).strip().upper()
+        if q_norm:
+            where.append(
+                "(UPPER(NVL(motoristap.NOMEPARC, '')) LIKE :q "
+                "OR UPPER(NVL(veic.PLACA, ''))         LIKE :q "
+                "OR UPPER(NVL(veic.MARCAMODELO, ''))   LIKE :q)"
+            )
+            binds['q'] = f"%{q_norm}%"
+
+    where_sql = " AND ".join(where)
+    binds['lim_fim'] = offset + limite
+    binds['lim_ini'] = offset + 1
+
+    sql_cab = f"""
+        SELECT * FROM (
+            SELECT v.ID,
+                   v.NUM_VIAGEM,
+                   v.DATA_VIAGEM,
+                   v.HORA_SAIDA,
+                   v.CODVEICULO,
+                   veic.PLACA,
+                   veic.MARCAMODELO,
+                   v.CODPARC_MOTORISTA,
+                   motoristap.NOMEPARC AS motorista_nome,
+                   v.OBSERVACAO,
+                   (SELECT COUNT(*) FROM SANKHYA.AD_VIAGEM_DESTINO d
+                     WHERE d.VIAGEM_ID = v.ID)                        AS qtd_destinos,
+                   (SELECT NVL(SUM(d.QTD_CAIXAS), 0) FROM SANKHYA.AD_VIAGEM_DESTINO d
+                     WHERE d.VIAGEM_ID = v.ID)                        AS qtd_caixas_total,
+                   (SELECT COUNT(*) FROM SANKHYA.AD_VIAGEM_AJUDANTE a
+                     WHERE a.VIAGEM_ID = v.ID)                        AS qtd_ajudantes,
+                   ROW_NUMBER() OVER (ORDER BY v.DATA_VIAGEM DESC, v.NUM_VIAGEM DESC) AS rn
+              FROM SANKHYA.AD_VIAGEM_ENTREGA v
+              LEFT JOIN SANKHYA.TGFVEI veic       ON veic.CODVEICULO = v.CODVEICULO
+              LEFT JOIN SANKHYA.TGFPAR motoristap ON motoristap.CODPARC = v.CODPARC_MOTORISTA
+             WHERE {where_sql}
+        )
+         WHERE rn BETWEEN :lim_ini AND :lim_fim
+         ORDER BY rn ASC
+    """
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql_cab, binds)
+            rows = cur.fetchall()
+
+            viagem_ids = [int(r[0]) for r in rows]
+            destinos_por_viagem: dict = {vid: [] for vid in viagem_ids}
+            ajudantes_por_viagem: dict = {vid: [] for vid in viagem_ids}
+
+            if viagem_ids:
+                placeholders = ', '.join(f':v{i}' for i in range(len(viagem_ids)))
+                binds_v = {f'v{i}': vid for i, vid in enumerate(viagem_ids)}
+
+                cur.execute(f"""
+                    SELECT d.VIAGEM_ID, d.ID, d.ORDEM, d.CODPARC_DESTINO,
+                           d.QTD_CAIXAS, d.OBSERVACAO, p.NOMEPARC
+                      FROM SANKHYA.AD_VIAGEM_DESTINO d
+                      LEFT JOIN SANKHYA.TGFPAR p ON p.CODPARC = d.CODPARC_DESTINO
+                     WHERE d.VIAGEM_ID IN ({placeholders})
+                     ORDER BY d.VIAGEM_ID, d.ORDEM ASC
+                """, binds_v)
+                for dr in cur.fetchall():
+                    destinos_por_viagem[int(dr[0])].append({
+                        'id': int(dr[1]),
+                        'ordem': int(dr[2]),
+                        'codparc': int(dr[3]),
+                        'qtd_caixas': int(dr[4] or 0),
+                        'observacao': dr[5] or '',
+                        'nomeparc': dr[6] or '',
+                    })
+
+                cur.execute(f"""
+                    SELECT a.VIAGEM_ID, a.CODPARC_AJUDANTE, p.NOMEPARC
+                      FROM SANKHYA.AD_VIAGEM_AJUDANTE a
+                      LEFT JOIN SANKHYA.TGFPAR p ON p.CODPARC = a.CODPARC_AJUDANTE
+                     WHERE a.VIAGEM_ID IN ({placeholders})
+                     ORDER BY a.VIAGEM_ID, p.NOMEPARC ASC
+                """, binds_v)
+                for ar in cur.fetchall():
+                    ajudantes_por_viagem[int(ar[0])].append({
+                        'codparc': int(ar[1]),
+                        'nomeparc': ar[2] or '',
+                    })
+    except Exception:
+        logger.exception("Falha em listar_viagens")
+        return []
+
+    out = []
+    for r in rows:
+        vid = int(r[0])
+        out.append({
+            'id': vid,
+            'num_viagem': int(r[1]),
+            'data_viagem': r[2].strftime('%Y-%m-%d') if r[2] else None,
+            'hora_saida': r[3] or '',
+            'codveiculo': int(r[4]) if r[4] is not None else None,
+            'placa': r[5] or '',
+            'marcamodelo': r[6] or '',
+            'codparc_motorista': int(r[7]) if r[7] is not None else None,
+            'motorista_nome': r[8] or '',
+            'observacao': r[9] or '',
+            'qtd_destinos': int(r[10] or 0),
+            'qtd_caixas_total': int(r[11] or 0),
+            'qtd_ajudantes': int(r[12] or 0),
+            'destinos': destinos_por_viagem.get(vid, []),
+            'ajudantes': ajudantes_por_viagem.get(vid, []),
+        })
+    return out
+
+
+def obter_viagem_detalhe(viagem_id: int) -> dict:
+    """Retorna detalhe completo de uma viagem: cabeçalho + destinos + ajudantes.
+
+    Args:
+        viagem_id: AD_VIAGEM_ENTREGA.ID.
+
+    Retorno: dict {ok: bool, viagem: dict | None, motivo: str | None}.
+    """
+    try:
+        viagem_id = int(viagem_id)
+    except (TypeError, ValueError):
+        return {'ok': False, 'viagem': None, 'motivo': 'id_invalido'}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT v.ID, v.NUM_VIAGEM, v.DATA_VIAGEM, v.HORA_SAIDA,
+                       v.CODVEICULO, veic.PLACA, veic.MARCAMODELO,
+                       v.CODPARC_MOTORISTA, motoristap.NOMEPARC,
+                       v.OBSERVACAO,
+                       v.CRIADO_EM, v.NOMEUSU,
+                       v.ATUALIZADO_EM, v.ATUALIZADO_POR
+                  FROM SANKHYA.AD_VIAGEM_ENTREGA v
+                  LEFT JOIN SANKHYA.TGFVEI veic       ON veic.CODVEICULO = v.CODVEICULO
+                  LEFT JOIN SANKHYA.TGFPAR motoristap ON motoristap.CODPARC = v.CODPARC_MOTORISTA
+                 WHERE v.ID = :id
+            """, id=viagem_id)
+            row = cur.fetchone()
+            if not row:
+                return {'ok': False, 'viagem': None, 'motivo': 'nao_encontrada'}
+
+            cur.execute("""
+                SELECT d.ID, d.ORDEM, d.CODPARC_DESTINO, d.QTD_CAIXAS, d.OBSERVACAO,
+                       p.NOMEPARC
+                  FROM SANKHYA.AD_VIAGEM_DESTINO d
+                  LEFT JOIN SANKHYA.TGFPAR p ON p.CODPARC = d.CODPARC_DESTINO
+                 WHERE d.VIAGEM_ID = :id
+                 ORDER BY d.ORDEM ASC
+            """, id=viagem_id)
+            destinos = [
+                {
+                    'id': int(dr[0]),
+                    'ordem': int(dr[1]),
+                    'codparc': int(dr[2]),
+                    'qtd_caixas': int(dr[3] or 0),
+                    'observacao': dr[4] or '',
+                    'nomeparc': dr[5] or '',
+                }
+                for dr in cur.fetchall()
+            ]
+
+            cur.execute("""
+                SELECT a.CODPARC_AJUDANTE, p.NOMEPARC
+                  FROM SANKHYA.AD_VIAGEM_AJUDANTE a
+                  LEFT JOIN SANKHYA.TGFPAR p ON p.CODPARC = a.CODPARC_AJUDANTE
+                 WHERE a.VIAGEM_ID = :id
+                 ORDER BY p.NOMEPARC ASC
+            """, id=viagem_id)
+            ajudantes = [
+                {
+                    'codparc': int(ar[0]),
+                    'nomeparc': ar[1] or '',
+                }
+                for ar in cur.fetchall()
+            ]
+    except Exception:
+        logger.exception("Falha em obter_viagem_detalhe")
+        return {'ok': False, 'viagem': None, 'motivo': 'erro_oracle'}
+
+    viagem = {
+        'id': int(row[0]),
+        'num_viagem': int(row[1]),
+        'data_viagem': row[2].strftime('%Y-%m-%d') if row[2] else None,
+        'hora_saida': row[3] or '',
+        'codveiculo': int(row[4]) if row[4] is not None else None,
+        'placa': row[5] or '',
+        'marcamodelo': row[6] or '',
+        'codparc_motorista': int(row[7]) if row[7] is not None else None,
+        'motorista_nome': row[8] or '',
+        'observacao': row[9] or '',
+        'criado_em': row[10].isoformat() if row[10] else None,
+        'criado_por': row[11] or '',
+        'atualizado_em': row[12].isoformat() if row[12] else None,
+        'atualizado_por': int(row[13]) if row[13] is not None else None,
+        'destinos': destinos,
+        'ajudantes': ajudantes,
+        'qtd_caixas_total': sum(d['qtd_caixas'] for d in destinos),
+    }
+    return {'ok': True, 'viagem': viagem, 'motivo': None}
+
+
+# -----------------------------------------------------------------------------
+# Logística — Cat B (escrita) — Mai/2026 — 2026-05-29
+# -----------------------------------------------------------------------------
+
+import re as _re_log  # noqa: E402  (uso local — pra evitar conflito com `re` global)
+
+
+def _validar_payload_viagem(dados: dict) -> tuple:
+    """Valida payload de criação/edição de viagem. Retorna (erros, normalizado).
+
+    Normalizado contém os valores prontos para INSERT (datas como string ISO,
+    inteiros convertidos, ajudantes deduplicados, destinos com ORDEM atribuída).
+    """
+    erros: list = []
+    dados = dados or {}
+
+    # --- Data ---
+    data_viagem = (dados.get('data_viagem') or '').strip()
+    if not data_viagem:
+        erros.append('data_viagem obrigatória (YYYY-MM-DD)')
+    else:
+        try:
+            from datetime import datetime as _dt
+            _dt.strptime(data_viagem, '%Y-%m-%d')
+        except (TypeError, ValueError):
+            erros.append('data_viagem no formato YYYY-MM-DD')
+
+    # --- Hora ---
+    hora_saida = (dados.get('hora_saida') or '').strip()
+    if not hora_saida:
+        erros.append('hora_saida obrigatória (HH:MM)')
+    else:
+        m = _re_log.match(r'^(\d{2}):(\d{2})$', hora_saida)
+        if not m:
+            erros.append('hora_saida no formato HH:MM')
+        else:
+            hh = int(m.group(1))
+            mm = int(m.group(2))
+            if not (0 <= hh <= 23 and 0 <= mm <= 59):
+                erros.append('hora_saida deve estar entre 00:00 e 23:59')
+
+    # --- Veículo ---
+    try:
+        codveiculo = int(dados.get('codveiculo') or 0)
+    except (TypeError, ValueError):
+        codveiculo = 0
+    if not codveiculo:
+        erros.append('codveiculo obrigatório')
+
+    # --- Motorista ---
+    try:
+        codparc_motorista = int(dados.get('codparc_motorista') or 0)
+    except (TypeError, ValueError):
+        codparc_motorista = 0
+    if not codparc_motorista:
+        erros.append('codparc_motorista obrigatório')
+
+    # --- Observação ---
+    observacao = (dados.get('observacao') or '').strip()[:1000] or None
+
+    # --- Destinos ---
+    destinos_in = dados.get('destinos') or []
+    if not isinstance(destinos_in, list):
+        erros.append('destinos deve ser lista')
+        destinos_in = []
+    if len(destinos_in) < 1:
+        erros.append('pelo menos 1 destino é obrigatório')
+
+    destinos_norm = []
+    for idx, d in enumerate(destinos_in):
+        if not isinstance(d, dict):
+            erros.append(f'destino #{idx + 1} inválido')
+            continue
+        try:
+            codparc_dest = int(d.get('codparc') or 0)
+        except (TypeError, ValueError):
+            codparc_dest = 0
+        try:
+            qtd_caixas = int(d.get('qtd_caixas') or 0)
+        except (TypeError, ValueError):
+            qtd_caixas = 0
+        obs_dest = (d.get('observacao') or '').strip()[:500] or None
+
+        if not codparc_dest:
+            erros.append(f'destino #{idx + 1}: codparc obrigatório')
+        if qtd_caixas <= 0:
+            erros.append(f'destino #{idx + 1}: qtd_caixas deve ser > 0')
+
+        destinos_norm.append({
+            'ordem': idx + 1,
+            'codparc': codparc_dest,
+            'qtd_caixas': qtd_caixas,
+            'observacao': obs_dest,
+        })
+
+    # --- Ajudantes (dedup) ---
+    ajudantes_in = dados.get('ajudantes') or []
+    if not isinstance(ajudantes_in, list):
+        erros.append('ajudantes deve ser lista')
+        ajudantes_in = []
+    ajudantes_norm: list = []
+    vistos: set = set()
+    for a in ajudantes_in:
+        try:
+            cp = int(a) if not isinstance(a, dict) else int(a.get('codparc') or 0)
+        except (TypeError, ValueError):
+            cp = 0
+        if cp and cp not in vistos:
+            vistos.add(cp)
+            ajudantes_norm.append(cp)
+
+    normalizado = {
+        'data_viagem': data_viagem,
+        'hora_saida': hora_saida,
+        'codveiculo': codveiculo,
+        'codparc_motorista': codparc_motorista,
+        'observacao': observacao,
+        'destinos': destinos_norm,
+        'ajudantes': ajudantes_norm,
+    }
+    return erros, normalizado
+
+
+def _validar_fks_logicas_viagem(cur, n: dict) -> list:
+    """Valida FKs lógicas via SELECTs (TGFVEI ativo + AD_PARCEIRO_TIPO bate).
+
+    Retorna lista de erros humanizados (vazia = tudo ok). `cur` é cursor
+    Oracle já aberto. `n` é payload normalizado.
+    """
+    erros: list = []
+
+    # --- Veículo: existe + ATIVO='S' ---
+    cur.execute(
+        "SELECT NVL(ATIVO, 'N') FROM SANKHYA.TGFVEI WHERE CODVEICULO = :c",
+        c=n['codveiculo'],
+    )
+    row = cur.fetchone()
+    if not row:
+        erros.append(f'Veículo {n["codveiculo"]} não encontrado em TGFVEI.')
+    elif row[0] != 'S':
+        erros.append(f'Veículo {n["codveiculo"]} está inativo.')
+
+    # --- Motorista: vinculado a tipo MOTORISTA (AD_CODTIPPARC=4) ---
+    cur.execute(
+        """
+        SELECT p.ATIVO,
+               (SELECT 1 FROM SANKHYA.AD_PARCEIRO_TIPO pt
+                 WHERE pt.CODPARC = p.CODPARC
+                   AND pt.AD_CODTIPPARC = :tipo) AS tem_tipo
+          FROM SANKHYA.TGFPAR p
+         WHERE p.CODPARC = :c
+        """,
+        c=n['codparc_motorista'], tipo=TIPO_PARCEIRO_MOTORISTA,
+    )
+    row = cur.fetchone()
+    if not row:
+        erros.append(f'Motorista (parc {n["codparc_motorista"]}) não encontrado em TGFPAR.')
+    else:
+        if row[0] != 'S':
+            erros.append(f'Motorista {n["codparc_motorista"]} está inativo em TGFPAR.')
+        if not row[1]:
+            erros.append(
+                f'Parceiro {n["codparc_motorista"]} não está vinculado ao tipo '
+                f'MOTORISTA. Cadastre via AD_PARCEIRO_TIPO ou marque '
+                f'TGFPAR.MOTORISTA=S no Sankhya.'
+            )
+
+    # --- Destinos: cada CODPARC deve estar vinculado a tipo CLIENTE (=1) ---
+    codparcs_dest = list({d['codparc'] for d in n['destinos']})
+    if codparcs_dest:
+        placeholders = ', '.join(f':p{i}' for i in range(len(codparcs_dest)))
+        binds_p = {f'p{i}': cp for i, cp in enumerate(codparcs_dest)}
+        binds_p['tipo'] = TIPO_PARCEIRO_CLIENTE
+
+        cur.execute(
+            f"""
+            SELECT p.CODPARC, p.NVL_ATIVO, p.TEM_TIPO FROM (
+                SELECT p.CODPARC,
+                       NVL(p.ATIVO, 'N') AS NVL_ATIVO,
+                       (SELECT 1 FROM SANKHYA.AD_PARCEIRO_TIPO pt
+                         WHERE pt.CODPARC = p.CODPARC AND pt.AD_CODTIPPARC = :tipo) AS TEM_TIPO
+                  FROM SANKHYA.TGFPAR p
+                 WHERE p.CODPARC IN ({placeholders})
+            ) p
+            """,
+            binds_p,
+        )
+        encontrados: dict = {}
+        for r in cur.fetchall():
+            encontrados[int(r[0])] = (r[1], r[2])
+
+        for cp in codparcs_dest:
+            if cp not in encontrados:
+                erros.append(f'Destino (parc {cp}) não encontrado em TGFPAR.')
+                continue
+            ativo, tem_tipo = encontrados[cp]
+            if ativo != 'S':
+                erros.append(f'Destino {cp} está inativo em TGFPAR.')
+            if not tem_tipo:
+                erros.append(
+                    f'Parceiro {cp} não está vinculado ao tipo CLIENTE '
+                    f'(AD_PARCEIRO_TIPO). Cadastre antes de criar a viagem.'
+                )
+
+    # --- Ajudantes: vinculados a tipo AJUDANTE (=5) ---
+    if n['ajudantes']:
+        placeholders = ', '.join(f':a{i}' for i in range(len(n['ajudantes'])))
+        binds_a = {f'a{i}': cp for i, cp in enumerate(n['ajudantes'])}
+        binds_a['tipo'] = TIPO_PARCEIRO_AJUDANTE
+
+        cur.execute(
+            f"""
+            SELECT p.CODPARC, p.NVL_ATIVO, p.TEM_TIPO FROM (
+                SELECT p.CODPARC,
+                       NVL(p.ATIVO, 'N') AS NVL_ATIVO,
+                       (SELECT 1 FROM SANKHYA.AD_PARCEIRO_TIPO pt
+                         WHERE pt.CODPARC = p.CODPARC AND pt.AD_CODTIPPARC = :tipo) AS TEM_TIPO
+                  FROM SANKHYA.TGFPAR p
+                 WHERE p.CODPARC IN ({placeholders})
+            ) p
+            """,
+            binds_a,
+        )
+        encontrados = {}
+        for r in cur.fetchall():
+            encontrados[int(r[0])] = (r[1], r[2])
+
+        for cp in n['ajudantes']:
+            if cp not in encontrados:
+                erros.append(f'Ajudante (parc {cp}) não encontrado em TGFPAR.')
+                continue
+            ativo, tem_tipo = encontrados[cp]
+            if ativo != 'S':
+                erros.append(f'Ajudante {cp} está inativo em TGFPAR.')
+            if not tem_tipo:
+                erros.append(
+                    f'Parceiro {cp} não está vinculado ao tipo AJUDANTE. '
+                    f'Cadastre via AD_PARCEIRO_TIPO antes de incluir na viagem.'
+                )
+
+    return erros
+
+
+def criar_viagem_banco(
+    dados: dict,
+    codusu_logado: int = None,
+    nomeusu_logado: str = '',
+) -> dict:
+    """Item 8 Cat B — Cria viagem completa (cabeçalho + destinos + ajudantes).
+
+    Transação atômica: se qualquer INSERT falhar, rollback total. Sankhya
+    nativo (TGFCAB/TGFITE/TGFPAR/TGFVEI) NÃO é tocado.
+
+    Args:
+        dados: {data_viagem, hora_saida, codveiculo, codparc_motorista,
+                observacao?, destinos[], ajudantes[]}.
+        codusu_logado: CODUSU pra audit.
+        nomeusu_logado: nome do usuário pra audit.
+
+    Retorno:
+        {'ok': True, 'viagem_id': N, 'num_viagem': N}
+        {'ok': False, 'error': '...'}
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
+
+    # 1. Valida payload em Python
+    erros, n = _validar_payload_viagem(dados)
+    if erros:
+        return {'ok': False, 'error': ' · '.join(erros)}
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 2. Valida FKs lógicas via SELECTs
+            erros_fk = _validar_fks_logicas_viagem(cur, n)
+            if erros_fk:
+                return {'ok': False, 'error': ' · '.join(erros_fk)}
+
+            # 3. Lock leve em MAX(NUM_VIAGEM) — serializa criações concorrentes.
+            #    Em Oracle, SELECT FOR UPDATE numa linha agregada não funciona;
+            #    usa-se uma sub-consulta com hint de bloqueio. Como MAX é
+            #    rápido (<1ms com índice da UK), o gap entre SELECT e INSERT é
+            #    minúsculo. UNIQUE NUM_VIAGEM rejeita colisão como rede de
+            #    proteção (cliente refaz com novo MAX+1).
+            cur.execute("""
+                SELECT NVL(MAX(NUM_VIAGEM), 0) + 1
+                  FROM SANKHYA.AD_VIAGEM_ENTREGA
+            """)
+            novo_num = int(cur.fetchone()[0])
+
+            # 4. INSERT TGFCAB-equivalente: cabeçalho da viagem
+            id_var = cur.var(int)
+            cur.execute(
+                """
+                INSERT INTO SANKHYA.AD_VIAGEM_ENTREGA
+                    (ID, NUM_VIAGEM, DATA_VIAGEM, HORA_SAIDA,
+                     CODVEICULO, CODPARC_MOTORISTA, OBSERVACAO,
+                     CODUSU, NOMEUSU)
+                VALUES
+                    (SEQ_AD_VIAGEM_ENTREGA.NEXTVAL, :num,
+                     TO_DATE(:dt, 'YYYY-MM-DD'), :hora,
+                     :codvei, :codparc_mot, :obs,
+                     :codusu, :nomeusu)
+                RETURNING ID INTO :id_out
+                """,
+                num=novo_num,
+                dt=n['data_viagem'],
+                hora=n['hora_saida'],
+                codvei=n['codveiculo'],
+                codparc_mot=n['codparc_motorista'],
+                obs=n['observacao'],
+                codusu=int(codusu_logado) if codusu_logado else None,
+                nomeusu=(nomeusu_logado or '')[:60] or None,
+                id_out=id_var,
+            )
+            novo_id = int(id_var.getvalue()[0])
+
+            # 5. INSERT N destinos
+            for d in n['destinos']:
+                cur.execute(
+                    """
+                    INSERT INTO SANKHYA.AD_VIAGEM_DESTINO
+                        (ID, VIAGEM_ID, ORDEM, CODPARC_DESTINO,
+                         QTD_CAIXAS, OBSERVACAO)
+                    VALUES
+                        (SEQ_AD_VIAGEM_DESTINO.NEXTVAL, :vid, :ord,
+                         :codparc, :qtd, :obs)
+                    """,
+                    vid=novo_id,
+                    ord=d['ordem'],
+                    codparc=d['codparc'],
+                    qtd=d['qtd_caixas'],
+                    obs=d['observacao'],
+                )
+
+            # 6. INSERT M ajudantes (PK composto evita duplicar — dedup já feito)
+            for cp_ajud in n['ajudantes']:
+                cur.execute(
+                    """
+                    INSERT INTO SANKHYA.AD_VIAGEM_AJUDANTE
+                        (VIAGEM_ID, CODPARC_AJUDANTE)
+                    VALUES (:vid, :codparc)
+                    """,
+                    vid=novo_id, codparc=cp_ajud,
+                )
+
+            conn.commit()
+    except Exception as exc:
+        logger.exception("Falha em criar_viagem_banco")
+        return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+    # 7. Audit pós-commit (tolerante a falha)
+    try:
+        snapshot = {
+            'id': novo_id,
+            'num_viagem': novo_num,
+            'data_viagem': n['data_viagem'],
+            'hora_saida': n['hora_saida'],
+            'codveiculo': n['codveiculo'],
+            'codparc_motorista': n['codparc_motorista'],
+            'observacao': n['observacao'],
+            'destinos': n['destinos'],
+            'ajudantes': n['ajudantes'],
+        }
+        registrar_auditoria(
+            modulo='logistica',
+            operacao='CRIAR_VIAGEM',
+            tabela_alvo='AD_VIAGEM_ENTREGA',
+            registro_id=str(novo_id),
+            codusu=int(codusu_logado) if codusu_logado else None,
+            nomeusu=nomeusu_logado or '',
+            snapshot_antes=None,
+            snapshot_depois=snapshot,
+        )
+    except Exception:
+        logger.warning("Audit falhou após criar viagem id=%s — operação preservada", novo_id)
+
+    return {'ok': True, 'viagem_id': novo_id, 'num_viagem': novo_num}
+
+
+def _snapshot_viagem_via_cursor(cur, viagem_id: int) -> dict:
+    """Monta dict completo da viagem reusando um cursor já aberto (mesma TX).
+
+    Versão de `obter_viagem_detalhe` que NÃO abre conexão própria — útil em
+    `editar_viagem_banco` pra capturar snapshot_antes dentro do lock.
+    """
+    cur.execute("""
+        SELECT v.ID, v.NUM_VIAGEM, v.DATA_VIAGEM, v.HORA_SAIDA,
+               v.CODVEICULO, v.CODPARC_MOTORISTA, v.OBSERVACAO
+          FROM SANKHYA.AD_VIAGEM_ENTREGA v
+         WHERE v.ID = :id
+    """, id=viagem_id)
+    row = cur.fetchone()
+    if not row:
+        return {}
+
+    cur.execute("""
+        SELECT ID, ORDEM, CODPARC_DESTINO, QTD_CAIXAS, OBSERVACAO
+          FROM SANKHYA.AD_VIAGEM_DESTINO
+         WHERE VIAGEM_ID = :id
+         ORDER BY ORDEM ASC
+    """, id=viagem_id)
+    destinos = [
+        {
+            'id': int(dr[0]),
+            'ordem': int(dr[1]),
+            'codparc': int(dr[2]),
+            'qtd_caixas': int(dr[3] or 0),
+            'observacao': dr[4] or '',
+        }
+        for dr in cur.fetchall()
+    ]
+
+    cur.execute("""
+        SELECT CODPARC_AJUDANTE
+          FROM SANKHYA.AD_VIAGEM_AJUDANTE
+         WHERE VIAGEM_ID = :id
+         ORDER BY CODPARC_AJUDANTE
+    """, id=viagem_id)
+    ajudantes = [int(ar[0]) for ar in cur.fetchall()]
+
+    return {
+        'id': int(row[0]),
+        'num_viagem': int(row[1]),
+        'data_viagem': row[2].strftime('%Y-%m-%d') if row[2] else None,
+        'hora_saida': row[3] or '',
+        'codveiculo': int(row[4]) if row[4] is not None else None,
+        'codparc_motorista': int(row[5]) if row[5] is not None else None,
+        'observacao': row[6] or '',
+        'destinos': destinos,
+        'ajudantes': ajudantes,
+    }
+
+
+def editar_viagem_banco(
+    viagem_id: int,
+    dados: dict,
+    codusu_logado: int = None,
+    nomeusu_logado: str = '',
+) -> dict:
+    """Item 9 Cat B — Edita viagem existente (UPDATE diferencial).
+
+    NUM_VIAGEM permanece imutável após criação. Atualiza cabeçalho,
+    sincroniza destinos e ajudantes via diff (UPDATE em ORDEM existente,
+    INSERT em ORDEM nova, DELETE em ORDEM removida; mesmo padrão pra
+    ajudantes via set).
+
+    Args:
+        viagem_id: AD_VIAGEM_ENTREGA.ID.
+        dados: mesmo formato de criar_viagem_banco.
+        codusu_logado / nomeusu_logado: pra audit + ATUALIZADO_POR.
+
+    Returns:
+        {'ok': True, 'viagem_id': N, 'num_viagem': N,
+         'mudancas': {'destinos_update': N, 'destinos_insert': N,
+                      'destinos_delete': N, 'ajudantes_insert': N,
+                      'ajudantes_delete': N}}
+        OU {'ok': False, 'error': '...'}
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
+
+    try:
+        viagem_id = int(viagem_id)
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': 'viagem_id inválido'}
+    if viagem_id <= 0:
+        return {'ok': False, 'error': 'viagem_id inválido'}
+
+    erros, n = _validar_payload_viagem(dados)
+    if erros:
+        return {'ok': False, 'error': ' · '.join(erros)}
+
+    mudancas = {
+        'destinos_update': 0,
+        'destinos_insert': 0,
+        'destinos_delete': 0,
+        'ajudantes_insert': 0,
+        'ajudantes_delete': 0,
+    }
+    snapshot_antes = None
+    num_viagem = None
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 1. Lock pessimista do cabeçalho + verifica existência
+            cur.execute("""
+                SELECT ID, NUM_VIAGEM
+                  FROM SANKHYA.AD_VIAGEM_ENTREGA
+                 WHERE ID = :id
+                 FOR UPDATE
+            """, id=viagem_id)
+            row = cur.fetchone()
+            if not row:
+                return {'ok': False, 'error': f'Viagem {viagem_id} não encontrada.'}
+            num_viagem = int(row[1])
+
+            # 2. Snapshot ANTES (dentro da TX)
+            snapshot_antes = _snapshot_viagem_via_cursor(cur, viagem_id)
+
+            # 3. Valida FKs lógicas
+            erros_fk = _validar_fks_logicas_viagem(cur, n)
+            if erros_fk:
+                return {'ok': False, 'error': ' · '.join(erros_fk)}
+
+            # 4. UPDATE cabeçalho
+            cur.execute(
+                """
+                UPDATE SANKHYA.AD_VIAGEM_ENTREGA
+                   SET DATA_VIAGEM      = TO_DATE(:dt, 'YYYY-MM-DD'),
+                       HORA_SAIDA       = :hora,
+                       CODVEICULO       = :codvei,
+                       CODPARC_MOTORISTA = :codparc_mot,
+                       OBSERVACAO       = :obs,
+                       ATUALIZADO_EM    = SYSTIMESTAMP,
+                       ATUALIZADO_POR   = :codusu
+                 WHERE ID = :id
+                """,
+                dt=n['data_viagem'],
+                hora=n['hora_saida'],
+                codvei=n['codveiculo'],
+                codparc_mot=n['codparc_motorista'],
+                obs=n['observacao'],
+                codusu=int(codusu_logado) if codusu_logado else None,
+                id=viagem_id,
+            )
+
+            # 5. UPDATE DIFERENCIAL dos destinos
+            # 5a. SELECT destinos atuais (por ORDEM)
+            cur.execute("""
+                SELECT ID, ORDEM
+                  FROM SANKHYA.AD_VIAGEM_DESTINO
+                 WHERE VIAGEM_ID = :v
+                 ORDER BY ORDEM ASC
+            """, v=viagem_id)
+            destinos_atuais = {int(r[1]): int(r[0]) for r in cur.fetchall()}
+            ordens_atuais = set(destinos_atuais.keys())
+            ordens_novas = {d['ordem'] for d in n['destinos']}
+
+            # 5b. UPDATE / INSERT por ORDEM
+            for d in n['destinos']:
+                ordem = d['ordem']
+                if ordem in destinos_atuais:
+                    # UPDATE (mantém ID estável)
+                    cur.execute(
+                        """
+                        UPDATE SANKHYA.AD_VIAGEM_DESTINO
+                           SET CODPARC_DESTINO = :codparc,
+                               QTD_CAIXAS      = :qtd,
+                               OBSERVACAO      = :obs
+                         WHERE ID = :id
+                        """,
+                        codparc=d['codparc'],
+                        qtd=d['qtd_caixas'],
+                        obs=d['observacao'],
+                        id=destinos_atuais[ordem],
+                    )
+                    mudancas['destinos_update'] += 1
+                else:
+                    # INSERT novo
+                    cur.execute(
+                        """
+                        INSERT INTO SANKHYA.AD_VIAGEM_DESTINO
+                            (ID, VIAGEM_ID, ORDEM, CODPARC_DESTINO,
+                             QTD_CAIXAS, OBSERVACAO)
+                        VALUES
+                            (SEQ_AD_VIAGEM_DESTINO.NEXTVAL, :vid, :ord,
+                             :codparc, :qtd, :obs)
+                        """,
+                        vid=viagem_id, ord=ordem,
+                        codparc=d['codparc'],
+                        qtd=d['qtd_caixas'],
+                        obs=d['observacao'],
+                    )
+                    mudancas['destinos_insert'] += 1
+
+            # 5c. DELETE de ORDEMs que sumiram
+            ordens_remover = ordens_atuais - ordens_novas
+            for ordem in ordens_remover:
+                cur.execute(
+                    "DELETE FROM SANKHYA.AD_VIAGEM_DESTINO WHERE ID = :id",
+                    id=destinos_atuais[ordem],
+                )
+                mudancas['destinos_delete'] += 1
+
+            # 6. UPDATE DIFERENCIAL dos ajudantes (set diff)
+            cur.execute("""
+                SELECT CODPARC_AJUDANTE
+                  FROM SANKHYA.AD_VIAGEM_AJUDANTE
+                 WHERE VIAGEM_ID = :v
+            """, v=viagem_id)
+            ajudantes_atuais = {int(r[0]) for r in cur.fetchall()}
+            ajudantes_novos = set(n['ajudantes'])
+
+            for cp in ajudantes_atuais - ajudantes_novos:
+                cur.execute(
+                    """
+                    DELETE FROM SANKHYA.AD_VIAGEM_AJUDANTE
+                     WHERE VIAGEM_ID = :v AND CODPARC_AJUDANTE = :c
+                    """,
+                    v=viagem_id, c=cp,
+                )
+                mudancas['ajudantes_delete'] += 1
+
+            for cp in ajudantes_novos - ajudantes_atuais:
+                cur.execute(
+                    """
+                    INSERT INTO SANKHYA.AD_VIAGEM_AJUDANTE
+                        (VIAGEM_ID, CODPARC_AJUDANTE)
+                    VALUES (:v, :c)
+                    """,
+                    v=viagem_id, c=cp,
+                )
+                mudancas['ajudantes_insert'] += 1
+
+            # 7. Snapshot DEPOIS pra audit
+            snapshot_depois = _snapshot_viagem_via_cursor(cur, viagem_id)
+
+            conn.commit()
+    except Exception as exc:
+        logger.exception("Falha em editar_viagem_banco")
+        return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+    # 8. Audit pós-commit (tolerante a falha)
+    try:
+        registrar_auditoria(
+            modulo='logistica',
+            operacao='EDITAR_VIAGEM',
+            tabela_alvo='AD_VIAGEM_ENTREGA',
+            registro_id=str(viagem_id),
+            codusu=int(codusu_logado) if codusu_logado else None,
+            nomeusu=nomeusu_logado or '',
+            snapshot_antes=snapshot_antes,
+            snapshot_depois=snapshot_depois,
+        )
+    except Exception:
+        logger.warning("Audit falhou após editar viagem id=%s — operação preservada", viagem_id)
+
+    return {
+        'ok': True,
+        'viagem_id': viagem_id,
+        'num_viagem': num_viagem,
+        'mudancas': mudancas,
+    }
+
+
+def excluir_viagem_banco(
+    viagem_id: int,
+    codusu_logado: int = None,
+    nomeusu_logado: str = '',
+    motivo: str = '',
+) -> dict:
+    """Item 10 Cat B — Exclusão física da viagem (DELETE cascata).
+
+    AD_VIAGEM_DESTINO e AD_VIAGEM_AJUDANTE são removidos automaticamente via
+    FK ON DELETE CASCADE. Audit guarda snapshot completo do estado antes do
+    DELETE pra rastreabilidade / reconstrução em emergência.
+
+    Args:
+        viagem_id: AD_VIAGEM_ENTREGA.ID.
+        codusu_logado / nomeusu_logado: pra audit.
+        motivo: texto livre opcional (registrado em snapshot_antes/observação).
+
+    Returns:
+        {'ok': True, 'viagem_id': N, 'num_viagem': N,
+         'destinos_removidos': N, 'ajudantes_removidos': N}
+        OU {'ok': False, 'error': '...'}
+    """
+    if not verificar_permissao_escrita():
+        return {'ok': False, 'error': 'Escrita desabilitada (IAGRO_WRITE_ENABLED=false).'}
+
+    try:
+        viagem_id = int(viagem_id)
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': 'viagem_id inválido'}
+    if viagem_id <= 0:
+        return {'ok': False, 'error': 'viagem_id inválido'}
+
+    motivo_norm = (motivo or '').strip()[:500] or None
+    snapshot_antes = None
+    num_viagem = None
+    qtd_destinos = 0
+    qtd_ajudantes = 0
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            # 1. Lock pessimista do cabeçalho + verifica existência
+            cur.execute("""
+                SELECT ID, NUM_VIAGEM
+                  FROM SANKHYA.AD_VIAGEM_ENTREGA
+                 WHERE ID = :id
+                 FOR UPDATE
+            """, id=viagem_id)
+            row = cur.fetchone()
+            if not row:
+                return {'ok': False, 'error': f'Viagem {viagem_id} não encontrada.'}
+            num_viagem = int(row[1])
+
+            # 2. Snapshot ANTES (dentro do lock pra capturar estado exato)
+            snapshot_antes = _snapshot_viagem_via_cursor(cur, viagem_id)
+            qtd_destinos = len(snapshot_antes.get('destinos', []))
+            qtd_ajudantes = len(snapshot_antes.get('ajudantes', []))
+
+            # 3. DELETE cascata (FK ON DELETE CASCADE em AD_VIAGEM_DESTINO
+            #    e AD_VIAGEM_AJUDANTE remove tudo atomicamente)
+            cur.execute(
+                "DELETE FROM SANKHYA.AD_VIAGEM_ENTREGA WHERE ID = :id",
+                id=viagem_id,
+            )
+
+            conn.commit()
+    except Exception as exc:
+        logger.exception("Falha em excluir_viagem_banco")
+        return {'ok': False, 'error': humanizar_erro_oracle(exc)}
+
+    # 4. Audit pós-commit (tolerante a falha — DELETE já efetivado)
+    try:
+        # Anexa motivo ao snapshot pra audit completo
+        snapshot_audit = dict(snapshot_antes)
+        if motivo_norm:
+            snapshot_audit['_motivo_exclusao'] = motivo_norm
+
+        registrar_auditoria(
+            modulo='logistica',
+            operacao='EXCLUIR_VIAGEM',
+            tabela_alvo='AD_VIAGEM_ENTREGA',
+            registro_id=str(viagem_id),
+            codusu=int(codusu_logado) if codusu_logado else None,
+            nomeusu=nomeusu_logado or '',
+            snapshot_antes=snapshot_audit,
+            snapshot_depois=None,
+            observacao=motivo_norm,
+        )
+    except Exception:
+        logger.warning(
+            "Audit falhou após excluir viagem id=%s — operação preservada",
+            viagem_id,
+        )
+
+    return {
+        'ok': True,
+        'viagem_id': viagem_id,
+        'num_viagem': num_viagem,
+        'destinos_removidos': qtd_destinos,
+        'ajudantes_removidos': qtd_ajudantes,
+    }

@@ -1,0 +1,591 @@
+{% extends "sankhya_integration/base.html" %}
+{% load static %}
+
+{% block title %}IAgro · Logística{% endblock %}
+{% block active_module %}logistica{% endblock %}
+{% block header_title %}LOGÍSTICA — ROTAS DE ENTREGA{% endblock %}
+
+{% block header_actions %}
+  <button type="button" id="btnNovaRota" class="btn btn-primario" title="Planejar nova rota de entrega">
+    <i class="ph ph-plus" aria-hidden="true"></i>
+    <span>Nova rota</span>
+  </button>
+{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/logistica.css' %}?v=3">
+{% endblock %}
+
+{% block content %}
+<div class="logistica-portal">
+
+{# ============================== DESKTOP ============================== #}
+<div class="logistica-desktop">
+<div class="lg-layout">
+
+  {# Indicadores agregados (topo) #}
+  <header class="lg-resumo">
+    <div class="lg-resumo-card">
+      <div class="lg-resumo-label">Viagens no período</div>
+      <div class="lg-resumo-valor" id="lgResumoTotal">—</div>
+      <div class="lg-resumo-hint">Total filtrado</div>
+    </div>
+    <div class="lg-resumo-card lg-resumo-card--info">
+      <div class="lg-resumo-label">Caixas a entregar</div>
+      <div class="lg-resumo-valor" id="lgResumoCaixas">—</div>
+      <div class="lg-resumo-hint">Soma de todos os destinos</div>
+    </div>
+    <div class="lg-resumo-card lg-resumo-card--warn">
+      <div class="lg-resumo-label">Destinos no dia</div>
+      <div class="lg-resumo-valor" id="lgResumoDestinos">—</div>
+      <div class="lg-resumo-hint">Paradas planejadas</div>
+    </div>
+    <div class="lg-resumo-card lg-resumo-card--success">
+      <div class="lg-resumo-label">Motoristas escalados</div>
+      <div class="lg-resumo-valor" id="lgResumoMotoristas">—</div>
+      <div class="lg-resumo-hint">Únicos no período</div>
+    </div>
+  </header>
+
+  {# Toolbar #}
+  <header class="lg-toolbar">
+    <h2 class="lg-toolbar-titulo">
+      <i class="ph ph-truck" aria-hidden="true"></i>
+      <span>Viagens planejadas</span>
+    </h2>
+    <button type="button" id="lgBtnRefresh" class="lg-btn-refresh" title="Atualizar lista">
+      <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+    </button>
+  </header>
+
+  {# Grid: sidebar de filtros + lista de cards #}
+  <article class="lg-pane">
+    <div class="lg-pane-grid">
+
+      {# Coluna esquerda — filtros #}
+      <aside class="lg-filtros-panel">
+        <header class="lg-filtros-header">
+          <h3>Filtros</h3>
+        </header>
+
+        <div class="lg-filtros-body">
+          {# Período #}
+          <div class="lg-filtro-group">
+            <label class="lg-filtro-label">Período</label>
+            <div class="lg-data-nav">
+              <button type="button" id="lgPrevDay" class="btn-mini-nav" title="Dia anterior">&lt;&lt;</button>
+              <input type="date" id="lgDataIni" class="lg-filtro-input">
+              <span class="lg-sep">a</span>
+              <input type="date" id="lgDataFim" class="lg-filtro-input">
+              <button type="button" id="lgNextDay" class="btn-mini-nav" title="Dia seguinte">&gt;&gt;</button>
+            </div>
+          </div>
+
+          {# Busca livre #}
+          <div class="lg-filtro-group">
+            <label class="lg-filtro-label" for="lgBusca">Busca</label>
+            <div class="lg-filtro-busca">
+              <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+              <input type="search" id="lgBusca" placeholder="Nº viagem, placa, motorista, destino…" autocomplete="off">
+            </div>
+          </div>
+
+          {# Filtro motorista #}
+          <div class="lg-filtro-group">
+            <label class="lg-filtro-label" for="lgFiltroMotorista">Motorista</label>
+            <select id="lgFiltroMotorista" class="lg-filtro-input">
+              <option value="">Todos</option>
+            </select>
+          </div>
+
+          {# Filtro veículo #}
+          <div class="lg-filtro-group">
+            <label class="lg-filtro-label" for="lgFiltroVeiculo">Veículo</label>
+            <select id="lgFiltroVeiculo" class="lg-filtro-input">
+              <option value="">Todos</option>
+            </select>
+          </div>
+        </div>
+
+        <footer class="lg-filtros-footer">
+          <button type="button" id="lgLimparFiltros" class="btn-link" title="Voltar pros defaults">
+            <i class="ph ph-x" aria-hidden="true"></i>
+            <span>Limpar filtros</span>
+          </button>
+        </footer>
+      </aside>
+
+      {# Coluna direita — lista de rotas #}
+      <section class="lg-rotas-panel">
+        <header class="lg-rotas-header">
+          <h3>Viagens</h3>
+          <span class="lg-rotas-contador" id="lgRotasContador">—</span>
+        </header>
+
+        <div class="lg-rotas-lista" id="lgRotasLista">
+          <div class="lg-empty">Carregando…</div>
+        </div>
+      </section>
+    </div>
+  </article>
+
+</div>{# /.lg-layout #}
+</div>{# /.logistica-desktop #}
+
+{# ============================== MOBILE ============================== #}
+<div class="logistica-mobile">
+
+  {# ----------------- TELA 1: LISTA ----------------- #}
+  <section class="m-screen m-screen--lista is-active" data-screen="lista">
+    <header class="m-screen-header">
+      <button type="button" class="m-iconbtn m-sidebar-toggle" aria-label="Menu">
+        <i class="ph ph-list" aria-hidden="true"></i>
+      </button>
+      <h1 class="m-screen-title">Logística</h1>
+      <div class="m-user-badge" title="{{ request.session.nomeusu|default:'Usuário' }}">
+        <i class="ph ph-user" aria-hidden="true"></i>
+        <span>{{ request.session.nomeusu|default:'Usuário' }}</span>
+      </div>
+      <a href="{% url 'logout' %}" class="m-logout-link" title="Encerrar sessão">Sair</a>
+    </header>
+
+    {# Resumo compacto em pílulas #}
+    <div class="m-lg-resumo-pills">
+      <div class="m-lg-pill">
+        <span class="m-lg-pill-label">Viagens</span>
+        <span class="m-lg-pill-valor" id="m_lgResumoTotal">—</span>
+      </div>
+      <div class="m-lg-pill m-lg-pill--info">
+        <span class="m-lg-pill-label">Caixas</span>
+        <span class="m-lg-pill-valor" id="m_lgResumoCaixas">—</span>
+      </div>
+      <div class="m-lg-pill m-lg-pill--warn">
+        <span class="m-lg-pill-label">Destinos</span>
+        <span class="m-lg-pill-valor" id="m_lgResumoDestinos">—</span>
+      </div>
+      <div class="m-lg-pill m-lg-pill--success">
+        <span class="m-lg-pill-label">Motoristas</span>
+        <span class="m-lg-pill-valor" id="m_lgResumoMotoristas">—</span>
+      </div>
+    </div>
+
+    {# Busca #}
+    <div class="m-lg-search">
+      <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+      <input type="search" id="m_lg_busca" placeholder="Nº viagem, placa, motorista…" autocomplete="off">
+    </div>
+
+    {# Lista de cards #}
+    <div class="m-lg-list" id="m_lg_rotasList">
+      <div class="m-empty-state">
+        <i class="ph ph-truck" aria-hidden="true"></i>
+        <span>Carregando viagens…</span>
+      </div>
+    </div>
+
+    {# FAB azul Atualizar (acima) #}
+    <button type="button" class="m-fab m-fab--secondary" id="m_lg_fabAtualizar" aria-label="Atualizar">
+      <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+    </button>
+
+    {# FAB verde Nova rota #}
+    <button type="button" class="m-fab" id="m_lg_fabNova" aria-label="Nova rota">
+      <i class="ph ph-plus" aria-hidden="true"></i>
+    </button>
+
+    {# Bottom nav #}
+    <nav class="m-bottom-nav">
+      <button type="button" class="m-bottom-nav__item is-active" data-nav="rotas">
+        <i class="ph ph-truck" aria-hidden="true"></i>
+        <span>Viagens</span>
+      </button>
+      <button type="button" class="m-bottom-nav__item" data-nav="buscar">
+        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+        <span>Buscar</span>
+      </button>
+      <button type="button" class="m-bottom-nav__item" data-nav="filtros">
+        <i class="ph ph-funnel" aria-hidden="true"></i>
+        <span>Filtros</span>
+      </button>
+      <button type="button" class="m-bottom-nav__item" data-nav="mais">
+        <i class="ph ph-dots-three" aria-hidden="true"></i>
+        <span>Mais</span>
+      </button>
+    </nav>
+  </section>
+
+  {# ----------------- TELA 2: DETALHE ----------------- #}
+  <section class="m-screen m-screen--detalhe" data-screen="detalhe">
+    <header class="m-screen-header">
+      <button type="button" class="m-iconbtn m-back-btn" aria-label="Voltar">
+        <i class="ph ph-arrow-left" aria-hidden="true"></i>
+      </button>
+      <div class="m-screen-title-block">
+        <h1 class="m-screen-title" id="m_lg_detTitulo">Viagem —</h1>
+        <small class="m-screen-subtitle" id="m_lg_detSubtitulo">—</small>
+      </div>
+      <button type="button" class="m-iconbtn" id="m_lg_detImprimir" aria-label="Ficha de impressão">
+        <i class="ph ph-printer" aria-hidden="true"></i>
+      </button>
+      <button type="button" class="m-iconbtn" id="m_lg_detEditar" aria-label="Editar viagem">
+        <i class="ph ph-pencil-simple" aria-hidden="true"></i>
+      </button>
+    </header>
+
+    <div class="m-screen-body">
+      {# Hero verde com Nº VIAGEM em destaque #}
+      <div class="m-lg-hero">
+        <div class="m-lg-hero-label">VIAGEM Nº</div>
+        <div class="m-lg-hero-numviagem" id="m_lg_detNumViagem">—</div>
+        <div class="m-lg-hero-data" id="m_lg_detDataExtenso">—</div>
+      </div>
+
+      {# Placa em destaque + hora #}
+      <div class="m-lg-placa-card">
+        <div class="m-lg-placa-info">
+          <span class="m-lg-placa-label">Placa</span>
+          <span class="m-lg-placa-valor" id="m_lg_detPlaca">—</span>
+          <span class="m-lg-placa-modelo" id="m_lg_detModelo">—</span>
+        </div>
+        <div class="m-lg-hora-info">
+          <i class="ph ph-clock" aria-hidden="true"></i>
+          <span class="m-lg-hora-label">Saída</span>
+          <span class="m-lg-hora-valor" id="m_lg_detHora">—</span>
+        </div>
+      </div>
+
+      {# Motorista e ajudantes #}
+      <div class="m-lg-info">
+        <div class="m-lg-info-row">
+          <span class="m-lg-info-label"><i class="ph ph-steering-wheel"></i> Motorista</span>
+          <span class="m-lg-info-valor" id="m_lg_detMotorista">—</span>
+        </div>
+        <div class="m-lg-info-row">
+          <span class="m-lg-info-label"><i class="ph ph-users"></i> Ajudantes</span>
+          <span class="m-lg-info-valor" id="m_lg_detAjudantes">—</span>
+        </div>
+      </div>
+
+      {# Destinos numerados #}
+      <div class="m-lg-destinos-bloco">
+        <div class="m-lg-destinos-header">
+          <span class="m-lg-destinos-titulo"><i class="ph ph-map-pin"></i> Destinos</span>
+          <span class="m-lg-destinos-total" id="m_lg_detTotalCaixas">— cx</span>
+        </div>
+        <ol class="m-lg-destinos-lista" id="m_lg_detDestinos">
+          {# preenchido pelo JS #}
+        </ol>
+      </div>
+
+      {# Observação em destaque #}
+      <div class="m-lg-obs-bloco">
+        <div class="m-lg-obs-header">
+          <i class="ph ph-note-pencil" aria-hidden="true"></i>
+          <span>Observação do gestor</span>
+        </div>
+        <div class="m-lg-obs-conteudo" id="m_lg_detObs">—</div>
+      </div>
+
+      {# Ações #}
+      <div class="m-lg-acoes">
+        <button type="button" class="m-lg-acao-btn m-lg-acao-btn--imprimir" id="m_lg_btnImprimir">
+          <i class="ph ph-printer" aria-hidden="true"></i>
+          <span>Ver ficha de impressão</span>
+        </button>
+        <button type="button" class="m-lg-acao-btn m-lg-acao-btn--cancelar" id="m_lg_btnExcluir">
+          <i class="ph ph-trash" aria-hidden="true"></i>
+          <span>Excluir viagem</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  {# ----------------- SHEET: NOVA / EDITAR VIAGEM ----------------- #}
+  <div class="m-sheet" data-sheet="rota" aria-hidden="true">
+    <div class="m-sheet__backdrop" data-close-sheet></div>
+    <div class="m-sheet__content m-sheet__content--tall" role="dialog" aria-label="Nova viagem">
+      <div class="m-sheet__handle"></div>
+      <header class="m-sheet__header">
+        <h2 id="m_lg_sheetTitulo">Nova viagem</h2>
+        <button type="button" class="m-iconbtn" data-close-sheet aria-label="Fechar">
+          <i class="ph ph-x" aria-hidden="true"></i>
+        </button>
+      </header>
+      <div class="m-sheet__body">
+        {# Veículo #}
+        <div class="m-field-group">
+          <label class="m-field-label" for="m_lg_fVeiculo">Caminhão / placa</label>
+          <input type="text" id="m_lg_fVeiculo" class="m-field-input" placeholder="Buscar placa ou modelo…" autocomplete="off">
+          <input type="hidden" id="m_lg_fCodVeiculo">
+          <div id="m_lg_fVeiculoDropdown" class="dropdown-abs"></div>
+        </div>
+
+        {# Data + hora #}
+        <div class="m-field-row">
+          <div class="m-field-group m-field-half">
+            <label class="m-field-label" for="m_lg_fData">Data</label>
+            <input type="date" id="m_lg_fData" class="m-field-input">
+          </div>
+          <div class="m-field-group m-field-half">
+            <label class="m-field-label" for="m_lg_fHora">Hora saída</label>
+            <input type="time" id="m_lg_fHora" class="m-field-input">
+          </div>
+        </div>
+
+        {# Motorista #}
+        <div class="m-field-group">
+          <label class="m-field-label" for="m_lg_fMotorista">Motorista (parceiro tipo MOTORISTA)</label>
+          <input type="text" id="m_lg_fMotorista" class="m-field-input" placeholder="Buscar motorista…" autocomplete="off">
+          <input type="hidden" id="m_lg_fCodMotorista">
+          <div id="m_lg_fMotoristaDropdown" class="dropdown-abs"></div>
+        </div>
+
+        {# Ajudantes — multi-typeahead #}
+        <div class="m-field-group">
+          <label class="m-field-label" for="m_lg_fAjudanteInput">Ajudantes (parceiros tipo AJUDANTE)</label>
+          <input type="text" id="m_lg_fAjudanteInput" class="m-field-input" placeholder="Buscar e selecionar…" autocomplete="off">
+          <div id="m_lg_fAjudanteDropdown" class="dropdown-abs"></div>
+          <div class="m-lg-chips-wrap" id="m_lg_fAjudantesChips"></div>
+        </div>
+
+        {# Destinos — sub-lista #}
+        <div class="m-field-group">
+          <label class="m-field-label">
+            <i class="ph ph-map-pin"></i> Destinos da viagem
+          </label>
+          <div class="m-lg-destinos-edit" id="m_lg_fDestinosLista">
+            {# preenchido pelo JS #}
+          </div>
+          <button type="button" class="m-btn-add-destino" id="m_lg_fAddDestino">
+            <i class="ph ph-plus"></i>
+            <span>Adicionar destino</span>
+          </button>
+        </div>
+
+        {# Observação geral #}
+        <div class="m-field-group">
+          <label class="m-field-label" for="m_lg_fObs">Observação do gestor</label>
+          <textarea id="m_lg_fObs" class="m-field-input" rows="3" placeholder="ex: passar no Verdi antes; entregar Assaí Tag antes das 10h"></textarea>
+        </div>
+
+        <div class="m-lg-msg" id="m_lg_fMsg" hidden></div>
+      </div>
+      <footer class="m-sheet__footer">
+        <button type="button" class="m-btn-secondary" data-close-sheet>Cancelar</button>
+        <button type="button" class="m-btn-primary" id="m_lg_fSalvar">
+          <i class="ph ph-check" aria-hidden="true"></i>
+          <span id="m_lg_fSalvarLabel">Confirmar</span>
+        </button>
+      </footer>
+    </div>
+  </div>
+
+  {# ----------------- SHEET: FILTROS ----------------- #}
+  <div class="m-sheet" data-sheet="filtros" aria-hidden="true">
+    <div class="m-sheet__backdrop" data-close-sheet></div>
+    <div class="m-sheet__content" role="dialog" aria-label="Filtros">
+      <div class="m-sheet__handle"></div>
+      <header class="m-sheet__header">
+        <h2>Filtros</h2>
+        <button type="button" class="m-iconbtn" data-close-sheet aria-label="Fechar">
+          <i class="ph ph-x" aria-hidden="true"></i>
+        </button>
+      </header>
+      <div class="m-sheet__body">
+        <div class="m-field-group">
+          <label class="m-field-label">Período</label>
+          <div class="m-field-row m-lg-data-row">
+            <button type="button" id="m_lg_filtPrevDay" class="m-iconbtn" title="Dia anterior">
+              <i class="ph ph-caret-left" aria-hidden="true"></i>
+            </button>
+            <input type="date" id="m_lg_filtDataIni" class="m-field-input">
+            <span class="m-lg-sep">a</span>
+            <input type="date" id="m_lg_filtDataFim" class="m-field-input">
+            <button type="button" id="m_lg_filtNextDay" class="m-iconbtn" title="Dia seguinte">
+              <i class="ph ph-caret-right" aria-hidden="true"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="m-field-group">
+          <label class="m-field-label" for="m_lg_filtMotorista">Motorista</label>
+          <select id="m_lg_filtMotorista" class="m-field-input">
+            <option value="">Todos</option>
+          </select>
+        </div>
+
+        <div class="m-field-group">
+          <label class="m-field-label" for="m_lg_filtVeiculo">Veículo</label>
+          <select id="m_lg_filtVeiculo" class="m-field-input">
+            <option value="">Todos</option>
+          </select>
+        </div>
+      </div>
+      <footer class="m-sheet__footer">
+        <button type="button" class="m-btn-secondary" id="m_lg_filtLimpar">Limpar</button>
+        <button type="button" class="m-btn-primary" data-close-sheet>
+          <i class="ph ph-check" aria-hidden="true"></i>
+          <span>Aplicar</span>
+        </button>
+      </footer>
+    </div>
+  </div>
+
+  {# ----------------- SHEET: MAIS ----------------- #}
+  <div class="m-sheet" data-sheet="mais" aria-hidden="true">
+    <div class="m-sheet__backdrop" data-close-sheet></div>
+    <div class="m-sheet__content" role="dialog" aria-label="Mais opções">
+      <div class="m-sheet__handle"></div>
+      <header class="m-sheet__header">
+        <h2>Mais</h2>
+        <button type="button" class="m-iconbtn" data-close-sheet aria-label="Fechar">
+          <i class="ph ph-x" aria-hidden="true"></i>
+        </button>
+      </header>
+      <div class="m-sheet__body">
+        <button type="button" class="m-mais-item" id="m_lg_maisAtualizar">
+          <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+          <div class="m-mais-info">
+            <span class="m-mais-titulo">Atualizar lista</span>
+            <small class="m-mais-sub">Recarrega as viagens do período</small>
+          </div>
+        </button>
+        <button type="button" class="m-mais-item" id="m_lg_maisNova">
+          <i class="ph ph-plus" aria-hidden="true"></i>
+          <div class="m-mais-info">
+            <span class="m-mais-titulo">Nova viagem</span>
+            <small class="m-mais-sub">Planejar caminhão, motorista e destinos</small>
+          </div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div>{# /.logistica-mobile #}
+
+</div>{# /.logistica-portal #}
+
+{# ================== MODAL DESKTOP — NOVA / EDITAR VIAGEM ================== #}
+<div class="modal-overlay lg-modal hidden" id="lgRotaModal" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="modal-card lg-modal-card">
+    <header class="modal-header">
+      <h3 id="lgRotaModalTitulo">Nova viagem</h3>
+      <span class="lg-modal-numviagem" id="lgRotaModalNumViagem"></span>
+      <button type="button" class="modal-close" data-modal-close>
+        <i class="ph ph-x" aria-hidden="true"></i>
+      </button>
+    </header>
+    <div class="modal-body">
+      <form id="lgRotaForm">
+        <div class="lg-form-grid">
+
+          {# Coluna esquerda — dados gerais #}
+          <div class="lg-form-col">
+            <div class="lg-form-row">
+              <label for="lgRotaVeiculo">Caminhão / placa *</label>
+              <input type="text" id="lgRotaVeiculo" placeholder="Buscar placa ou modelo…" autocomplete="off" required>
+              <input type="hidden" id="lgRotaCodVeiculo">
+              <div id="lgRotaVeiculoDropdown" class="dropdown-abs"></div>
+            </div>
+
+            <div class="lg-form-row lg-form-row--double">
+              <div>
+                <label for="lgRotaData">Data *</label>
+                <input type="date" id="lgRotaData" required>
+              </div>
+              <div>
+                <label for="lgRotaHora">Hora saída *</label>
+                <input type="time" id="lgRotaHora" required>
+              </div>
+            </div>
+
+            <div class="lg-form-row">
+              <label for="lgRotaMotorista">Motorista * <small>(parceiro tipo MOTORISTA)</small></label>
+              <input type="text" id="lgRotaMotorista" placeholder="Buscar motorista por nome…" autocomplete="off" required>
+              <input type="hidden" id="lgRotaCodMotorista">
+              <div id="lgRotaMotoristaDropdown" class="dropdown-abs"></div>
+            </div>
+
+            <div class="lg-form-row">
+              <label for="lgRotaAjudanteInput">Ajudantes <small>(parceiros tipo AJUDANTE)</small></label>
+              <input type="text" id="lgRotaAjudanteInput" placeholder="Buscar ajudante e clicar pra adicionar…" autocomplete="off">
+              <div id="lgRotaAjudanteDropdown" class="dropdown-abs"></div>
+              <div class="lg-chips-wrap" id="lgRotaAjudantesChips"></div>
+            </div>
+
+            <div class="lg-form-row">
+              <label for="lgRotaObs">Observação do gestor</label>
+              <textarea id="lgRotaObs" rows="3" placeholder="ex: passar no Verdi pra coletar caixas vazias; entregar Assaí Tag antes das 10h"></textarea>
+            </div>
+          </div>
+
+          {# Coluna direita — destinos #}
+          <div class="lg-form-col">
+            <div class="lg-form-row">
+              <label class="lg-destinos-label">
+                <span><i class="ph ph-map-pin"></i> Destinos da viagem *</span>
+                <span class="lg-destinos-total-form">
+                  Total: <strong id="lgRotaDestinosTotal">0</strong> cx
+                </span>
+              </label>
+              <div class="lg-destinos-edit" id="lgRotaDestinosLista">
+                {# preenchido pelo JS #}
+              </div>
+              <button type="button" class="lg-btn-add-destino" id="lgRotaAddDestino">
+                <i class="ph ph-plus"></i>
+                <span>Adicionar destino</span>
+              </button>
+              <small class="lg-form-hint">Cliente vem do cadastro TGFPAR. Qtd caixas digitada pelo responsável.</small>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="lg-form-msg" id="lgRotaMsg" hidden></div>
+      </form>
+    </div>
+    <footer class="modal-footer">
+      <button type="button" class="btn btn-perigo" id="lgRotaExcluir" hidden>
+        <i class="ph ph-trash" aria-hidden="true"></i>
+        <span>Excluir viagem</span>
+      </button>
+      <button type="button" class="btn btn-secundario" id="lgRotaImprimir" hidden>
+        <i class="ph ph-printer" aria-hidden="true"></i>
+        <span>Ver ficha</span>
+      </button>
+      <button type="button" class="btn btn-secundario" data-modal-close>Cancelar</button>
+      <button type="button" class="btn btn-primario" id="lgRotaSalvar">
+        <i class="ph ph-check" aria-hidden="true"></i>
+        <span id="lgRotaSalvarLabel">Confirmar viagem</span>
+      </button>
+    </footer>
+  </div>
+</div>
+
+{# ================== MODAL — FICHA DE IMPRESSÃO ================== #}
+<div class="modal-overlay lg-ficha-overlay hidden" id="lgFichaModal" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="lg-ficha-wrap">
+    <header class="lg-ficha-toolbar">
+      <button type="button" class="modal-close" data-modal-close>
+        <i class="ph ph-x" aria-hidden="true"></i>
+      </button>
+      <h3>Ficha do motorista</h3>
+      <button type="button" class="btn btn-primario" id="lgFichaImprimirBtn" title="Imprimir esta ficha">
+        <i class="ph ph-printer" aria-hidden="true"></i>
+        <span>Imprimir</span>
+      </button>
+    </header>
+    <div class="lg-ficha-area">
+      <div class="lg-ficha" id="lgFichaPaper">
+        {# preenchido pelo JS — ver layout em logistica.css #}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'sankhya_integration/logistica.js' %}?v=3"></script>
+  <script src="{% static 'sankhya_integration/logistica_mobile.js' %}?v=3" defer></script>
+{% endblock %}
