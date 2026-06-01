@@ -1,0 +1,98 @@
+{% extends "sankhya_integration/base.html" %}
+{% load static %}
+
+{% block title %}IAgro · Veículos{% endblock %}
+{% block active_module %}configuracoes{% endblock %}
+{% block header_title %}VEÍCULOS (TGFVEI){% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/cadastros_list.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<div class="cad-layout">
+
+  <aside class="cad-lista-panel" id="veiListaPanel">
+    <header class="cad-lista-header">
+      <h3>Veículos do Sankhya</h3>
+      <span class="cad-lista-contador" id="veiContador">—</span>
+    </header>
+
+    <div class="cad-filtros">
+      <div class="cad-filtro-busca">
+        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+        <input type="search" id="veiBusca" placeholder="Buscar placa, modelo, parceiro ou código…"
+               autocomplete="off">
+      </div>
+      <div class="cad-filtro-row">
+        <select id="veiFiltroProprio" class="cad-select" title="Filtrar por propriedade (TGFVEI.PROPRIO)">
+          <option value="">Próprios + Terceiros</option>
+          <option value="S">S — Próprio</option>
+          <option value="N">N — Terceiro</option>
+        </select>
+      </div>
+      <label class="cad-toggle" title="Por padrão a lista mostra só veículos ativos.">
+        <input type="checkbox" id="veiMostrarInativos">
+        <span>Mostrar inativos</span>
+      </label>
+    </div>
+
+    <div class="cad-lista" id="veiLista">
+      <div class="cad-lista-empty">Carregando…</div>
+    </div>
+  </aside>
+
+  <section class="cad-detalhe-panel" id="veiDetalhePanel">
+    <div class="cad-detalhe-vazio" id="veiDetalheVazio">
+      <i class="ph ph-truck" aria-hidden="true"></i>
+      <p>Selecione um veículo à esquerda pra ver os detalhes.</p>
+      <small>Cadastro do Sankhya — apenas visualização nesta tela.</small>
+    </div>
+
+    <div class="cad-detalhe" id="veiDetalheCard" hidden>
+      <header class="cad-detalhe-header">
+        <div class="cad-detalhe-avatar" id="veiDetalheAvatar">?</div>
+        <div class="cad-detalhe-titulo">
+          <h2 id="veiDetalheNome">—</h2>
+          <span class="cad-detalhe-codigo">#<span id="veiDetalheCodigo">—</span></span>
+          <div class="cad-detalhe-badges" id="veiDetalheBadges"></div>
+        </div>
+      </header>
+
+      <div class="cad-detalhe-grid">
+
+        <article class="cad-card">
+          <h4><i class="ph ph-car" aria-hidden="true"></i> Identificação</h4>
+          <dl class="cad-dl">
+            <dt>Placa</dt><dd id="veiFldPlaca">—</dd>
+            <dt>Marca / modelo</dt><dd id="veiFldModelo">—</dd>
+            <dt>Tipo (ESPECIETIPO)</dt><dd id="veiFldTipo">—</dd>
+            <dt>Cor</dt><dd id="veiFldCor">—</dd>
+            <dt>Ano fab/mod</dt><dd id="veiFldAno">—</dd>
+            <dt>Chassi</dt><dd id="veiFldChassi">—</dd>
+            <dt>RENAVAM</dt><dd id="veiFldRenavam">—</dd>
+          </dl>
+        </article>
+
+        <article class="cad-card">
+          <h4><i class="ph ph-users" aria-hidden="true"></i> Propriedade & financeiro</h4>
+          <dl class="cad-dl">
+            <dt>Propriedade</dt><dd id="veiFldProprio">—</dd>
+            <dt>Parceiro</dt><dd id="veiFldParc">—</dd>
+            <dt>Combustível</dt><dd id="veiFldComb">—</dd>
+            <dt>Capacidade (LT)</dt><dd id="veiFldCap">—</dd>
+            <dt>Centro de resultado</dt><dd id="veiFldCencus">—</dd>
+            <dt>Observação</dt><dd id="veiFldObs">—</dd>
+          </dl>
+        </article>
+
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'sankhya_integration/cadastros_helpers.js' %}?v=1" defer></script>
+  <script src="{% static 'sankhya_integration/cadastros_veiculos.js' %}?v=3" defer></script>
+{% endblock %}

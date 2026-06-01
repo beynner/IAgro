@@ -289,3 +289,61 @@ Detalhes da diretriz em [`conventions.md`](conventions.md) → "🧩 Partial `_m
 5. NUNCA criar `.m-fab` em CSS de módulo — a classe é global
 
 Falhar em qualquer item viola essa regra.
+
+---
+
+## 14. Swipe-to-back universal em cascata — OBRIGATÓRIO pra TODA tela nova (Mai/2026 — 2026-05-29)
+
+**Toda tela autenticada do IAgro DEVE ter swipe-to-back funcional em mobile**,
+voltando 1 nível na hierarquia. Múltiplos swipes em sequência sobem a árvore
+até o Painel (raiz).
+
+### Como funciona
+
+- `IAgro.MAPA_VOLTA_PADRAO` em `iagro_helpers.js` — dicionário `pathname → pathname pai`
+- `IAgro.setupSwipeBackAuto()` chamado automaticamente no `base.html` no boot
+- Toda tela que estende `base.html` ganha de graça
+
+### Adicionar tela nova = 1 linha no mapa
+
+```js
+const MAPA_VOLTA_PADRAO = {
+    '/sankhya/':                          null,
+    // ...
+    '/sankhya/MINHA-TELA-NOVA/':          '/sankhya/HUB-PAI/',   // ← aqui
+};
+```
+
+**Critério pra escolher o pai:**
+
+| Tipo de tela | Pai canônico |
+|---|---|
+| Módulo operacional (departamento) | `/sankhya/` (Painel) |
+| Sub-tela dentro de módulo | URL do módulo pai |
+| Sub-hub dentro de hub | URL do hub pai |
+
+### Proibido
+
+- Esquecer de adicionar a linha no mapa quando criar tela nova
+- Reimplementar swipe-to-back manualmente em template/JS específico (helper global cobre)
+- Override pontual sem motivo forte (preferir `null` no mapa pra raízes ou omitir do mapa pra desativar)
+- Apontar `onBack` pra URL fora da hierarquia natural (operador deve sentir cascata previsível)
+
+### Coexistência com módulos mobile SPA
+
+Em módulos com `m-screen` empilhadas (Entrada/Classificação/Rastreio/etc),
+o helper global **detecta automaticamente** se há `.m-screen.is-active`
+diferente de `lista` e cede prioridade ao handler interno do módulo. Não
+precisa configuração manual. Em telas sem `m-screen` (Comercial/Venda/etc.)
+ou na tela `lista` mobile, helper global processa.
+
+### Checklist obrigatório ao gerar tela nova
+
+1. Criou `view_X` em `views.py` que renderiza template estendendo `base.html`?
+2. Adicionou 1 linha em `MAPA_VOLTA_PADRAO` apontando pro pai?
+3. Bumpou cache do `iagro_helpers.js` no `base.html` (`?v=N`)?
+4. Validou no celular real (ou DevTools mobile com touch) que o swipe funciona em cascata até o Painel?
+
+Detalhes da diretriz em [`conventions.md`](conventions.md) → "Swipe-to-back AUTOMÁTICO em cascata".
+
+Falhar em qualquer item viola essa regra.

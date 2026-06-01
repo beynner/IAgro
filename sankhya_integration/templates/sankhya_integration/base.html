@@ -288,7 +288,7 @@
         </footer>
     </div>
 
-    <script src="{% static 'sankhya_integration/iagro_helpers.js' %}?v=5"></script>
+    <script src="{% static 'sankhya_integration/iagro_helpers.js' %}?v=9"></script>
 
     <script>
         // Mai/2026 — Auto-select global on focus em todos os inputs de texto/número.
@@ -297,6 +297,11 @@
         try { window.IAgro && IAgro.setupSidebar && IAgro.setupSidebar(); } catch (e) {}
         // Mai/2026 — agrupamento retrátil (click no header expande/colapsa)
         try { window.IAgro && IAgro.setupSidebarSections && IAgro.setupSidebarSections(); } catch (e) {}
+        // Mai/2026 (2026-05-29) — swipe-to-back automático em cascata pra todas as telas
+        // do IAgro (cadastros/parceiros → cadastros → configurações → painel). Hierarquia
+        // em IAgro.MAPA_VOLTA_PADRAO. Pra desativar em tela específica, adicionar
+        // data-no-swipe-back="1" no <body>.
+        try { window.IAgro && IAgro.setupSwipeBackAuto && IAgro.setupSwipeBackAuto(); } catch (e) {}
     </script>
 
     <script>

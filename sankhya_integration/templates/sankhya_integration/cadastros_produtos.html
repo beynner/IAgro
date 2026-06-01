@@ -1,0 +1,100 @@
+{% extends "sankhya_integration/base.html" %}
+{% load static %}
+
+{% block title %}IAgro · Produtos{% endblock %}
+{% block active_module %}configuracoes{% endblock %}
+{% block header_title %}PRODUTOS (TGFPRO){% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/cadastros_list.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<div class="cad-layout">
+
+  <aside class="cad-lista-panel" id="prodListaPanel">
+    <header class="cad-lista-header">
+      <h3>Produtos do Sankhya</h3>
+      <span class="cad-lista-contador" id="prodContador">—</span>
+    </header>
+
+    <div class="cad-filtros">
+      <div class="cad-filtro-busca">
+        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+        <input type="search" id="prodBusca" placeholder="Buscar código, descrição, fabricante ou EAN…"
+               autocomplete="off">
+      </div>
+      <div class="cad-filtro-row">
+        <select id="prodFiltroUso" class="cad-select" title="Filtrar por uso do produto (TGFPRO.USOPROD)">
+          <option value="">Todos os usos</option>
+          <option value="V">V — Venda</option>
+          <option value="R">R — Revenda</option>
+          <option value="C">C — Consumo</option>
+        </select>
+      </div>
+      <label class="cad-toggle" title="Por padrão a lista mostra só produtos ativos.">
+        <input type="checkbox" id="prodMostrarInativos">
+        <span>Mostrar inativos</span>
+      </label>
+    </div>
+
+    <div class="cad-lista" id="prodLista">
+      <div class="cad-lista-empty">Carregando…</div>
+    </div>
+  </aside>
+
+  <section class="cad-detalhe-panel" id="prodDetalhePanel">
+    <div class="cad-detalhe-vazio" id="prodDetalheVazio">
+      <i class="ph ph-package" aria-hidden="true"></i>
+      <p>Selecione um produto à esquerda pra ver os detalhes.</p>
+      <small>Cadastro do Sankhya — apenas visualização nesta tela.</small>
+    </div>
+
+    <div class="cad-detalhe" id="prodDetalheCard" hidden>
+      <header class="cad-detalhe-header">
+        <div class="cad-detalhe-avatar" id="prodDetalheAvatar">?</div>
+        <div class="cad-detalhe-titulo">
+          <h2 id="prodDetalheNome">—</h2>
+          <span class="cad-detalhe-codigo">#<span id="prodDetalheCodigo">—</span></span>
+          <div class="cad-detalhe-badges" id="prodDetalheBadges"></div>
+        </div>
+      </header>
+
+      <div class="cad-detalhe-grid">
+
+        <article class="cad-card">
+          <h4><i class="ph ph-info" aria-hidden="true"></i> Dados gerais</h4>
+          <dl class="cad-dl">
+            <dt>Descrição</dt><dd id="prodFldDesc">—</dd>
+            <dt>Fabricante</dt><dd id="prodFldFab">—</dd>
+            <dt>Volume padrão</dt><dd id="prodFldVol">—</dd>
+            <dt>Uso (USOPROD)</dt><dd id="prodFldUso">—</dd>
+          </dl>
+        </article>
+
+        <article class="cad-card">
+          <h4><i class="ph ph-tag" aria-hidden="true"></i> Classificação</h4>
+          <dl class="cad-dl">
+            <dt>Grupo (CODGRUPOPROD)</dt><dd id="prodFldGrupo">—</dd>
+            <dt>Referência (EAN13)</dt><dd id="prodFldRef">—</dd>
+            <dt>Selecionado</dt><dd id="prodFldSel">—</dd>
+          </dl>
+        </article>
+
+        <article class="cad-card cad-card--full">
+          <h4><i class="ph ph-list-bullets" aria-hidden="true"></i> Volumes alternativos (TGFVOA)</h4>
+          <div id="prodFldVolumes">
+            <div class="cad-pills-empty">Carregando…</div>
+          </div>
+        </article>
+
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'sankhya_integration/cadastros_helpers.js' %}?v=1" defer></script>
+  <script src="{% static 'sankhya_integration/cadastros_produtos.js' %}?v=3" defer></script>
+{% endblock %}

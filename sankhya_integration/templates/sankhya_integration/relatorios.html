@@ -6,7 +6,7 @@
 {% block header_title %}RELATÓRIOS{% endblock %}
 
 {% block extra_css %}
-  <link rel="stylesheet" href="{% static 'sankhya_integration/relatorios.css' %}?v=1">
+  <link rel="stylesheet" href="{% static 'sankhya_integration/relatorios.css' %}?v=2">
 {% endblock %}
 
 {% block content %}
@@ -68,7 +68,7 @@
           </select>
         </div>
         <button type="button" class="rel-btn-refresh" data-action="refresh">
-          <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+          <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
           Atualizar
         </button>
       </header>
@@ -88,7 +88,7 @@
           <button type="button" class="rel-chip" data-dias="90">90 dias</button>
         </div>
         <button type="button" class="rel-btn-refresh" data-action="refresh">
-          <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+          <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
           Atualizar
         </button>
       </header>
@@ -117,7 +117,7 @@
           </select>
         </div>
         <button type="button" class="rel-btn-refresh" data-action="refresh">
-          <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+          <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
           Atualizar
         </button>
       </header>
@@ -136,7 +136,7 @@
           <button type="button" class="rel-chip" data-horizonte="90">90 dias</button>
         </div>
         <button type="button" class="rel-btn-refresh" data-action="refresh">
-          <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+          <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
           Atualizar
         </button>
       </header>
@@ -164,7 +164,7 @@
           </select>
         </div>
         <button type="button" class="rel-btn-refresh" data-action="refresh">
-          <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+          <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
           Atualizar
         </button>
       </header>
@@ -174,9 +174,34 @@
     </article>
   </section>
 
+  <!-- Modal drilldown (compartilhado pelos 5 relatórios) -->
+  <div id="relDrilldownOverlay" class="rel-drill-overlay" aria-hidden="true">
+    <div class="rel-drill-modal" role="dialog" aria-labelledby="relDrillTitulo">
+      <header class="rel-drill-header">
+        <div class="rel-drill-titles">
+          <h3 id="relDrillTitulo">Detalhe</h3>
+          <p id="relDrillSubtitulo" class="rel-drill-subtitulo"></p>
+        </div>
+        <button type="button" class="rel-drill-close" aria-label="Fechar" data-close-drill>
+          <i class="ph ph-x" aria-hidden="true"></i>
+        </button>
+      </header>
+      <div id="relDrillBody" class="rel-drill-body">
+        <div class="rel-empty">Carregando...</div>
+      </div>
+      <footer id="relDrillFooter" class="rel-drill-footer" hidden>
+        <span id="relDrillTotais" class="rel-drill-totais"></span>
+        <a id="relDrillLinkModulo" href="#" class="rel-drill-link" hidden>
+          <i class="ph ph-arrow-square-out" aria-hidden="true"></i>
+          <span>Abrir no módulo</span>
+        </a>
+      </footer>
+    </div>
+  </div>
+
 </div>
 {% endblock %}
 
 {% block extra_js %}
-  <script src="{% static 'sankhya_integration/relatorios.js' %}?v=1" defer></script>
+  <script src="{% static 'sankhya_integration/relatorios.js' %}?v=2" defer></script>
 {% endblock %}

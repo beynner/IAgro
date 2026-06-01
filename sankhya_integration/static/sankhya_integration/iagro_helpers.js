@@ -733,6 +733,274 @@
     });
   }
 
+  // ===================================================================
+  // SWIPE-TO-BACK (Mai/2026 — padrão universal IAgro)
+  // -------------------------------------------------------------------
+  // Detecta swipe pra direita e navega pra trás. Duas modalidades em
+  // paralelo (cada uma com critério próprio):
+  //
+  // 1) **Edge swipe** (touchstart nos primeiros `edgeWidthPx` px) —
+  //    threshold curto: padrão iOS/Android nativo.
+  // 2) **Swipe horizontal forte** (touchstart em qualquer lugar) —
+  //    threshold maior + ratio horizontal/vertical estrito: cobre
+  //    operador que começa o gesto um pouco fora da borda.
+  //
+  // Defaults calibrados Mai/2026 (2026-05-29) após relatos de operador
+  // que swipe não pegava em telas operacionais (Entrada, Comercial,
+  // etc) — aumentado edgeWidthPx de 30→50 e adicionado fallback forte.
+  //
+  // Uso:
+  //   IAgro.setupSwipeBack();                                // history.back()
+  //   IAgro.setupSwipeBack({ onBack: function(){ ... } });   // callback custom
+  //
+  // Opções:
+  //   onBack:           função custom (default: history.back())
+  //   edgeWidthPx:      borda esquerda ativa pra edge swipe (default 50px)
+  //   edgeThresholdPx:  distância mínima pra edge swipe (default 60px)
+  //   fullThresholdPx:  distância mínima pra swipe forte fora da borda (default 120px)
+  //   velocidadeMinPx:  velocidade mínima px/ms pra edge swipe (default 0.4)
+  //   ativoEm:          'mobile' (default — ≤900px) | 'sempre'
+  //
+  // Retorno: função `dispose()` que remove os listeners.
+  // ===================================================================
+  function setupSwipeBack(opts) {
+    opts = opts || {};
+    const onBack = typeof opts.onBack === 'function'
+      ? opts.onBack
+      : function () { window.history.back(); };
+    const edgeWidthPx     = Number.isFinite(opts.edgeWidthPx)     ? opts.edgeWidthPx     : 50;
+    const edgeThresholdPx = Number.isFinite(opts.edgeThresholdPx) ? opts.edgeThresholdPx : 60;
+    const fullThresholdPx = Number.isFinite(opts.fullThresholdPx) ? opts.fullThresholdPx : 120;
+    const velocidadeMin   = Number.isFinite(opts.velocidadeMinPx) ? opts.velocidadeMinPx : 0.4;
+    const ativoEm         = opts.ativoEm || 'mobile';
+
+    // Debug opcional via ?debug-swipe=1
+    const debug = (function () {
+      try { return /(\?|&)debug-swipe=1/.test(window.location.search); }
+      catch (_) { return false; }
+    })();
+
+    // Critério "mobile": viewport pequena OU device touch (cobre iPad Pro,
+    // tablets em modo desktop, Surface, etc — onde swipe faz sentido mesmo
+    // com viewport larga).
+    const isMobileViewport = window.matchMedia('(max-width: 900px)').matches;
+    const isTouchDevice = ('ontouchstart' in window)
+      || (navigator.maxTouchPoints > 0)
+      || (navigator.msMaxTouchPoints > 0);
+
+    if (ativoEm === 'mobile' && !isMobileViewport && !isTouchDevice) {
+      if (debug) console.log('[swipe-back] desativado (desktop sem touch)');
+      return function () {};
+    }
+    if (debug) console.log('[swipe-back] ativo', {
+      edgeWidthPx, edgeThresholdPx, fullThresholdPx, velocidadeMin,
+      isMobileViewport, isTouchDevice,
+    });
+
+    let startX = 0, startY = 0, startT = 0;
+    let isEdgeStart = false;
+    let tracking = false;
+
+    function onStart(e) {
+      const t = (e.touches && e.touches[0]) || e;
+      if (!t) return;
+
+      // Se houver uma m-screen ativa (módulo com SPA mobile como Entrada,
+      // Classificação, Rastreio, Combustível, Caixas, Logística) e ela NÃO
+      // for a tela `lista` (raiz da SPA), deixa o handler interno do módulo
+      // tratar — ele troca de m-screen (Detalhe → Lista). Helper global só
+      // entra quando o operador está na tela raiz mobile (lista), porque
+      // aí o "voltar" canônico é mudar de URL, não de m-screen.
+      try {
+        const screenAtiva = document.querySelector('.m-screen.is-active');
+        if (screenAtiva
+            && screenAtiva.dataset.screen
+            && screenAtiva.dataset.screen !== 'lista') {
+          if (debug) console.log('[swipe-back] cedendo para handler interno (m-screen=' + screenAtiva.dataset.screen + ')');
+          tracking = false;
+          return;
+        }
+      } catch (_) { /* defensivo: segue normalmente */ }
+
+      startX = t.clientX;
+      startY = t.clientY;
+      startT = Date.now();
+      isEdgeStart = (t.clientX <= edgeWidthPx);
+      tracking = true;
+    }
+
+    function onMove(e) {
+      if (!tracking) return;
+      const t = (e.touches && e.touches[0]) || e;
+      if (!t) return;
+      const dx = t.clientX - startX;
+      const dy = Math.abs(t.clientY - startY);
+      // Cancela se gesto fica predominantemente vertical (preserva scroll)
+      if (dy > 40 && dy > Math.abs(dx)) {
+        tracking = false;
+      }
+    }
+
+    function onEnd(e) {
+      if (!tracking) return;
+      const t = (e.changedTouches && e.changedTouches[0]) || e;
+      tracking = false;
+      if (!t) return;
+      const dx = t.clientX - startX;
+      const dy = Math.abs(t.clientY - startY);
+      const dt = Math.max(1, Date.now() - startT);
+      const velocidade = dx / dt;
+
+      // Critério 1 — Edge swipe (começa na borda esquerda)
+      if (isEdgeStart) {
+        if (dx > edgeThresholdPx && dy < dx * 0.8) {
+          if (debug) console.log('[swipe-back] edge fired', { dx, dy, vel: velocidade });
+          onBack();
+          return;
+        }
+        if (dx > 30 && velocidade > velocidadeMin && dy < 60) {
+          if (debug) console.log('[swipe-back] edge velocity fired', { dx, dy, vel: velocidade });
+          onBack();
+          return;
+        }
+      }
+
+      // Critério 2 — Swipe horizontal forte em qualquer lugar
+      // (fallback: operador que não começou exatamente na borda)
+      if (dx > fullThresholdPx && dy < dx * 0.45) {
+        if (debug) console.log('[swipe-back] full fired', { dx, dy, vel: velocidade });
+        onBack();
+      } else if (debug && dx > 30) {
+        console.log('[swipe-back] gesto descartado', {
+          dx, dy, vel: velocidade.toFixed(2),
+          isEdgeStart, motivo: isEdgeStart ? 'edge insuficiente' : 'forte insuficiente',
+        });
+      }
+    }
+
+    // Bubble phase (não capture) — handlers internos dos módulos mobile
+    // (setupSwipeToBack das m-screen) tratam primeiro o gesto quando estão
+    // em telas internas. Helper global processa apenas o gesto na tela
+    // raiz (lista) ou em telas sem m-screen (Comercial, Venda, etc.) via
+    // detecção em onStart.
+    const optsListener = { passive: true };
+    document.addEventListener('touchstart', onStart, optsListener);
+    document.addEventListener('touchmove',  onMove,  optsListener);
+    document.addEventListener('touchend',   onEnd,   optsListener);
+    document.addEventListener('touchcancel', onEnd,  optsListener);
+
+    return function dispose() {
+      document.removeEventListener('touchstart', onStart);
+      document.removeEventListener('touchmove',  onMove);
+      document.removeEventListener('touchend',   onEnd);
+      document.removeEventListener('touchcancel', onEnd);
+    };
+  }
+
+  // ===================================================================
+  // MAPA_VOLTA_PADRAO + setupSwipeBackAuto (Mai/2026 — 2026-05-29)
+  // -------------------------------------------------------------------
+  // Hierarquia de URLs do IAgro. Cada pathname mapeia pro pathname pai.
+  // Swipe-to-back navega sempre 1 nível pra cima na hierarquia, em cadeia:
+  //
+  //   /sankhya/cadastros/parceiros/  →  /sankhya/cadastros/
+  //   /sankhya/cadastros/            →  /sankhya/configuracoes/
+  //   /sankhya/configuracoes/        →  /sankhya/   (Painel)
+  //   /sankhya/                      →  null (raiz, sem retorno)
+  //
+  // Adicionar tela nova = adicionar 1 linha aqui. Zero código nas views/JS.
+  // Use null pra raízes sem retorno; omita pra deixar o helper inerte.
+  // ===================================================================
+  const MAPA_VOLTA_PADRAO = {
+    // Raízes — sem retorno
+    '/':                                  null,
+    '/sankhya/':                          null,
+
+    // Módulos operacionais → voltam pro Painel
+    '/sankhya/compras/portal/':           '/sankhya/',
+    '/sankhya/compras/classificacao/':    '/sankhya/',
+    '/sankhya/comercial/':                '/sankhya/',
+    '/sankhya/venda/portal/':             '/sankhya/',
+    '/sankhya/rastreio/':                 '/sankhya/',
+    '/sankhya/combustivel/':              '/sankhya/',
+    '/sankhya/logistica/':                '/sankhya/',
+    '/sankhya/caixas/':                   '/sankhya/',
+    '/sankhya/relatorios/':               '/sankhya/',
+
+    // Sub-telas dentro de módulos operacionais → voltam pro módulo
+    '/sankhya/venda/email-importar/':     '/sankhya/venda/portal/',
+    '/sankhya/venda/promocoes/':          '/sankhya/venda/portal/',
+    '/sankhya/venda/tabela-precos/':      '/sankhya/venda/portal/',
+
+    // Hub Configurações → Painel
+    '/sankhya/configuracoes/':            '/sankhya/',
+    '/sankhya/configuracoes/ajustes/':    '/sankhya/configuracoes/',
+    '/sankhya/auditoria/':                '/sankhya/configuracoes/',
+
+    // Sub-hub Cadastros → Configurações (cascata: parceiros → cadastros → configurações → painel)
+    '/sankhya/cadastros/':                '/sankhya/configuracoes/',
+    '/sankhya/cadastros/parceiros/':      '/sankhya/cadastros/',
+    '/sankhya/cadastros/produtos/':       '/sankhya/cadastros/',
+    '/sankhya/cadastros/veiculos/':       '/sankhya/cadastros/',
+    '/sankhya/usuarios/':                 '/sankhya/cadastros/',
+  };
+
+  /**
+   * Configura swipe-to-back automático baseado no pathname atual.
+   * Lê window.location.pathname → busca em MAPA_VOLTA_PADRAO →
+   * chama setupSwipeBack apontando pro pathname pai.
+   *
+   * Comportamento:
+   *   - URL no mapa com pai válido  → swipe vai pro pai
+   *   - URL no mapa com pai = null  → não dispara (é raiz)
+   *   - URL fora do mapa            → não dispara (defesa)
+   *
+   * Chamado automaticamente no base.html.
+   * Pra desativar em tela específica: adicionar `data-no-swipe-back="1"`
+   * no <body> daquela tela.
+   */
+  function setupSwipeBackAuto() {
+    try {
+      const debug = (function () {
+        try { return /(\?|&)debug-swipe=1/.test(window.location.search); }
+        catch (_) { return false; }
+      })();
+
+      // Opt-out por tela (body data-attr)
+      if (document.body && document.body.getAttribute('data-no-swipe-back') === '1') {
+        if (debug) console.log('[swipe-back-auto] opt-out via data-no-swipe-back');
+        return null;
+      }
+
+      const pathname = window.location.pathname || '/';
+      // Normaliza: garante trailing slash
+      const normalizado = pathname.endsWith('/') ? pathname : pathname + '/';
+
+      if (!Object.prototype.hasOwnProperty.call(MAPA_VOLTA_PADRAO, normalizado)) {
+        if (debug) console.log('[swipe-back-auto] pathname fora do mapa:', normalizado);
+        return null;
+      }
+
+      const destino = MAPA_VOLTA_PADRAO[normalizado];
+      if (!destino) {
+        if (debug) console.log('[swipe-back-auto] raiz (sem retorno):', normalizado);
+        return null;
+      }
+
+      if (debug) console.log('[swipe-back-auto] ativando:', normalizado, '->', destino);
+      return setupSwipeBack({
+        onBack: function () {
+          if (debug) console.log('[swipe-back-auto] navegando ->', destino);
+          window.location.href = destino;
+        },
+      });
+    } catch (err) {
+      // Defensivo: nunca quebra a página por causa do swipe
+      try { console.warn('setupSwipeBackAuto falhou:', err); } catch (e) {}
+      return null;
+    }
+  }
+
   // Expor os módulos para o escopo global (window)
   window.IAgro = {
     ...(window.IAgro || {}),
@@ -744,6 +1012,10 @@
     setupSidebar, setupSidebarSections,
     // Mai/2026 (2026-05-15) — double-click cross-device (mouse + touch)
     onDoubleActivate,
+    // Mai/2026 (2026-05-29) — swipe-to-back padrão obrigatório em telas novas
+    setupSwipeBack, setupSwipeBackAuto,
+    // Mapa exposto pra inspeção/depuração (não modificar em runtime)
+    MAPA_VOLTA_PADRAO,
   };
   window.IAOverlay = IAOverlay;
 

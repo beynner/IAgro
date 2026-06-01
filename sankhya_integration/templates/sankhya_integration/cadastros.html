@@ -1,0 +1,76 @@
+{% extends "sankhya_integration/base.html" %}
+{% load static %}
+
+{% block title %}IAgro · Cadastros{% endblock %}
+{% block active_module %}configuracoes{% endblock %}
+{% block header_title %}CADASTROS{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/configuracoes.css' %}?v=1">
+{% endblock %}
+{# Swipe-to-back configurado automaticamente pelo base.html via IAgro.setupSwipeBackAuto + MAPA_VOLTA_PADRAO #}
+
+{% block content %}
+<div class="cfg-layout">
+
+  <p class="cfg-intro">
+    Visualização dos cadastros básicos do Sankhya. Por enquanto, apenas leitura —
+    edição/criação chega em versões futuras com aprovação ponto-a-ponto.
+  </p>
+
+  <div class="cfg-cards">
+    <a href="/sankhya/usuarios/" class="cfg-card" data-modulo="usuarios">
+      <div class="cfg-card-icone">
+        <i class="ph ph-users-three" aria-hidden="true"></i>
+      </div>
+      <div class="cfg-card-info">
+        <h3>Usuários</h3>
+        <p>Cadastro TSIUSU. Listar, ver detalhes, grupos de permissão (TSIGPU). Edição pendente Cat B.</p>
+      </div>
+      <div class="cfg-card-seta">
+        <i class="ph ph-caret-right" aria-hidden="true"></i>
+      </div>
+    </a>
+
+    <a href="/sankhya/cadastros/parceiros/" class="cfg-card" data-modulo="cadastros-parceiros">
+      <div class="cfg-card-icone">
+        <i class="ph ph-address-book" aria-hidden="true"></i>
+      </div>
+      <div class="cfg-card-info">
+        <h3>Parceiros</h3>
+        <p>Cadastro TGFPAR. Clientes, fornecedores, motoristas, ajudantes. Filtro por tipo (AD_PARCEIRO_TIPO).</p>
+      </div>
+      <div class="cfg-card-seta">
+        <i class="ph ph-caret-right" aria-hidden="true"></i>
+      </div>
+    </a>
+
+    <a href="/sankhya/cadastros/produtos/" class="cfg-card" data-modulo="cadastros-produtos">
+      <div class="cfg-card-icone">
+        <i class="ph ph-package" aria-hidden="true"></i>
+      </div>
+      <div class="cfg-card-info">
+        <h3>Produtos</h3>
+        <p>Cadastro TGFPRO. Descrição, grupo, fabricante, EAN13, volumes alternativos (TGFVOA).</p>
+      </div>
+      <div class="cfg-card-seta">
+        <i class="ph ph-caret-right" aria-hidden="true"></i>
+      </div>
+    </a>
+
+    <a href="/sankhya/cadastros/veiculos/" class="cfg-card" data-modulo="cadastros-veiculos">
+      <div class="cfg-card-icone">
+        <i class="ph ph-truck" aria-hidden="true"></i>
+      </div>
+      <div class="cfg-card-info">
+        <h3>Veículos</h3>
+        <p>Cadastro TGFVEI. Placa, modelo, frota própria/terceiro, combustível, parceiro proprietário.</p>
+      </div>
+      <div class="cfg-card-seta">
+        <i class="ph ph-caret-right" aria-hidden="true"></i>
+      </div>
+    </a>
+  </div>
+
+</div>
+{% endblock %}

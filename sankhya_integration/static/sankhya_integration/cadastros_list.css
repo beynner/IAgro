@@ -1,0 +1,467 @@
+/* ==================================================================
+   CADASTROS — Layout compartilhado (Mai/2026)
+   Aplicado em /sankhya/cadastros/parceiros/ /produtos/ /veiculos/.
+   Padrão idêntico ao módulo Usuários (paleta verde Agromil).
+   ================================================================== */
+
+:root {
+    --cad-primary:   #5e7e4a;   /* verde Agromil */
+    --cad-secondary: #825e38;
+    --cad-accent:    #38292c;
+    --cad-bg-card:   #ffffff;
+    --cad-bg-list:   #f4f6f4;
+    --cad-border:    #d9dbd5;
+    --cad-row-hover: #eef2eb;
+    --cad-row-active: #dde6d4;
+    --cad-shadow:    0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+/* ==== Layout principal ==== */
+.cad-layout {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    gap: 14px;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    width: 100%;
+}
+
+/* ==== Coluna esquerda — Lista ==== */
+.cad-lista-panel {
+    display: flex;
+    flex-direction: column;
+    background: var(--cad-bg-card);
+    border: 1px solid var(--cad-border);
+    border-radius: 8px;
+    box-shadow: var(--cad-shadow);
+    overflow: hidden;
+}
+
+.cad-lista-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--cad-border);
+    background: var(--cad-bg-list);
+    flex-shrink: 0;
+}
+
+.cad-lista-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--cad-accent);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.cad-lista-contador {
+    font-size: 12px;
+    color: #777;
+    font-weight: 500;
+}
+
+.cad-filtros {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--cad-border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.cad-filtro-busca {
+    position: relative;
+}
+
+.cad-filtro-busca .ph {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 14px;
+    color: #888;
+    pointer-events: none;
+}
+
+.cad-filtro-busca input {
+    width: 100%;
+    padding: 6px 8px 6px 28px;
+    border: 1px solid var(--cad-border);
+    border-radius: 4px;
+    font-size: 13px;
+    box-sizing: border-box;
+}
+
+.cad-filtro-row {
+    display: flex;
+    gap: 6px;
+}
+
+.cad-select {
+    flex: 1;
+    padding: 5px 6px;
+    border: 1px solid var(--cad-border);
+    border-radius: 4px;
+    font-size: 12px;
+    background: #fff;
+    color: #333;
+    min-width: 0;
+}
+
+.cad-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #555;
+    cursor: pointer;
+    user-select: none;
+    padding: 4px 2px;
+}
+
+.cad-toggle input[type="checkbox"] {
+    margin: 0;
+    width: 14px;
+    height: 14px;
+    accent-color: var(--cad-primary);
+    cursor: pointer;
+}
+
+.cad-toggle:hover { color: var(--cad-accent); }
+
+.cad-toggle input[type="checkbox"]:checked + span {
+    color: var(--cad-primary);
+    font-weight: 600;
+}
+
+.cad-lista {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.cad-lista-empty {
+    padding: 30px 14px;
+    text-align: center;
+    color: #888;
+    font-size: 13px;
+}
+
+.cad-item {
+    padding: 10px 14px;
+    border-bottom: 1px solid #f0f1ed;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: background 0.15s ease;
+}
+
+.cad-item:hover { background: var(--cad-row-hover); }
+
+.cad-item.is-active {
+    background: var(--cad-row-active);
+    border-left: 3px solid var(--cad-primary);
+    padding-left: 11px;
+}
+
+.cad-item-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--cad-primary);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    flex-shrink: 0;
+}
+
+.cad-item-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.cad-item-nome {
+    font-weight: 600;
+    font-size: 13px;
+    color: #222;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-item-meta {
+    font-size: 11px;
+    color: #666;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cad-item-badges {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.cad-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.cad-badge--ativo    { background: #d1fae5; color: #065f46; }
+.cad-badge--inativo  { background: #fee2e2; color: #991b1b; }
+.cad-badge--info     { background: #e0e7ff; color: #3730a3; }
+.cad-badge--warning  { background: #fef3c7; color: #92400e; }
+.cad-badge--primary  { background: var(--cad-primary); color: #fff; }
+
+/* ==== Coluna direita — Detalhe ==== */
+.cad-detalhe-panel {
+    display: flex;
+    flex-direction: column;
+    background: var(--cad-bg-card);
+    border: 1px solid var(--cad-border);
+    border-radius: 8px;
+    box-shadow: var(--cad-shadow);
+    overflow-y: auto;
+}
+
+.cad-detalhe-vazio {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #888;
+    padding: 30px;
+    text-align: center;
+}
+
+.cad-detalhe-vazio .ph {
+    font-size: 64px;
+    margin-bottom: 14px;
+    opacity: 0.4;
+}
+
+.cad-detalhe-vazio p {
+    font-size: 15px;
+    margin: 0 0 6px 0;
+}
+
+.cad-detalhe-vazio small {
+    font-size: 12px;
+    color: #aaa;
+}
+
+.cad-detalhe {
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.cad-detalhe-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--cad-border);
+}
+
+.cad-detalhe-avatar {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--cad-primary);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 18px;
+    text-transform: uppercase;
+    flex-shrink: 0;
+}
+
+.cad-detalhe-titulo {
+    flex: 1;
+    min-width: 0;
+}
+
+.cad-detalhe-titulo h2 {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 600;
+    color: var(--cad-accent);
+}
+
+.cad-detalhe-codigo {
+    display: inline-block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: #777;
+    font-family: monospace;
+}
+
+.cad-detalhe-badges {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+}
+
+/* ==== Grid dos cards de informação ==== */
+.cad-detalhe-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+}
+
+.cad-card {
+    background: var(--cad-bg-list);
+    border: 1px solid var(--cad-border);
+    border-radius: 6px;
+    padding: 14px;
+}
+
+.cad-card--full {
+    grid-column: 1 / -1;
+}
+
+.cad-card h4 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--cad-accent);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.cad-card h4 .ph {
+    color: var(--cad-primary);
+    font-size: 16px;
+}
+
+/* ==== Definition list ==== */
+.cad-dl {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 6px 10px;
+    font-size: 12.5px;
+}
+
+.cad-dl dt {
+    color: #777;
+    font-weight: 500;
+}
+
+.cad-dl dd {
+    margin: 0;
+    color: #222;
+    font-weight: 500;
+    word-break: break-word;
+}
+
+/* ==== Pills/chips dos tipos ==== */
+.cad-pills {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.cad-pill {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 14px;
+    background: var(--cad-primary);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.cad-pill--secondary {
+    background: #e0e7ff;
+    color: #3730a3;
+}
+
+.cad-pills-empty {
+    color: #888;
+    font-size: 12.5px;
+    font-style: italic;
+}
+
+/* ==== Tabela embarcada (ex: volumes do produto) ==== */
+.cad-tabela {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.cad-tabela th,
+.cad-tabela td {
+    padding: 6px 8px;
+    text-align: left;
+    border-bottom: 1px solid var(--cad-border);
+}
+
+.cad-tabela th {
+    background: var(--cad-bg-card);
+    font-weight: 600;
+    color: var(--cad-accent);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.cad-tabela td.num,
+.cad-tabela th.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ==== Responsivo ==== */
+@media (max-width: 1024px) {
+    .cad-layout { grid-template-columns: 320px 1fr; gap: 10px; }
+    .cad-detalhe-grid { grid-template-columns: 1fr; }
+    .cad-dl { grid-template-columns: 130px 1fr; }
+}
+
+@media (max-width: 900px) {
+    .cad-layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+        overflow: visible;
+    }
+    .cad-lista-panel { max-height: 45vh; }
+    .cad-detalhe-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+@media (max-width: 520px) {
+    .cad-dl { grid-template-columns: 1fr; gap: 2px 0; }
+    .cad-dl dt { margin-top: 8px; }
+    .cad-detalhe { padding: 12px; }
+}

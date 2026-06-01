@@ -7,11 +7,12 @@
 {% block header_title %}COMERCIAL{% endblock %}
 
 {% block extra_css %}
-    <link rel="stylesheet" href="{% static 'sankhya_integration/comercial.css' %}?v=15">
+    <link rel="stylesheet" href="{% static 'sankhya_integration/comercial.css' %}?v=17">
 {% endblock %}
 
 {% block content %}
-<div class="layout" style="width: 100%; flex: 1;">
+<div class="comercial-portal">
+<div class="comercial-desktop layout" style="width: 100%; flex: 1;">
     <aside class="sidebar group group--pesquisa">
         <div id="filtersCard" class="panel">
             <h3>Filtros</h3>
@@ -327,6 +328,361 @@
         </div>
     </section>
 </div>
+{# fim .comercial-desktop #}
+
+{# ============================================================== #}
+{# REDESIGN MOBILE-FIRST — Comercial (Mai/2026 — 2026-05-29)       #}
+{# 2 telas (.m-screen) + 3 bottom sheets + bottom nav.             #}
+{# Ativa só em viewport <=900px via media query escopada.          #}
+{# Modais (Faturamento/Impressão/MovimentarLote) ficam fora dos    #}
+{# 2 containers — acessíveis pelos 2 lados (desktop e mobile).     #}
+{# ============================================================== #}
+<div class="comercial-mobile">
+
+    {# --- Tela 1: Lista de vales --------------------------------- #}
+    <section class="m-screen m-screen--lista is-active" data-screen="lista">
+        <header class="m-screen-header">
+            <button type="button" class="m-iconbtn m-sidebar-toggle" id="m_cm_btnSidebar" aria-label="Abrir menu">
+                <i class="ph ph-list" aria-hidden="true"></i>
+            </button>
+            <h1 class="m-screen-title">Comercial</h1>
+            <div class="m-user-badge" title="{{ request.session.nomeusu|default:'Usuário' }}">
+                <i class="ph ph-user" aria-hidden="true"></i>
+                <span>{{ request.session.nomeusu|default:'Usuário' }}</span>
+            </div>
+            <a href="{% url 'logout' %}" class="m-logout-link" title="Encerrar sessão">Sair</a>
+        </header>
+
+        <div class="m-screen-body" id="m_cm_listaScroll">
+            <div class="m-cm-resumo" id="m_cm_resumo">
+                <div class="m-cm-resumo-pill m-cm-resumo-pill--vales">
+                    <span class="m-cm-resumo-label">Vales</span>
+                    <span class="m-cm-resumo-valor" id="m_cm_resumoVales">0</span>
+                </div>
+                <div class="m-cm-resumo-pill m-cm-resumo-pill--valor">
+                    <span class="m-cm-resumo-label">Valor</span>
+                    <span class="m-cm-resumo-valor" id="m_cm_resumoValor">R$ 0,00</span>
+                </div>
+                <div class="m-cm-resumo-pill m-cm-resumo-pill--pendentes">
+                    <span class="m-cm-resumo-label">Pendentes</span>
+                    <span class="m-cm-resumo-valor" id="m_cm_resumoPendentes">0</span>
+                </div>
+                <div class="m-cm-resumo-pill m-cm-resumo-pill--faturados">
+                    <span class="m-cm-resumo-label">Faturados</span>
+                    <span class="m-cm-resumo-valor" id="m_cm_resumoFaturados">0</span>
+                </div>
+            </div>
+
+            <div class="m-cm-search-wrap">
+                <i class="ph ph-magnifying-glass m-cm-search-icon" aria-hidden="true"></i>
+                <input type="search" id="m_cm_search" class="m-cm-search-input" placeholder="Buscar parceiro, vale ou produto…" autocomplete="off" />
+            </div>
+
+            <div class="m-cm-lista" id="m_cm_lista">
+                <div class="m-empty-state">
+                    <i class="ph ph-clipboard-text" aria-hidden="true"></i>
+                    <p>Carregando vales…</p>
+                </div>
+            </div>
+        </div>
+
+        <button type="button" class="m-fab m-fab--secondary" id="m_cm_fabAtualizar" aria-label="Atualizar lista">
+            <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+        </button>
+
+        <nav class="m-bottom-nav" aria-label="Navegação inferior">
+            <button type="button" class="m-bottom-nav__item is-active" data-nav="lista">
+                <i class="ph ph-clipboard-text" aria-hidden="true"></i>
+                <span>Vales</span>
+            </button>
+            <button type="button" class="m-bottom-nav__item" data-nav="buscar">
+                <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                <span>Buscar</span>
+            </button>
+            <button type="button" class="m-bottom-nav__item" data-nav="filtros">
+                <i class="ph ph-funnel" aria-hidden="true"></i>
+                <span>Filtros</span>
+            </button>
+            <button type="button" class="m-bottom-nav__item" data-nav="mais">
+                <i class="ph ph-dots-three" aria-hidden="true"></i>
+                <span>Mais</span>
+            </button>
+        </nav>
+    </section>
+
+    {# --- Tela 2: Detalhe do vale -------------------------------- #}
+    <section class="m-screen m-screen--detalhe" data-screen="detalhe">
+        {% include "sankhya_integration/_m_header_interno.html" with modulo_nome="Comercial" subtela_nome="Vale" %}
+
+        <div class="m-screen-body" id="m_cm_detalheScroll">
+
+            <div class="m-cm-hero" id="m_cm_hero">
+                <div class="m-cm-hero-row">
+                    <span class="m-cm-hero-label">Parceiro</span>
+                    <span class="m-cm-hero-value" id="m_cm_heroParceiro">—</span>
+                </div>
+                <div class="m-cm-hero-row">
+                    <span class="m-cm-hero-label">Produto</span>
+                    <span class="m-cm-hero-value" id="m_cm_heroProduto">—</span>
+                </div>
+                <div class="m-cm-hero-row">
+                    <span class="m-cm-hero-label">Pedido · Data</span>
+                    <span class="m-cm-hero-value" id="m_cm_heroPedidoData">—</span>
+                </div>
+                <div class="m-cm-hero-row m-cm-hero-row--lote">
+                    <span class="m-cm-hero-label">Lote</span>
+                    <span class="m-cm-hero-value m-cm-hero-lote" id="m_cm_heroLote">—</span>
+                </div>
+            </div>
+
+            <div class="m-cm-status-bar" id="m_cm_statusBar" hidden>
+                <i class="ph ph-lock" aria-hidden="true"></i>
+                <span>FATURADO</span>
+            </div>
+
+            <div class="m-cm-kpi-grid">
+                <div class="m-cm-kpi m-cm-kpi--margem" id="m_cm_kpiMargem">
+                    <span class="m-cm-kpi-label">Margem Lote</span>
+                    <span class="m-cm-kpi-value" id="m_cm_margemValue">—</span>
+                    <span class="m-cm-kpi-sub" id="m_cm_margemLucro">R$ 0,00</span>
+                    <span class="m-cm-kpi-badge" id="m_cm_margemBadge" hidden>
+                        <i class="ph ph-warning-circle" aria-hidden="true"></i>
+                        provisória
+                    </span>
+                </div>
+                <div class="m-cm-kpi">
+                    <span class="m-cm-kpi-label">Qtde Total</span>
+                    <span class="m-cm-kpi-value m-cm-kpi-value--sm">
+                        <span id="m_cm_qtdKg">0</span><small> kg</small>
+                    </span>
+                    <span class="m-cm-kpi-sub">
+                        <span id="m_cm_qtdCx">0</span> cx
+                    </span>
+                </div>
+                <div class="m-cm-kpi">
+                    <span class="m-cm-kpi-label">Custo Compra</span>
+                    <span class="m-cm-kpi-value m-cm-kpi-value--sm">
+                        <span id="m_cm_custoKg">0,00</span><small> /kg</small>
+                    </span>
+                    <span class="m-cm-kpi-sub">
+                        <span id="m_cm_custoCx">0,00</span>/cx
+                    </span>
+                </div>
+                <div class="m-cm-kpi m-cm-kpi--total">
+                    <span class="m-cm-kpi-label">Total Compra</span>
+                    <span class="m-cm-kpi-value" id="m_cm_totalCompra">R$ 0,00</span>
+                </div>
+            </div>
+
+            <div class="m-cm-class-cards">
+                <div class="m-cm-class-card m-cm-class-card--extra">
+                    <div class="m-cm-class-header">
+                        <span class="m-cm-class-tag">EXTRA</span>
+                        <span class="m-cm-class-share" id="m_cm_extraShare">0%</span>
+                        <span class="m-cm-class-total" id="m_cm_extraTotal">R$ 0,00</span>
+                    </div>
+                    <div class="m-cm-class-bar-track">
+                        <div class="m-cm-class-bar-fill" id="m_cm_extraBar" style="width:0%"></div>
+                    </div>
+                    <div class="m-cm-class-metrics">
+                        <div class="m-cm-class-metric">
+                            <span class="m-cm-class-mlabel">Qtde</span>
+                            <span class="m-cm-class-mvalue"><span id="m_cm_extraQtdKg">0</span> kg</span>
+                            <span class="m-cm-class-msub"><span id="m_cm_extraQtdCx">0</span> cx</span>
+                        </div>
+                        <div class="m-cm-class-metric">
+                            <span class="m-cm-class-mlabel">Custo</span>
+                            <span class="m-cm-class-mvalue m-cm-class-mvalue--blue">R$ <span id="m_cm_extraCustoKg">0,00</span>/kg</span>
+                            <span class="m-cm-class-msub m-cm-class-msub--blue">R$ <span id="m_cm_extraCustoCx">0,00</span>/cx</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="m-cm-class-card m-cm-class-card--medio">
+                    <div class="m-cm-class-header">
+                        <span class="m-cm-class-tag">MÉDIO</span>
+                        <span class="m-cm-class-share" id="m_cm_medioShare">0%</span>
+                        <span class="m-cm-class-total" id="m_cm_medioTotal">R$ 0,00</span>
+                    </div>
+                    <div class="m-cm-class-bar-track">
+                        <div class="m-cm-class-bar-fill" id="m_cm_medioBar" style="width:0%"></div>
+                    </div>
+                    <div class="m-cm-class-metrics">
+                        <div class="m-cm-class-metric">
+                            <span class="m-cm-class-mlabel">Qtde</span>
+                            <span class="m-cm-class-mvalue"><span id="m_cm_medioQtdKg">0</span> kg</span>
+                            <span class="m-cm-class-msub"><span id="m_cm_medioQtdCx">0</span> cx</span>
+                        </div>
+                        <div class="m-cm-class-metric">
+                            <span class="m-cm-class-mlabel">Custo</span>
+                            <span class="m-cm-class-mvalue m-cm-class-mvalue--blue">R$ <span id="m_cm_medioCustoKg">0,00</span>/kg</span>
+                            <span class="m-cm-class-msub m-cm-class-msub--blue">R$ <span id="m_cm_medioCustoCx">0,00</span>/cx</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="m-cm-spark-card" id="m_cm_sparkCard" hidden>
+                <div class="m-cm-spark-header">
+                    <span class="m-cm-spark-title">
+                        <i class="ph ph-chart-line-up" aria-hidden="true"></i>
+                        Evolução de preço — vendas deste lote
+                    </span>
+                    <span class="m-cm-spark-stats" id="m_cm_sparkStats"></span>
+                </div>
+                <div class="m-cm-spark-svg-wrap">
+                    <svg id="m_cm_sparkSvg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none" viewBox="0 0 600 100"></svg>
+                </div>
+            </div>
+
+            <div class="m-cm-actions">
+                <button type="button" class="m-btn-secondary m-cm-btn-editar" id="m_cm_btnEditarPreco">
+                    <i class="ph ph-pencil-simple" aria-hidden="true"></i>
+                    Editar preço
+                </button>
+                <button type="button" class="m-btn-primary m-cm-btn-faturar" id="m_cm_btnFaturar" disabled>
+                    <i class="ph ph-currency-circle-dollar" aria-hidden="true"></i>
+                    Faturar
+                </button>
+            </div>
+
+            <ul class="m-cm-faturar-motivos" id="m_cm_faturarMotivos" hidden></ul>
+        </div>
+    </section>
+
+    {# --- Sheet Filtros ----------------------------------------- #}
+    <div class="m-sheet" data-sheet="filtros" aria-hidden="true">
+        <div class="m-sheet__backdrop" data-close-sheet></div>
+        <div class="m-sheet__content" role="dialog" aria-label="Filtros">
+            <div class="m-sheet__handle"></div>
+            <header class="m-sheet__header">
+                <h2>Filtros</h2>
+                <button type="button" class="m-iconbtn" data-close-sheet aria-label="Fechar">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </header>
+            <div class="m-sheet__body">
+                <div class="m-field">
+                    <label class="m-field-label">Período</label>
+                    <div class="m-cm-date-range">
+                        <button type="button" class="m-iconbtn m-iconbtn--ghost" id="m_cm_btnDataPrev" aria-label="Dia anterior">
+                            <i class="ph ph-caret-double-left" aria-hidden="true"></i>
+                        </button>
+                        <input type="date" id="m_cm_filtroDataIni" class="m-field-input" />
+                        <span class="m-cm-date-sep">a</span>
+                        <input type="date" id="m_cm_filtroDataFim" class="m-field-input" />
+                        <button type="button" class="m-iconbtn m-iconbtn--ghost" id="m_cm_btnDataNext" aria-label="Próximo dia">
+                            <i class="ph ph-caret-double-right" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="m-field">
+                    <label class="m-field-label">Parceiro</label>
+                    <input type="text" id="m_cm_filtroParceiroNome" class="m-field-input" placeholder="Digite código ou nome…" autocomplete="off" />
+                    <input type="hidden" id="m_cm_filtroParceiroCode" />
+                    <div id="m_cm_filtroParceiroDrop" class="m-cm-typeahead-drop" hidden></div>
+                </div>
+
+                <div class="m-field">
+                    <label class="m-field-label">Produto (fabricante)</label>
+                    <input type="text" id="m_cm_filtroProduto" class="m-field-input" placeholder="Digite o nome do produto…" autocomplete="off" />
+                    <div id="m_cm_filtroProdutoDrop" class="m-cm-typeahead-drop" hidden></div>
+                </div>
+
+                <div class="m-field">
+                    <label class="m-field-label">Nº Vale</label>
+                    <input type="text" inputmode="numeric" id="m_cm_filtroVale" class="m-field-input" placeholder="Nº do vale" />
+                </div>
+
+                <div class="m-field">
+                    <label class="m-field-label">Status</label>
+                    <div class="m-cm-status-chips">
+                        <button type="button" class="m-cm-status-chip" data-status="pendentes">
+                            <i class="ph ph-circle" aria-hidden="true"></i>
+                            Sem preço
+                        </button>
+                        <button type="button" class="m-cm-status-chip" data-status="faturados">
+                            <i class="ph ph-check-circle" aria-hidden="true"></i>
+                            Faturado
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <footer class="m-sheet__footer">
+                <button type="button" class="m-btn-secondary" id="m_cm_filtrosLimpar">Limpar</button>
+                <button type="button" class="m-btn-primary" id="m_cm_filtrosAplicar">Aplicar</button>
+            </footer>
+        </div>
+    </div>
+
+    {# --- Sheet Editar preço ------------------------------------ #}
+    <div class="m-sheet" data-sheet="editar-preco" aria-hidden="true">
+        <div class="m-sheet__backdrop" data-close-sheet></div>
+        <div class="m-sheet__content" role="dialog" aria-label="Editar preço">
+            <div class="m-sheet__handle"></div>
+            <header class="m-sheet__header">
+                <h2>Editar preço</h2>
+                <button type="button" class="m-iconbtn" data-close-sheet aria-label="Fechar">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </header>
+            <div class="m-sheet__body">
+                <p class="m-cm-edit-hint" id="m_cm_editHint">Preço in natura por caixa + peso da caixa classificada do lote.</p>
+                <div class="m-field">
+                    <label class="m-field-label">Preço/cx (R$)</label>
+                    <input type="text" inputmode="decimal" id="m_cm_editPrecoCx" class="m-field-input m-field-input--lg" placeholder="0,00" />
+                    <span class="m-cm-edit-derivado" id="m_cm_editPrecoKg">R$ 0,00/kg</span>
+                </div>
+                <div class="m-field">
+                    <label class="m-field-label">Peso da CX classificada (kg)</label>
+                    <input type="text" inputmode="decimal" id="m_cm_editPesoClassificado" class="m-field-input m-field-input--lg" placeholder="0,00" />
+                </div>
+                <div class="m-cm-edit-msg" id="m_cm_editMsg" hidden></div>
+            </div>
+            <footer class="m-sheet__footer">
+                <button type="button" class="m-btn-secondary" data-close-sheet>Cancelar</button>
+                <button type="button" class="m-btn-primary" id="m_cm_editSalvar">Salvar</button>
+            </footer>
+        </div>
+    </div>
+
+    {# --- Sheet Mais -------------------------------------------- #}
+    <div class="m-sheet" data-sheet="mais" aria-hidden="true">
+        <div class="m-sheet__backdrop" data-close-sheet></div>
+        <div class="m-sheet__content m-sheet__content--auto" role="dialog" aria-label="Mais opções">
+            <div class="m-sheet__handle"></div>
+            <header class="m-sheet__header">
+                <h2>Mais opções</h2>
+                <button type="button" class="m-iconbtn" data-close-sheet aria-label="Fechar">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </header>
+            <div class="m-sheet__body">
+                <button type="button" class="m-cm-acao-row" id="m_cm_acaoAtualizar">
+                    <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                    <div>
+                        <strong>Atualizar lista</strong>
+                        <small>Recarrega vales do filtro atual</small>
+                    </div>
+                </button>
+                <button type="button" class="m-cm-acao-row" id="m_cm_acaoFiltros">
+                    <i class="ph ph-funnel" aria-hidden="true"></i>
+                    <div>
+                        <strong>Abrir filtros</strong>
+                        <small>Período · parceiro · produto · status</small>
+                    </div>
+                </button>
+                <div class="m-cm-acao-info">
+                    <i class="ph ph-info" aria-hidden="true"></i>
+                    <span>Simulação, Movimentar Lote e Impressão estão disponíveis na versão desktop.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{# fim .comercial-mobile #}
 
 <div id="modalFaturamento" class="modal-overlay" style="display:none;">
     <div class="modal-content" style="position: relative;">
@@ -433,6 +789,9 @@
     </div>
 </div>
 
+</div>
+{# fim .comercial-portal #}
+
 {% endblock %}
 
 {% block extra_js %}
@@ -440,4 +799,5 @@
     <script src="{% static 'sankhya_integration/comercialFinanceiro.js' %}?v=19" defer></script>
     <script src="{% static 'sankhya_integration/comercialDistribuicao.js' %}?v=5" defer></script>
     <script src="{% static 'sankhya_integration/comercial.js' %}?v=2" defer></script>
+    <script src="{% static 'sankhya_integration/comercial_mobile.js' %}?v=2" defer></script>
 {% endblock %}

@@ -4,6 +4,111 @@ Lista de pegadinhas que **já causaram bugs** ou que podem causar se tocadas sem
 
 ---
 
+## Wrapper portal sem `flex`/`height` quebra chain de altura do desktop (Mai/2026 — 2026-05-30)
+
+Bug descoberto no Comercial desktop após o redesign mobile do dia anterior: cards Classificação + Entrada **sumiram do viewport** (extravasaram pra baixo, fora da tela). Diminuir o zoom do browser revelava os cards escondidos — confirmando que a árvore HTML estava correta, mas o **chain de altura quebrado**.
+
+**Causa**: o redesign mobile do Comercial envolveu o `.comercial-desktop.layout` num wrapper `.comercial-portal` (pra criar 2 containers paralelos desktop+mobile). Mas o wrapper não tinha CSS — virou `display: block; height: auto`. Resultado:
+
+```
+.main-layout (display: flex; flex: 1; min-height: 0)          ← altura controlada
+  .comercial-portal (display: block; height: auto)            ← chain quebrado
+    .comercial-desktop.layout (display: grid; height: 100%)   ← 100% de quê? do "auto" do pai → resolve por conteúdo
+```
+
+A tentativa de contornar com `.comercial-desktop { display: contents }` foi anulada pelo `.layout { display: grid !important }` (vence por `!important`).
+
+Sem chain de altura, o `.zgrid` (grid 2 rows com `grid-template-rows: minmax(340px, 58%) minmax(220px, 1fr)`) resolvia rows por conteúdo natural. `#distCard` (row 1, span 1/-1) ocupava a altura sem limite; `#classCard` + `#entradaCard` (row 2) ficavam abaixo do viewport. O `aside.sidebar` que contém a Lista também crescia porque não havia teto de altura — operador via "Lista grande, cards de baixo sumiram".
+
+**Fix** ([comercial.css](../sankhya_integration/static/sankhya_integration/comercial.css) — Mai/2026 — 2026-05-30):
+
+```css
+.comercial-portal {
+    display: flex;
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+    position: relative;   /* contexto pro .comercial-mobile { position: absolute } */
+}
+```
+
+`flex: 1; min-height: 0` propaga a altura do `.main-layout` (flex container) pro `.comercial-desktop.layout` (flex item) — que então tem altura definida pra resolver seu `height: 100%`. `position: relative` cobre o caso mobile onde `.comercial-mobile` é `position: absolute; inset: 0`.
+
+**Regra geral pra módulos com 2 containers paralelos desktop+mobile** (padrão `.{modulo}-portal > .{modulo}-desktop + .{modulo}-mobile`):
+
+O wrapper `.{modulo}-portal` **precisa ter `flex: 1; min-height: 0; position: relative`**. Sem isso, qualquer módulo desktop que dependia de chain de altura (`.main-layout flex → .layout grid → .zcell height 100%`) quebra silenciosamente — bug só aparece em viewports menores que a soma das alturas mínimas, então pode passar despercebido em monitor grande.
+
+Quando criar redesign mobile de novo módulo, validar logo no primeiro paint do desktop em **monitor pequeno (laptop 1366×768)** se cards de baixo continuam visíveis com zoom 100% e sem barras de scroll vertical extras no `.main-layout`.
+
+---
+
+## Índice estável `_i` ao usar `data-idx` em cards de lista mobile (Mai/2026 — 2026-05-29)
+
+Operador do Comercial relatou "só consigo ver a lista no mobile" após o deploy inicial. Diagnóstico: handler de click nos cards de item caía em `STATE.listaRows[NaN] = undefined` silenciosamente — não havia erro no console, só nada acontecia.
+
+**Causa raiz**: o JS mobile salvava os rows que vinham do backend direto no STATE sem atribuir um índice estável, e o template renderizava `data-idx="${r._i}"` → `data-idx="undefined"`.
+
+```js
+// ❌ ERRADO — _i nunca é definido
+STATE.listaRows = data.rows || [];
+// template: <div class="m-cm-item-card" data-idx="${r._i}">  ← undefined
+
+// ✅ CORRETO — paridade com ComercialLista desktop
+STATE.listaRows = data.rows || [];
+STATE.listaRows.forEach(function (r, i) { r._i = i; });
+```
+
+O desktop atribui explicitamente em `ComercialLista`:
+```js
+fetched.forEach((row, idx) => row._i = STATE.rows.length + idx);
+```
+
+**Regra geral**: ao reusar uma fonte de dados que o desktop indexa por `_i` (ou similar), o mobile precisa replicar a atribuição. Sintoma típico: cards renderizam, mas click não navega. Sem erro no console — `parseInt(undefined) = NaN` → `array[NaN] = undefined` → bug silencioso.
+
+**Validação rápida**: ao adicionar `data-idx` em qualquer template mobile, fazer `console.log(STATE.lista[0]._i)` no boot e confirmar que é número, não `undefined`. Ou simplesmente atribuir o índice na fonte SEMPRE — custo zero.
+
+---
+
+## Swipe-to-back — defaults conservadores não pegavam em mobile real (Mai/2026 — 2026-05-29)
+
+Versão inicial do `IAgro.setupSwipeBack` (registrado como padrão universal em
+2026-05-29) usava `edgeWidthPx: 30` + `thresholdPx: 80`. Operador relatou que
+em **todas as telas mobile** (Entrada, Comercial, Classificação, Rastreio,
+Configurações, Cadastros...) o swipe não funcionava — sem feedback, sem
+navegação.
+
+**Causas combinadas:**
+
+1. **Edge muito sensível**: operador raramente começa o gesto nos primeiros
+   30px exatos da borda — começa a 50-100px.
+2. **Sem fallback**: gesto fora da borda era simplesmente ignorado, mesmo
+   sendo claramente horizontal e à direita.
+3. **Conflito não documentado com módulos mobile SPA**: handlers internos do
+   `setupSwipeToBack()` próprio de Entrada/Classificação/Rastreio/etc.
+   já tratavam o gesto em telas internas (`m-screen` diferente de `lista`).
+   Helper global precisava ceder prioridade automaticamente nesse caso.
+
+**Fix aplicado (Mai/2026 — 2026-05-29):**
+
+| Parâmetro | Antes | Depois |
+|---|---|---|
+| `edgeWidthPx` | 30 | **50** |
+| `edgeThresholdPx` | 80 | **60** |
+| `fullThresholdPx` (novo — fallback) | N/A | **120** (qualquer lugar, ratio dy/dx < 0.45) |
+| `velocidadeMinPx` | 0.5 | 0.4 |
+| Detecção de m-screen ativa | N/A | **automática no onStart** — cede prioridade ao handler interno se `.m-screen.is-active[data-screen]` ≠ `'lista'` |
+| Mobile-only | viewport ≤900px | viewport ≤900px **OU** `ontouchstart` (cobre tablets touch desktop) |
+
+**Lição**: defaults permissivos > defaults restritivos pra gestos. Operador
+real raramente faz gesto "preciso" como o de demos. Adicionar fallback de
+"swipe forte em qualquer lugar" deve ser regra padrão.
+
+**Debug em produção**: adicionar `?debug-swipe=1` na URL ativa logs no console
+com critério aplicado, distância, velocidade, decisão. Útil pra calibrar
+thresholds quando operador relata novo caso.
+
+---
+
 ## FAB primário cortado pelo bottom-nav em tela detalhe mobile (Mai/2026 — 2026-05-29)
 
 Existia regra global em `global.css` que assumia *"telas internas (`data-screen` ≠ `lista`) não têm bottom-nav"* e jogava o FAB primário pra `bottom: 16px`:

@@ -1,0 +1,100 @@
+{% extends "sankhya_integration/base.html" %}
+{% load static %}
+
+{% block title %}IAgro · Parceiros{% endblock %}
+{% block active_module %}configuracoes{% endblock %}
+{% block header_title %}PARCEIROS (TGFPAR){% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'sankhya_integration/cadastros_list.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<div class="cad-layout">
+
+  {# Coluna esquerda — lista #}
+  <aside class="cad-lista-panel" id="parListaPanel">
+    <header class="cad-lista-header">
+      <h3>Parceiros do Sankhya</h3>
+      <span class="cad-lista-contador" id="parContador">—</span>
+    </header>
+
+    <div class="cad-filtros">
+      <div class="cad-filtro-busca">
+        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+        <input type="search" id="parBusca" placeholder="Buscar código, nome, razão ou CNPJ…"
+               autocomplete="off">
+      </div>
+      <div class="cad-filtro-row">
+        <select id="parFiltroTipo" class="cad-select" title="Filtrar por tipo (AD_PARCEIRO_TIPO)">
+          <option value="">Todos os tipos</option>
+        </select>
+      </div>
+      <label class="cad-toggle" title="Por padrão a lista mostra só parceiros ativos. Marque para incluir os inativos.">
+        <input type="checkbox" id="parMostrarInativos">
+        <span>Mostrar inativos</span>
+      </label>
+    </div>
+
+    <div class="cad-lista" id="parLista">
+      <div class="cad-lista-empty">Carregando…</div>
+    </div>
+  </aside>
+
+  {# Coluna direita — detalhe #}
+  <section class="cad-detalhe-panel" id="parDetalhePanel">
+    <div class="cad-detalhe-vazio" id="parDetalheVazio">
+      <i class="ph ph-address-book" aria-hidden="true"></i>
+      <p>Selecione um parceiro à esquerda pra ver os detalhes.</p>
+      <small>Cadastro do Sankhya — apenas visualização nesta tela.</small>
+    </div>
+
+    <div class="cad-detalhe" id="parDetalheCard" hidden>
+      <header class="cad-detalhe-header">
+        <div class="cad-detalhe-avatar" id="parDetalheAvatar">?</div>
+        <div class="cad-detalhe-titulo">
+          <h2 id="parDetalheNome">—</h2>
+          <span class="cad-detalhe-codigo">#<span id="parDetalheCodigo">—</span></span>
+          <div class="cad-detalhe-badges" id="parDetalheBadges"></div>
+        </div>
+      </header>
+
+      <div class="cad-detalhe-grid">
+
+        <article class="cad-card">
+          <h4><i class="ph ph-identification-card" aria-hidden="true"></i> Dados cadastrais</h4>
+          <dl class="cad-dl">
+            <dt>Nome</dt><dd id="parFldNome">—</dd>
+            <dt>Razão social</dt><dd id="parFldRazao">—</dd>
+            <dt>CNPJ / CPF</dt><dd id="parFldCgc">—</dd>
+            <dt>Insc. estadual</dt><dd id="parFldIE">—</dd>
+            <dt>Tabela de preço</dt><dd id="parFldCodtab">—</dd>
+          </dl>
+        </article>
+
+        <article class="cad-card">
+          <h4><i class="ph ph-phone" aria-hidden="true"></i> Contato</h4>
+          <dl class="cad-dl">
+            <dt>E-mail</dt><dd id="parFldEmail">—</dd>
+            <dt>Telefone</dt><dd id="parFldTel">—</dd>
+            <dt>Fax</dt><dd id="parFldFax">—</dd>
+          </dl>
+        </article>
+
+        <article class="cad-card cad-card--full">
+          <h4><i class="ph ph-tag" aria-hidden="true"></i> Tipos vinculados (AD_PARCEIRO_TIPO)</h4>
+          <ul class="cad-pills" id="parFldTipos">
+            <li class="cad-pills-empty">Carregando…</li>
+          </ul>
+        </article>
+
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'sankhya_integration/cadastros_helpers.js' %}?v=1" defer></script>
+  <script src="{% static 'sankhya_integration/cadastros_parceiros.js' %}?v=3" defer></script>
+{% endblock %}

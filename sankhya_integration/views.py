@@ -70,6 +70,13 @@ from .services.oracle_conn import (
     listar_usuarios,
     consultar_usuario_detalhe,
     consultar_grupos_disponiveis,
+    # Cadastros (Mai/2026) — leitura pura TGFPAR/TGFPRO/TGFVEI
+    listar_parceiros_cadastros,
+    consultar_parceiro_detalhe,
+    listar_produtos_cadastros,
+    consultar_produto_detalhe,
+    listar_veiculos_cadastros,
+    consultar_veiculo_detalhe,
     # Controle de Caixas (Mai/2026) — Cat A (leitura) + Cat B (escritas)
     consultar_saldo_caixas,
     obter_timeline_caixas,
@@ -473,6 +480,55 @@ def api_relatorio_margem_venda(request: HttpRequest) -> JsonResponse:
         dados = consultar_margem_por_venda(date_de, date_ate, agrupar=agrupar)
         cache.set(cache_key, dados, _RELATORIO_MARGEM_CACHE_TTL)
 
+    return JsonResponse({'ok': True, **dados})
+
+
+@require_http_methods(["GET"])
+@exige_grupo('relatorios')
+def api_relatorio_drilldown(request: HttpRequest) -> JsonResponse:
+    """Detalhamento de 1 linha clicada em qualquer relatório (Mai/2026 — 2026-05-30).
+
+    Query params:
+        tipo=cliente_vendas|produto_vendas|lote_movs|veiculo_reqs|fluxo_bucket|margem_detalhe
+        id=N         (CODPARC, CODPROD, CODVEICULO, lote_string, ou bucket_label
+                      conforme o tipo)
+        date_de/date_ate=YYYY-MM-DD  (obrigatório em tipos com período)
+        agrupar=cliente|produto       (só pra margem_detalhe)
+    """
+    from sankhya_integration.services.oracle_conn import (
+        consultar_drilldown_relatorio,
+        DRILLDOWN_TIPOS_VALIDOS,
+    )
+
+    tipo  = (request.GET.get('tipo')  or '').strip()
+    if tipo not in DRILLDOWN_TIPOS_VALIDOS:
+        return JsonResponse({'ok': False, 'error': 'tipo inválido'}, status=400)
+
+    id_raw = (request.GET.get('id') or '').strip()
+    if not id_raw:
+        return JsonResponse({'ok': False, 'error': 'id obrigatório'}, status=400)
+
+    # lote_movs aceita string; demais convertem pra int
+    if tipo in ('cliente_vendas', 'produto_vendas', 'veiculo_reqs', 'margem_detalhe'):
+        try:
+            id_principal = int(id_raw)
+        except ValueError:
+            return JsonResponse({'ok': False, 'error': 'id deve ser numérico'}, status=400)
+    else:
+        id_principal = id_raw  # lote string ou bucket label
+
+    date_de  = (request.GET.get('date_de')  or '').strip()
+    date_ate = (request.GET.get('date_ate') or '').strip()
+    extras   = {}
+    if tipo == 'margem_detalhe':
+        agrupar = (request.GET.get('agrupar') or 'cliente').strip()
+        if agrupar not in ('cliente', 'produto'):
+            agrupar = 'cliente'
+        extras['agrupar'] = agrupar
+
+    dados = consultar_drilldown_relatorio(
+        tipo, id_principal, date_de=date_de, date_ate=date_ate, extras=extras,
+    )
     return JsonResponse({'ok': True, **dados})
 
 
@@ -7537,3 +7593,192 @@ def api_logistica_ficha_pdf(request: HttpRequest, viagem_id: int) -> HttpRespons
         )
         resposta.status_code = 500
         return resposta
+
+
+# ==============================================================================
+# 📋 CADASTROS (Mai/2026)
+# Hub /sankhya/cadastros/ acessado via Configurações → Cadastros. Reúne 4
+# sub-telas view-only: Usuários (já existe), Parceiros, Produtos, Veículos.
+# Apenas leitura — Cat A pura. CRUD futuro fica como Cat B ponto-a-ponto.
+# Acesso: grupos 1 (Diretoria) + 6 (Suporte).
+# ==============================================================================
+
+@ensure_csrf_cookie
+@exige_grupo('cadastros')
+def view_cadastros_painel(request: HttpRequest) -> HttpResponse:
+    """Hub de cadastros — cards de subseções (Usuários, Parceiros, Produtos, Veículos)."""
+    return render(request, "sankhya_integration/cadastros.html")
+
+
+# ------------------------------------------------------------------
+# PARCEIROS — /sankhya/cadastros/parceiros/
+# ------------------------------------------------------------------
+
+@ensure_csrf_cookie
+@exige_grupo('cadastros')
+def view_cadastros_parceiros(request: HttpRequest) -> HttpResponse:
+    """Tela de cadastros de parceiros (TGFPAR) — listar + detalhe."""
+    return render(request, "sankhya_integration/cadastros_parceiros.html")
+
+
+@require_http_methods(["GET"])
+@exige_grupo('cadastros')
+def api_cadastros_parceiros_listar(request: HttpRequest) -> JsonResponse:
+    """Lista paginada de TGFPAR com filtros opcionais.
+
+    Querystring:
+      busca, tipo_id, codtab, limite (max 200, default 50), offset,
+      mostrar_inativos (default false)
+    """
+    filtros = {
+        'busca':            (request.GET.get('busca') or '').strip() or None,
+        'tipo_id':          (request.GET.get('tipo_id') or '').strip() or None,
+        'codtab':           (request.GET.get('codtab') or '').strip() or None,
+        'mostrar_inativos': (request.GET.get('mostrar_inativos', 'false').lower() in ('true', '1', 'yes', 's')),
+    }
+    try:
+        limite = int(request.GET.get('limite') or 50)
+        limite = max(1, min(200, limite))
+    except (TypeError, ValueError):
+        limite = 50
+    try:
+        offset = max(0, int(request.GET.get('offset') or 0))
+    except (TypeError, ValueError):
+        offset = 0
+
+    try:
+        dados = listar_parceiros_cadastros(filtros=filtros, limite=limite, offset=offset)
+        return JsonResponse({'ok': True, **dados})
+    except Exception as exc:
+        logger.exception("Falha em api_cadastros_parceiros_listar")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('cadastros')
+def api_cadastros_parceiros_detalhe(request: HttpRequest, codparc: int) -> JsonResponse:
+    """Detalhe completo de 1 parceiro + lista de tipos vinculados."""
+    try:
+        dados = consultar_parceiro_detalhe(int(codparc))
+        if not dados:
+            return JsonResponse({'ok': False, 'error': 'Parceiro não encontrado.'}, status=404)
+        return JsonResponse({'ok': True, 'parceiro': dados})
+    except Exception as exc:
+        logger.exception("Falha em api_cadastros_parceiros_detalhe codparc=%s", codparc)
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+# ------------------------------------------------------------------
+# PRODUTOS — /sankhya/cadastros/produtos/
+# ------------------------------------------------------------------
+
+@ensure_csrf_cookie
+@exige_grupo('cadastros')
+def view_cadastros_produtos(request: HttpRequest) -> HttpResponse:
+    """Tela de cadastros de produtos (TGFPRO) — listar + detalhe."""
+    return render(request, "sankhya_integration/cadastros_produtos.html")
+
+
+@require_http_methods(["GET"])
+@exige_grupo('cadastros')
+def api_cadastros_produtos_listar(request: HttpRequest) -> JsonResponse:
+    """Lista paginada de TGFPRO com filtros opcionais.
+
+    Querystring:
+      busca, codgrupoprod, usoprod, limite (max 200, default 50), offset,
+      mostrar_inativos (default false)
+    """
+    filtros = {
+        'busca':            (request.GET.get('busca') or '').strip() or None,
+        'codgrupoprod':     (request.GET.get('codgrupoprod') or '').strip() or None,
+        'usoprod':          (request.GET.get('usoprod') or '').strip() or None,
+        'mostrar_inativos': (request.GET.get('mostrar_inativos', 'false').lower() in ('true', '1', 'yes', 's')),
+    }
+    try:
+        limite = int(request.GET.get('limite') or 50)
+        limite = max(1, min(200, limite))
+    except (TypeError, ValueError):
+        limite = 50
+    try:
+        offset = max(0, int(request.GET.get('offset') or 0))
+    except (TypeError, ValueError):
+        offset = 0
+
+    try:
+        dados = listar_produtos_cadastros(filtros=filtros, limite=limite, offset=offset)
+        return JsonResponse({'ok': True, **dados})
+    except Exception as exc:
+        logger.exception("Falha em api_cadastros_produtos_listar")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('cadastros')
+def api_cadastros_produtos_detalhe(request: HttpRequest, codprod: int) -> JsonResponse:
+    """Detalhe completo de 1 produto + volumes alternativos TGFVOA."""
+    try:
+        dados = consultar_produto_detalhe(int(codprod))
+        if not dados:
+            return JsonResponse({'ok': False, 'error': 'Produto não encontrado.'}, status=404)
+        return JsonResponse({'ok': True, 'produto': dados})
+    except Exception as exc:
+        logger.exception("Falha em api_cadastros_produtos_detalhe codprod=%s", codprod)
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+# ------------------------------------------------------------------
+# VEÍCULOS — /sankhya/cadastros/veiculos/
+# ------------------------------------------------------------------
+
+@ensure_csrf_cookie
+@exige_grupo('cadastros')
+def view_cadastros_veiculos(request: HttpRequest) -> HttpResponse:
+    """Tela de cadastros de veículos (TGFVEI) — listar + detalhe."""
+    return render(request, "sankhya_integration/cadastros_veiculos.html")
+
+
+@require_http_methods(["GET"])
+@exige_grupo('cadastros')
+def api_cadastros_veiculos_listar(request: HttpRequest) -> JsonResponse:
+    """Lista paginada de TGFVEI com filtros opcionais.
+
+    Querystring:
+      busca, proprio (S/N), combustivel, limite (max 200, default 50), offset,
+      mostrar_inativos (default false)
+    """
+    filtros = {
+        'busca':            (request.GET.get('busca') or '').strip() or None,
+        'proprio':          (request.GET.get('proprio') or '').strip() or None,
+        'combustivel':      (request.GET.get('combustivel') or '').strip() or None,
+        'mostrar_inativos': (request.GET.get('mostrar_inativos', 'false').lower() in ('true', '1', 'yes', 's')),
+    }
+    try:
+        limite = int(request.GET.get('limite') or 50)
+        limite = max(1, min(200, limite))
+    except (TypeError, ValueError):
+        limite = 50
+    try:
+        offset = max(0, int(request.GET.get('offset') or 0))
+    except (TypeError, ValueError):
+        offset = 0
+
+    try:
+        dados = listar_veiculos_cadastros(filtros=filtros, limite=limite, offset=offset)
+        return JsonResponse({'ok': True, **dados})
+    except Exception as exc:
+        logger.exception("Falha em api_cadastros_veiculos_listar")
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)
+
+
+@require_http_methods(["GET"])
+@exige_grupo('cadastros')
+def api_cadastros_veiculos_detalhe(request: HttpRequest, codveiculo: int) -> JsonResponse:
+    """Detalhe completo de 1 veículo (TGFVEI + JOIN TGFPAR + TSICUS)."""
+    try:
+        dados = consultar_veiculo_detalhe(int(codveiculo))
+        if not dados:
+            return JsonResponse({'ok': False, 'error': 'Veículo não encontrado.'}, status=404)
+        return JsonResponse({'ok': True, 'veiculo': dados})
+    except Exception as exc:
+        logger.exception("Falha em api_cadastros_veiculos_detalhe codveiculo=%s", codveiculo)
+        return JsonResponse({'ok': False, 'error': humanizar_erro_oracle(exc)}, status=500)

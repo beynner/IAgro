@@ -4,6 +4,155 @@ Faturamento de vales de compra, precificação, negociação e geração de fina
 
 ---
 
+## 📱 Redesign Mobile app-like (Mai/2026 — 2026-05-29)
+
+Mesma arquitetura padrão dos outros módulos (Entrada/Classificação/Rastreio/Combustível/Caixas). HTML único com 2 containers paralelos (`.comercial-desktop` + `.comercial-mobile`) escopados por `body[data-active-module="comercial"]` em viewport ≤900px. Desktop preservado 100% intacto. **Backend reusado — zero endpoint novo.**
+
+### Estrutura mobile
+
+| Componente | Arquivo |
+|---|---|
+| Template | `comercial.html` — bloco `.comercial-mobile` com 2 telas + 3 sheets + bottom nav + FAB |
+| CSS | `comercial.css` — bloco "REDESIGN MOBILE-FIRST" no fim, escopado |
+| JS | `comercial_mobile.js` (~1.000 linhas IIFE) — só ativa ≤900px ou touch real |
+
+### 2 telas mobile
+
+1. **Lista de vales** (`m-screen[data-screen="lista"]`)
+   - Header: `[≡] Comercial [👤 USER] Sair`
+   - 4 pílulas de resumo no topo: Vales · Valor · Pendentes · Faturados
+   - Campo de busca client-side (debounce 200ms, normaliza acentos)
+   - Cards de vale agrupados por NUNOTA com chevron expansível
+   - Cor da borda esquerda muda por status: verde Agromil (aberto) · verde sucesso (faturado) · vermelho (sem preço)
+   - Sub-cards de item com badge da categoria (classificável verde · não-classif cinza · sem preço vermelho)
+   - Bottom nav 4 itens: Vales · Buscar · Filtros · Mais
+   - FAB azul Atualizar (sem FAB verde — não cria vale aqui)
+
+2. **Detalhe do vale** (`m-screen[data-screen="detalhe"]`)
+   - Header partial `_m_header_interno.html` (`Comercial / Vale` + back + user + Sair)
+   - Hero card 4 linhas: Parceiro · Produto · Pedido·Data · Lote
+   - Status bar FATURADO (quando aplicável) — gradient verde + lock
+   - **4 KPI cards 2×2**: Margem Lote · Qtde Total · Custo Compra · Total Compra
+   - Margem usa endpoint `/api/margem-lote/` (cor: verde positivo · vermelho negativo · cinza neutro) + badge "provisória" quando há saldo
+   - **2 cards de classificação** (EXTRA verde · MÉDIO âmbar) com bar de progresso + qtd kg/cx + custo kg/cx
+   - **Sparkline SVG** "Evolução de preço — vendas deste lote" via endpoint `/api/vendas-lote/`
+   - **2 botões grandes em grid**: `Editar preço` (secundário) + `Faturar` (primário verde)
+   - Lista amarela de motivos quando FATURAR bloqueado (paridade desktop)
+
+### 3 bottom sheets
+
+- **`filtros`** — Período `<<>>` · typeahead Parceiro + Produto (fabricante) · Nº Vale · 2 chips de status (Sem preço · Faturado)
+- **`editar-preco`** — inputs grandes 52px touch-friendly: Preço/cx + Peso CX Classificado. Calcula R$/kg derivado em runtime. Salva via `/api/atualizar-preco/` + `/api/atualizar-peso/` (mesmos endpoints do desktop)
+- **`mais`** — 2 atalhos: Atualizar lista + Abrir filtros + info "Simulação, Movimentar Lote e Impressão na versão desktop"
+
+### Endpoints reusados (zero novo)
+
+| Endpoint | Mobile usa pra |
+|---|---|
+| `GET /sankhya/comercial/lista/?...` | Lista de vales (filtros + paginação) |
+| `GET /sankhya/comercial/api/margem-lote/?lote=X` | KPI margem + tooltip |
+| `GET /sankhya/comercial/api/vendas-lote/?lote=X` | Sparkline + estatísticas |
+| `POST /sankhya/comercial/api/atualizar-preco/` | Salvar preço CX (Sheet editar-preco) |
+| `POST /sankhya/comercial/api/atualizar-peso/` | Salvar peso classificado |
+| `GET /sankhya/parceiros/search/?q=` | Typeahead filtro Parceiro |
+| `GET /sankhya/produtos/search/?q=&fabricante=1` | Typeahead filtro Produto |
+| `window.ComercialFinanceiro.abrir(nunota)` | **Reutiliza modal Faturamento desktop** — vira fullscreen via CSS responsivo já existente |
+
+### Limitações conscientes (redireciona pra desktop)
+
+| Feature | Decisão | Razão |
+|---|---|---|
+| **Simulação de Negócio** | Não exposta mobile | UX complexa (4 inputs reativos + balanço de massa Auto) |
+| **Movimentar Lote** (Desmembrar/Unificar) | Não exposto mobile | Operação cirúrgica rara |
+| **Modal Impressão** (4 tipos de papel) | Não exposto mobile | Impressora térmica no balcão |
+| **Painel Últimas Vendas com toggle Lote/Produto** | Mostra só "deste lote" no sparkline | Toggle vive no desktop |
+| **Classificação completa** (gauge + balanço de massa) | Card simplificado (só EXTRA/MÉDIO) | Operador não classifica via Comercial mobile |
+| **Breakdown EXTRA/MÉDIO via Classificação** | Mostra dado consolidado quando não-classif; em classificável mostra "—" no share | Backend não retorna breakdown na listagem |
+
+### Decisões pragmáticas vs desktop
+
+| Aspecto | Desktop | Mobile |
+|---|---|---|
+| Layout | 3 colunas (filtros + zarea + cards) | Stack de telas (lista → detalhe) |
+| Lista | Tabela colapsável com 2 view modes (Vale/Parceiro) | Cards verticais agrupados por NUNOTA |
+| Filtros | Card lateral com chips de filtros ativos | Bottom sheet + badge no bottom nav |
+| Editar preço | Inline na linha de Entrada (click no display) | Bottom sheet dedicado com 2 inputs grandes |
+| Modal Faturamento | Modal centralizado | Reusa modal desktop (vira fullscreen via CSS responsivo) |
+| Persistência de filtros | localStorage `agromil_comercial_filtros_v3` | Estado em memória (perde no reload) |
+| Atualizar lista | Botão `Atualizar` no card | FAB azul `ph-arrows-clockwise` + sheet Mais |
+
+### Cache busting
+
+CSS `?v=17` · JS desktop preservado · JS mobile `?v=2` (Mai/2026 — 2026-05-30 após fix do chain de altura desktop).
+
+### Bug fix pós-deploy — chain de altura quebrado no desktop (Mai/2026 — 2026-05-30 — CSS v17)
+
+Operador relatou no dia seguinte ao deploy do mobile redesign: cards **Classificação + Entrada sumiram** do desktop, e o card Lista (sidebar) cresceu ocupando altura excessiva. Diminuir o zoom revelava os cards escondidos abaixo do viewport.
+
+**Causa**: o `.comercial-portal` (wrapper criado pra abrigar `.comercial-desktop` + `.comercial-mobile` em paralelo) não tinha CSS — virou `display: block; height: auto`. Resultado: chain de altura quebrado entre `.main-layout` (flex container do base.html) e `.comercial-desktop.layout` (grid com `height: 100%`). Sem altura definida no pai, o `height: 100%` resolvia por conteúdo natural, `#distCard` (row 1) ocupava sem limite, e `#classCard` + `#entradaCard` (row 2) iam abaixo do viewport.
+
+A tentativa anterior de contornar com `.comercial-desktop { display: contents }` foi anulada pelo `.layout { display: grid !important }` (vence por `!important`).
+
+**Fix** em [comercial.css](../../sankhya_integration/static/sankhya_integration/comercial.css):
+
+```css
+.comercial-portal {
+    display: flex;
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+    position: relative;   /* contexto pro .comercial-mobile { position: absolute } */
+}
+```
+
+Restaura chain de altura do `.main-layout` (flex container) pra o `.comercial-desktop.layout` (flex item com grid interno). `position: relative` resolve o contexto pro `.comercial-mobile` no media query ≤900px.
+
+Padrão consolidado em [conventions.md](../conventions.md) → "Arquitetura — 2 containers paralelos no HTML" e gotcha em [gotchas.md](../gotchas.md) → "Wrapper portal sem flex/height quebra chain de altura do desktop". **Toda implementação nova de redesign mobile com 2 containers paralelos PRECISA configurar o `.{modulo}-portal` com `flex: 1; min-height: 0; position: relative`.**
+
+### Bug fix pós-deploy — `data-idx` undefined nos cards de item (Mai/2026 — 2026-05-29 — v2)
+
+Imediatamente após o deploy inicial, operador relatou "só consigo ver a lista". Causa: `carregarLista` não atribuía `_i` aos rows antes de salvar no STATE — o `data-idx="${r._i}"` no template renderizava `undefined`, e o handler do click caía em `STATE.listaRows[NaN] = undefined` silenciosamente.
+
+**Fix** em [comercial_mobile.js](../../sankhya_integration/static/sankhya_integration/comercial_mobile.js):
+```js
+STATE.listaRows = Array.isArray(data.rows) ? data.rows : [];
+STATE.listaRows.forEach(function (r, i) { r._i = i; });   // ← paridade com ComercialLista desktop
+```
+
+Padrão consolidado: **toda lista mobile com `data-idx` no template precisa atribuir `_i` (ou índice equivalente) antes de renderizar**. Vide [gotchas.md](../gotchas.md) → "Índice estável `_i` ao usar `data-idx` em cards de lista mobile".
+
+### UX bonus — vale com 1 item abre detalhe direto
+
+Adicionado nessa mesma rodada: vales com **1 item só** abrem o detalhe imediatamente ao tocar no header (sem precisar expandir + tocar no item). Vales com 2+ itens continuam expandindo/colapsando. Reduz cliques desnecessários no fluxo mais comum da operação (1 vale = 1 produto).
+
+```js
+lista.querySelectorAll('.m-cm-vale-header').forEach(function (h) {
+    h.addEventListener('click', function () {
+        var nun = h.getAttribute('data-nun');
+        var itens = STATE.listaRows.filter(function (r) { return String(r.nunota) === String(nun); });
+        if (itens.length === 1) {
+            abrirDetalheVale(itens[0]);   // atalho 1-item
+            return;
+        }
+        // 2+ itens: expande/colapsa
+        var isExp = h.getAttribute('data-expanded') === 'true';
+        h.setAttribute('data-expanded', isExp ? 'false' : 'true');
+    });
+});
+```
+
+Padrão reusável documentado em [conventions.md](../conventions.md) → "UX bonus — cards de grupo com 1 filho navegam direto".
+
+### Validação
+
+- `manage.py check` → 0 issues
+- esprima `comercial_mobile.js` → OK (~46.000 chars)
+- 0 IDs mobile duplicados (66 IDs únicos com prefixo `m_cm_*`)
+- 0 comentários Django multi-line
+- Template parseia sem `TemplateSyntaxError`
+
+---
+
 ## Escopo
 
 - Faturar vales (TOP 13) com precificação

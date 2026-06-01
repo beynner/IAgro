@@ -757,3 +757,161 @@ class ApiMargemVendaViewTest(TestCase):
         self.client.get(self.url + base + '&agrupar=produto')
         # 2 chamadas — chaves de cache distintas
         self.assertEqual(mock_fn.call_count, 2)
+
+
+# ==========================================================================
+# DRILLDOWN — polish v1.1 (Mai/2026 — 2026-05-30)
+# ==========================================================================
+
+class ConsultarDrilldownServiceTest(TestCase):
+    """Switch interno por tipo. Tudo SELECT puro."""
+
+    def _mock(self, mock_obter, fetchall):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = fetchall
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        mock_obter.return_value.__enter__.return_value = conn
+        mock_obter.return_value.__exit__.return_value = None
+        return cursor
+
+    def test_tipo_invalido_retorna_vazio(self):
+        from sankhya_integration.services.oracle_conn import consultar_drilldown_relatorio
+        out = consultar_drilldown_relatorio('inexistente', 123)
+        self.assertEqual(out['linhas'], [])
+        self.assertEqual(out['tipo'], 'inexistente')
+
+    def test_id_vazio_retorna_vazio(self):
+        from sankhya_integration.services.oracle_conn import consultar_drilldown_relatorio
+        out = consultar_drilldown_relatorio('cliente_vendas', '')
+        self.assertEqual(out['linhas'], [])
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_cliente_vendas_sem_data_retorna_vazio(self, mock_obter):
+        from sankhya_integration.services.oracle_conn import consultar_drilldown_relatorio
+        out = consultar_drilldown_relatorio('cliente_vendas', 588)
+        self.assertEqual(out['linhas'], [])
+        mock_obter.assert_not_called()
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_cliente_vendas_filtra_codparc_e_top(self, mock_obter):
+        cursor = self._mock(mock_obter, [])
+        from sankhya_integration.services.oracle_conn import consultar_drilldown_relatorio
+        consultar_drilldown_relatorio('cliente_vendas', 588,
+                                       date_de='2026-05-01', date_ate='2026-05-30')
+        sql = cursor.execute.call_args[0][0]
+        self.assertIn('matriz.CODPARC = :cp', sql)
+        self.assertIn('CODTIPOPER IN (35, 37)', sql)
+        self.assertIn("STATUSNOTA = 'L'", sql)
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_lote_movs_filtra_codagregacao(self, mock_obter):
+        cursor = self._mock(mock_obter, [])
+        from sankhya_integration.services.oracle_conn import consultar_drilldown_relatorio
+        consultar_drilldown_relatorio('lote_movs', '113821S01D260527')
+        sql = cursor.execute.call_args[0][0]
+        self.assertIn('i.CODAGREGACAO = :lote', sql)
+        self.assertIn("STATUSNOTA <> 'E'", sql)
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_fluxo_bucket_atrasado_filtra_dtvenc_passado(self, mock_obter):
+        cursor = self._mock(mock_obter, [])
+        from sankhya_integration.services.oracle_conn import consultar_drilldown_relatorio
+        consultar_drilldown_relatorio('fluxo_bucket', 'ATRASADO')
+        sql = cursor.execute.call_args[0][0]
+        self.assertIn('TRUNC(f.DTVENC) < TRUNC(SYSDATE)', sql)
+        # Filtra em aberto via sentinel 01/01/1998
+        self.assertIn("'01/01/1998'", sql)
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_fluxo_bucket_invalido_retorna_vazio(self, mock_obter):
+        from sankhya_integration.services.oracle_conn import consultar_drilldown_relatorio
+        out = consultar_drilldown_relatorio('fluxo_bucket', 'BUCKET_INVENTADO')
+        self.assertEqual(out['linhas'], [])
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_margem_detalhe_extras_agrupar_produto(self, mock_obter):
+        cursor = self._mock(mock_obter, [])
+        from sankhya_integration.services.oracle_conn import consultar_drilldown_relatorio
+        consultar_drilldown_relatorio('margem_detalhe', 351,
+                                       date_de='2026-05-01', date_ate='2026-05-30',
+                                       extras={'agrupar': 'produto'})
+        sql = cursor.execute.call_args[0][0]
+        self.assertIn('i.CODPROD = :cod', sql)
+        # CTE custos_lote presente (reusa cálculo do relatório principal)
+        self.assertIn('custos_lote', sql.lower())
+
+    @patch('sankhya_integration.services.oracle_conn.obter_conexao_oracle')
+    def test_falha_oracle_retorna_vazio(self, mock_obter):
+        mock_obter.side_effect = Exception('Oracle down')
+        from sankhya_integration.services.oracle_conn import consultar_drilldown_relatorio
+        out = consultar_drilldown_relatorio('cliente_vendas', 588,
+                                             date_de='2026-05-01', date_ate='2026-05-30')
+        self.assertEqual(out['linhas'], [])
+
+
+class ApiDrilldownEndpointTest(TestCase):
+    def setUp(self):
+        self.client = Client()
+        _login_session(self.client, grupos=['1'])
+        self.url = '/sankhya/relatorios/api/drilldown/'
+
+    def test_tipo_ausente_retorna_400(self):
+        resp = self.client.get(self.url + '?id=1')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_tipo_invalido_retorna_400(self):
+        resp = self.client.get(self.url + '?tipo=hackz&id=1')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_id_ausente_retorna_400(self):
+        resp = self.client.get(self.url + '?tipo=cliente_vendas')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_id_nao_numerico_em_tipo_numerico_retorna_400(self):
+        resp = self.client.get(self.url + '?tipo=cliente_vendas&id=abc')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_lote_movs_aceita_id_string(self):
+        """lote_movs usa CODAGREGACAO (string), não exige numérico."""
+        with patch('sankhya_integration.services.oracle_conn.consultar_drilldown_relatorio') as mock_fn:
+            mock_fn.return_value = {
+                'tipo': 'lote_movs', 'titulo': '', 'subtitulo': '',
+                'colunas': [], 'linhas': [], 'totais': {},
+            }
+            resp = self.client.get(self.url + '?tipo=lote_movs&id=113821S01D260527')
+            self.assertEqual(resp.status_code, 200)
+            mock_fn.assert_called_once()
+            # ID passa como string pro service
+            args, kwargs = mock_fn.call_args
+            self.assertEqual(args[1], '113821S01D260527')
+
+    def test_fluxo_bucket_aceita_label_string(self):
+        with patch('sankhya_integration.services.oracle_conn.consultar_drilldown_relatorio') as mock_fn:
+            mock_fn.return_value = {
+                'tipo': 'fluxo_bucket', 'titulo': '', 'subtitulo': '',
+                'colunas': [], 'linhas': [], 'totais': {},
+            }
+            resp = self.client.get(self.url + '?tipo=fluxo_bucket&id=ATRASADO')
+            self.assertEqual(resp.status_code, 200)
+            args, kwargs = mock_fn.call_args
+            self.assertEqual(args[1], 'ATRASADO')
+
+    def test_margem_detalhe_repasse_agrupar(self):
+        with patch('sankhya_integration.services.oracle_conn.consultar_drilldown_relatorio') as mock_fn:
+            mock_fn.return_value = {
+                'tipo': 'margem_detalhe', 'titulo': '', 'subtitulo': '',
+                'colunas': [], 'linhas': [], 'totais': {},
+            }
+            resp = self.client.get(
+                self.url + '?tipo=margem_detalhe&id=351&date_de=2026-05-01'
+                '&date_ate=2026-05-30&agrupar=produto'
+            )
+            self.assertEqual(resp.status_code, 200)
+            _, kwargs = mock_fn.call_args
+            self.assertEqual(kwargs['extras']['agrupar'], 'produto')
+
+    def test_sem_sessao_bloqueia(self):
+        c = Client()  # sem login
+        resp = c.get(self.url + '?tipo=cliente_vendas&id=1')
+        self.assertIn(resp.status_code, (302, 403))

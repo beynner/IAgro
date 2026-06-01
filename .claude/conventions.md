@@ -189,8 +189,21 @@ Essa regra vale em **todas as telas** (lista + detalhe). Se uma tela específica
 CSS controla visibilidade via media query escopada:
 
 ```css
+/* OBRIGATÓRIO: o wrapper portal propaga o chain de altura do .main-layout
+   (flex container) pro .{modulo}-desktop original. Sem isso, módulos cujo
+   desktop dependia de height: 100% nos filhos quebram (cards extravasam pra
+   baixo, ficam escondidos abaixo do viewport). Vide gotcha "Wrapper portal
+   sem flex/height quebra chain de altura do desktop". */
+.{modulo}-portal {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  position: relative;   /* contexto pro .{modulo}-mobile.position-absolute */
+}
+
 .{modulo}-mobile { display: none; }
-.{modulo}-desktop { display: flex; ... }
+.{modulo}-desktop { display: flex; ... }   /* ou grid, conforme o layout original */
 
 @media (max-width: 900px) {
   body[data-active-module="{modulo}"] .{modulo}-desktop { display: none !important; }
@@ -200,6 +213,8 @@ CSS controla visibilidade via media query escopada:
   body[data-active-module="{modulo}"] .main-layout { padding: 0 !important; overflow: hidden !important; }
 }
 ```
+
+**⚠ Não usar `display: contents` no `.{modulo}-desktop`** como atalho — perde pra `!important` em `display: grid/flex` do layout original e gera ilusão de fix (passa em monitor grande, quebra em laptop). Configurar o `.{modulo}-portal` é o caminho correto.
 
 ### Classes `.m-*` padrão (paleta compartilhada via tokens)
 
@@ -366,6 +381,44 @@ Padrão estrutural no `<header class="m-screen-header">` da tela `data-screen="l
 ```
 
 Badge truncado em 100px com `text-overflow: ellipsis`. Em telas internas, manter o spacer original ou usar botões de ação.
+
+### UX bonus — cards de grupo com 1 filho navegam direto (Mai/2026 — 2026-05-29)
+
+Listas mobile que agrupam itens por chave (parceiro, NUNOTA, lote, etc) frequentemente têm muitos grupos com **1 filho só**. Forçar o operador a clicar 2× (header pra expandir + filho pra navegar) é fricção desnecessária no fluxo mais comum.
+
+**Padrão**: header com 1 filho **abre o detalhe direto**. Header com 2+ filhos expande/colapsa pra mostrar lista.
+
+Exemplo concreto do Comercial mobile:
+
+```js
+lista.querySelectorAll('.m-cm-vale-header').forEach(function (h) {
+    h.addEventListener('click', function () {
+        var nun = h.getAttribute('data-nun');
+        var itens = STATE.listaRows.filter(function (r) {
+            return String(r.nunota) === String(nun);
+        });
+        // UX: vale com 1 item só → abre detalhe direto
+        if (itens.length === 1) {
+            abrirDetalheVale(itens[0]);
+            return;
+        }
+        // 2+ itens: expande/colapsa
+        var isExp = h.getAttribute('data-expanded') === 'true';
+        h.setAttribute('data-expanded', isExp ? 'false' : 'true');
+    });
+});
+```
+
+Cards filhos sempre precisam `ev.stopPropagation()` no click pra não disparar o handler do header pai.
+
+**Quando aplicar**:
+- Lista de vales agrupada por NUNOTA (Comercial) — vale típico tem 1 produto
+- Lista de pedidos agrupada por NUNOTA (Rastreio) — pedido pequeno tem 1 item
+- Lista de lotes agrupada por produto (Rastreio) — produto com 1 lote disponível
+- Lista de viagens agrupada por motorista (Logística) — motorista com 1 viagem no dia
+
+**Quando NÃO aplicar**:
+- Grupos onde o header **é semântico próprio** (agrupador de filtro/categoria sem entidade-mãe) — operador sempre quer ver os filhos juntos
 
 ### Display de quantidade em cards de item
 
@@ -1078,6 +1131,161 @@ Tudo exposto sob `window.IAgro` em `iagro_helpers.js`.
 | `IAgro.attachTypeahead(opts)` | Typeahead com ↑/↓/Enter/Tab/Esc, debounce, dropdown |
 | `IAgro.installAutoSelect()` | Delegação global de select-on-focus (chamado 1× no `base.html`) |
 | `IAgro.wireFilterAuto(ids, cb, opts)` | Bind padronizado de filtros de listagem (debounce 500ms default) |
+| `IAgro.setupSwipeBack(opts)` | **OBRIGATÓRIO em toda tela nova** (Mai/2026 — 2026-05-29). Edge swipe pra direita volta. Detalhes abaixo. |
+
+### Swipe-to-back AUTOMÁTICO em cascata (Mai/2026 — 2026-05-29)
+
+**Regra:** TODA tela do IAgro tem swipe-to-back ativo em cascata, sem precisar
+de código no template/JS. Edge swipe (arrastar do canto esquerdo pra direita)
+volta 1 nível na hierarquia. Múltiplos swipes em sequência sobem a árvore até
+o Painel:
+
+```
+/sankhya/cadastros/parceiros/  →  /sankhya/cadastros/
+                               →  /sankhya/configuracoes/
+                               →  /sankhya/   (Painel — raiz, para aqui)
+```
+
+**Como funciona:**
+
+1. `IAgro.MAPA_VOLTA_PADRAO` (em [`iagro_helpers.js`](../sankhya_integration/static/sankhya_integration/iagro_helpers.js)) — dicionário `pathname → pathname pai`
+2. `IAgro.setupSwipeBackAuto()` — lê `window.location.pathname`, busca no mapa, configura swipe-back pro pai
+3. Chamado automaticamente no [`base.html`](../sankhya_integration/templates/sankhya_integration/base.html) → toda tela que estende `base.html` ganha de graça
+
+### Adicionando tela nova ao mapa
+
+**1 linha em `MAPA_VOLTA_PADRAO`:**
+
+```js
+const MAPA_VOLTA_PADRAO = {
+    '/sankhya/':                          null,   // raiz — sem retorno
+    '/sankhya/cadastros/':                '/sankhya/configuracoes/',
+    '/sankhya/cadastros/parceiros/':      '/sankhya/cadastros/',
+    // ... etc
+    '/sankhya/MINHA-TELA-NOVA/':          '/sankhya/HUB-PAI/',   // ← aqui
+};
+```
+
+**Regras pra escolher o pai:**
+
+| Tipo de tela nova | Pai canônico |
+|---|---|
+| Módulo operacional (departamento) | `/sankhya/` (Painel) |
+| Sub-tela dentro de módulo (ex: Promoções dentro de Venda) | URL do módulo pai |
+| Sub-hub dentro de hub (ex: Cadastros dentro de Configurações) | URL do hub pai |
+| Tela acessada apenas via outro contexto (relatório de auditoria, etc) | Tela origem mais provável |
+
+**Use `null`** pra raízes que **não devem voltar pra lugar nenhum** (Painel, login).
+
+**Omita do mapa** pra telas que **não devem ativar swipe-back** (futuras telas
+SPA com gestão interna de swipe-to-back, telas em iframe, etc). O helper
+detecta a ausência e fica inerte.
+
+### Opt-out por tela específica
+
+Adicionar atributo no `<body>`:
+
+```django
+{% block body_attrs %}data-no-swipe-back="1"{% endblock %}
+```
+
+Aplicações típicas: telas mobile-first com `.m-screen` empilhadas que já têm
+swipe-to-back interno via `setupSwipeToBack()` próprio do módulo (Entrada
+Mobile, Rastreio Mobile, etc).
+
+### Critérios de detecção (Mai/2026 — 2026-05-29, calibração permissiva)
+
+O helper usa **duas modalidades em paralelo**:
+
+1. **Edge swipe** (touchstart nos primeiros 50px da borda esquerda):
+   - threshold curto: 60px (ou 30px + velocidade > 0.4px/ms)
+   - ratio dy/dx < 0.8 (mais tolerante a oscilação vertical durante o gesto)
+   - Padrão iOS/Android nativo — "puxar da borda".
+
+2. **Swipe horizontal forte** (touchstart em qualquer lugar):
+   - threshold: 120px de distância horizontal
+   - ratio dy/dx < 0.45 (gesto bem horizontal)
+   - Fallback pra operador que começa o swipe um pouco fora da borda
+     (ex: 80px de distância da borda esquerda).
+
+**Compatibilidade com swipe de cards:** cards com swipe-to-edit/delete têm
+handlers próprios em `addEventListener('touchstart', ..., el)` que processam
+ANTES do helper global (que escuta em `document`). Quando o touchstart é
+dentro de um card, o card processa primeiro e o helper recebe o evento mas
+não compete — quando o operador solta, o card já reagiu e o helper só
+dispara se o gesto também atingir os critérios globais (raro pois cards
+limitam seu próprio reveal).
+
+### Debug em produção
+
+Adicionar `?debug-swipe=1` na URL ativa logs no console:
+
+```
+[swipe-back-auto] ativando: /sankhya/cadastros/parceiros/ -> /sankhya/cadastros/
+[swipe-back] ativo {edgeWidthPx: 50, edgeThresholdPx: 60, fullThresholdPx: 120, velocidadeMin: 0.4}
+[swipe-back] edge fired {dx: 142, dy: 18, vel: 0.71}
+[swipe-back-auto] navegando -> /sankhya/cadastros/
+```
+
+Ou quando descartado:
+
+```
+[swipe-back] gesto descartado {dx: 85, dy: 60, vel: '0.30', isEdgeStart: false, motivo: 'forte insuficiente'}
+```
+
+Útil pra calibrar thresholds quando operador relata "não pega".
+
+### Por que `pathname → pai`, não `history.back()`
+
+`history.back()` é imprevisível: pode voltar pra qualquer URL prévia, inclusive
+fora do IAgro (ex: o operador veio de um e-mail externo). O mapa de hierarquia
+garante navegação **previsível e determinística** — operador sempre sabe onde
+vai chegar.
+
+### Override pontual via `setupSwipeBack(opts)`
+
+Pra casos especiais (relatório detalhado que precisa de retorno dinâmico ao
+contexto que abriu), chamar `IAgro.setupSwipeBack(opts)` manualmente no JS da
+tela. O auto-setup respeita a ordem de listeners — quem foi registrado depois
+prevalece. Mas só usar isso quando o mapa não cobre o caso.
+
+### Coexistência com módulos mobile (m-screen)
+
+Em módulos com **SPA mobile própria** (Entrada, Classificação, Rastreio,
+Combustível, Caixas, Logística) — telas viram `<section class="m-screen">`
+empilhadas e o módulo tem `setupSwipeToBack()` próprio que troca entre
+m-screens.
+
+**Comportamento coordenado:**
+
+| Tela ativa | Quem trata o swipe |
+|---|---|
+| `m-screen.is-active[data-screen="lista"]` (raiz mobile) | Helper global → navega URL pai (cascata) |
+| `m-screen.is-active[data-screen="detalhe"]` etc. (interna) | Handler interno do módulo → troca pra `lista` |
+| Sem `m-screen` no DOM (Comercial, Venda, etc. responsivos) | Helper global → navega URL pai |
+
+A detecção é automática no `onStart` do `setupSwipeBack`: lê
+`document.querySelector('.m-screen.is-active')` e cede prioridade ao
+handler interno quando a tela ativa não é `lista`.
+
+**Não precisa configuração manual** nos módulos — funciona out-of-the-box.
+
+### Não confundir com
+
+- **`setupSwipeToBack()`** (módulos mobile) — gesto que troca de tela dentro da
+  mesma URL (entre `.m-screen` da SPA). Detectado automaticamente; helper
+  global cede prioridade quando há m-screen ativa diferente da `lista`.
+- **`setupSwipeBackAuto()`** (este) — gesto que troca de URL inteira, navegando
+  na árvore.
+
+### Checklist ao criar tela nova
+
+1. Criou uma `view_X` em `views.py` que renderiza `template.html` (estendendo `base.html`)?
+2. Adicionou 1 linha em `MAPA_VOLTA_PADRAO` (no `iagro_helpers.js`) apontando pra URL do pai?
+3. Bumpou cache do `iagro_helpers.js` no `base.html` (`?v=N`)?
+4. Validou no celular real (ou DevTools mobile) que o swipe funciona em cascata até o Painel?
+
+Falhar em 2-4 viola a regra.
 
 ### Typeaheads
 

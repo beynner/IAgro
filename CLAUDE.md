@@ -8,7 +8,7 @@
 ## Identidade
 
 - **Nome:** IAgro
-- **Versão:** 1.1.2
+- **Versão:** 1.1.3
 - **Tipo:** Sistema de gestão operacional integrado ao ERP Sankhya. **Em transição para produto independente (spin-off SaaS multi-tenant agro)** — ver [`dependencias_sankhya.md`](.claude/dependencias_sankhya.md) e [memory `spin_off_iagro_estrategia`](../../memory).
 - **Organização:** NexusGTi / HF Semear (cliente atual: Agromil)
 - **Domínio:** Central de beneficiamento de produtos agrícolas (antigo "Packing House") + rastreabilidade SafeTrace/IAgro
@@ -27,13 +27,55 @@ O sistema integra dados do Sankhya via Oracle e oferece **onze módulos operacio
 | Combustível (Frota) | 10 → 53 | Entrada de combustível (TOP 10) e requisições internas (TOP 53 — frota/maquinário/freteiro/posto externo). Discrimina frota própria + maquinário + freteiros. Inclui abastecimento externo (não desconta tanque interno) |
 | **Logística (Frota)** | — | **Módulo persistente em produção Mai/2026 — 2026-05-29.** Tela `/sankhya/logistica/` (grupos 1/6/10) pra planejar rotas: caminhão + motorista + ajudantes + destinos com qtd_caixas + obs. Schema próprio (`AD_VIAGEM_ENTREGA/DESTINO/AJUDANTE` com FK CASCADE) + cadastro genérico de tipos de parceiro (`AD_TIPO_PARCEIRO` + `AD_PARCEIRO_TIPO` N:N) substituindo flags TGFPAR — **885 vínculos migrados** das flags nativas. Frontend desktop+mobile via `LogisticaApi` (REST). **PDF reportlab A6 vertical** com PLACA gigante centralizada. 9 endpoints REST + 42 testes Cat A. Sankhya nativo intocado |
 | **Caixas (Frota)** | — | Controle de vasilhame retornável (caixa plástica). Saídas vêm da Logística (`AD_VIAGEM_DESTINO.QTD_CAIXAS`); coletas/quebras/perdas manuais em `AD_COLETA_CAIXAS`. Acesso amplo (grupos 1/6/8/9/10/11). Mai/2026 — 2026-05-18, redesign mobile + cleanup 2026-05-28. **2026-05-29**: motorista obrigatório em COLETA + módulo migrado de Administrativo pra **departamento Frota** (junto com Logística e Combustível) |
-| **Relatórios** | — | Tela `/sankhya/relatorios/` (restrita Diretoria/Suporte/Comercial) com 5 sub-abas: Top Clientes/Produtos · Lotes Envelhecidos · Consumo por Veículo · Fluxo de Caixa · Margem por Venda. Lazy load + cache 5min na margem. Mai/2026 — 2026-05-17 |
+| **Relatórios** | — | Tela `/sankhya/relatorios/` (restrita Diretoria/Suporte/Comercial) com 5 sub-abas: Top Clientes/Produtos · Lotes Envelhecidos · Consumo por Veículo · Fluxo de Caixa · Margem por Venda. Lazy load + cache 5min na margem. Mai/2026 — 2026-05-17. **Polish v1.1 em 2026-05-30**: barras horizontais proporcionais (CSS gradient), comparação com período anterior espelhado (chip `+X%`/`−X%`), drilldown click → modal compartilhado com 6 tipos (cliente/produto/lote/veículo/bucket/margem) via endpoint único `/api/drilldown/` |
 | **Auditoria Universal** | — | Tela `/sankhya/auditoria/` (restrita Diretoria/Suporte) consolidando AD_AUDITORIA_GERAL — todo evento de escrita do IAgro com snapshot antes/depois em JSON. 36 funções instrumentadas. Tela tem diff inteligente "antes→depois" + JSON técnico. **Acessada via engrenagem no header → Configurações** (não mais na sidebar) |
 
 ### Hub de Configurações + Usuários (Mai/2026 — 2026-05-17/18)
 
-- **Engrenagem ⚙ no header** (visível só pra grupos 1+6) → `/sankhya/configuracoes/` — hub com cards de subseções administrativas (Usuários + Auditoria por enquanto)
-- **Tela Usuários** `/sankhya/usuarios/` — gestão TSIUSU/TSIGPU. **Cat A entregue**: listar + detalhe + grupos disponíveis + toggle "Mostrar inativos" (default só ativos). **Cat B pendente** (criar/editar/inativar/reativar/add+remove grupo) — endpoints retornam 501 com `pendente_cat_b=true` até serem aprovados ponto-a-ponto
+- **Engrenagem ⚙ no header** (visível só pra grupos 1+6) → `/sankhya/configuracoes/` — hub com cards de subseções administrativas (Cadastros + Ajustes + Auditoria)
+- **Tela Usuários** `/sankhya/usuarios/` — gestão TSIUSU/TSIGPU. **Cat A entregue**: listar + detalhe + grupos disponíveis + toggle "Mostrar inativos" (default só ativos). **Cat B pendente** (criar/editar/inativar/reativar/add+remove grupo) — endpoints retornam 501 com `pendente_cat_b=true` até serem aprovados ponto-a-ponto. Agora acessada via Configurações → **Cadastros** → Usuários
+- **Hub Cadastros** `/sankhya/cadastros/` (Mai/2026 — 2026-05-29) — 4 sub-telas view-only: **Usuários** (existente) + **Parceiros** (TGFPAR + tipos via AD_PARCEIRO_TIPO) + **Produtos** (TGFPRO + volumes alternativos TGFVOA) + **Veículos** (TGFVEI + JOIN TGFPAR/TSICUS). Toda Cat A (apenas SELECT). CRUD futuro fica como Cat B ponto-a-ponto. Acesso `'cadastros': ['1','6']` (Diretoria + Suporte)
+
+### 📱 Comercial Mobile app-like (Mai/2026 — 2026-05-29 noite)
+
+Sétimo módulo com mobile (após Entrada/Classificação/Rastreio/Combustível/Caixas/Logística). Mesma arquitetura: HTML único com 2 containers paralelos (`.comercial-desktop` + `.comercial-mobile`) escopados por `body[data-active-module="comercial"]` em ≤900px.
+
+- **2 telas**: `lista` (4 pílulas de resumo + busca + cards agrupados por NUNOTA com chevron expansível) + `detalhe` (hero + 4 KPI cards 2×2 + 2 cards classificação EXTRA/MÉDIO + sparkline + ações Editar preço/Faturar)
+- **3 bottom sheets**: `filtros` (período `<<>>` + typeahead parceiro/produto + chips Sem preço/Faturado) · `editar-preco` (Preço CX + Peso CX Classificado em inputs 52px touch + R$/kg derivado) · `mais` (Atualizar + Filtros + info "Simulação/Movimentar/Impressão na desktop")
+- **Reusa endpoints existentes** + **`window.ComercialFinanceiro.abrir(nunota)`** pra modal Faturamento (vira fullscreen via CSS responsivo já existente). Zero endpoint novo
+- **Limitações conscientes** redirecionando pro desktop: Simulação de Negócio, Movimentar Lote (Desmembrar/Unificar), Modal Impressão (4 tipos), toggle Vendas Lote/Produto, breakdown EXTRA/MÉDIO via Classificação completa
+- **Margem realizada** via endpoint `/api/margem-lote/` com cor verde/vermelho/cinza + badge âmbar "provisória" quando saldo > 0
+- **Sparkline SVG inline** preço/kg via `/api/vendas-lote/`
+- **Botão FATURAR** com lista amarela de motivos quando bloqueado (paridade desktop): vale não salvo · sem preço · etc.
+- **Salva preço + peso** em sequência via endpoints existentes (`/api/atualizar-preco/` + `/api/atualizar-peso/`) com mensagem inline no sheet
+
+Cache CSS `?v=17` (bumped 2026-05-30 pós-fix chain de altura) · JS desktop preservado · JS mobile `comercial_mobile.js?v=2` (bumped pós-deploy por bug fix). **Fix pós-deploy v2 (mobile)**: operador reportou "só consigo ver a lista" → causa era `data-idx="undefined"` por falta de `_i` nos rows + UX bonus de vale com 1 item abrir direto. **Fix pós-deploy CSS v17 (desktop, 2026-05-30)**: cards Classificação + Entrada **sumiram do desktop** + Lista cresceu — wrapper `.comercial-portal` criado no redesign mobile não tinha CSS, quebrou chain de altura `.main-layout → .comercial-desktop.layout`. Fix: `.comercial-portal { display: flex; flex: 1; min-height: 0; position: relative }`. Padrão consolidado em `gotchas.md` ("Wrapper portal sem flex/height quebra chain de altura") + `conventions.md` (regra obrigatória pra 2 containers paralelos). Detalhes em [`modules/comercial.md`](.claude/modules/comercial.md) → "📱 Redesign Mobile app-like".
+
+### 👈 Swipe-to-back universal em cascata (Mai/2026 — 2026-05-29)
+
+Toda tela autenticada do IAgro ganha **swipe-to-back automático em mobile** —
+operador arrasta do canto esquerdo pra direita e volta 1 nível na hierarquia.
+Múltiplos swipes em sequência sobem a árvore até o Painel:
+
+```
+/sankhya/cadastros/parceiros/  →  /sankhya/cadastros/
+                               →  /sankhya/configuracoes/
+                               →  /sankhya/   (Painel — raiz, para aqui)
+```
+
+**Arquitetura:**
+- `IAgro.MAPA_VOLTA_PADRAO` em [iagro_helpers.js](sankhya_integration/static/sankhya_integration/iagro_helpers.js) — dicionário `pathname → pathname pai` cobre 22 URLs (todos módulos operacionais + sub-telas + hubs)
+- `IAgro.setupSwipeBackAuto()` chamado no `base.html` no boot — lê `window.location.pathname`, busca no mapa, registra handlers de touch globais. Toda tela que estende `base.html` ganha automaticamente
+- **Critérios de detecção permissivos (calibrados Mai/2026 — 2026-05-29):**
+  - **Edge swipe** (touchstart < 50px da borda esquerda): threshold 60px (ou 30px + velocidade > 0.4px/ms), ratio dy/dx < 0.8
+  - **Swipe horizontal forte** (qualquer lugar, fallback): threshold 120px, ratio dy/dx < 0.45
+- **Coexistência inteligente com módulos mobile SPA** (Entrada/Classificação/Rastreio/Combustível/Caixas/Logística com `m-screen` empilhadas): o helper global detecta `.m-screen.is-active` no `onStart` e cede prioridade ao handler interno do módulo quando a tela ativa não é `lista` (raiz). Em tela `lista` (raiz mobile) ou telas sem `m-screen` (Comercial, Venda, Auditoria, etc.), helper global processa
+- **Adicionar tela nova = 1 linha** em `MAPA_VOLTA_PADRAO`, zero código no template/JS
+- **Opt-out por tela** via `<body data-no-swipe-back="1">` (raramente necessário)
+- **Debug em produção** via `?debug-swipe=1` na URL — logs no console mostram critério aplicado, distância, velocidade, decisão
+
+Documentado como padrão obrigatório em [`conventions.md`](.claude/conventions.md) →
+"Swipe-to-back AUTOMÁTICO em cascata".
 
 ### Layout v2 — Sidebar agrupada retrátil + Content (Mai/2026 — 2026-05-17/18)
 
@@ -692,6 +734,24 @@ Detalhes em [`modules/caixas.md`](.claude/modules/caixas.md) → "📱 Redesign 
 
 **Limpeza arquitetural**: removidas todas as referências à página `/sankhya/compras/central/` que foi removida no início do projeto mas deixou código morto espalhado. View `view_central_compras` agora retorna 410 Gone (mantém só o ramo `?ajax_header=1` usado pra editar cabeçalho). 7 arquivos afetados — vide [`gotchas.md`](.claude/gotchas.md) → "Página compras/central foi removida".
 
+### 📈 Relatórios — Polish v1.1: visualizações + comparação temporal + drilldown (Mai/2026 — 2026-05-30)
+
+Sessão de UX no módulo Relatórios sem novo relatório — transforma a tela de "lista pra conferir" em "ferramenta de decisão". **3 frentes Cat A** (zero alteração em query existente, zero escrita no banco):
+
+- **Barras horizontais proporcionais** em CSS puro nas tabelas (`.rel-bar-cell::before` com `linear-gradient` controlado por `--bar-pct`). Verde Agromil, vermelho `--neg` em saídas, âmbar `--warn` em lotes críticos > 60d. Cobertura: Top Clientes, Top Produtos, Lotes Envelhecidos, Consumo Veículos, Fluxo de Caixa, Margem por Venda.
+- **Comparação com período anterior** — cada relatório com data faz 2 fetches em paralelo (atual + espelhado anterior). Chip `+X% / −X% / 0%` nos cards de resumo via `compChipHtml(atual, ant, {invertirCor})`. Aplicado em Top Clientes (Valor total), Consumo (litros + valor, ambos com `invertirCor` — subir = ruim em despesa), Margem (lucro + margem média). Helper `periodoEspelhadoAnterior(valor)` calcula janela equivalente imediatamente anterior. Tolerante a falha — se fetch anterior cai, chip vira "loading" cinza italic e relatório atual renderiza normal.
+- **Drilldown click → modal compartilhado** com 6 tipos via endpoint único `/api/drilldown/?tipo=X&id=Y`. Tipos: `cliente_vendas`, `produto_vendas`, `lote_movs` (id string), `veiculo_reqs`, `fluxo_bucket` (id string `ATRASADO/HOJE/1-7D/...`), `margem_detalhe`. Modal `#relDrilldownOverlay` populado dinamicamente com tabela específica por tipo + totais no rodapé + link "Abrir no módulo" quando aplicável (lote → Rastreio; veículo → Combustível). Esc + click fora fecham.
+
+**Polish visual**: ícone `ph-arrow-clockwise` (singular, errado) → `ph-arrows-clockwise` (plural, padrão IAgro com 2 setas) em 5 ocorrências. Substituiu `<div style="...">` inline do Fluxo de Caixa por classes (`.rel-resumo-card--entrada/saida/saldo/saldo-neg`). Badge mini de TOP no drilldown (`.rel-top-mini--35/37/11/13/...`). Responsivo melhorado: cards de resumo 2 col em ≤900px, 1 col em ≤520px; modal 95vh em mobile.
+
+**Backend Cat A**: 1 função aditiva `consultar_drilldown_relatorio(tipo, id, date_de, date_ate, extras)` em `oracle_conn.py` com switch interno (~340 linhas, tudo SELECT puro contra TGFCAB/TGFITE/TGFFIN/AD_REQUISICAO_COMBUSTIVEL). Tolerante a falha (retorna dict vazio + log). +1 view aditiva `api_relatorio_drilldown` valida tipo no enum + id (numérico exceto lote/bucket) + repasse de extras. +1 path `/relatorios/api/drilldown/`.
+
+**Frontend**: refator completo `relatorios.js` (~1276 linhas, refeito em `Promise/var` legível por paridade com outros módulos IAgro). 5 renderers ganham barras + comparação + bindings via `bindRowsDrilldown`. Modal compartilhado controlado por `abrirDrilldown/fecharDrilldown`.
+
+**Tests**: 17 novos em `test_relatorios.py` (`ConsultarDrilldownServiceTest` 9 + `ApiDrilldownEndpointTest` 8). **73/73 passando** (56 existentes + 17 novos), zero regressão na suíte de Relatórios.
+
+Cache CSS `?v=2`, JS `?v=2`. Detalhes em [`modules/relatorios.md`](.claude/modules/relatorios.md) → "📈 Polish v1.1".
+
 ### 🚚 Logística — Módulo persistente (Mai/2026 — 2026-05-29)
 
 Tela `/sankhya/logistica/` (departamento Frota, acesso `1+6+10`) **agora com schema persistente em produção** pra planejar viagens — caminhão + motorista + ajudantes + **destinos com qtd_caixas por parada**.
@@ -804,7 +864,7 @@ IAgro está sendo modelado pra virar **produto SaaS independente do Sankhya**, a
 
 ## Regras Críticas (sempre aplicar)
 
-Estas são as nove regras inegociáveis. Detalhes e regras complementares em [`.claude/rules.md`](./.claude/rules.md).
+Estas são as dez regras inegociáveis. Detalhes e regras complementares em [`.claude/rules.md`](./.claude/rules.md).
 
 1. **NUNCA alterar lógica de negócio** (queries Oracle, cálculos financeiros, regras de precificação, fluxo de faturamento) sem aprovação explícita do usuário.
 2. **🛑 BLOQUEIO EXPLÍCITO — alteração de dados no banco (queries NOVAS e ANTIGAS).** Qualquer código que vá escrever no Oracle — **nova ou já existente** — usando INSERT/UPDATE/DELETE/MERGE/ALTER/DROP/TRUNCATE (em funções de service, DDL direta, ou views Sankhya **não** prefixadas por `AD_`/`ANDRE_IAGRO_`) **PARA** e exige aprovação ponto-a-ponto com plano detalhado: **o quê · como · por quê · o que afeta**. Vale para função aditiva nova *com* INSERT/UPDATE/DELETE também — apenas SELECT puro fica fora. Detalhes em [`rules.md`](./.claude/rules.md) regras #2 e #4.
@@ -815,6 +875,7 @@ Estas são as nove regras inegociáveis. Detalhes e regras complementares em [`.
 7. **MANTER `.claude/dependencias_sankhya.md` atualizado.** IAgro está sendo modelado pra virar produto independente (spin-off). Toda nova **tabela Sankhya consumida**, **trigger detectada** (geralmente via ORA-XXXXX), **função/sequence proprietária**, **view customizada**, **tabela auxiliar AD_***, **constante de domínio nova** (TOP/CODNAT/STATUSNOTA/CODGRUPO) ou **regra invisível descoberta** precisa ser inserida nesse arquivo **antes/junto da implementação**. Esse documento é o blueprint pra recriar o schema necessário quando o IAgro desacoplar.
 8. **TEMPLATES MOBILE — partial `_m_header_interno.html` é OBRIGATÓRIO em telas internas.** Toda `<section class="m-screen">` que NÃO seja a tela `lista` (detalhe, item, cliente, viagem, lightbox, etc) DEVE incluir o partial via `{% include "sankhya_integration/_m_header_interno.html" with modulo_nome="X" subtela_nome="Y" %}`. Renderiza o padrão `[← back] Módulo / Sub-tela [👤 USUÁRIO] Sair`. Proibido duplicar classes `.m-breadcrumb*`, `.m-user-badge`, `.m-logout-link` ou criar variantes locais `.{modulo}-mobile .m-*-breadcrumb*`. Detalhes em [`rules.md`](./.claude/rules.md) regra #12 + [`conventions.md`](./.claude/conventions.md) → "🧩 Partial `_m_header_interno.html`".
 9. **TEMPLATES MOBILE — partial `_m_fabs.html` é OBRIGATÓRIO pra FABs (verde + azul).** Toda tela que precise de "ação positiva (adicionar/criar)" ou "atualizar/refresh" DEVE renderizar via `{% include "sankhya_integration/_m_fabs.html" with fab_primario_id="X" fab_secundario_id="Y" %}`. Padrão visual: **FAB verde Agromil 48px** com `ph-plus` (ação positiva) + **FAB azul info 42px** com `ph-arrows-clockwise` (atualizar). Suporta `fab_primario_ocultar=True` ou `fab_secundario_ocultar=True` quando só um dos 2 é necessário. Proibido escrever `<button class="m-fab">...</button>` inline em template novo. Detalhes em [`rules.md`](./.claude/rules.md) regra #13 + [`conventions.md`](./.claude/conventions.md) → "🧩 Partial `_m_fabs.html`".
+10. **SWIPE-TO-BACK universal em cascata é OBRIGATÓRIO pra TODA tela nova.** Adicionar tela nova exige **1 linha** em `IAgro.MAPA_VOLTA_PADRAO` (em [`iagro_helpers.js`](sankhya_integration/static/sankhya_integration/iagro_helpers.js)) apontando pro pathname pai. `IAgro.setupSwipeBackAuto()` cuida do resto automaticamente — registra handlers de touch globais, lê pathname atual, navega pro pai. Operador arrasta do canto esquerdo pra direita → volta 1 nível. Cascata sobe até o Painel. Sem código no template/JS específico. Coexistência inteligente com módulos mobile SPA (helper global cede prioridade ao handler interno quando `.m-screen.is-active[data-screen]` ≠ `'lista'`). Detalhes em [`rules.md`](./.claude/rules.md) regra #14 + [`conventions.md`](./.claude/conventions.md) → "Swipe-to-back AUTOMÁTICO em cascata".
 
 ---
 

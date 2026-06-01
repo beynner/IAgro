@@ -48,7 +48,7 @@ IAgro/
 │   │
 │   ├── static/sankhya_integration/
 │   │   ├── global.css                       # Tokens de design + componentes globais
-│   │   ├── iagro_helpers.js                 # window.IAgro (helpers reutilizáveis)
+│   │   ├── iagro_helpers.js                 # window.IAgro (helpers reutilizáveis: typeahead, postJSON, setupSwipeBackAuto + MAPA_VOLTA_PADRAO, etc)
 │   │   ├── home.css / home.js
 │   │   ├── entrada.css / entrada.js
 │   │   ├── entrada_mobile.js                # 📱 Redesign mobile-first Entrada (Mai/2026 — 2026-05-27)
@@ -79,13 +79,13 @@ IAgro/
 │       ├── test_margem_lote.py              # 13 testes (Comercial card Margem)
 │       ├── test_views_combustivel.py        # 84 testes
 │       ├── test_views_email_pedidos.py      # 40+ testes
-│       ├── test_relatorios.py               # 56 testes (Módulo Relatórios MVP)
+│       ├── test_relatorios.py               # 73 testes (Módulo Relatórios MVP + Polish v1.1 drilldown)
 │       └── test_logistica.py                # 42 testes (Módulo Logística persistente)
 │
 └── images/                      # Imagens (logo, etc.) — também em STATICFILES_DIRS
 ```
 
-**Total de testes:** ~512 (em maio/2026 com 56 testes do módulo Relatórios + 42 do módulo Logística — 2026-05-29), todos passando, todos sem dependência de Oracle real.
+**Total de testes:** ~529 (em maio/2026 com 73 testes do módulo Relatórios + 42 do módulo Logística — 2026-05-30 após Polish v1.1 drilldown), todos passando, todos sem dependência de Oracle real.
 
 ---
 
@@ -139,6 +139,9 @@ IAgro/
 /sankhya/relatorios/api/consumo-veiculos/         → GET ranking consumo combustível
 /sankhya/relatorios/api/fluxo-caixa/              → GET TGFFIN projeção 30/60/90d
 /sankhya/relatorios/api/margem-venda/             → GET margem por cliente/produto (cache 5min)
+/sankhya/relatorios/api/drilldown/                → GET detalhe de 1 linha clicada (Polish v1.1 — 2026-05-30)
+                                                    tipos: cliente_vendas | produto_vendas | lote_movs |
+                                                           veiculo_reqs | fluxo_bucket | margem_detalhe
 
 # APIs de Ajustes Administrativos (Mai/2026 — 2026-05-28, exige grupo 'ajustes' = 1, 6)
 /sankhya/configuracoes/ajustes/                          → tela HTML com 2 sub-abas
@@ -158,6 +161,18 @@ IAgro/
 /sankhya/logistica/api/viagem/criar/                     → POST cria viagem (atômica + lock)
 /sankhya/logistica/api/viagem/<id>/editar/               → POST UPDATE diferencial
 /sankhya/logistica/api/viagem/<id>/excluir/              → POST DELETE cascata + audit
+
+# Cadastros (Mai/2026 — hub view-only via Configurações → Cadastros, exige grupo 'cadastros' = 1, 6)
+/sankhya/cadastros/                                      → hub HTML (Usuários · Parceiros · Produtos · Veículos)
+/sankhya/cadastros/parceiros/                            → tela HTML (lista + detalhe TGFPAR)
+/sankhya/cadastros/api/parceiros/listar/                 → GET paginado (busca, tipo_id, codtab, mostrar_inativos)
+/sankhya/cadastros/api/parceiros/<int:codparc>/          → GET detalhe + tipos AD_PARCEIRO_TIPO
+/sankhya/cadastros/produtos/                             → tela HTML (lista + detalhe TGFPRO)
+/sankhya/cadastros/api/produtos/listar/                  → GET paginado (busca, codgrupoprod, usoprod)
+/sankhya/cadastros/api/produtos/<int:codprod>/           → GET detalhe + volumes alternativos TGFVOA
+/sankhya/cadastros/veiculos/                             → tela HTML (lista + detalhe TGFVEI)
+/sankhya/cadastros/api/veiculos/listar/                  → GET paginado (busca, proprio, combustivel)
+/sankhya/cadastros/api/veiculos/<int:codveiculo>/        → GET detalhe + JOIN TGFPAR + TSICUS
 ```
 
 ---
@@ -220,6 +235,7 @@ Consulta no Sankhya: `SELECT CODGRUPO, NOMEGRUPO FROM TSIGRU ORDER BY CODGRUPO`.
 | Ajustes Admin (caixas + combustível) | 1, 6 _(Mai/2026 — 2026-05-28)_ |
 | Caixas | 1, 6, 8, 9, 10, 11 _(departamento Frota desde Mai/2026 — 2026-05-29, migrado de Administrativo)_ |
 | Logística | 1, 6, 10 _(Mai/2026 — 2026-05-29, módulo persistente)_ |
+| Cadastros (hub view-only: Usuários · Parceiros · Produtos · Veículos) | 1, 6 _(Mai/2026 — 2026-05-29)_ |
 
 ---
 

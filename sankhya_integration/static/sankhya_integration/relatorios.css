@@ -230,6 +230,296 @@
 .rel-bandeira--azul     { background: #dbeafe; color: #1e40af; }
 .rel-bandeira--cinza    { background: #f1f5f9; color: #475569; }
 
+/* ===========================================================================
+   POLISH v1.1 — Mai/2026 — 2026-05-30
+   Bloco "Resumo do período" + comparação temporal + barras + drilldown.
+   =========================================================================== */
+
+/* ---------- Resumo do período (header de cada relatório) ---------- */
+.rel-resumo {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin: 0 0 14px 0;
+}
+.rel-resumo-card {
+    background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+    border: 1px solid #e2e8f0;
+    border-radius: 9px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.rel-resumo-card--entrada {
+    background: linear-gradient(135deg, #dcfce7 0%, #ecfccb 100%);
+    border-color: #86efac;
+}
+.rel-resumo-card--saida {
+    background: linear-gradient(135deg, #fee2e2 0%, #fef2f2 100%);
+    border-color: #fecaca;
+}
+.rel-resumo-card--saldo {
+    background: linear-gradient(135deg, #ecfccb 0%, #f7fee7 100%);
+    border-color: #bef264;
+}
+.rel-resumo-card--saldo-neg {
+    background: linear-gradient(135deg, #fee2e2 0%, #fef2f2 100%);
+    border-color: #fecaca;
+}
+.rel-resumo-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.rel-resumo-card--entrada .rel-resumo-label { color: #166534; }
+.rel-resumo-card--saida .rel-resumo-label   { color: #991b1b; }
+.rel-resumo-card--saldo .rel-resumo-label   { color: #3f6212; }
+.rel-resumo-card--saldo-neg .rel-resumo-label { color: #991b1b; }
+
+.rel-resumo-valor {
+    font-size: 1.4rem;
+    font-weight: 900;
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+}
+.rel-resumo-card--entrada .rel-resumo-valor    { color: #15803d; }
+.rel-resumo-card--saida .rel-resumo-valor      { color: #b91c1c; }
+.rel-resumo-card--saldo .rel-resumo-valor      { color: #4d7c0f; }
+.rel-resumo-card--saldo-neg .rel-resumo-valor  { color: #b91c1c; }
+
+.rel-resumo-footer {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.7rem;
+    color: #64748b;
+}
+
+/* ---------- Chip de comparação temporal (+X% / −X% / neutro) ---------- */
+.rel-comp-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    text-transform: none;
+    letter-spacing: 0;
+}
+.rel-comp-chip--up {
+    background: #dcfce7;
+    color: #166534;
+}
+.rel-comp-chip--down {
+    background: #fee2e2;
+    color: #991b1b;
+}
+.rel-comp-chip--zero {
+    background: #f1f5f9;
+    color: #64748b;
+}
+.rel-comp-chip--loading {
+    background: #f8fafc;
+    color: #94a3b8;
+    font-style: italic;
+}
+.rel-comp-chip .ph {
+    font-size: 11px;
+}
+
+/* ---------- Barra horizontal proporcional na tabela ---------- */
+.rel-bar-cell {
+    position: relative;
+    overflow: hidden;
+    min-width: 80px;
+}
+.rel-bar-cell::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        90deg,
+        rgba(94, 126, 74, 0.12) 0%,
+        rgba(94, 126, 74, 0.12) var(--bar-pct, 0%),
+        transparent var(--bar-pct, 0%),
+        transparent 100%
+    );
+    z-index: 0;
+    pointer-events: none;
+}
+.rel-bar-cell--neg::before {
+    background: linear-gradient(
+        90deg,
+        rgba(220, 38, 38, 0.12) 0%,
+        rgba(220, 38, 38, 0.12) var(--bar-pct, 0%),
+        transparent var(--bar-pct, 0%),
+        transparent 100%
+    );
+}
+.rel-bar-cell--warn::before {
+    background: linear-gradient(
+        90deg,
+        rgba(217, 119, 6, 0.14) 0%,
+        rgba(217, 119, 6, 0.14) var(--bar-pct, 0%),
+        transparent var(--bar-pct, 0%),
+        transparent 100%
+    );
+}
+.rel-bar-cell > * { position: relative; z-index: 1; }
+
+/* ---------- Linha clicável (drilldown) ---------- */
+.rel-tabela tbody tr.rel-row-clickable {
+    cursor: pointer;
+}
+.rel-tabela tbody tr.rel-row-clickable:hover {
+    background: #f0f5ec;
+}
+.rel-tabela tbody tr.rel-row-clickable td:first-child::before {
+    content: '';
+    display: inline-block;
+    width: 0;
+}
+
+/* ---------- Modal drilldown ---------- */
+.rel-drill-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+}
+.rel-drill-overlay[aria-hidden="false"] { display: flex; }
+
+.rel-drill-modal {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.25);
+    width: 100%;
+    max-width: 960px;
+    max-height: 88vh;
+    max-height: 88dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.rel-drill-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid #e2e8f0;
+    background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+    flex-shrink: 0;
+}
+.rel-drill-titles { flex: 1; min-width: 0; }
+.rel-drill-titles h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 800;
+    color: #0f172a;
+}
+.rel-drill-subtitulo {
+    margin: 4px 0 0 0;
+    font-size: 0.78rem;
+    color: #64748b;
+}
+.rel-drill-close {
+    background: transparent;
+    border: 1px solid transparent;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    color: #64748b;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+.rel-drill-close:hover {
+    background: #fee2e2;
+    color: #b91c1c;
+    border-color: #fca5a5;
+}
+.rel-drill-close .ph { font-size: 18px; }
+
+.rel-drill-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 16px 18px;
+}
+.rel-drill-body .rel-tabela { font-size: 0.78rem; }
+
+.rel-drill-footer {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 18px;
+    border-top: 1px solid #e2e8f0;
+    background: #f8fafc;
+    flex-shrink: 0;
+    font-size: 0.78rem;
+}
+.rel-drill-totais {
+    color: #475569;
+    font-variant-numeric: tabular-nums;
+    flex: 1;
+}
+.rel-drill-totais strong {
+    color: #0f172a;
+}
+.rel-drill-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    background: #5e7e4a;
+    color: #fff;
+    border-radius: 7px;
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 0.76rem;
+    transition: background 0.15s ease;
+}
+.rel-drill-link:hover {
+    background: #4a6e3e;
+    color: #fff;
+}
+.rel-drill-link .ph { font-size: 14px; }
+
+/* ---------- TOP-badge mini pra drilldown ---------- */
+.rel-top-mini {
+    display: inline-block;
+    padding: 1px 5px;
+    font-size: 0.65rem;
+    font-weight: 800;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    background: #f1f5f9;
+    color: #475569;
+}
+.rel-top-mini--35 { background: #dcfce7; color: #166534; }
+.rel-top-mini--37 { background: #fef3c7; color: #92400e; }
+.rel-top-mini--11 { background: #dbeafe; color: #1e40af; }
+.rel-top-mini--13 { background: #e0e7ff; color: #3730a3; }
+.rel-top-mini--26 { background: #ede9fe; color: #5b21b6; }
+.rel-top-mini--30 { background: #fecaca; color: #7f1d1d; }
+.rel-top-mini--33 { background: #fed7aa; color: #9a3412; }
+.rel-top-mini--36 { background: #fed7aa; color: #9a3412; }
+.rel-top-mini--34 { background: #cffafe; color: #155e75; }
+
 /* ---------- Responsivo ---------- */
 @media (max-width: 900px) {
     .rel-layout { padding: 10px; gap: 8px; padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px)); }
@@ -238,9 +528,19 @@
     .rel-filtros { padding: 10px; gap: 8px; }
     .rel-btn-refresh { margin-left: 0; }
     .rel-tabela { font-size: 0.76rem; }
+    .rel-resumo { grid-template-columns: repeat(2, 1fr); }
+    .rel-resumo-valor { font-size: 1.15rem; }
+    .rel-drill-overlay { padding: 8px; }
+    .rel-drill-modal { max-height: 95vh; max-height: 95dvh; }
+    .rel-drill-body { padding: 12px; }
+    .rel-drill-footer { padding: 10px 12px; flex-wrap: wrap; gap: 8px; }
 }
 @media (max-width: 520px) {
     .rel-tab span { display: none; }   /* só ícone */
     .rel-tab .ph { font-size: 18px; }
     .rel-layout { padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px)); }
+    .rel-resumo { grid-template-columns: 1fr; }
+    .rel-resumo-valor { font-size: 1.05rem; }
+    .rel-drill-header { padding: 10px 12px; }
+    .rel-drill-titles h3 { font-size: 0.9rem; }
 }

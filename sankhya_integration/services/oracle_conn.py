@@ -3276,6 +3276,471 @@ def consultar_margem_por_venda(date_de: str, date_ate: str, agrupar: str = 'clie
     }
 
 
+# ============================================================================
+# DRILLDOWN — relatórios v1.1 (Mai/2026 — 2026-05-30)
+# Endpoint genérico que detalha 1 linha clicada em qualquer relatório.
+# Switch interno por tipo. Tudo SELECT puro contra tabelas existentes.
+# ============================================================================
+
+DRILLDOWN_TIPOS_VALIDOS = (
+    'cliente_vendas',   # vendas de um cliente no período
+    'produto_vendas',   # vendas de um produto no período
+    'lote_movs',        # movimentações de um lote (compra → vale → venda)
+    'veiculo_reqs',     # requisições de combustível de um veículo no período
+    'fluxo_bucket',     # TGFFIN em aberto dentro do bucket clicado
+    'margem_detalhe',   # vendas que compuseram a margem do cliente OU produto
+)
+
+
+def consultar_drilldown_relatorio(
+    tipo: str,
+    id_principal,
+    date_de: str = '',
+    date_ate: str = '',
+    extras: dict = None,
+) -> dict:
+    """Detalhamento de 1 linha clicada em qualquer relatório.
+
+    Cada `tipo` é um caso separado, todos SELECT puro contra tabelas que
+    já consultamos em outros relatórios. Tolerante a falha (retorna lista
+    vazia + log) — drilldown nunca quebra a tela principal.
+
+    Args:
+        tipo:           ver DRILLDOWN_TIPOS_VALIDOS
+        id_principal:   ID da linha clicada (CODPARC, CODPROD, lote string,
+                        CODVEICULO, ordem do bucket — depende do tipo)
+        date_de/ate:    janela do relatório de origem (não obrigatório em
+                        todos os tipos — lote_movs ignora)
+        extras:         dict opcional com chaves extras (ex: agrupar pra
+                        margem_detalhe, dias pra fluxo_bucket)
+
+    Retorna:
+        {
+          'tipo': str,
+          'titulo': str,           # texto pro header do modal
+          'subtitulo': str,        # secundário (ex: 'no período 01/05 a 30/05')
+          'colunas': [...],        # nomes das colunas
+          'linhas': [{...}, ...],  # 1 dict por linha
+          'totais': {...},         # opcional — resumo do drilldown
+        }
+    """
+    vazio = {
+        'tipo': tipo, 'titulo': '', 'subtitulo': '',
+        'colunas': [], 'linhas': [], 'totais': {},
+    }
+    if tipo not in DRILLDOWN_TIPOS_VALIDOS:
+        return vazio
+    if id_principal is None or id_principal == '':
+        return vazio
+
+    extras = extras or {}
+
+    # Validações específicas por tipo — antes de abrir conexão Oracle
+    if tipo in ('cliente_vendas', 'produto_vendas', 'veiculo_reqs', 'margem_detalhe'):
+        if not date_de or not date_ate:
+            return vazio
+    if tipo == 'lote_movs':
+        lote_str = str(id_principal).strip()
+        if not lote_str:
+            return vazio
+    if tipo == 'fluxo_bucket':
+        bucket_upper = str(id_principal).strip().upper()
+        # Só esses 7 buckets são válidos
+        if bucket_upper not in ('ATRASADO', 'HOJE', '1-7D', '8-15D', '16-30D', '31-60D', '61-90D'):
+            return vazio
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+
+            if tipo == 'cliente_vendas':
+                # Top N vendas do cliente no período (TOP 35/37 'L')
+                codparc = int(id_principal)
+                cur.execute(
+                    """
+                    SELECT * FROM (
+                        SELECT
+                            c.NUNOTA, c.NUMNOTA, c.DTNEG, c.CODTIPOPER,
+                            pr.DESCRPROD, i.QTDNEG, i.CODVOL, i.VLRUNIT, i.VLRTOT,
+                            NVL(matriz.OBSERVACOES, matriz.NOMEPARC) AS cliente
+                          FROM TGFCAB c
+                          JOIN TGFITE i      ON i.NUNOTA = c.NUNOTA
+                          JOIN TGFPRO pr     ON pr.CODPROD = i.CODPROD
+                          JOIN TGFPAR p      ON p.CODPARC = c.CODPARC
+                          JOIN TGFPAR matriz ON matriz.CODPARC = NVL(p.CODPARCMATRIZ, p.CODPARC)
+                         WHERE c.STATUSNOTA = 'L'
+                           AND c.CODTIPOPER IN (35, 37)
+                           AND matriz.CODPARC = :cp
+                           AND c.DTNEG BETWEEN TO_DATE(:de, 'YYYY-MM-DD')
+                                           AND TO_DATE(:ate, 'YYYY-MM-DD') + 0.99999
+                         ORDER BY c.DTNEG DESC, c.NUNOTA DESC
+                    ) WHERE ROWNUM <= 100
+                    """,
+                    cp=codparc, de=date_de, ate=date_ate,
+                )
+                rows = cur.fetchall()
+                linhas = [{
+                    'nunota':     int(r[0]) if r[0] is not None else None,
+                    'numnota':    int(r[1]) if r[1] is not None else None,
+                    'dtneg':      r[2].strftime('%d/%m/%Y') if r[2] else '',
+                    'codtipoper': int(r[3]) if r[3] is not None else None,
+                    'descrprod':  (r[4] or '').strip(),
+                    'qtdneg':     float(r[5] or 0),
+                    'codvol':     (r[6] or '').strip(),
+                    'vlrunit':    float(r[7] or 0),
+                    'vlrtot':     float(r[8] or 0),
+                } for r in rows]
+                cliente = (rows[0][9] or '').strip() if rows else f'Cliente #{codparc}'
+                total_vlr = sum(l['vlrtot'] for l in linhas)
+                return {
+                    'tipo': tipo,
+                    'titulo': f'Vendas — {cliente}',
+                    'subtitulo': f'{date_de} → {date_ate} · {len(linhas)} item(s)',
+                    'colunas': ['Data', 'Pedido', 'TOP', 'Produto', 'Qtd', 'Vlr Unit', 'Total'],
+                    'linhas': linhas,
+                    'totais': {'vlrtot': total_vlr, 'count': len(linhas)},
+                }
+
+            if tipo == 'produto_vendas':
+                # Top N vendas de 1 produto no período (TOP 35/37 'L')
+                codprod = int(id_principal)
+                if not date_de or not date_ate:
+                    return vazio
+                cur.execute(
+                    """
+                    SELECT * FROM (
+                        SELECT
+                            c.NUNOTA, c.NUMNOTA, c.DTNEG, c.CODTIPOPER,
+                            NVL(matriz.OBSERVACOES, matriz.NOMEPARC) AS cliente,
+                            i.QTDNEG, i.CODVOL, i.VLRUNIT, i.VLRTOT,
+                            pr.DESCRPROD
+                          FROM TGFCAB c
+                          JOIN TGFITE i      ON i.NUNOTA = c.NUNOTA
+                          JOIN TGFPAR p      ON p.CODPARC = c.CODPARC
+                          JOIN TGFPAR matriz ON matriz.CODPARC = NVL(p.CODPARCMATRIZ, p.CODPARC)
+                          JOIN TGFPRO pr     ON pr.CODPROD = i.CODPROD
+                         WHERE c.STATUSNOTA = 'L'
+                           AND c.CODTIPOPER IN (35, 37)
+                           AND i.CODPROD = :cp
+                           AND c.DTNEG BETWEEN TO_DATE(:de, 'YYYY-MM-DD')
+                                           AND TO_DATE(:ate, 'YYYY-MM-DD') + 0.99999
+                         ORDER BY c.DTNEG DESC, c.NUNOTA DESC
+                    ) WHERE ROWNUM <= 100
+                    """,
+                    cp=codprod, de=date_de, ate=date_ate,
+                )
+                rows = cur.fetchall()
+                linhas = [{
+                    'nunota':     int(r[0]) if r[0] is not None else None,
+                    'numnota':    int(r[1]) if r[1] is not None else None,
+                    'dtneg':      r[2].strftime('%d/%m/%Y') if r[2] else '',
+                    'codtipoper': int(r[3]) if r[3] is not None else None,
+                    'cliente':    (r[4] or '').strip()[:50],
+                    'qtdneg':     float(r[5] or 0),
+                    'codvol':     (r[6] or '').strip(),
+                    'vlrunit':    float(r[7] or 0),
+                    'vlrtot':     float(r[8] or 0),
+                } for r in rows]
+                produto = (rows[0][9] or '').strip() if rows else f'Produto #{codprod}'
+                total_qtd = sum(l['qtdneg'] for l in linhas)
+                total_vlr = sum(l['vlrtot'] for l in linhas)
+                return {
+                    'tipo': tipo,
+                    'titulo': f'Vendas — {produto}',
+                    'subtitulo': f'{date_de} → {date_ate} · {len(linhas)} venda(s)',
+                    'colunas': ['Data', 'Pedido', 'TOP', 'Cliente', 'Qtd', 'Vlr Unit', 'Total'],
+                    'linhas': linhas,
+                    'totais': {'qtdneg': total_qtd, 'vlrtot': total_vlr, 'count': len(linhas)},
+                }
+
+            if tipo == 'lote_movs':
+                # Movimentações de 1 lote (compra/classif/vale/venda/avaria)
+                lote = str(id_principal).strip()
+                if not lote:
+                    return vazio
+                cur.execute(
+                    """
+                    SELECT * FROM (
+                        SELECT
+                            c.NUNOTA, c.NUMNOTA, c.DTNEG, c.CODTIPOPER, c.STATUSNOTA,
+                            NVL(p.OBSERVACOES, p.NOMEPARC) AS parc,
+                            pr.DESCRPROD,
+                            i.QTDNEG, i.CODVOL, i.VLRUNIT, i.VLRTOT
+                          FROM TGFITE i
+                          JOIN TGFCAB c  ON c.NUNOTA = i.NUNOTA
+                          JOIN TGFPAR p  ON p.CODPARC = c.CODPARC
+                          JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
+                         WHERE i.CODAGREGACAO = :lote
+                           AND c.STATUSNOTA <> 'E'
+                         ORDER BY c.DTNEG ASC, c.NUNOTA ASC
+                    ) WHERE ROWNUM <= 200
+                    """,
+                    lote=lote,
+                )
+                rows = cur.fetchall()
+                # Label da TOP pra UX (usa CODNAT_POR_TOP indiretamente)
+                top_label = {
+                    11: 'Compra', 13: 'Vale', 26: 'Classif.',
+                    30: 'Avaria', 33: 'Ajuste', 34: 'Pedido',
+                    35: 'NFe', 36: 'Devol.', 37: 'S/NFe',
+                }
+                linhas = [{
+                    'nunota':     int(r[0]) if r[0] is not None else None,
+                    'numnota':    int(r[1]) if r[1] is not None else None,
+                    'dtneg':      r[2].strftime('%d/%m/%Y') if r[2] else '',
+                    'codtipoper': int(r[3]) if r[3] is not None else None,
+                    'top_label':  top_label.get(int(r[3] or 0), str(r[3] or '')),
+                    'statusnota': (r[4] or '').strip(),
+                    'parc':       (r[5] or '').strip()[:40],
+                    'descrprod':  (r[6] or '').strip(),
+                    'qtdneg':     float(r[7] or 0),
+                    'codvol':     (r[8] or '').strip(),
+                    'vlrunit':    float(r[9] or 0),
+                    'vlrtot':     float(r[10] or 0),
+                } for r in rows]
+                return {
+                    'tipo': tipo,
+                    'titulo': f'Lote {lote}',
+                    'subtitulo': f'{len(linhas)} movimentação(ões)',
+                    'colunas': ['Data', 'TOP', 'Nota', 'Status', 'Parceiro', 'Produto', 'Qtd', 'Total'],
+                    'linhas': linhas,
+                    'totais': {'count': len(linhas)},
+                }
+
+            if tipo == 'veiculo_reqs':
+                # Requisições de combustível de 1 veículo no período
+                codveiculo = int(id_principal)
+                if not date_de or not date_ate:
+                    return vazio
+                cur.execute(
+                    """
+                    SELECT * FROM (
+                        SELECT
+                            c.NUNOTA, c.DTNEG, c.CODTIPOPER,
+                            pr.DESCRPROD, i.QTDNEG, i.VLRUNIT, i.VLRTOT,
+                            req.TIPO, req.HODOMETRO_KM, req.HORIMETRO_H,
+                            v.PLACA, v.MARCAMODELO
+                          FROM TGFCAB c
+                          JOIN TGFITE i  ON i.NUNOTA = c.NUNOTA
+                          JOIN TGFPRO pr ON pr.CODPROD = i.CODPROD
+                          JOIN AD_REQUISICAO_COMBUSTIVEL req ON req.NUNOTA = c.NUNOTA
+                          JOIN TGFVEI v  ON v.CODVEICULO = req.CODVEICULO
+                         WHERE c.STATUSNOTA <> 'E'
+                           AND c.CODTIPOPER IN (10, 53)
+                           AND req.CODVEICULO = :cv
+                           AND c.DTNEG BETWEEN TO_DATE(:de, 'YYYY-MM-DD')
+                                           AND TO_DATE(:ate, 'YYYY-MM-DD') + 0.99999
+                         ORDER BY c.DTNEG DESC, c.NUNOTA DESC
+                    ) WHERE ROWNUM <= 200
+                    """,
+                    cv=codveiculo, de=date_de, ate=date_ate,
+                )
+                rows = cur.fetchall()
+                linhas = [{
+                    'nunota':     int(r[0]) if r[0] is not None else None,
+                    'dtneg':      r[1].strftime('%d/%m/%Y') if r[1] else '',
+                    'codtipoper': int(r[2]) if r[2] is not None else None,
+                    'descrprod':  (r[3] or '').strip(),
+                    'qtdneg':     float(r[4] or 0),
+                    'vlrunit':    float(r[5] or 0),
+                    'vlrtot':     float(r[6] or 0),
+                    'tipo':       (r[7] or '').strip(),
+                    'hodometro':  float(r[8]) if r[8] is not None else None,
+                    'horimetro':  float(r[9]) if r[9] is not None else None,
+                } for r in rows]
+                placa = (rows[0][10] or '').strip() if rows else f'#{codveiculo}'
+                modelo = (rows[0][11] or '').strip() if rows else ''
+                total_lit = sum(l['qtdneg'] for l in linhas)
+                total_vlr = sum(l['vlrtot'] for l in linhas)
+                return {
+                    'tipo': tipo,
+                    'titulo': f'{placa} · {modelo}',
+                    'subtitulo': f'{date_de} → {date_ate} · {len(linhas)} req(s)',
+                    'colunas': ['Data', 'Tipo', 'Produto', 'Litros', 'Vlr Unit', 'Total', 'km/h'],
+                    'linhas': linhas,
+                    'totais': {'litros': total_lit, 'vlrtot': total_vlr, 'count': len(linhas)},
+                }
+
+            if tipo == 'fluxo_bucket':
+                # TGFFIN em aberto que cai no bucket clicado.
+                # id_principal = label do bucket ('ATRASADO', 'HOJE', '1-7d', etc).
+                bucket_label = str(id_principal).strip().upper()
+                # Mapa de bucket → janela de DTVENC
+                # ATRASADO: < hoje; HOJE: =hoje; 1-7d: hoje+1..hoje+7; etc.
+                where_dtvenc = ''
+                if bucket_label == 'ATRASADO':
+                    where_dtvenc = " AND TRUNC(f.DTVENC) < TRUNC(SYSDATE) "
+                elif bucket_label == 'HOJE':
+                    where_dtvenc = " AND TRUNC(f.DTVENC) = TRUNC(SYSDATE) "
+                elif bucket_label == '1-7D':
+                    where_dtvenc = " AND TRUNC(f.DTVENC) BETWEEN TRUNC(SYSDATE)+1 AND TRUNC(SYSDATE)+7 "
+                elif bucket_label == '8-15D':
+                    where_dtvenc = " AND TRUNC(f.DTVENC) BETWEEN TRUNC(SYSDATE)+8 AND TRUNC(SYSDATE)+15 "
+                elif bucket_label == '16-30D':
+                    where_dtvenc = " AND TRUNC(f.DTVENC) BETWEEN TRUNC(SYSDATE)+16 AND TRUNC(SYSDATE)+30 "
+                elif bucket_label == '31-60D':
+                    where_dtvenc = " AND TRUNC(f.DTVENC) BETWEEN TRUNC(SYSDATE)+31 AND TRUNC(SYSDATE)+60 "
+                elif bucket_label == '61-90D':
+                    where_dtvenc = " AND TRUNC(f.DTVENC) BETWEEN TRUNC(SYSDATE)+61 AND TRUNC(SYSDATE)+90 "
+                else:
+                    return vazio
+
+                cur.execute(
+                    f"""
+                    SELECT * FROM (
+                        SELECT
+                            f.NUFIN, f.NUNOTA, f.DTVENC, f.VLRDESDOB, f.RECDESP,
+                            NVL(p.OBSERVACOES, p.NOMEPARC) AS parc,
+                            f.HISTORICO
+                          FROM TGFFIN f
+                          JOIN TGFPAR p ON p.CODPARC = f.CODPARC
+                         WHERE (f.DHBAIXA IS NULL OR f.DHBAIXA <= TO_DATE('01/01/1998', 'DD/MM/YYYY'))
+                           {where_dtvenc}
+                         ORDER BY f.DTVENC ASC, f.NUFIN ASC
+                    ) WHERE ROWNUM <= 200
+                    """,
+                )
+                rows = cur.fetchall()
+                linhas = []
+                total_entrada = 0.0
+                total_saida = 0.0
+                for r in rows:
+                    vlr = float(r[3] or 0)
+                    rec = int(r[4] or 0)
+                    if rec > 0:
+                        total_entrada += vlr
+                    elif rec < 0:
+                        total_saida += vlr
+                    linhas.append({
+                        'nufin':     int(r[0]) if r[0] is not None else None,
+                        'nunota':    int(r[1]) if r[1] is not None else None,
+                        'dtvenc':    r[2].strftime('%d/%m/%Y') if r[2] else '',
+                        'vlr':       vlr,
+                        'recdesp':   rec,
+                        'parc':      (r[5] or '').strip()[:40],
+                        'historico': (r[6] or '').strip()[:80] if r[6] else '',
+                    })
+                return {
+                    'tipo': tipo,
+                    'titulo': f'Fluxo · {bucket_label}',
+                    'subtitulo': f'{len(linhas)} título(s) em aberto',
+                    'colunas': ['Venc.', 'NUFIN', 'NUNOTA', 'Parceiro', 'Histórico', 'Valor'],
+                    'linhas': linhas,
+                    'totais': {
+                        'entrada': total_entrada, 'saida': total_saida,
+                        'count': len(linhas),
+                    },
+                }
+
+            if tipo == 'margem_detalhe':
+                # Detalhe das vendas que compuseram a margem do
+                # cliente OU produto (id_principal vem com tipo definido
+                # em extras['agrupar']).
+                agrupar = extras.get('agrupar', 'cliente')
+                if agrupar not in ('cliente', 'produto'):
+                    agrupar = 'cliente'
+                if not date_de or not date_ate:
+                    return vazio
+                cod = int(id_principal)
+                if agrupar == 'produto':
+                    where_chave = " AND i.CODPROD = :cod "
+                    sel_nome_filtro = "pr.DESCRPROD"
+                else:
+                    where_chave = " AND matriz.CODPARC = :cod "
+                    sel_nome_filtro = "NVL(matriz.OBSERVACOES, matriz.NOMEPARC)"
+
+                cur.execute(
+                    f"""
+                    WITH custos_lote AS (
+                        SELECT
+                            ite.CODAGREGACAO,
+                            SUM(CASE WHEN cab.CODTIPOPER = 13 THEN NVL(ite.VLRTOT, 0) END) AS custo_vale,
+                            SUM(CASE WHEN cab.CODTIPOPER = 11 THEN NVL(ite.QTDNEG, 0) END) AS qtd_entrada
+                          FROM TGFCAB cab
+                          JOIN TGFITE ite ON ite.NUNOTA = cab.NUNOTA
+                         WHERE cab.STATUSNOTA <> 'E'
+                           AND cab.CODTIPOPER IN (11, 13)
+                           AND ite.CODAGREGACAO IS NOT NULL
+                         GROUP BY ite.CODAGREGACAO
+                    )
+                    SELECT * FROM (
+                        SELECT
+                            c.NUNOTA, c.NUMNOTA, c.DTNEG,
+                            NVL(matriz.OBSERVACOES, matriz.NOMEPARC) AS cliente,
+                            pr.DESCRPROD,
+                            i.QTDNEG, i.VLRTOT,
+                            NVL(i.QTDNEG, 0) * CASE
+                                WHEN cl.qtd_entrada > 0
+                                THEN cl.custo_vale / cl.qtd_entrada
+                                ELSE 0
+                            END AS custo_item,
+                            i.CODAGREGACAO,
+                            {sel_nome_filtro} AS rotulo
+                          FROM TGFCAB c
+                          JOIN TGFITE i      ON i.NUNOTA = c.NUNOTA
+                          JOIN TGFPAR p      ON p.CODPARC = c.CODPARC
+                          JOIN TGFPAR matriz ON matriz.CODPARC = NVL(p.CODPARCMATRIZ, p.CODPARC)
+                          JOIN TGFPRO pr     ON pr.CODPROD = i.CODPROD
+                     LEFT JOIN custos_lote cl ON cl.CODAGREGACAO = i.CODAGREGACAO
+                         WHERE c.STATUSNOTA = 'L'
+                           AND c.CODTIPOPER IN (35, 37)
+                           AND i.CODAGREGACAO IS NOT NULL
+                           {where_chave}
+                           AND c.DTNEG BETWEEN TO_DATE(:de, 'YYYY-MM-DD')
+                                           AND TO_DATE(:ate, 'YYYY-MM-DD') + 0.99999
+                         ORDER BY c.DTNEG DESC, c.NUNOTA DESC
+                    ) WHERE ROWNUM <= 200
+                    """,
+                    cod=cod, de=date_de, ate=date_ate,
+                )
+                rows = cur.fetchall()
+                linhas = []
+                total_receita = 0.0
+                total_custo = 0.0
+                for r in rows:
+                    receita = float(r[6] or 0)
+                    custo = float(r[7] or 0)
+                    lucro = receita - custo
+                    margem = (lucro / receita * 100) if receita > 0 else 0.0
+                    total_receita += receita
+                    total_custo += custo
+                    linhas.append({
+                        'nunota':     int(r[0]) if r[0] is not None else None,
+                        'numnota':    int(r[1]) if r[1] is not None else None,
+                        'dtneg':      r[2].strftime('%d/%m/%Y') if r[2] else '',
+                        'cliente':    (r[3] or '').strip()[:40],
+                        'descrprod':  (r[4] or '').strip(),
+                        'qtdneg':     float(r[5] or 0),
+                        'receita':    receita,
+                        'custo':      custo,
+                        'lucro':      lucro,
+                        'margem_pct': margem,
+                        'codagregacao': (r[8] or '').strip(),
+                    })
+                rotulo = (rows[0][9] or '').strip() if rows else (
+                    f'Cliente #{cod}' if agrupar == 'cliente' else f'Produto #{cod}'
+                )
+                total_lucro = total_receita - total_custo
+                margem_media = (total_lucro / total_receita * 100) if total_receita > 0 else 0.0
+                return {
+                    'tipo': tipo,
+                    'titulo': f'Margem — {rotulo}',
+                    'subtitulo': f'{date_de} → {date_ate} · {len(linhas)} venda(s)',
+                    'colunas': ['Data', 'Pedido', 'Cliente', 'Produto', 'Receita', 'Custo', 'Lucro', 'Margem %'],
+                    'linhas': linhas,
+                    'totais': {
+                        'receita': total_receita, 'custo': total_custo,
+                        'lucro': total_lucro, 'margem_media': margem_media,
+                        'count': len(linhas),
+                    },
+                }
+    except Exception as e:
+        logger.exception("Erro em consultar_drilldown_relatorio (%s): %s", tipo, e)
+        return vazio
+
+    return vazio
+
+
 def consultar_calculo_ticket_medio(lote: str):
     """Calcula o Ticket Médio e envia a 'Bandeira' de tipo de fluxo."""
     # 🚀 ADICIONAMOS A BANDEIRA 'tipo_fluxo' AQUI
@@ -16420,3 +16885,614 @@ def excluir_viagem_banco(
         'destinos_removidos': qtd_destinos,
         'ajudantes_removidos': qtd_ajudantes,
     }
+
+
+# =============================================================================
+# Cadastros (Mai/2026) — Hub de leitura TGFPAR / TGFPRO / TGFVEI
+#
+# Telas view-only acessadas via /sankhya/configuracoes/ → /sankhya/cadastros/.
+# Padrão idêntico ao módulo Usuários (listar paginado + detalhe completo).
+# Apenas SELECT (Cat A pura). CRUD fica como Cat B futuro.
+# =============================================================================
+
+
+def listar_parceiros_cadastros(filtros: Optional[dict] = None,
+                               limite: int = 50,
+                               offset: int = 0) -> dict:
+    """Lista paginada de TGFPAR com filtros pra tela Cadastros → Parceiros.
+
+    Filtros aceitos (dict):
+      - busca: termo livre em CODPARC, NOMEPARC, RAZAOSOCIAL, CGC_CPF
+      - tipo_id: filtra por vínculo em AD_PARCEIRO_TIPO (1=CLIENTE, 4=MOTORISTA, etc)
+      - apenas_ativos (default True)
+      - codtab: filtra por TGFPAR.CODTAB (tabela de preço)
+    Retorna dict {parceiros: [...], total: N, limite, offset}.
+    Schema-resilient pra AD_PARCEIRO_TIPO (tabela nova Mai/2026).
+    """
+    filtros = filtros or {}
+    binds = {}
+    where = ["1=1"]
+
+    busca = (filtros.get('busca') or '').strip()
+    if busca:
+        where.append(
+            "(UPPER(p.NOMEPARC) LIKE :busca"
+            " OR UPPER(NVL(p.RAZAOSOCIAL,'')) LIKE :busca"
+            " OR UPPER(NVL(p.CGC_CPF,'')) LIKE :busca"
+            " OR TO_CHAR(p.CODPARC) LIKE :busca)"
+        )
+        binds['busca'] = f"%{busca.upper()}%"
+
+    if filtros.get('apenas_ativos', True) and not filtros.get('mostrar_inativos'):
+        where.append("NVL(p.ATIVO,'S') = 'S'")
+    elif filtros.get('apenas_inativos'):
+        where.append("NVL(p.ATIVO,'S') = 'N'")
+
+    codtab = filtros.get('codtab')
+    if codtab is not None and str(codtab).strip() != '':
+        try:
+            binds['codtab'] = int(codtab)
+            where.append("p.CODTAB = :codtab")
+        except (TypeError, ValueError):
+            pass
+
+    # Filtro por tipo via AD_PARCEIRO_TIPO (schema-resilient)
+    tipo_id = filtros.get('tipo_id')
+    has_tipo_filter = False
+    if tipo_id is not None and str(tipo_id).strip() != '':
+        try:
+            binds['tipo_id'] = int(tipo_id)
+            where.append(
+                "EXISTS (SELECT 1 FROM AD_PARCEIRO_TIPO pt "
+                "WHERE pt.CODPARC = p.CODPARC AND pt.AD_CODTIPPARC = :tipo_id)"
+            )
+            has_tipo_filter = True
+        except (TypeError, ValueError):
+            pass
+
+    where_sql = " AND ".join(where)
+
+    sql_count = f"SELECT COUNT(*) FROM TGFPAR p WHERE {where_sql}"
+
+    sql = f"""
+        SELECT * FROM (
+            SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.NOMEPARC ASC) AS rn FROM (
+                SELECT
+                    p.CODPARC,
+                    p.NOMEPARC,
+                    NVL(p.RAZAOSOCIAL, '') AS RAZAOSOCIAL,
+                    NVL(p.CGC_CPF, '')     AS CGC_CPF,
+                    NVL(p.ATIVO, 'S')      AS ATIVO,
+                    p.CODTAB,
+                    (
+                        SELECT COUNT(*) FROM AD_PARCEIRO_TIPO pt
+                         WHERE pt.CODPARC = p.CODPARC
+                    ) AS QTD_TIPOS
+                  FROM TGFPAR p
+                 WHERE {where_sql}
+            ) t
+        )
+        WHERE rn BETWEEN :ini AND :fim
+    """
+    binds_pag = dict(binds)
+    binds_pag['ini'] = int(offset) + 1
+    binds_pag['fim'] = int(offset) + int(limite)
+
+    parceiros = []
+    total = 0
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql_count, binds)
+            total = int(cur.fetchone()[0] or 0)
+            cur.execute(sql, binds_pag)
+            for r in cur.fetchall():
+                parceiros.append({
+                    'codparc':     int(r[0]),
+                    'nomeparc':    r[1] or '',
+                    'razaosocial': r[2] or '',
+                    'cgc_cpf':     r[3] or '',
+                    'ativo':       (r[4] == 'S'),
+                    'codtab':      int(r[5]) if r[5] is not None else None,
+                    'qtd_tipos':   int(r[6] or 0),
+                })
+    except Exception:
+        # Fallback: provavelmente AD_PARCEIRO_TIPO ainda não existe
+        if has_tipo_filter:
+            logger.exception(
+                "Falha em listar_parceiros_cadastros com filtro de tipo — "
+                "AD_PARCEIRO_TIPO pode não existir"
+            )
+            return {'parceiros': [], 'total': 0, 'limite': int(limite), 'offset': int(offset)}
+        # Sem filtro de tipo, tenta query simplificada sem o subselect
+        try:
+            sql_simples = f"""
+                SELECT * FROM (
+                    SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.NOMEPARC ASC) AS rn FROM (
+                        SELECT
+                            p.CODPARC,
+                            p.NOMEPARC,
+                            NVL(p.RAZAOSOCIAL, '') AS RAZAOSOCIAL,
+                            NVL(p.CGC_CPF, '')     AS CGC_CPF,
+                            NVL(p.ATIVO, 'S')      AS ATIVO,
+                            p.CODTAB
+                          FROM TGFPAR p
+                         WHERE {where_sql}
+                    ) t
+                )
+                WHERE rn BETWEEN :ini AND :fim
+            """
+            with obter_conexao_oracle() as conn:
+                cur = conn.cursor()
+                cur.execute(sql_count, binds)
+                total = int(cur.fetchone()[0] or 0)
+                cur.execute(sql_simples, binds_pag)
+                for r in cur.fetchall():
+                    parceiros.append({
+                        'codparc':     int(r[0]),
+                        'nomeparc':    r[1] or '',
+                        'razaosocial': r[2] or '',
+                        'cgc_cpf':     r[3] or '',
+                        'ativo':       (r[4] == 'S'),
+                        'codtab':      int(r[5]) if r[5] is not None else None,
+                        'qtd_tipos':   0,
+                    })
+        except Exception:
+            logger.exception("Falha em listar_parceiros_cadastros (fallback)")
+            return {'parceiros': [], 'total': 0, 'limite': int(limite), 'offset': int(offset)}
+
+    return {'parceiros': parceiros, 'total': total, 'limite': int(limite), 'offset': int(offset)}
+
+
+def consultar_parceiro_detalhe(codparc: int) -> Optional[dict]:
+    """Detalhe completo de 1 parceiro + lista de tipos via AD_PARCEIRO_TIPO."""
+    try:
+        codparc_int = int(codparc)
+    except (TypeError, ValueError):
+        return None
+
+    # Monta SELECT só com colunas que existem (schema-resilient via _existe_coluna)
+    campos_opcionais = [
+        'TELEFONE', 'FAX', 'EMAIL', 'IDENTINSCESTAD',
+        'CIDADE', 'CEP', 'CODEND', 'CODBAI', 'CODCID',
+        'NUMEND', 'COMPLEMENTO',
+        'CLIENTE', 'FORNECEDOR', 'VENDEDOR', 'TRANSPORTADORA', 'FUNCIONARIO',
+    ]
+    selects_extra = []
+    aliases_extra = []
+    with obter_conexao_oracle() as conn_probe:
+        cur_probe = conn_probe.cursor()
+        for col in campos_opcionais:
+            if _existe_coluna(cur_probe, 'TGFPAR', col):
+                selects_extra.append(f"NVL(p.{col},'') AS {col}")
+                aliases_extra.append(col)
+
+    extras_sql = (", " + ", ".join(selects_extra)) if selects_extra else ""
+
+    sql_cab = f"""
+        SELECT p.CODPARC, p.NOMEPARC,
+               NVL(p.RAZAOSOCIAL, '') AS RAZAOSOCIAL,
+               NVL(p.CGC_CPF, '')     AS CGC_CPF,
+               NVL(p.ATIVO, 'S')      AS ATIVO,
+               p.CODTAB
+               {extras_sql}
+          FROM TGFPAR p
+         WHERE p.CODPARC = :codparc
+    """
+
+    # Tipos via AD_PARCEIRO_TIPO + AD_TIPO_PARCEIRO (schema-resilient)
+    sql_tipos = """
+        SELECT t.ID, t.CODIGO, t.DESCRICAO, t.ORDEM_EXIBICAO
+          FROM AD_PARCEIRO_TIPO pt
+          JOIN AD_TIPO_PARCEIRO t ON t.ID = pt.AD_CODTIPPARC
+         WHERE pt.CODPARC = :codparc
+         ORDER BY t.ORDEM_EXIBICAO ASC, t.DESCRICAO ASC
+    """
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql_cab, codparc=codparc_int)
+            row = cur.fetchone()
+            if not row:
+                return None
+
+            cab = {
+                'codparc':     int(row[0]),
+                'nomeparc':    row[1] or '',
+                'razaosocial': row[2] or '',
+                'cgc_cpf':     row[3] or '',
+                'ativo':       (row[4] == 'S'),
+                'codtab':      int(row[5]) if row[5] is not None else None,
+            }
+            # Popula campos opcionais que existem
+            for i, alias in enumerate(aliases_extra, start=6):
+                val = row[i] if i < len(row) else ''
+                cab[alias.lower()] = val if val is not None else ''
+
+            # Tipos (schema-resilient)
+            tipos = []
+            try:
+                cur.execute(sql_tipos, codparc=codparc_int)
+                for tr in cur.fetchall():
+                    tipos.append({
+                        'id':        int(tr[0]),
+                        'codigo':    tr[1] or '',
+                        'descricao': tr[2] or '',
+                        'ordem':     int(tr[3] or 999),
+                    })
+            except Exception:
+                logger.info(
+                    "AD_PARCEIRO_TIPO indisponível em consultar_parceiro_detalhe codparc=%s",
+                    codparc_int,
+                )
+            cab['tipos'] = tipos
+            return cab
+    except Exception:
+        logger.exception("Falha em consultar_parceiro_detalhe codparc=%s", codparc_int)
+        return None
+
+
+def listar_produtos_cadastros(filtros: Optional[dict] = None,
+                              limite: int = 50,
+                              offset: int = 0) -> dict:
+    """Lista paginada de TGFPRO com filtros pra tela Cadastros → Produtos.
+
+    Filtros aceitos (dict):
+      - busca: termo livre em CODPROD, DESCRPROD, FABRICANTE, REFERENCIA
+      - codgrupoprod: filtra grupo do produto (200400 = COMBUSTÍVEIS, etc)
+      - apenas_ativos (default True)
+      - usoprod: filtra USOPROD ('V', 'R', 'C')
+    """
+    filtros = filtros or {}
+    binds = {}
+    where = ["1=1"]
+
+    busca = (filtros.get('busca') or '').strip()
+    if busca:
+        where.append(
+            "(UPPER(p.DESCRPROD) LIKE :busca"
+            " OR UPPER(NVL(p.FABRICANTE,'')) LIKE :busca"
+            " OR UPPER(NVL(p.REFERENCIA,'')) LIKE :busca"
+            " OR TO_CHAR(p.CODPROD) LIKE :busca)"
+        )
+        binds['busca'] = f"%{busca.upper()}%"
+
+    if filtros.get('apenas_ativos', True) and not filtros.get('mostrar_inativos'):
+        where.append("NVL(p.ATIVO,'S') = 'S'")
+    elif filtros.get('apenas_inativos'):
+        where.append("NVL(p.ATIVO,'S') = 'N'")
+
+    codgrupoprod = filtros.get('codgrupoprod')
+    if codgrupoprod is not None and str(codgrupoprod).strip() != '':
+        try:
+            binds['codgrupoprod'] = int(codgrupoprod)
+            where.append("p.CODGRUPOPROD = :codgrupoprod")
+        except (TypeError, ValueError):
+            pass
+
+    usoprod = (filtros.get('usoprod') or '').strip().upper()
+    if usoprod in ('V', 'R', 'C'):
+        binds['usoprod'] = usoprod
+        where.append("p.USOPROD = :usoprod")
+
+    where_sql = " AND ".join(where)
+
+    sql_count = f"SELECT COUNT(*) FROM TGFPRO p WHERE {where_sql}"
+
+    sql = f"""
+        SELECT * FROM (
+            SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.DESCRPROD ASC) AS rn FROM (
+                SELECT
+                    p.CODPROD,
+                    p.DESCRPROD,
+                    NVL(p.CODVOL, '')      AS CODVOL,
+                    p.CODGRUPOPROD,
+                    NVL(g.DESCRGRUPOPROD, '') AS DESCRGRUPOPROD,
+                    NVL(p.FABRICANTE, '')  AS FABRICANTE,
+                    NVL(p.REFERENCIA, '')  AS REFERENCIA,
+                    NVL(p.USOPROD, '')     AS USOPROD,
+                    NVL(p.ATIVO, 'S')      AS ATIVO
+                  FROM TGFPRO p
+                  LEFT JOIN TGFGRU g ON g.CODGRUPOPROD = p.CODGRUPOPROD
+                 WHERE {where_sql}
+            ) t
+        )
+        WHERE rn BETWEEN :ini AND :fim
+    """
+    binds_pag = dict(binds)
+    binds_pag['ini'] = int(offset) + 1
+    binds_pag['fim'] = int(offset) + int(limite)
+
+    produtos = []
+    total = 0
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql_count, binds)
+            total = int(cur.fetchone()[0] or 0)
+            cur.execute(sql, binds_pag)
+            for r in cur.fetchall():
+                produtos.append({
+                    'codprod':        int(r[0]),
+                    'descrprod':      r[1] or '',
+                    'codvol':         r[2] or '',
+                    'codgrupoprod':   int(r[3]) if r[3] is not None else None,
+                    'descrgrupoprod': r[4] or '',
+                    'fabricante':     r[5] or '',
+                    'referencia':     r[6] or '',
+                    'usoprod':        r[7] or '',
+                    'ativo':          (r[8] == 'S'),
+                })
+    except Exception:
+        logger.exception("Falha em listar_produtos_cadastros")
+        return {'produtos': [], 'total': 0, 'limite': int(limite), 'offset': int(offset)}
+
+    return {'produtos': produtos, 'total': total, 'limite': int(limite), 'offset': int(offset)}
+
+
+def consultar_produto_detalhe(codprod: int) -> Optional[dict]:
+    """Detalhe completo de 1 produto + volumes alternativos TGFVOA."""
+    try:
+        codprod_int = int(codprod)
+    except (TypeError, ValueError):
+        return None
+
+    sql_cab = """
+        SELECT p.CODPROD, p.DESCRPROD,
+               NVL(p.CODVOL, '')          AS CODVOL,
+               p.CODGRUPOPROD,
+               NVL(g.DESCRGRUPOPROD, '')  AS DESCRGRUPOPROD,
+               NVL(p.FABRICANTE, '')      AS FABRICANTE,
+               NVL(p.REFERENCIA, '')      AS REFERENCIA,
+               NVL(p.USOPROD, '')         AS USOPROD,
+               NVL(p.ATIVO, 'S')          AS ATIVO,
+               NVL(p.SELECIONADO, '')     AS SELECIONADO
+          FROM TGFPRO p
+          LEFT JOIN TGFGRU g ON g.CODGRUPOPROD = p.CODGRUPOPROD
+         WHERE p.CODPROD = :codprod
+    """
+
+    sql_volumes = """
+        SELECT v.CODVOL,
+               NVL(v.DIVIDEMULTIPLICA, 'M') AS DIVMULT,
+               v.QUANTIDADE,
+               NVL(v.ATIVO, 'S')            AS ATIVO,
+               NVL(v.CODBARRA, '')          AS CODBARRA
+          FROM TGFVOA v
+         WHERE v.CODPROD = :codprod
+         ORDER BY v.CODVOL ASC
+    """
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql_cab, codprod=codprod_int)
+            row = cur.fetchone()
+            if not row:
+                return None
+
+            cab = {
+                'codprod':        int(row[0]),
+                'descrprod':      row[1] or '',
+                'codvol':         row[2] or '',
+                'codgrupoprod':   int(row[3]) if row[3] is not None else None,
+                'descrgrupoprod': row[4] or '',
+                'fabricante':     row[5] or '',
+                'referencia':     row[6] or '',
+                'usoprod':        row[7] or '',
+                'ativo':          (row[8] == 'S'),
+                'selecionado':    row[9] or '',
+            }
+
+            # Volumes alternativos (schema-resilient)
+            volumes = []
+            try:
+                cur.execute(sql_volumes, codprod=codprod_int)
+                for vr in cur.fetchall():
+                    qty = vr[2]
+                    volumes.append({
+                        'codvol':     vr[0] or '',
+                        'divmult':    vr[1] or 'M',
+                        'quantidade': float(qty) if qty is not None else 0.0,
+                        'ativo':      (vr[3] == 'S'),
+                        'codbarra':   vr[4] or '',
+                    })
+            except Exception:
+                logger.info(
+                    "TGFVOA indisponível em consultar_produto_detalhe codprod=%s",
+                    codprod_int,
+                )
+            cab['volumes'] = volumes
+            return cab
+    except Exception:
+        logger.exception("Falha em consultar_produto_detalhe codprod=%s", codprod_int)
+        return None
+
+
+def listar_veiculos_cadastros(filtros: Optional[dict] = None,
+                              limite: int = 50,
+                              offset: int = 0) -> dict:
+    """Lista paginada de TGFVEI com JOIN TGFPAR pra tela Cadastros → Veículos.
+
+    Filtros aceitos (dict):
+      - busca: termo livre em PLACA, MARCAMODELO, ESPECIETIPO, NOMEPARC, CODVEICULO
+      - apenas_ativos (default True)
+      - proprio: 'S' (frota+maquinário) | 'N' (terceiros)
+      - combustivel: 'D' | 'G' | 'F' | etc
+    """
+    filtros = filtros or {}
+    binds = {}
+    where = ["1=1"]
+
+    busca = (filtros.get('busca') or '').strip()
+    if busca:
+        where.append(
+            "(UPPER(v.PLACA) LIKE :busca"
+            " OR UPPER(NVL(v.MARCAMODELO,'')) LIKE :busca"
+            " OR UPPER(NVL(v.ESPECIETIPO,'')) LIKE :busca"
+            " OR UPPER(NVL(p.NOMEPARC,'')) LIKE :busca"
+            " OR TO_CHAR(v.CODVEICULO) LIKE :busca)"
+        )
+        binds['busca'] = f"%{busca.upper()}%"
+
+    if filtros.get('apenas_ativos', True) and not filtros.get('mostrar_inativos'):
+        where.append("NVL(v.ATIVO,'S') = 'S'")
+    elif filtros.get('apenas_inativos'):
+        where.append("NVL(v.ATIVO,'S') = 'N'")
+
+    proprio = (filtros.get('proprio') or '').strip().upper()
+    if proprio in ('S', 'N'):
+        binds['proprio'] = proprio
+        where.append("v.PROPRIO = :proprio")
+
+    combustivel = (filtros.get('combustivel') or '').strip().upper()
+    if combustivel:
+        binds['combustivel'] = combustivel
+        where.append("v.COMBUSTIVEL = :combustivel")
+
+    where_sql = " AND ".join(where)
+
+    sql_count = f"""
+        SELECT COUNT(*) FROM TGFVEI v
+        LEFT JOIN TGFPAR p ON p.CODPARC = v.CODPARC
+        WHERE {where_sql}
+    """
+
+    sql = f"""
+        SELECT * FROM (
+            SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.PLACA ASC) AS rn FROM (
+                SELECT
+                    v.CODVEICULO,
+                    NVL(v.PLACA, '')       AS PLACA,
+                    NVL(v.MARCAMODELO, '') AS MARCAMODELO,
+                    NVL(v.ESPECIETIPO, '') AS ESPECIETIPO,
+                    NVL(v.PROPRIO, 'S')    AS PROPRIO,
+                    NVL(v.COMBUSTIVEL, '') AS COMBUSTIVEL,
+                    v.CODPARC,
+                    NVL(p.NOMEPARC, '')    AS NOMEPARC,
+                    v.CODCENCUS,
+                    NVL(v.ATIVO, 'S')      AS ATIVO
+                  FROM TGFVEI v
+                  LEFT JOIN TGFPAR p ON p.CODPARC = v.CODPARC
+                 WHERE {where_sql}
+            ) t
+        )
+        WHERE rn BETWEEN :ini AND :fim
+    """
+    binds_pag = dict(binds)
+    binds_pag['ini'] = int(offset) + 1
+    binds_pag['fim'] = int(offset) + int(limite)
+
+    veiculos = []
+    total = 0
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql_count, binds)
+            total = int(cur.fetchone()[0] or 0)
+            cur.execute(sql, binds_pag)
+            for r in cur.fetchall():
+                veiculos.append({
+                    'codveiculo':  int(r[0]),
+                    'placa':       r[1] or '',
+                    'marcamodelo': r[2] or '',
+                    'especietipo': r[3] or '',
+                    'proprio':     r[4] or 'S',
+                    'combustivel': r[5] or '',
+                    'codparc':     int(r[6]) if r[6] is not None else None,
+                    'nomeparc':    r[7] or '',
+                    'codcencus':   int(r[8]) if r[8] is not None else None,
+                    'ativo':       (r[9] == 'S'),
+                })
+    except Exception:
+        logger.exception("Falha em listar_veiculos_cadastros")
+        return {'veiculos': [], 'total': 0, 'limite': int(limite), 'offset': int(offset)}
+
+    return {'veiculos': veiculos, 'total': total, 'limite': int(limite), 'offset': int(offset)}
+
+
+def consultar_veiculo_detalhe(codveiculo: int) -> Optional[dict]:
+    """Detalhe completo de 1 veículo (TGFVEI + JOIN TGFPAR)."""
+    try:
+        codveiculo_int = int(codveiculo)
+    except (TypeError, ValueError):
+        return None
+
+    # Schema-resilient via _existe_coluna
+    campos_opcionais = [
+        'CODFUNC', 'CODMOTORISTA', 'RENAVAM', 'CHASSI',
+        'ANO', 'ANOFAB', 'ANOMOD', 'COR', 'CAPACIDADE',
+        'TIPOLICENCIAMENTO', 'OBS', 'OBSERVACAO',
+    ]
+    numericos = {'CODFUNC', 'CODMOTORISTA', 'ANO', 'ANOFAB', 'ANOMOD', 'CAPACIDADE'}
+    selects_extra = []
+    aliases_extra = []
+    with obter_conexao_oracle() as conn_probe:
+        cur_probe = conn_probe.cursor()
+        for col in campos_opcionais:
+            if _existe_coluna(cur_probe, 'TGFVEI', col):
+                if col in numericos:
+                    selects_extra.append(f"v.{col} AS {col}")
+                else:
+                    selects_extra.append(f"NVL(v.{col}, '') AS {col}")
+                aliases_extra.append(col)
+
+    extras_sql = (", " + ", ".join(selects_extra)) if selects_extra else ""
+
+    sql_cab = f"""
+        SELECT v.CODVEICULO,
+               NVL(v.PLACA, '')        AS PLACA,
+               NVL(v.MARCAMODELO, '')  AS MARCAMODELO,
+               NVL(v.ESPECIETIPO, '')  AS ESPECIETIPO,
+               NVL(v.PROPRIO, 'S')     AS PROPRIO,
+               NVL(v.COMBUSTIVEL, '')  AS COMBUSTIVEL,
+               v.CODPARC,
+               NVL(p.NOMEPARC, '')     AS NOMEPARC,
+               v.CODCENCUS,
+               NVL(c.DESCRCENCUS, '')  AS DESCRCENCUS,
+               NVL(v.ATIVO, 'S')       AS ATIVO
+               {extras_sql}
+          FROM TGFVEI v
+          LEFT JOIN TGFPAR p ON p.CODPARC = v.CODPARC
+          LEFT JOIN TSICUS c ON c.CODCENCUS = v.CODCENCUS
+         WHERE v.CODVEICULO = :codveiculo
+    """
+
+    try:
+        with obter_conexao_oracle() as conn:
+            cur = conn.cursor()
+            cur.execute(sql_cab, codveiculo=codveiculo_int)
+            row = cur.fetchone()
+            if not row:
+                return None
+
+            cab = {
+                'codveiculo':   int(row[0]),
+                'placa':        row[1] or '',
+                'marcamodelo':  row[2] or '',
+                'especietipo':  row[3] or '',
+                'proprio':      row[4] or 'S',
+                'combustivel':  row[5] or '',
+                'codparc':      int(row[6]) if row[6] is not None else None,
+                'nomeparc':     row[7] or '',
+                'codcencus':    int(row[8]) if row[8] is not None else None,
+                'descrcencus':  row[9] or '',
+                'ativo':        (row[10] == 'S'),
+            }
+
+            for i, alias in enumerate(aliases_extra, start=11):
+                if i >= len(row):
+                    continue
+                val = row[i]
+                if alias in ('CODFUNC', 'CODMOTORISTA', 'ANO', 'ANOFAB', 'ANOMOD'):
+                    cab[alias.lower()] = int(val) if val is not None else None
+                elif alias == 'CAPACIDADE':
+                    cab[alias.lower()] = float(val) if val is not None else None
+                else:
+                    cab[alias.lower()] = val if val is not None else ''
+
+            return cab
+    except Exception:
+        logger.exception("Falha em consultar_veiculo_detalhe codveiculo=%s", codveiculo_int)
+        return None

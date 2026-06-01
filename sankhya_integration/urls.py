@@ -30,6 +30,7 @@ urlpatterns = [
     path("relatorios/api/consumo-veiculos/",      views.api_relatorio_consumo_veiculos,      name="api_relatorio_consumo_veiculos"),
     path("relatorios/api/fluxo-caixa/",           views.api_relatorio_fluxo_caixa,           name="api_relatorio_fluxo_caixa"),
     path("relatorios/api/margem-venda/",          views.api_relatorio_margem_venda,          name="api_relatorio_margem_venda"),
+    path("relatorios/api/drilldown/",             views.api_relatorio_drilldown,             name="api_relatorio_drilldown"),
     path("api/auditoria/listar/",   views.api_auditoria_listar,   name="api_auditoria_listar"),
     path("api/auditoria/filtros/",  views.api_auditoria_filtros,  name="api_auditoria_filtros"),
     
@@ -289,6 +290,25 @@ urlpatterns = [
     path('usuarios/api/<int:codusu>/reativar/',        views.api_usuarios_reativar,       name='api_usuarios_reativar'),
     path('usuarios/api/<int:codusu>/grupo/adicionar/', views.api_usuarios_adicionar_grupo, name='api_usuarios_adicionar_grupo'),
     path('usuarios/api/<int:codusu>/grupo/remover/',   views.api_usuarios_remover_grupo,   name='api_usuarios_remover_grupo'),
+
+    # ==============================================================================
+    # 📋 CADASTROS (Mai/2026) — Hub view-only TGFPAR/TGFPRO/TGFVEI
+    # Acessado via Configurações → Cadastros. Cat A pura (apenas leitura).
+    # CRUD futuro fica como Cat B ponto-a-ponto. Acesso: grupos 1 + 6.
+    # ==============================================================================
+    path('cadastros/',                                 views.view_cadastros_painel,        name='view_cadastros_painel'),
+    # Parceiros
+    path('cadastros/parceiros/',                       views.view_cadastros_parceiros,     name='view_cadastros_parceiros'),
+    path('cadastros/api/parceiros/listar/',            views.api_cadastros_parceiros_listar,  name='api_cadastros_parceiros_listar'),
+    path('cadastros/api/parceiros/<int:codparc>/',     views.api_cadastros_parceiros_detalhe, name='api_cadastros_parceiros_detalhe'),
+    # Produtos
+    path('cadastros/produtos/',                        views.view_cadastros_produtos,      name='view_cadastros_produtos'),
+    path('cadastros/api/produtos/listar/',             views.api_cadastros_produtos_listar,   name='api_cadastros_produtos_listar'),
+    path('cadastros/api/produtos/<int:codprod>/',      views.api_cadastros_produtos_detalhe,  name='api_cadastros_produtos_detalhe'),
+    # Veículos
+    path('cadastros/veiculos/',                        views.view_cadastros_veiculos,      name='view_cadastros_veiculos'),
+    path('cadastros/api/veiculos/listar/',             views.api_cadastros_veiculos_listar,   name='api_cadastros_veiculos_listar'),
+    path('cadastros/api/veiculos/<int:codveiculo>/',   views.api_cadastros_veiculos_detalhe,  name='api_cadastros_veiculos_detalhe'),
 
     # ==============================================================================
     # 📦 MÓDULO CAIXAS (Mai/2026) — Controle de vasilhame retornável

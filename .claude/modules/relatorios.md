@@ -4,6 +4,104 @@ Tela gerencial em `/sankhya/relatorios/` com 5 sub-abas (sub-relatórios) em laz
 
 ---
 
+## 📈 Polish v1.1 — Visualizações + Comparação temporal + Drilldown (Mai/2026 — 2026-05-30)
+
+Sessão de melhoria UX sem novo relatório — transformou o módulo de "lista pra conferir" em "ferramenta de decisão". **3 frentes Cat A** (zero alteração em query existente, zero escrita no banco):
+
+### Frente 1 — Barras horizontais proporcionais
+
+Cada tabela ganhou **barra de fundo** em CSS puro (sem SVG) mostrando o peso relativo da linha em relação ao máximo. Implementação:
+
+```css
+.rel-bar-cell::before {
+    background: linear-gradient(90deg,
+        rgba(94, 126, 74, 0.12) 0%,
+        rgba(94, 126, 74, 0.12) var(--bar-pct, 0%),
+        transparent var(--bar-pct, 0%));
+}
+```
+
+Variantes:
+- `.rel-bar-cell` — verde Agromil (default — bom)
+- `.rel-bar-cell--neg` — vermelho (saídas/despesas)
+- `.rel-bar-cell--warn` — âmbar (lotes críticos > 60d)
+
+JS helper `barCell(valor, max, fmt, classExtra)` calcula o `--bar-pct` e formata. Cobertura: Top Clientes, Top Produtos, Lotes Envelhecidos (saldo), Consumo Veículos (litros), Fluxo de Caixa (entrada/saída), Margem por Venda (receita).
+
+### Frente 2 — Comparação com período anterior
+
+Cada relatório com período faz **2 fetches em paralelo**: atual + período espelhado anterior. Chip `+X% / −X% / 0%` aparece nos cards de resumo.
+
+Helper `periodoEspelhadoAnterior(valor)`:
+- `7 dias` → 7 dias imediatamente anteriores (-14d até -7d)
+- `30 dias` → 30 dias anteriores (-60d até -30d)
+- `mes-atual` → mês anterior completo
+- `mes-anterior` → mês ante-anterior completo
+
+Chip via `compChipHtml(atual, anterior, {invertirCor})`:
+- Verde (`--up`) + ícone seta-cima quando bom (subida em receita; descida em despesa via `invertirCor`)
+- Vermelho (`--down`) quando ruim
+- Cinza (`--zero`) quando variação ≈ 0
+- "Loading" cinza italic quando dado anterior ainda chegando (resiliente — falha silenciosa)
+
+Aplicado em: Top Clientes (Valor total), Consumo Veículos (litros + valor, ambos com `invertirCor`), Margem por Venda (lucro + margem média).
+
+### Frente 3 — Drilldown click → modal compartilhado
+
+Toda linha de tabela é clicável (cursor pointer + hover verde Agromil). Click abre modal genérico `#relDrilldownOverlay` populado dinamicamente.
+
+**6 tipos de drilldown via endpoint único** `GET /sankhya/relatorios/api/drilldown/?tipo=X&id=Y[&date_de=&date_ate=&agrupar=]`:
+
+| Tipo | Origem (relatório) | id_principal | Dados detalhados |
+|---|---|---|---|
+| `cliente_vendas` | Top Clientes | CODPARC | Vendas do cliente no período (até 100) |
+| `produto_vendas` | Top Produtos | CODPROD | Vendas do produto no período (até 100) |
+| `lote_movs` | Lotes Envelhecidos | CODAGREGACAO (string) | Timeline completa do lote (até 200 movs) |
+| `veiculo_reqs` | Consumo Veículo | CODVEICULO | Requisições no período (até 200) |
+| `fluxo_bucket` | Fluxo de Caixa | Label do bucket (`ATRASADO`/`HOJE`/`1-7D`/etc) | TGFFIN em aberto no bucket (até 200) |
+| `margem_detalhe` | Margem por Venda | CODPARC ou CODPROD | Vendas que compuseram a margem (com receita/custo/lucro por linha) |
+
+**1 função service** `consultar_drilldown_relatorio(tipo, id_principal, date_de, date_ate, extras)` com switch interno. Tolerante a falha. Tudo SELECT puro.
+
+**1 view** `api_relatorio_drilldown` valida tipo no enum + id numérico (exceto `lote_movs` e `fluxo_bucket` que aceitam string) + delega ao service.
+
+**Link "Abrir no módulo"** no rodapé do modal aparece em tipos relevantes: `lote_movs` → `/sankhya/rastreio/?lote=X`; `veiculo_reqs` → `/sankhya/combustivel/`. Permite operador continuar a investigação no módulo nativo.
+
+### Frente 4 — Polish visual
+
+- **Ícone Atualizar** corrigido: `ph-arrow-clockwise` (singular, errado) → `ph-arrows-clockwise` (plural, padrão IAgro com 2 setas)
+- **Resumo do período no topo** de cada relatório — 3 cards com totais (receita, lucro, margem média / entradas, saídas, saldo / litros total, valor, veículos / etc). Substituiu os `<div style="...">` inline do Fluxo de Caixa por classes (`.rel-resumo-card--entrada/saida/saldo/saldo-neg`)
+- **Badge mini de TOP** no drilldown (`.rel-top-mini--35/37/11/13/...`) com cores diferenciadas por tipo de operação
+- **Responsivo melhorado**: cards de resumo viram 2 colunas em ≤900px e 1 coluna em ≤520px; modal de drilldown 95vh em mobile
+
+### Componentes principais
+
+| Arquivo | Mudança |
+|---|---|
+| [oracle_conn.py](../../sankhya_integration/services/oracle_conn.py) | +`DRILLDOWN_TIPOS_VALIDOS` tupla + função aditiva `consultar_drilldown_relatorio` (~340 linhas, 6 switches SELECT puro) |
+| [views.py](../../sankhya_integration/views.py) | +view aditiva `api_relatorio_drilldown` com validação + roteamento |
+| [urls.py](../../sankhya_integration/urls.py) | +1 path `relatorios/api/drilldown/` |
+| [relatorios.html](../../sankhya_integration/templates/sankhya_integration/relatorios.html) | +modal `#relDrilldownOverlay` no fim. Ícones `ph-arrow-clockwise` → `ph-arrows-clockwise` (5×). Cache `?v=2` |
+| [relatorios.css](../../sankhya_integration/static/sankhya_integration/relatorios.css) | +200 linhas: `.rel-resumo*`, `.rel-comp-chip*`, `.rel-bar-cell*`, `.rel-row-clickable`, `.rel-drill-*`, `.rel-top-mini--*`, responsivo mobile |
+| [relatorios.js](../../sankhya_integration/static/sankhya_integration/relatorios.js) | Refator completo (~1100 linhas). Refatorado de `async/await` arrow functions pra `Promise/var` legível (paridade outros módulos IAgro). 5 renderers ganham bars + comparação. `bindRowsDrilldown` delegado nos rows. Modal `DRILL.*` controlado por `abrirDrilldown/fecharDrilldown` |
+| [test_relatorios.py](../../sankhya_integration/tests/test_relatorios.py) | +17 tests: `ConsultarDrilldownServiceTest` (9 — tipos válidos/inválidos, SQL filtra corretamente, falha Oracle) + `ApiDrilldownEndpointTest` (8 — validações HTTP, id string em lote/bucket, repasse de extras, acesso por sessão) |
+
+### Tests
+
+73 tests no total no módulo Relatórios (56 existentes + 17 novos). Todos passando. Zero regressão na suíte de Relatórios.
+
+### Decisões consolidadas
+
+1. **1 endpoint genérico** com switch interno em vez de 6 endpoints separados — reduz superfície de manutenção, padrão consistente.
+2. **2 fetches paralelos** pra comparação temporal — endpoints existentes já aceitam `date_de/date_ate`, zero backend novo. Cache da margem amortiza naturalmente.
+3. **Drilldown sem cache** — operador clica numa linha específica, espera dado fresco. Volume baixo (1 drilldown por sessão típica).
+4. **Barra CSS pura, não SVG** — mais barato, mantém peso, acessível, gradiente nativo cobre 100% dos casos.
+5. **`lote_movs` e `fluxo_bucket` aceitam ID string** — backend valida o enum de buckets (`ATRASADO`/`HOJE`/`1-7D`/etc); lote é regex livre.
+6. **Comparação tolerante a falha** — se o fetch anterior falha, chip vira "loading cinza" mas relatório atual renderiza normal.
+7. **Link "Abrir no módulo X" só em tipos onde faz sentido** — lote → Rastreio; veículo → Combustível. Demais ficam só com drilldown inline.
+
+---
+
 ## Escopo (MVP)
 
 5 relatórios em sub-abas, todos como **leitura pura** (Cat A) com tolerância a falha do Oracle (retornam dict vazio + `logger.exception`).
